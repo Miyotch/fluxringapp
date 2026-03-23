@@ -55,12 +55,20 @@
   padding-top: 4px;
 }
 
-/* ── Title row ── */
-.titleRow {
+/* ── Header row: title+duration left, controls right ── */
+.headerRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.titleGroup {
   display: flex;
   align-items: baseline;
   gap: 8px;
-  margin-bottom: 6px;
+  min-width: 0;
 }
 
 .title {
@@ -80,12 +88,12 @@
   white-space: nowrap;
 }
 
-/* ── Controls row ── */
+/* ── Controls ── */
 .controls {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-bottom: 8px;
+  flex-shrink: 0;
 }
 
 /* ── Neumorphic play button ── */

@@ -47,41 +47,42 @@ export function TrackCard({
 
       {/* Right content */}
       <div className={styles.content}>
-        {/* Title + Duration */}
-        <div className={styles.titleRow}>
-          <span className={styles.title}>{track.title}</span>
-          <span className={styles.duration}>{formatDuration(track.duration)}</span>
-        </div>
+        {/* Header: title+duration on left, controls on right */}
+        <div className={styles.headerRow}>
+          <div className={styles.titleGroup}>
+            <span className={styles.title}>{track.title}</span>
+            <span className={styles.duration}>{formatDuration(track.duration)}</span>
+          </div>
 
-        {/* Controls */}
-        <div className={styles.controls}>
-          <button onClick={onPlay} className={styles.playButton} type="button">
-            {isPlaying ? <IoPause size={14} /> : <IoPlay size={14} style={{ marginLeft: 1 }} />}
-          </button>
-
-          {isPlaying ? (
-            <div className={styles.waveform}>
-              {Array.from({ length: 8 }).map((_, i) => (
-                <span key={i} className={styles.waveformDot} />
-              ))}
-            </div>
-          ) : (
-            <button onClick={onPreview} className={styles.previewText} type="button">
-              プレビュー
+          <div className={styles.controls}>
+            <button onClick={onPlay} className={styles.playButton} type="button">
+              {isPlaying ? <IoPause size={14} /> : <IoPlay size={14} style={{ marginLeft: 1 }} />}
             </button>
-          )}
 
-          <button onClick={onAdd} className={styles.iconButton} type="button">
-            <IoAdd size={15} />
-          </button>
-
-          <button onClick={onFavorite} className={styles.iconButton} type="button">
-            {isFavorite ? (
-              <IoHeart size={14} color="#d4a0c8" />
+            {isPlaying ? (
+              <div className={styles.waveform}>
+                {Array.from({ length: 8 }).map((_, i) => (
+                  <span key={i} className={styles.waveformDot} />
+                ))}
+              </div>
             ) : (
-              <IoHeartOutline size={14} />
+              <button onClick={onPreview} className={styles.previewText} type="button">
+                プレビュー
+              </button>
             )}
-          </button>
+
+            <button onClick={onAdd} className={styles.iconButton} type="button">
+              <IoAdd size={15} />
+            </button>
+
+            <button onClick={onFavorite} className={styles.iconButton} type="button">
+              {isFavorite ? (
+                <IoHeart size={14} color="#d4a0c8" />
+              ) : (
+                <IoHeartOutline size={14} />
+              )}
+            </button>
+          </div>
         </div>
 
         {/* Description */}
