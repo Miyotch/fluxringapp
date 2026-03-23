@@ -41,11 +41,19 @@ export async function getTracks(): Promise<Track[]> {
 
 export function onTracksSnapshot(
   callback: (tracks: Track[]) => void,
+  onError?: (error: Error) => void,
 ): () => void {
   const q = query(collection(db(), 'sound'), orderBy('order'));
-  return onSnapshot(q, (snapshot) => {
-    callback(snapshot.docs.map(docToTrack));
-  });
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      callback(snapshot.docs.map(docToTrack));
+    },
+    (error) => {
+      console.error('Firestore snapshot error:', error);
+      onError?.(error);
+    },
+  );
 }
 
 export async function getPlaylists(userId: string): Promise<Playlist[]> {

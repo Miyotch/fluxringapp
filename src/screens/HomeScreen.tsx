@@ -96,6 +96,7 @@ export function HomeScreen() {
               borderRadius: '50%',
               overflow: 'hidden',
               pointerEvents: 'none',
+              zIndex: 2,
             }}
           >
             <CenterAuroraCanvas size={auroraSize} />

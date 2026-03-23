@@ -29,7 +29,6 @@ export function FluxRingDial({
   wobbleScale: wobbleScaleProp = 1.0,
   gaussianWidth: gaussianWidthProp = 1.5,
   baseSpeedMultiplier = 1.0,
-  preventDarkening = true,
 }: FluxRingDialProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const amplitudeRef = useRef(externalAmplitude ?? 1.0);
@@ -48,11 +47,9 @@ export function FluxRingDial({
     (e: React.PointerEvent<HTMLCanvasElement>) => {
       isDraggingRef.current = true;
       const rect = (e.target as HTMLCanvasElement).getBoundingClientRect();
-      const cx = size / 2;
-      const cy = size / 2;
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
-      lastAngleRef.current = Math.atan2(y - cy, x - cx);
+      lastAngleRef.current = Math.atan2(y - size / 2, x - size / 2);
       (e.target as HTMLCanvasElement).setPointerCapture(e.pointerId);
     },
     [size],
@@ -62,11 +59,9 @@ export function FluxRingDial({
     (e: React.PointerEvent<HTMLCanvasElement>) => {
       if (!isDraggingRef.current) return;
       const rect = (e.target as HTMLCanvasElement).getBoundingClientRect();
-      const cx = size / 2;
-      const cy = size / 2;
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
-      const angle = Math.atan2(y - cy, x - cx);
+      const angle = Math.atan2(y - size / 2, x - size / 2);
       let delta = angle - lastAngleRef.current;
       if (delta > Math.PI) delta -= 2 * Math.PI;
       if (delta < -Math.PI) delta += 2 * Math.PI;
@@ -88,6 +83,11 @@ export function FluxRingDial({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
+    const dpr = window.devicePixelRatio ?? 1;
+    canvas.width = size * dpr;
+    canvas.height = size * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
     startTimeRef.current = performance.now();
 
     function draw() {
@@ -97,45 +97,66 @@ export function FluxRingDial({
       const cx = size / 2;
       const cy = size / 2;
 
-      // Proportions matching reference image
-      const orbR = size * 0.30;        // Center white circle (60% of diameter)
-      const bezelInnerR = orbR * 1.02; // Bezel starts just outside center
-      const bezelOuterR = orbR * 1.22; // Thick glass bezel
-      const maxR = size / 2 - 10;
-
       const tNorm = clamp((amp - 0.2) / 3.8, 0, 1);
       const level = Math.min(5, Math.floor(tNorm * 5) + 1);
-      const noDarken = preventDarkening;
+
+      // Proportions matching reference image
+      const orbR = size * 0.30;
+      const bezelInnerR = orbR * 1.04;
+      const bezelOuterR = orbR * 1.24;
+      const maxR = size / 2 - 10;
 
       ctx.clearRect(0, 0, size, size);
 
-      // 1. Background glow - soft lavender
-      const bgGrad1 = ctx.createRadialGradient(cx, cy, orbR * 0.8, cx, cy, maxR);
-      bgGrad1.addColorStop(0, `hsla(${hue}, 40%, 82%, 0.35)`);
-      bgGrad1.addColorStop(0.5, `hsla(${hue}, 35%, 75%, 0.18)`);
-      bgGrad1.addColorStop(1, 'transparent');
-      ctx.fillStyle = bgGrad1;
+      // === 1. Background glow ===
+      const bgGrad = ctx.createRadialGradient(cx, cy, orbR * 0.5, cx, cy, maxR * 1.1);
+      bgGrad.addColorStop(0, `hsla(${hue}, 50%, 85%, 0.45)`);
+      bgGrad.addColorStop(0.4, `hsla(${hue}, 45%, 78%, 0.25)`);
+      bgGrad.addColorStop(0.7, `hsla(${hue}, 35%, 75%, 0.12)`);
+      bgGrad.addColorStop(1, 'transparent');
+      ctx.fillStyle = bgGrad;
       ctx.beginPath();
-      ctx.arc(cx, cy, maxR, 0, Math.PI * 2);
+      ctx.arc(cx, cy, maxR * 1.1, 0, Math.PI * 2);
       ctx.fill();
 
-      // 2. Cascade ring segments (between bezel and outer edge)
-      const ringInnerR = bezelInnerR - 8;
-      const ringOuterR = bezelOuterR + 20;
-      const ringCount = noDarken
-        ? Math.floor(3 + (level - 1) * 3)
-        : Math.floor(10 + (level - 1) * 5);
+      // === 2. Howahowa (もやもや cloud effects) ===
+      const howaCount = 3 + level;
+      ctx.save();
+      ctx.globalCompositeOperation = 'screen';
+      ctx.globalAlpha = 0.7;
+      for (let i = 0; i < howaCount; i++) {
+        const angleOff = (i * Math.PI * 2) / howaCount;
+        const ox = Math.cos(t * 0.08 + angleOff) * bezelOuterR * 0.15;
+        const oy = Math.sin(t * 0.08 + angleOff) * bezelOuterR * 0.15;
+        const hx = cx + ox;
+        const hy = cy + oy;
+        const howaR = bezelOuterR * (0.6 + i * 0.08);
+        const layerHue = (hue + i * 15) % 360;
+        const layerAlpha = clamp(0.2 + tNorm * 0.1 - (i / howaCount) * 0.08, 0.05, 0.4);
+
+        const g = ctx.createRadialGradient(hx, hy, 0, hx, hy, howaR);
+        g.addColorStop(0, `hsla(${layerHue}, 55%, 78%, ${layerAlpha})`);
+        g.addColorStop(0.4, `hsla(${(layerHue + 10) % 360}, 45%, 72%, ${layerAlpha * 0.5})`);
+        g.addColorStop(0.7, `hsla(${(layerHue + 20) % 360}, 35%, 65%, ${layerAlpha * 0.15})`);
+        g.addColorStop(1, 'transparent');
+
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(hx, hy, howaR, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1.0;
+      ctx.restore();
+
+      // === 3. Cascade ring lines ===
+      const ringInnerR = bezelInnerR - 10;
+      const ringOuterR = bezelOuterR + 25;
+      const ringCount = Math.floor(6 + (level - 1) * 4);
       const segments = 40;
-      const levelFloat = tNorm * 5;
-      const levelFrac = levelFloat - Math.floor(levelFloat);
-      const fadeAlpha = levelFrac < 0.25 ? levelFrac / 0.25 : 1.0;
       const accelDamping = 1.0 / Math.sqrt(baseSpeedMultiplier);
       const baseSpeed = 0.3 * rotationSpeedScale * baseSpeedMultiplier;
       const levelBoost = level * 0.08 * rotationSpeedScale * accelDamping;
-
-      if (noDarken) {
-        ctx.globalCompositeOperation = 'screen';
-      }
 
       for (let i = 0; i < ringCount; i++) {
         const rt = i / ringCount;
@@ -155,42 +176,24 @@ export function FluxRingDial({
           let angleDelta = segMid - cascadePhase;
           while (angleDelta > Math.PI) angleDelta -= Math.PI * 2;
           while (angleDelta < -Math.PI) angleDelta += Math.PI * 2;
-          const brightness = Math.exp(
-            -(angleDelta * angleDelta) / gaussianWidthProp,
+          const brightness = Math.exp(-(angleDelta * angleDelta) / gaussianWidthProp);
+
+          // Visible alpha - not too dim at level 1
+          const alpha = clamp(
+            0.08 + (1 - rt) * 0.06 + brightness * (0.35 + amp * 0.08) + level * 0.04,
+            0,
+            0.85,
           );
 
-          const levelAlphaBoost = level * 0.08;
-          const levelVisibility = noDarken ? 0.15 + (level - 1) * 0.12 : 1.0;
-          const darkDimming =
-            noDarken && level >= 4 ? 0.3 + brightness * 0.7 : 1.0;
-          const rawAlpha =
-            (0.12 +
-              (1 - rt) * 0.1 +
-              levelAlphaBoost +
-              brightness * (0.25 + amp * 0.06)) *
-            fadeAlpha *
-            levelVisibility *
-            darkDimming;
-          const alphaLimit = noDarken ? 0.6 : 1.0;
-          const alpha = clamp(Math.min(alphaLimit, rawAlpha), 0, 1);
-
-          const segHue = (hue + rt * 25) % 360;
-          const sat = noDarken
-            ? saturation + rt * 8 + level * 2
-            : saturation + rt * 10;
-          const lightness = noDarken ? 70 + level * 2.5 : 76 + level * 2;
-          const lineScale = noDarken ? 0.4 + (level - 1) * 0.15 : 1.0;
-          const strokeW =
-            (0.8 + (1 - rt) * 1.2 + brightness * 0.5) * lineScale;
+          const segHue = (hue + rt * 30) % 360;
+          const sat = saturation + rt * 10 + level * 2;
+          const lightness = 72 + level * 2;
+          const strokeW = 0.6 + (1 - rt) * 1.0 + brightness * 0.6;
 
           ctx.beginPath();
-          const segPoints = 4;
-          for (let p = 0; p <= segPoints; p++) {
-            const angle =
-              segStart + (p / segPoints) * (segEnd - segStart);
-            const ampForWobble = noDarken
-              ? Math.min(amp, 2.0 + level * 0.3)
-              : amp;
+          for (let p = 0; p <= 4; p++) {
+            const angle = segStart + (p / 4) * (segEnd - segStart);
+            const ampForWobble = Math.min(amp, 2.0 + level * 0.3);
             const wobbleVal =
               (Math.sin(angle * 2 + t + i * 0.7) * ampForWobble * 3 +
                 Math.sin(angle * 4 + t * 1.3 + i) * ampForWobble * 1.5) *
@@ -204,10 +207,11 @@ export function FluxRingDial({
             else ctx.lineTo(rx, ry);
           }
 
-          if (brightness > 0.4) {
+          // Glow on bright segments
+          if (brightness > 0.3) {
             ctx.save();
-            ctx.strokeStyle = `hsla(${segHue}, ${clamp(sat, 0, 100)}%, 85%, ${clamp(brightness * 0.35, 0, 1)})`;
-            ctx.lineWidth = strokeW + 4;
+            ctx.strokeStyle = `hsla(${segHue}, ${clamp(sat, 0, 100)}%, 85%, ${clamp(brightness * 0.4, 0, 1)})`;
+            ctx.lineWidth = strokeW + 5;
             ctx.filter = 'blur(6px)';
             ctx.stroke();
             ctx.restore();
@@ -220,29 +224,23 @@ export function FluxRingDial({
         }
       }
 
-      ctx.globalCompositeOperation = 'source-over';
-
-      // 3. Sparkle dots
-      const baseAlpha = 0.7 * (0.6 + tNorm * 0.4);
-      const sparkRotation = -t * 0.15;
+      // === 4. Sparkle dots ===
+      const sparkAlpha = 0.7 * (0.6 + tNorm * 0.4);
+      const sparkRot = -t * 0.15;
       const sparkCount = Math.floor(4 + tNorm * 5);
-      const cosR = Math.cos(sparkRotation);
-      const sinR = Math.sin(sparkRotation);
+      const cosSpR = Math.cos(sparkRot);
+      const sinSpR = Math.sin(sparkRot);
 
       for (let i = 0; i < sparkCount; i++) {
         const angle = (i * Math.PI * 2) / sparkCount + t * 0.2;
-        const dist = bezelOuterR + 10 + 15 * Math.sin(t * 0.5 + i);
+        const dist = bezelOuterR + 12 + 18 * Math.sin(t * 0.5 + i);
         const rawX = Math.cos(angle) * dist;
         const rawY = Math.sin(angle) * dist;
-        const sx = rawX * cosR - rawY * sinR + cx;
-        const sy = rawX * sinR + rawY * cosR + cy;
-        const sAlpha = clamp(
-          baseAlpha * (0.3 + 0.7 * Math.sin(t * 2 + i)),
-          0,
-          1,
-        );
+        const sx = rawX * cosSpR - rawY * sinSpR + cx;
+        const sy = rawX * sinSpR + rawY * cosSpR + cy;
+        const sAlpha = clamp(sparkAlpha * (0.3 + 0.7 * Math.sin(t * 2 + i)), 0, 1);
         const sr = 2 + tNorm * 2.5;
-        const cl = 4 + tNorm * 5;
+        const cl = 5 + tNorm * 5;
 
         ctx.save();
         ctx.filter = 'blur(3px)';
@@ -264,78 +262,77 @@ export function FluxRingDial({
         ctx.stroke();
       }
 
-      // 4. Glass bezel ring
-      // Outer bezel glow
+      // === 5. Glass bezel ring ===
+      // Outer glow
       ctx.save();
-      ctx.filter = 'blur(8px)';
+      ctx.filter = 'blur(10px)';
       ctx.beginPath();
-      ctx.arc(cx, cy, bezelOuterR + 4, 0, Math.PI * 2);
-      ctx.strokeStyle = `hsla(${hue}, 50%, 80%, 0.3)`;
-      ctx.lineWidth = 8;
+      ctx.arc(cx, cy, bezelOuterR + 5, 0, Math.PI * 2);
+      ctx.strokeStyle = `hsla(${hue}, 55%, 82%, 0.35)`;
+      ctx.lineWidth = 10;
       ctx.stroke();
       ctx.restore();
 
-      // Glass bezel body with gradient
-      // Draw bezel as filled annular ring
+      // Bezel body - annular ring with gradient
       ctx.save();
       ctx.beginPath();
       ctx.arc(cx, cy, bezelOuterR, 0, Math.PI * 2);
       ctx.arc(cx, cy, bezelInnerR, 0, Math.PI * 2, true);
 
-      // Purple-lavender gradient
       const bezelGrad = ctx.createLinearGradient(
-        cx - bezelOuterR, cy - bezelOuterR,
-        cx + bezelOuterR, cy + bezelOuterR,
+        cx - bezelOuterR, cy - bezelOuterR * 0.5,
+        cx + bezelOuterR, cy + bezelOuterR * 0.5,
       );
-      bezelGrad.addColorStop(0, `hsla(240, 45%, 88%, 0.75)`);
-      bezelGrad.addColorStop(0.3, `hsla(${hue}, 50%, 82%, 0.65)`);
-      bezelGrad.addColorStop(0.6, `hsla(${hue + 20}, 55%, 78%, 0.7)`);
-      bezelGrad.addColorStop(1, `hsla(240, 40%, 90%, 0.6)`);
+      bezelGrad.addColorStop(0, 'hsla(235, 50%, 90%, 0.80)');
+      bezelGrad.addColorStop(0.25, `hsla(${hue - 10}, 55%, 82%, 0.70)`);
+      bezelGrad.addColorStop(0.5, `hsla(${hue}, 50%, 80%, 0.65)`);
+      bezelGrad.addColorStop(0.75, `hsla(${hue + 25}, 55%, 78%, 0.75)`);
+      bezelGrad.addColorStop(1, 'hsla(240, 45%, 88%, 0.70)');
       ctx.fillStyle = bezelGrad;
       ctx.fill();
       ctx.restore();
 
-      // Bezel highlight (inner edge)
+      // Inner highlight
       ctx.beginPath();
-      ctx.arc(cx, cy, bezelInnerR + 1, 0, Math.PI * 2);
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+      ctx.arc(cx, cy, bezelInnerR + 0.5, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.55)';
       ctx.lineWidth = 1.5;
       ctx.stroke();
 
-      // Bezel highlight (outer edge)
+      // Outer highlight
       ctx.beginPath();
-      ctx.arc(cx, cy, bezelOuterR - 1, 0, Math.PI * 2);
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
+      ctx.arc(cx, cy, bezelOuterR - 0.5, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
       ctx.lineWidth = 1;
       ctx.stroke();
 
-      // 5. Center circle (white knob)
-      // Subtle shadow
+      // === 6. Center white circle ===
+      // Shadow
       ctx.save();
-      ctx.filter = `blur(${orbR * 0.06}px)`;
-      ctx.fillStyle = 'rgba(180, 170, 200, 0.12)';
+      ctx.filter = `blur(${orbR * 0.08}px)`;
+      ctx.fillStyle = 'rgba(180, 165, 210, 0.15)';
       ctx.beginPath();
-      ctx.arc(cx, cy + orbR * 0.03, orbR, 0, Math.PI * 2);
+      ctx.arc(cx, cy + orbR * 0.04, orbR + 2, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
 
       // White-lavender fill
       const knobGrad = ctx.createRadialGradient(
-        cx - orbR * 0.15, cy - orbR * 0.15, 0,
+        cx - orbR * 0.12, cy - orbR * 0.12, 0,
         cx, cy, orbR,
       );
-      knobGrad.addColorStop(0, 'rgba(252, 250, 255, 0.98)');
-      knobGrad.addColorStop(0.5, 'rgba(248, 245, 255, 0.97)');
-      knobGrad.addColorStop(1, 'rgba(240, 236, 250, 0.95)');
+      knobGrad.addColorStop(0, 'rgba(253, 251, 255, 0.98)');
+      knobGrad.addColorStop(0.4, 'rgba(250, 248, 255, 0.97)');
+      knobGrad.addColorStop(1, 'rgba(242, 238, 252, 0.96)');
       ctx.fillStyle = knobGrad;
       ctx.beginPath();
       ctx.arc(cx, cy, orbR, 0, Math.PI * 2);
       ctx.fill();
 
-      // Subtle inner ring
+      // Edge highlight
       ctx.beginPath();
-      ctx.arc(cx, cy, orbR - 1, 0, Math.PI * 2);
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+      ctx.arc(cx, cy, orbR - 0.5, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
       ctx.lineWidth = 1;
       ctx.stroke();
 
@@ -353,7 +350,6 @@ export function FluxRingDial({
     wobbleScaleProp,
     gaussianWidthProp,
     baseSpeedMultiplier,
-    preventDarkening,
   ]);
 
   return (
