@@ -59,6 +59,7 @@ function drawWave(
 
   ctx.clearRect(0, 0, width, height);
 
+  // Inner rings - soft pastel lavender
   for (let r = 0; r < innerRings; r++) {
     const ringIndex = r / Math.max(1, innerRings);
     const baseRadius = CENTER_RADIUS + 20 + shortSide * 0.34 * ringIndex;
@@ -77,17 +78,18 @@ function drawWave(
     }
     ctx.closePath();
 
-    const opacity = 0.05 + (1 - ringIndex) * 0.16;
-    const hue = 258 + ringIndex * 14 + hash(seed) * 8;
-    ctx.fillStyle = `hsla(${hue}, 70%, 88%, ${opacity})`;
+    // Lighter, more pastel lavender matching reference
+    const opacity = 0.03 + (1 - ringIndex) * 0.10;
+    const h = 260 + ringIndex * 10 + hash(seed) * 6;
+    ctx.fillStyle = `hsla(${h}, 45%, 92%, ${opacity})`;
     ctx.fill();
   }
 
+  // Outer layers - very soft lavender
   for (let w = 0; w < outerLayers; w++) {
     const layerIndex = w / Math.max(1, outerLayers);
     const baseR = CENTER_RADIUS + 48 + shortSide * 0.3 * layerIndex;
     const seed = 100 + w * 23.7;
-    const amp = waveAmplitude * (8 + w * 3.5);
 
     ctx.beginPath();
     for (let i = 0; i <= 100; i++) {
@@ -102,6 +104,7 @@ function drawWave(
         waveAmplitude * 0.9,
         seed,
       );
+      const amp = waveAmplitude * (8 + w * 3.5);
       const radius =
         baseR + wave * 0.85 + (hash(angle * 5 + seed + phase) - 0.5) * amp * 0.5;
       const x = centerX + radius * Math.cos(t);
@@ -110,8 +113,8 @@ function drawWave(
       else ctx.lineTo(x, y);
     }
     ctx.closePath();
-    const outerOpacity = 0.02 + (1 - layerIndex) * 0.055;
-    ctx.fillStyle = `rgba(178, 158, 218, ${outerOpacity})`;
+    const outerOpacity = 0.015 + (1 - layerIndex) * 0.04;
+    ctx.fillStyle = `hsla(265, 35%, 90%, ${outerOpacity})`;
     ctx.fill();
   }
 }

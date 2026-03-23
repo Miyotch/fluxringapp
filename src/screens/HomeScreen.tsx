@@ -43,7 +43,7 @@ export function HomeScreen() {
   }, []);
 
   const dialSize = Math.min(500, window.innerHeight - 120);
-  const orbR = dialSize * 0.095;
+  const orbR = dialSize * 0.30; // Match FluxRingDial center circle size
   const auroraSize = Math.floor(orbR * 2 * 0.92);
   const level = amplitudeToLevel(amplitude);
   const knobRotation =
@@ -112,10 +112,10 @@ export function HomeScreen() {
             >
               <span
                 style={{
-                  fontSize: orbR * 0.55,
+                  fontSize: orbR * 0.38,
                   fontWeight: 200,
                   fontFamily: "'Inter', sans-serif",
-                  color: 'rgba(160, 145, 195, 0.5)',
+                  color: 'rgba(160, 145, 195, 0.55)',
                   lineHeight: 1,
                 }}
               >
@@ -123,11 +123,11 @@ export function HomeScreen() {
               </span>
               <span
                 style={{
-                  fontSize: orbR * 0.18,
+                  fontSize: orbR * 0.12,
                   fontWeight: 300,
                   fontFamily: "'Inter', sans-serif",
-                  color: 'rgba(160, 145, 195, 0.4)',
-                  marginTop: 2,
+                  color: 'rgba(160, 145, 195, 0.45)',
+                  marginTop: 4,
                 }}
               >
                 Flux Ring
@@ -139,8 +139,8 @@ export function HomeScreen() {
                 position: 'absolute',
                 left: '50%',
                 top: '50%',
-                width: orbR * 0.2,
-                height: orbR * 0.2,
+                width: orbR * 0.1,
+                height: orbR * 0.1,
                 borderRadius: '50%',
                 backgroundColor: 'rgba(210, 195, 230, 0.7)',
                 transform: `translate(-50%, -50%) rotate(${knobRotation}rad) translateY(${orbR * 0.65}px)`,
