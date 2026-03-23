@@ -3,9 +3,9 @@
   display: flex;
   flex-direction: row;
   align-items: flex-start;
-  padding: 24px 20px;
-  margin: 0 12px;
-  border-radius: 20px;
+  padding: 14px 14px;
+  margin: 0 8px;
+  border-radius: 16px;
   transition: background-color 0.25s, box-shadow 0.25s;
 }
 
@@ -14,26 +14,26 @@
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   box-shadow:
-    6px 6px 14px rgba(174, 164, 204, 0.25),
-    -4px -4px 10px rgba(255, 255, 255, 0.8);
-  border: 1px solid rgba(255, 255, 255, 0.7);
+    5px 5px 12px rgba(174, 164, 204, 0.22),
+    -3px -3px 8px rgba(255, 255, 255, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.65);
 }
 
 /* ── Artwork ── */
 .artworkContainer {
   flex-shrink: 0;
-  margin-right: 20px;
+  margin-right: 14px;
 }
 
 .artworkRing {
-  width: 148px;
-  height: 148px;
+  width: 96px;
+  height: 96px;
   border-radius: 50%;
-  padding: 5px;
+  padding: 4px;
   background: linear-gradient(135deg, #ffffff 0%, #ece6f8 100%);
   box-shadow:
-    4px 4px 10px rgba(174, 164, 204, 0.3),
-    -3px -3px 8px rgba(255, 255, 255, 0.9);
+    3px 3px 8px rgba(174, 164, 204, 0.28),
+    -2px -2px 6px rgba(255, 255, 255, 0.85);
 }
 
 .artwork {
@@ -52,29 +52,29 @@
 .content {
   flex: 1;
   min-width: 0;
-  padding-top: 8px;
+  padding-top: 4px;
 }
 
 /* ── Title row ── */
 .titleRow {
   display: flex;
   align-items: baseline;
-  gap: 12px;
-  margin-bottom: 10px;
+  gap: 8px;
+  margin-bottom: 6px;
 }
 
 .title {
-  font-size: 20px;
+  font-size: 15px;
   font-weight: 700;
   color: #3a3555;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.01em;
 }
 
 .duration {
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 500;
   color: #9a92b0;
   white-space: nowrap;
@@ -84,14 +84,14 @@
 .controls {
   display: flex;
   align-items: center;
-  gap: 14px;
-  margin-bottom: 12px;
+  gap: 10px;
+  margin-bottom: 8px;
 }
 
 /* ── Neumorphic play button ── */
 .playButton {
-  width: 44px;
-  height: 44px;
+  width: 34px;
+  height: 34px;
   border-radius: 50%;
   border: none;
   cursor: pointer;
@@ -100,8 +100,8 @@
   justify-content: center;
   background: linear-gradient(145deg, #9b8fd4 0%, #8577c4 100%);
   box-shadow:
-    3px 3px 8px rgba(120, 100, 170, 0.35),
-    -2px -2px 6px rgba(180, 170, 220, 0.4);
+    2px 2px 6px rgba(120, 100, 170, 0.32),
+    -1px -1px 4px rgba(180, 170, 220, 0.35);
   color: #fff;
   transition: transform 0.1s, box-shadow 0.15s;
 }
@@ -113,13 +113,13 @@
 .playButton:active {
   transform: scale(0.97);
   box-shadow:
-    1px 1px 4px rgba(120, 100, 170, 0.4),
-    -1px -1px 3px rgba(180, 170, 220, 0.3);
+    1px 1px 3px rgba(120, 100, 170, 0.35),
+    -1px -1px 2px rgba(180, 170, 220, 0.25);
 }
 
 /* ── Preview text ── */
 .previewText {
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 500;
   color: #9a92b0;
   cursor: pointer;
@@ -137,13 +137,13 @@
 .waveform {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   padding: 0 2px;
 }
 
 .waveformDot {
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: #7a6bb5;
   opacity: 0.7;
@@ -151,8 +151,8 @@
 
 /* ── Neumorphic icon buttons (+, ♥) ── */
 .iconButton {
-  width: 36px;
-  height: 36px;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
   border: none;
   cursor: pointer;
@@ -161,8 +161,8 @@
   justify-content: center;
   background: linear-gradient(145deg, #f5f2fb 0%, #e6e0f2 100%);
   box-shadow:
-    3px 3px 7px rgba(174, 164, 204, 0.3),
-    -2px -2px 5px rgba(255, 255, 255, 0.85);
+    2px 2px 5px rgba(174, 164, 204, 0.28),
+    -2px -2px 4px rgba(255, 255, 255, 0.8);
   color: #9a92b0;
   transition: transform 0.1s, box-shadow 0.15s;
 }
@@ -174,16 +174,16 @@
 .iconButton:active {
   transform: scale(0.95);
   box-shadow:
-    inset 2px 2px 4px rgba(174, 164, 204, 0.25),
-    inset -1px -1px 3px rgba(255, 255, 255, 0.6);
+    inset 2px 2px 4px rgba(174, 164, 204, 0.22),
+    inset -1px -1px 3px rgba(255, 255, 255, 0.5);
 }
 
 /* ── Description ── */
 .description {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 400;
   color: #9a92b0;
-  line-height: 1.65;
+  line-height: 1.6;
   margin: 0;
   display: -webkit-box;
   -webkit-line-clamp: 2;

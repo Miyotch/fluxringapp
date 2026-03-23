@@ -60,7 +60,7 @@ export function HomeScreen() {
 const containerStyle: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'row',
-  height: '100vh',
+  height: '100%',
 };
 
 const trackListStyle: React.CSSProperties = {

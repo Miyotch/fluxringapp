@@ -56,7 +56,7 @@ export function TrackCard({
         {/* Controls */}
         <div className={styles.controls}>
           <button onClick={onPlay} className={styles.playButton} type="button">
-            {isPlaying ? <IoPause size={18} /> : <IoPlay size={18} style={{ marginLeft: 2 }} />}
+            {isPlaying ? <IoPause size={14} /> : <IoPlay size={14} style={{ marginLeft: 1 }} />}
           </button>
 
           {isPlaying ? (
@@ -72,14 +72,14 @@ export function TrackCard({
           )}
 
           <button onClick={onAdd} className={styles.iconButton} type="button">
-            <IoAdd size={18} />
+            <IoAdd size={15} />
           </button>
 
           <button onClick={onFavorite} className={styles.iconButton} type="button">
             {isFavorite ? (
-              <IoHeart size={16} color="#d4a0c8" />
+              <IoHeart size={14} color="#d4a0c8" />
             ) : (
-              <IoHeartOutline size={16} />
+              <IoHeartOutline size={14} />
             )}
           </button>
         </div>
