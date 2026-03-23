@@ -18,7 +18,7 @@ function amplitudeToLevel(amplitude: number): number {
 }
 
 export function HomeScreen() {
-  const { tracks } = useTracks();
+  const { tracks, loading, error } = useTracks();
   const { currentTrack, playTrack, togglePlayPause } = useAudioPlayer();
   const [favorites, setFavorites] = useState<string[]>([]);
   const [amplitude, setAmplitude] = useState(1.0);
@@ -53,6 +53,16 @@ export function HomeScreen() {
     <GradientBackground>
       <div style={containerStyle}>
         <div style={trackListStyle}>
+          {loading && (
+            <div style={{ padding: 24, color: 'rgba(160, 145, 195, 0.6)', textAlign: 'center' }}>
+              読み込み中...
+            </div>
+          )}
+          {error && (
+            <div style={{ padding: 24, color: 'rgba(220, 120, 120, 0.8)', textAlign: 'center' }}>
+              {error}
+            </div>
+          )}
           <TrackList
             tracks={tracks}
             currentTrackId={currentTrack?.id ?? null}

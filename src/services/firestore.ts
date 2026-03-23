@@ -18,27 +18,33 @@ function db() {
   return getFirestore();
 }
 
-export async function getTracks(): Promise<Track[]> {
-  const q = query(collection(db(), 'tracks'), orderBy('order'));
-  const snapshot = await getDocs(q);
-  return snapshot.docs.map((d) => ({
+function docToTrack(d: import('firebase/firestore').QueryDocumentSnapshot): Track {
+  const data = d.data();
+  return {
     id: d.id,
-    ...d.data(),
-    createdAt: d.data().createdAt?.toDate?.() ?? new Date(),
-  })) as Track[];
+    title: data.title ?? '',
+    artist: data.artist ?? 'Flux Ring',
+    duration: data.duration ?? 0,
+    artworkUrl: data.artworkUrl ?? data.artwork_url ?? '',
+    audioUrl: data.audioUrl ?? data.audio_url ?? '',
+    description: data.description ?? '',
+    createdAt: data.createdAt?.toDate?.() ?? new Date(),
+    order: data.order ?? 0,
+  };
+}
+
+export async function getTracks(): Promise<Track[]> {
+  const q = query(collection(db(), 'sound'), orderBy('order'));
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map(docToTrack);
 }
 
 export function onTracksSnapshot(
   callback: (tracks: Track[]) => void,
 ): () => void {
-  const q = query(collection(db(), 'tracks'), orderBy('order'));
+  const q = query(collection(db(), 'sound'), orderBy('order'));
   return onSnapshot(q, (snapshot) => {
-    const tracks = snapshot.docs.map((d) => ({
-      id: d.id,
-      ...d.data(),
-      createdAt: d.data().createdAt?.toDate?.() ?? new Date(),
-    })) as Track[];
-    callback(tracks);
+    callback(snapshot.docs.map(docToTrack));
   });
 }
 
