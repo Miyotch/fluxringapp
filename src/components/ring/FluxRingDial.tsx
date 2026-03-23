@@ -4,10 +4,6 @@ function clamp(v: number, min: number, max: number) {
   return Math.min(Math.max(v, min), max);
 }
 
-function amplitudeToLevel(amplitude: number): number {
-  const t = clamp((amplitude - 0.2) / 3.8, 0, 1);
-  return Math.min(5, Math.floor(t * 5) + 1);
-}
 
 interface FluxRingDialProps {
   size: number;
@@ -393,24 +389,6 @@ export function FluxRingDial({
       ctx.beginPath();
       ctx.arc(cx, cy, orbR, 0, Math.PI * 2);
       ctx.fill();
-
-      // Dot indicator
-      const dotRotation =
-        ((amp - 0.2) / 3.8) * Math.PI * 1.67 - Math.PI * 0.83;
-      const dotX = cx + Math.sin(dotRotation) * orbR * 0.65;
-      const dotY = cy + Math.cos(dotRotation) * orbR * 0.65;
-      ctx.fillStyle = 'rgba(210, 195, 230, 0.7)';
-      ctx.beginPath();
-      ctx.arc(dotX, dotY, orbR * 0.1, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Level number
-      const currentLevel = amplitudeToLevel(amp);
-      ctx.fillStyle = 'rgba(120, 100, 160, 0.6)';
-      ctx.font = `bold ${orbR * 0.5}px sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(String(currentLevel), cx, cy);
 
       animFrameRef.current = requestAnimationFrame(draw);
     }
