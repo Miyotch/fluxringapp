@@ -1,0 +1,57 @@
+.layout {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.content {
+  flex: 1;
+  overflow: hidden;
+}
+
+/* ── Outer wrapper gives breathing room around the pill ── */
+.tabBarOuter {
+  padding: 8px 24px 16px;
+  background: transparent;
+}
+
+/* ── Neumorphic pill-shaped tab bar ── */
+.tabBar {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-around;
+  align-items: center;
+  height: 72px;
+  border-radius: 36px;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.85) 0%, rgba(240, 236, 248, 0.8) 100%);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow:
+    8px 8px 20px rgba(174, 164, 204, 0.3),
+    -6px -6px 16px rgba(255, 255, 255, 0.9),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+}
+
+/* ── Tab item ── */
+.tabItem {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  text-decoration: none;
+  flex: 1;
+  color: #b0a8c8;
+  transition: color 0.2s;
+}
+
+.tabItemActive {
+  color: #7a6bb5;
+}
+
+.tabLabel {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}

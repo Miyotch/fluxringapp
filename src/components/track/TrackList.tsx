@@ -1,5 +1,6 @@
 import { TrackCard } from './TrackCard';
 import type { Track } from '../../types/track';
+import styles from './TrackList.module.css';
 
 interface TrackListProps {
   tracks: Track[];
@@ -21,7 +22,7 @@ export function TrackList({
   onToggleFavorite,
 }: TrackListProps) {
   return (
-    <div style={{ flex: 1, overflowY: 'auto', padding: '16px 0' }}>
+    <div className={styles.list}>
       {tracks.map((track) => (
         <TrackCard
           key={track.id}

@@ -1,115 +1,192 @@
+/* ── Card ── */
 .card {
-  padding: 16px 24px;
-  margin-bottom: 8px;
-}
-
-.row {
   display: flex;
   flex-direction: row;
-  align-items: center;
+  align-items: flex-start;
+  padding: 24px 20px;
+  margin: 0 12px;
+  border-radius: 20px;
+  transition: background-color 0.25s, box-shadow 0.25s;
 }
 
+.cardActive {
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow:
+    6px 6px 14px rgba(174, 164, 204, 0.25),
+    -4px -4px 10px rgba(255, 255, 255, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+}
+
+/* ── Artwork ── */
 .artworkContainer {
-  margin-right: 16px;
+  flex-shrink: 0;
+  margin-right: 20px;
+}
+
+.artworkRing {
+  width: 148px;
+  height: 148px;
+  border-radius: 50%;
+  padding: 5px;
+  background: linear-gradient(135deg, #ffffff 0%, #ece6f8 100%);
+  box-shadow:
+    4px 4px 10px rgba(174, 164, 204, 0.3),
+    -3px -3px 8px rgba(255, 255, 255, 0.9);
 }
 
 .artwork {
-  width: 64px;
-  height: 64px;
-  border-radius: 32px;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
   object-fit: cover;
+  display: block;
 }
 
-.info {
+.artworkPlaceholder {
+  background: linear-gradient(135deg, #e0d8f0 0%, #c8bde5 50%, #d5cff0 100%);
+}
+
+/* ── Content (right side) ── */
+.content {
   flex: 1;
   min-width: 0;
+  padding-top: 8px;
 }
 
+/* ── Title row ── */
 .titleRow {
   display: flex;
-  flex-direction: row;
-  align-items: center;
-  margin-bottom: 4px;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 10px;
 }
 
 .title {
-  font-size: 16px;
-  font-weight: 600;
+  font-size: 20px;
+  font-weight: 700;
   color: #3a3555;
-  margin-right: 8px;
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  letter-spacing: 0.02em;
 }
 
 .duration {
-  font-size: 12px;
-  color: #7a7494;
+  font-size: 14px;
+  font-weight: 500;
+  color: #9a92b0;
+  white-space: nowrap;
 }
 
+/* ── Controls row ── */
 .controls {
   display: flex;
-  flex-direction: row;
   align-items: center;
-  gap: 8px;
+  gap: 14px;
+  margin-bottom: 12px;
 }
 
+/* ── Neumorphic play button ── */
 .playButton {
-  background: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
   border: none;
   cursor: pointer;
-  padding: 0;
-  margin-right: 4px;
   display: flex;
   align-items: center;
+  justify-content: center;
+  background: linear-gradient(145deg, #9b8fd4 0%, #8577c4 100%);
+  box-shadow:
+    3px 3px 8px rgba(120, 100, 170, 0.35),
+    -2px -2px 6px rgba(180, 170, 220, 0.4);
+  color: #fff;
+  transition: transform 0.1s, box-shadow 0.15s;
 }
 
+.playButton:hover {
+  transform: scale(1.05);
+}
+
+.playButton:active {
+  transform: scale(0.97);
+  box-shadow:
+    1px 1px 4px rgba(120, 100, 170, 0.4),
+    -1px -1px 3px rgba(180, 170, 220, 0.3);
+}
+
+/* ── Preview text ── */
+.previewText {
+  font-size: 14px;
+  font-weight: 500;
+  color: #9a92b0;
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0;
+  letter-spacing: 0.03em;
+}
+
+.previewText:hover {
+  color: #7a6bb5;
+}
+
+/* ── Waveform dots ── */
 .waveform {
   display: flex;
-  flex-direction: row;
   align-items: center;
-  gap: 2px;
-  flex: 1;
-  height: 24px;
+  gap: 5px;
+  padding: 0 2px;
 }
 
-.waveformBar {
-  width: 3px;
-  border-radius: 1.5px;
-  opacity: 0.6;
+.waveformDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #7a6bb5;
+  opacity: 0.7;
 }
 
-.previewButton {
-  padding: 4px 16px;
-  border-radius: 8px;
-  background-color: rgba(155, 143, 212, 0.1);
-  border: none;
-  font-size: 12px;
-  color: #9b8fd4;
-  cursor: pointer;
-}
-
-.previewButton:hover {
-  background-color: rgba(155, 143, 212, 0.2);
-}
-
+/* ── Neumorphic icon buttons (+, ♥) ── */
 .iconButton {
-  background: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
   border: none;
   cursor: pointer;
-  padding: 4px;
   display: flex;
   align-items: center;
+  justify-content: center;
+  background: linear-gradient(145deg, #f5f2fb 0%, #e6e0f2 100%);
+  box-shadow:
+    3px 3px 7px rgba(174, 164, 204, 0.3),
+    -2px -2px 5px rgba(255, 255, 255, 0.85);
+  color: #9a92b0;
+  transition: transform 0.1s, box-shadow 0.15s;
 }
 
+.iconButton:hover {
+  transform: scale(1.08);
+}
+
+.iconButton:active {
+  transform: scale(0.95);
+  box-shadow:
+    inset 2px 2px 4px rgba(174, 164, 204, 0.25),
+    inset -1px -1px 3px rgba(255, 255, 255, 0.6);
+}
+
+/* ── Description ── */
 .description {
-  font-size: 12px;
-  color: #7a7494;
-  margin-top: 4px;
-  line-height: 18px;
-  padding-left: 80px;
-  overflow: hidden;
+  font-size: 13px;
+  font-weight: 400;
+  color: #9a92b0;
+  line-height: 1.65;
+  margin: 0;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
+  overflow: hidden;
 }
