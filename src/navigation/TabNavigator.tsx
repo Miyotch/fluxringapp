@@ -4,10 +4,10 @@ import {
   IoHomeOutline,
   IoSearch,
   IoSearchOutline,
-  IoMusicalNotes,
-  IoMusicalNotesOutline,
-  IoNewspaper,
-  IoNewspaperOutline,
+  IoClipboard,
+  IoClipboardOutline,
+  IoDocumentText,
+  IoDocumentTextOutline,
   IoNotifications,
   IoNotificationsOutline,
   IoSettings,
@@ -18,8 +18,8 @@ import styles from './TabNavigator.module.css';
 const TAB_CONFIG = [
   { path: '/', label: 'ホーム', icon: IoHome, iconOutline: IoHomeOutline },
   { path: '/search', label: '検索', icon: IoSearch, iconOutline: IoSearchOutline },
-  { path: '/playlist', label: 'プレイリスト', icon: IoMusicalNotes, iconOutline: IoMusicalNotesOutline },
-  { path: '/articles', label: '記事を読む', icon: IoNewspaper, iconOutline: IoNewspaperOutline },
+  { path: '/playlist', label: 'プレイリスト', icon: IoClipboard, iconOutline: IoClipboardOutline },
+  { path: '/articles', label: '記事を読む', icon: IoDocumentText, iconOutline: IoDocumentTextOutline },
   { path: '/notifications', label: 'お知らせ', icon: IoNotifications, iconOutline: IoNotificationsOutline },
   { path: '/settings', label: '設定', icon: IoSettings, iconOutline: IoSettingsOutline },
 ] as const;
@@ -45,7 +45,7 @@ export function TabNavigator() {
                 const Icon = isActive ? tab.icon : tab.iconOutline;
                 return (
                   <>
-                    <Icon size={26} />
+                    <Icon size={22} />
                     <span className={styles.tabLabel}>{tab.label}</span>
                   </>
                 );

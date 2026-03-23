@@ -13,7 +13,9 @@
 /* ── Outer wrapper gives breathing room around the pill ── */
 .tabBarOuter {
   flex-shrink: 0;
-  padding: 6px 24px 14px;
+  padding: 8px 24px 18px;
+  display: flex;
+  justify-content: center;
 }
 
 /* ── Neumorphic pill-shaped tab bar ── */
@@ -22,18 +24,25 @@
   flex-direction: row;
   justify-content: space-around;
   align-items: center;
-  height: 64px;
+  height: 68px;
+  width: 100%;
   max-width: 480px;
-  margin: 0 auto;
-  border-radius: 32px;
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.85) 0%, rgba(240, 236, 248, 0.8) 100%);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  padding: 0 12px;
+  border-radius: 34px;
+  background: linear-gradient(
+    165deg,
+    rgba(255, 255, 255, 0.92) 0%,
+    rgba(245, 242, 252, 0.88) 40%,
+    rgba(238, 234, 248, 0.85) 100%
+  );
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   box-shadow:
-    6px 6px 16px rgba(174, 164, 204, 0.28),
-    -4px -4px 12px rgba(255, 255, 255, 0.85),
-    inset 0 1px 0 rgba(255, 255, 255, 0.6);
-  border: 1px solid rgba(255, 255, 255, 0.6);
+    8px 8px 24px rgba(174, 164, 204, 0.35),
+    -6px -6px 18px rgba(255, 255, 255, 0.95),
+    inset 0 1px 1px rgba(255, 255, 255, 0.8),
+    inset 0 -1px 1px rgba(200, 190, 220, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.7);
 }
 
 /* ── Tab item ── */
@@ -42,10 +51,11 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 3px;
+  gap: 4px;
   text-decoration: none;
   flex: 1;
-  color: #b0a8c8;
+  padding: 6px 0;
+  color: #b8b0d0;
   transition: color 0.2s;
 }
 
