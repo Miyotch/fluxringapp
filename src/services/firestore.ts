@@ -33,21 +33,23 @@ function docToTrack(d: import('firebase/firestore').QueryDocumentSnapshot): Trac
   };
 }
 
+function sortTracks(tracks: Track[]): Track[] {
+  return [...tracks].sort((a, b) => a.order - b.order);
+}
+
 export async function getTracks(): Promise<Track[]> {
-  const q = query(collection(db(), 'sound'), orderBy('order'));
-  const snapshot = await getDocs(q);
-  return snapshot.docs.map(docToTrack);
+  const snapshot = await getDocs(collection(db(), 'sound'));
+  return sortTracks(snapshot.docs.map(docToTrack));
 }
 
 export function onTracksSnapshot(
   callback: (tracks: Track[]) => void,
   onError?: (error: Error) => void,
 ): () => void {
-  const q = query(collection(db(), 'sound'), orderBy('order'));
   return onSnapshot(
-    q,
+    collection(db(), 'sound'),
     (snapshot) => {
-      callback(snapshot.docs.map(docToTrack));
+      callback(sortTracks(snapshot.docs.map(docToTrack)));
     },
     (error) => {
       console.error('Firestore snapshot error:', error);

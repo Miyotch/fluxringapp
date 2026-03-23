@@ -45,23 +45,27 @@ export function FluxRingDial({
 
   const handlePointerDown = useCallback(
     (e: React.PointerEvent<HTMLCanvasElement>) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
       isDraggingRef.current = true;
-      const rect = (e.target as HTMLCanvasElement).getBoundingClientRect();
+      const rect = canvas.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
-      lastAngleRef.current = Math.atan2(y - size / 2, x - size / 2);
-      (e.target as HTMLCanvasElement).setPointerCapture(e.pointerId);
+      lastAngleRef.current = Math.atan2(y - rect.height / 2, x - rect.width / 2);
+      canvas.setPointerCapture(e.pointerId);
     },
-    [size],
+    [],
   );
 
   const handlePointerMove = useCallback(
     (e: React.PointerEvent<HTMLCanvasElement>) => {
       if (!isDraggingRef.current) return;
-      const rect = (e.target as HTMLCanvasElement).getBoundingClientRect();
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
-      const angle = Math.atan2(y - size / 2, x - size / 2);
+      const angle = Math.atan2(y - rect.height / 2, x - rect.width / 2);
       let delta = angle - lastAngleRef.current;
       if (delta > Math.PI) delta -= 2 * Math.PI;
       if (delta < -Math.PI) delta += 2 * Math.PI;
@@ -70,11 +74,12 @@ export function FluxRingDial({
       amplitudeRef.current = newAmp;
       onAmplitudeChange?.(newAmp);
     },
-    [size, onAmplitudeChange],
+    [onAmplitudeChange],
   );
 
-  const handlePointerUp = useCallback(() => {
+  const handlePointerUp = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
     isDraggingRef.current = false;
+    canvasRef.current?.releasePointerCapture(e.pointerId);
   }, []);
 
   useEffect(() => {
@@ -352,16 +357,25 @@ export function FluxRingDial({
     baseSpeedMultiplier,
   ]);
 
+  const handleWheel = useCallback(
+    (e: React.WheelEvent<HTMLCanvasElement>) => {
+      e.preventDefault();
+      const newAmp = clamp(amplitudeRef.current - e.deltaY * 0.01, 0.2, 4.0);
+      amplitudeRef.current = newAmp;
+      onAmplitudeChange?.(newAmp);
+    },
+    [onAmplitudeChange],
+  );
+
   return (
     <canvas
       ref={canvasRef}
-      width={size}
-      height={size}
       style={{ width: size, height: size, cursor: 'grab', touchAction: 'none' }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerUp}
+      onWheel={handleWheel}
     />
   );
 }
