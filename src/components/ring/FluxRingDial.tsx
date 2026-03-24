@@ -4,11 +4,6 @@ function clamp(v: number, min: number, max: number) {
   return Math.min(Math.max(v, min), max);
 }
 
-function amplitudeToLevel(amplitude: number): number {
-  const t = clamp((amplitude - 0.2) / 3.8, 0, 1);
-  return Math.min(5, Math.floor(t * 5) + 1);
-}
-
 interface FluxRingDialProps {
   size: number;
   amplitude?: number;
@@ -34,7 +29,6 @@ export function FluxRingDial({
   wobbleScale: wobbleScaleProp = 1.0,
   gaussianWidth: gaussianWidthProp = 1.5,
   baseSpeedMultiplier = 1.0,
-  preventDarkening = true,
 }: FluxRingDialProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const amplitudeRef = useRef(externalAmplitude ?? 1.0);
@@ -49,51 +43,61 @@ export function FluxRingDial({
     }
   }, [externalAmplitude]);
 
-  // Pointer (drag) handlers for the dial
   const handlePointerDown = useCallback(
     (e: React.PointerEvent<HTMLCanvasElement>) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
       isDraggingRef.current = true;
-      const rect = (e.target as HTMLCanvasElement).getBoundingClientRect();
-      const cx = size / 2;
-      const cy = size / 2;
+      const rect = canvas.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
-      lastAngleRef.current = Math.atan2(y - cy, x - cx);
-      (e.target as HTMLCanvasElement).setPointerCapture(e.pointerId);
+      lastAngleRef.current = Math.atan2(y - rect.height / 2, x - rect.width / 2);
+      canvas.setPointerCapture(e.pointerId);
     },
-    [size],
+    [],
   );
 
   const handlePointerMove = useCallback(
     (e: React.PointerEvent<HTMLCanvasElement>) => {
       if (!isDraggingRef.current) return;
-      const rect = (e.target as HTMLCanvasElement).getBoundingClientRect();
-      const cx = size / 2;
-      const cy = size / 2;
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
-      const angle = Math.atan2(y - cy, x - cx);
+      const angle = Math.atan2(y - rect.height / 2, x - rect.width / 2);
       let delta = angle - lastAngleRef.current;
       if (delta > Math.PI) delta -= 2 * Math.PI;
       if (delta < -Math.PI) delta += 2 * Math.PI;
       lastAngleRef.current = angle;
-      const newAmp = clamp(amplitudeRef.current - delta * 1.5, 0.2, 4.0);
+      const newAmp = clamp(amplitudeRef.current + delta * 1.5, 0.2, 4.0);
       amplitudeRef.current = newAmp;
       onAmplitudeChange?.(newAmp);
     },
-    [size, onAmplitudeChange],
+    [onAmplitudeChange],
   );
 
-  const handlePointerUp = useCallback(() => {
+  const handlePointerUp = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
     isDraggingRef.current = false;
+    canvasRef.current?.releasePointerCapture(e.pointerId);
   }, []);
 
-  // Main render loop
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
+
+    const dpr = window.devicePixelRatio ?? 1;
+    canvas.width = size * dpr;
+    canvas.height = size * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    // Offscreen canvas for screen-blend ring compositing
+    const offCanvas = document.createElement('canvas');
+    offCanvas.width = canvas.width;
+    offCanvas.height = canvas.height;
+    const offCtx = offCanvas.getContext('2d')!;
 
     startTimeRef.current = performance.now();
 
@@ -103,55 +107,78 @@ export function FluxRingDial({
       const amp = amplitudeRef.current;
       const cx = size / 2;
       const cy = size / 2;
-      const maxR = size / 2 - 10;
-      const orbR = size * 0.095;
+
       const tNorm = clamp((amp - 0.2) / 3.8, 0, 1);
       const level = Math.min(5, Math.floor(tNorm * 5) + 1);
-      const noDarken = preventDarkening;
+
+      // Proportions matching reference image
+      const orbR = size * 0.30;
+      const bezelInnerR = orbR * 1.04;
+      const bezelOuterR = orbR * 1.24;
+      const maxR = size / 2 - 10;
 
       ctx.clearRect(0, 0, size, size);
 
-      // 1. Background glow
-      const bgGrad1 = ctx.createRadialGradient(cx, cy, 0, cx, cy, size * 0.45);
-      bgGrad1.addColorStop(0, `hsla(${hue}, 60%, 70%, 0.24)`);
-      bgGrad1.addColorStop(0.4, `hsla(${(hue + 20) % 360}, 50%, 50%, 0.12)`);
-      bgGrad1.addColorStop(1, 'transparent');
-      ctx.fillStyle = bgGrad1;
+      // === 1. Background glow ===
+      const bgGrad = ctx.createRadialGradient(cx, cy, orbR * 0.5, cx, cy, maxR * 1.1);
+      bgGrad.addColorStop(0, `hsla(${hue}, 50%, 85%, 0.45)`);
+      bgGrad.addColorStop(0.4, `hsla(${hue}, 45%, 78%, 0.25)`);
+      bgGrad.addColorStop(0.7, `hsla(${hue}, 35%, 75%, 0.12)`);
+      bgGrad.addColorStop(1, 'transparent');
+      ctx.fillStyle = bgGrad;
       ctx.beginPath();
-      ctx.arc(cx, cy, size * 0.45, 0, Math.PI * 2);
+      ctx.arc(cx, cy, maxR * 1.1, 0, Math.PI * 2);
       ctx.fill();
 
-      const bgGrad2 = ctx.createRadialGradient(cx, cy, 0, cx, cy, size * 0.27);
-      bgGrad2.addColorStop(0, `hsla(${(hue - 10 + 360) % 360}, 70%, 80%, 0.36)`);
-      bgGrad2.addColorStop(0.5, `hsla(${hue}, 50%, 60%, 0.15)`);
-      bgGrad2.addColorStop(1, 'transparent');
-      ctx.fillStyle = bgGrad2;
-      ctx.beginPath();
-      ctx.arc(cx, cy, size * 0.27, 0, Math.PI * 2);
-      ctx.fill();
+      // === 2. Howahowa (もやもや cloud effects) ===
+      const howaCount = 3 + level;
+      ctx.save();
+      ctx.globalCompositeOperation = 'screen';
+      ctx.globalAlpha = 0.7;
+      for (let i = 0; i < howaCount; i++) {
+        const angleOff = (i * Math.PI * 2) / howaCount;
+        const ox = Math.cos(t * 0.08 + angleOff) * bezelOuterR * 0.15;
+        const oy = Math.sin(t * 0.08 + angleOff) * bezelOuterR * 0.15;
+        const hx = cx + ox;
+        const hy = cy + oy;
+        const howaR = bezelOuterR * (0.6 + i * 0.08);
+        const layerHue = (hue + i * 15) % 360;
+        const layerAlpha = clamp(0.2 + tNorm * 0.1 - (i / howaCount) * 0.08, 0.05, 0.4);
 
-      // 2. Ring segments
-      const ringCount = noDarken
-        ? Math.floor(3 + (level - 1) * 3)
-        : Math.floor(10 + (level - 1) * 5);
+        const g = ctx.createRadialGradient(hx, hy, 0, hx, hy, howaR);
+        g.addColorStop(0, `hsla(${layerHue}, 55%, 78%, ${layerAlpha})`);
+        g.addColorStop(0.4, `hsla(${(layerHue + 10) % 360}, 45%, 72%, ${layerAlpha * 0.5})`);
+        g.addColorStop(0.7, `hsla(${(layerHue + 20) % 360}, 35%, 65%, ${layerAlpha * 0.15})`);
+        g.addColorStop(1, 'transparent');
+
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(hx, hy, howaR, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1.0;
+      ctx.restore();
+
+      // === 3. Cascade ring lines (offscreen + screen blend for veil effect) ===
+      const ringInnerR = bezelOuterR * 0.75;
+      const ringOuterR = maxR * 0.92;
+      const ringCount = 3 + (level - 1) * 3; // Lv1:3, Lv3:9, Lv5:15
       const segments = 40;
-      const levelFloat = tNorm * 5;
-      const levelFrac = levelFloat - Math.floor(levelFloat);
-      const fadeAlpha = levelFrac < 0.25 ? levelFrac / 0.25 : 1.0;
       const accelDamping = 1.0 / Math.sqrt(baseSpeedMultiplier);
       const baseSpeed = 0.3 * rotationSpeedScale * baseSpeedMultiplier;
       const levelBoost = level * 0.08 * rotationSpeedScale * accelDamping;
-      const step = ringCount > 12 ? 2 : 1;
-      const segStep = segments > 30 ? 2 : 1;
+      const levelVisibility = 0.15 + (level - 1) * 0.12;
+      const lineScale = 0.4 + (level - 1) * 0.15;
 
-      // Use screen composite for ring segments when preventDarkening
-      if (noDarken) {
-        ctx.globalCompositeOperation = 'screen';
-      }
+      // Draw rings to offscreen canvas for screen-blend compositing
+      offCtx.setTransform(1, 0, 0, 1, 0, 0);
+      offCtx.clearRect(0, 0, offCanvas.width, offCanvas.height);
+      offCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-      for (let i = 0; i < ringCount; i += step) {
+      for (let i = 0; i < ringCount; i++) {
         const rt = i / ringCount;
-        const baseR = orbR + 12 + rt * (maxR - orbR - 24);
+        const baseR = ringInnerR + rt * (ringOuterR - ringInnerR);
         const rotation = t * (baseSpeed + levelBoost);
         const cascadePhase =
           t * (0.6 * baseSpeedMultiplier + level * 0.1 * accelDamping) * cascadeSpeedScale +
@@ -159,51 +186,33 @@ export function FluxRingDial({
         const cosRot = Math.cos(rotation + i * 0.03);
         const sinRot = Math.sin(rotation + i * 0.03);
 
-        for (let s = 0; s < segments; s += segStep) {
+        for (let s = 0; s < segments; s++) {
           const segStart = (s / segments) * Math.PI * 2;
-          const segEnd = ((s + segStep) / segments) * Math.PI * 2;
+          const segEnd = ((s + 1) / segments) * Math.PI * 2;
           const segMid = (segStart + segEnd) / 2;
 
           let angleDelta = segMid - cascadePhase;
           while (angleDelta > Math.PI) angleDelta -= Math.PI * 2;
           while (angleDelta < -Math.PI) angleDelta += Math.PI * 2;
-          const brightness = Math.exp(
-            -(angleDelta * angleDelta) / gaussianWidthProp,
-          );
+          const brightness = Math.exp(-(angleDelta * angleDelta) / gaussianWidthProp);
 
-          const levelAlphaBoost = level * 0.08;
-          const levelVisibility = noDarken ? 0.15 + (level - 1) * 0.12 : 1.0;
-          const darkDimming =
-            noDarken && level >= 4 ? 0.3 + brightness * 0.7 : 1.0;
+          // Alpha matching design spec with levelVisibility
+          const darkDimming = level >= 4 ? 0.3 + brightness * 0.7 : 1.0;
           const rawAlpha =
-            (0.12 +
-              (1 - rt) * 0.1 +
-              levelAlphaBoost +
+            (0.12 + (1 - rt) * 0.1 + level * 0.08 +
               brightness * (0.25 + amp * 0.06)) *
-            fadeAlpha *
-            levelVisibility *
-            darkDimming;
-          const alphaLimit = noDarken ? 0.6 : 1.0;
-          const alpha = clamp(Math.min(alphaLimit, rawAlpha), 0, 1);
+            levelVisibility * darkDimming;
+          const alpha = clamp(rawAlpha, 0, 0.6);
 
           const segHue = (hue + rt * 25) % 360;
-          const sat = noDarken
-            ? saturation + rt * 8 + level * 2
-            : saturation + rt * 10;
-          const lightness = noDarken ? 70 + level * 2.5 : 76 + level * 2;
-          const lineScale = noDarken ? 0.4 + (level - 1) * 0.15 : 1.0;
-          const strokeW =
-            (0.8 + (1 - rt) * 1.2 + brightness * 0.5) * lineScale;
+          const sat = saturation + rt * 8 + level * 2;
+          const lightness = 70 + level * 2.5;
+          const strokeW = (0.8 + (1 - rt) * 1.2 + brightness * 0.5) * lineScale;
 
-          // Build segment path
-          ctx.beginPath();
-          const segPoints = 4;
-          for (let p = 0; p <= segPoints; p++) {
-            const angle =
-              segStart + (p / segPoints) * (segEnd - segStart);
-            const ampForWobble = noDarken
-              ? Math.min(amp, 2.0 + level * 0.3)
-              : amp;
+          offCtx.beginPath();
+          for (let p = 0; p <= 4; p++) {
+            const angle = segStart + (p / 4) * (segEnd - segStart);
+            const ampForWobble = Math.min(amp, 2.0 + level * 0.3);
             const wobbleVal =
               (Math.sin(angle * 2 + t + i * 0.7) * ampForWobble * 3 +
                 Math.sin(angle * 4 + t * 1.3 + i) * ampForWobble * 1.5) *
@@ -213,126 +222,62 @@ export function FluxRingDial({
             const ly = r * Math.sin(angle);
             const rx = lx * cosRot - ly * sinRot + cx;
             const ry = lx * sinRot + ly * cosRot + cy;
-            if (p === 0) ctx.moveTo(rx, ry);
-            else ctx.lineTo(rx, ry);
+            if (p === 0) offCtx.moveTo(rx, ry);
+            else offCtx.lineTo(rx, ry);
           }
 
-          // Glow behind bright segments
+          // Glow on bright segments
           if (brightness > 0.4) {
-            ctx.save();
-            ctx.strokeStyle = `hsla(${segHue}, ${clamp(sat, 0, 100)}%, 80%, ${clamp(brightness * 0.35, 0, 1)})`;
-            ctx.lineWidth = strokeW + 4;
-            ctx.filter = 'blur(6px)';
-            ctx.stroke();
-            ctx.restore();
+            const glowBoost = 1 + level * 0.15;
+            const glowLightness = 72 + level * 1.5;
+            offCtx.save();
+            offCtx.strokeStyle = `hsla(${segHue}, ${clamp(sat, 0, 100)}%, ${glowLightness}%, ${clamp(brightness * 0.35 * glowBoost, 0, 1)})`;
+            offCtx.lineWidth = strokeW + 4;
+            offCtx.filter = `blur(${6 + level * 2}px)`;
+            offCtx.stroke();
+            offCtx.restore();
           }
 
-          ctx.strokeStyle = `hsla(${segHue}, ${clamp(sat, 0, 100)}%, ${clamp(lightness, 0, 100)}%, ${alpha})`;
-          ctx.lineWidth = strokeW;
-          ctx.lineCap = 'round';
-          ctx.stroke();
+          offCtx.strokeStyle = `hsla(${segHue}, ${clamp(sat, 0, 100)}%, ${clamp(lightness, 0, 100)}%, ${alpha})`;
+          offCtx.lineWidth = strokeW;
+          offCtx.lineCap = 'round';
+          offCtx.stroke();
         }
       }
 
-      ctx.globalCompositeOperation = 'source-over';
-
-      // 3. Howahowa (aura clouds)
-      const howaLayerCount = 3 + level;
-      const howaRotation = t * 0.06;
-      const cosHR = Math.cos(howaRotation);
-      const sinHR = Math.sin(howaRotation);
-      const drawSize = size * 0.95;
-
+      // Composite ring layer with screen blend for luminous veil effect
+      ctx.save();
       ctx.globalCompositeOperation = 'screen';
-      ctx.globalAlpha = 0.8;
+      ctx.globalAlpha = 0.9;
+      ctx.drawImage(offCanvas, 0, 0);
+      ctx.restore();
 
-      for (let i = 0; i < howaLayerCount; i++) {
-        const layerT = i / Math.max(1, howaLayerCount - 1);
-        const angleOffset = (i * Math.PI * 2) / howaLayerCount;
-        const rawOx = Math.cos(t * 0.12 + angleOffset) * drawSize * 0.06;
-        const rawOy = Math.sin(t * 0.12 + angleOffset) * drawSize * 0.06;
-        const ox = rawOx * cosHR - rawOy * sinHR + cx;
-        const oy = rawOx * sinHR + rawOy * cosHR + cy;
-        const howaAmp = preventDarkening ? Math.min(amp, 2.5) : amp;
-        void howaAmp; // used in original for outerR calc variation
-        const outerR = drawSize * (0.2 + layerT * 0.18);
-        const layerAlpha = clamp(
-          0.3 + amp * 0.08 - layerT * 0.1,
-          0.05,
-          0.55,
-        );
-        const layerHue = (hue + i * 18) % 360;
-
-        const grad = ctx.createRadialGradient(ox, oy, 0, ox, oy, outerR);
-        grad.addColorStop(
-          0,
-          `hsla(${layerHue}, 65%, 70%, ${layerAlpha})`,
-        );
-        grad.addColorStop(
-          0.3,
-          `hsla(${(layerHue + 10) % 360}, 50%, 55%, ${layerAlpha * 0.6})`,
-        );
-        grad.addColorStop(
-          0.6,
-          `hsla(${(layerHue + 20) % 360}, 40%, 40%, ${layerAlpha * 0.2})`,
-        );
-        grad.addColorStop(1, 'transparent');
-
-        ctx.save();
-        ctx.filter = 'blur(15px)';
-        ctx.fillStyle = grad;
-        ctx.beginPath();
-        ctx.arc(ox, oy, outerR, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
-      }
-
-      ctx.globalCompositeOperation = 'source-over';
-      ctx.globalAlpha = 1.0;
-
-      // 4. Ring overlay (thin static rings)
-      for (let i = 0; i < 3; i++) {
-        const r = size * 0.85 * (0.22 + i * 0.12);
-        ctx.beginPath();
-        ctx.arc(cx, cy, r, 0, Math.PI * 2);
-        ctx.strokeStyle = `hsla(${(hue + i * 5) % 360}, 35%, 75%, ${0.08 + i * 0.02})`;
-        ctx.lineWidth = 1.2 + i * 0.3;
-        ctx.stroke();
-      }
-
-      // 5. Light animation (sparkle dots + crosses)
-      const baseAlpha = 0.7 * (0.6 + tNorm * 0.4);
-      const sparkRotation = -t * 0.15;
+      // === 4. Sparkle dots ===
+      const sparkAlpha = 0.7 * (0.6 + tNorm * 0.4);
+      const sparkRot = -t * 0.15;
       const sparkCount = Math.floor(4 + tNorm * 5);
-      const cosR = Math.cos(sparkRotation);
-      const sinR = Math.sin(sparkRotation);
-      const sparkDrawSize = size * 0.6;
+      const cosSpR = Math.cos(sparkRot);
+      const sinSpR = Math.sin(sparkRot);
 
       for (let i = 0; i < sparkCount; i++) {
         const angle = (i * Math.PI * 2) / sparkCount + t * 0.2;
-        const dist = sparkDrawSize * (0.08 + 0.18 * Math.sin(t * 0.5 + i));
+        const dist = bezelOuterR + 12 + 18 * Math.sin(t * 0.5 + i);
         const rawX = Math.cos(angle) * dist;
         const rawY = Math.sin(angle) * dist;
-        const sx = rawX * cosR - rawY * sinR + cx;
-        const sy = rawX * sinR + rawY * cosR + cy;
-        const sAlpha = clamp(
-          baseAlpha * (0.3 + 0.7 * Math.sin(t * 2 + i)),
-          0,
-          1,
-        );
-        const sr = 2.5 + tNorm * 3;
-        const cl = 5 + tNorm * 6;
+        const sx = rawX * cosSpR - rawY * sinSpR + cx;
+        const sy = rawX * sinSpR + rawY * cosSpR + cy;
+        const sAlpha = clamp(sparkAlpha * (0.3 + 0.7 * Math.sin(t * 2 + i)), 0, 1);
+        const sr = 2 + tNorm * 2.5;
+        const cl = 5 + tNorm * 5;
 
-        // Glow dot
         ctx.save();
-        ctx.filter = 'blur(4px)';
+        ctx.filter = 'blur(3px)';
         ctx.fillStyle = `hsla(${(hue + 30) % 360}, 40%, 92%, ${sAlpha})`;
         ctx.beginPath();
         ctx.arc(sx, sy, sr, 0, Math.PI * 2);
         ctx.fill();
         ctx.restore();
 
-        // Cross lines
         ctx.strokeStyle = `hsla(${(hue + 30) % 360}, 25%, 95%, ${sAlpha * 0.5})`;
         ctx.lineWidth = 0.6;
         ctx.beginPath();
@@ -345,72 +290,79 @@ export function FluxRingDial({
         ctx.stroke();
       }
 
-      // 6. Center unit
-      // Purple glow
-      const centerGrad = ctx.createRadialGradient(
-        cx, cy, 0, cx, cy, orbR * 1.3,
-      );
-      centerGrad.addColorStop(0, `hsla(${hue}, 60%, 55%, 0.7)`);
-      centerGrad.addColorStop(
-        0.45,
-        `hsla(${(hue + 15) % 360}, 50%, 40%, 0.35)`,
-      );
-      centerGrad.addColorStop(1, 'transparent');
-      ctx.fillStyle = centerGrad;
-      ctx.beginPath();
-      ctx.arc(cx, cy, orbR * 1.3, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Bezel ring
-      ctx.beginPath();
-      ctx.arc(cx, cy, orbR * 1.06, 0, Math.PI * 2);
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
-      ctx.lineWidth = orbR * 0.08;
-      ctx.stroke();
-
-      // Shadow
+      // === 5. Glass bezel ring ===
+      // Outer glow
       ctx.save();
-      ctx.filter = `blur(${orbR * 0.2}px)`;
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.16)';
+      ctx.filter = 'blur(10px)';
       ctx.beginPath();
-      ctx.arc(cx, cy + orbR * 0.08, orbR * 0.95, 0, Math.PI * 2);
+      ctx.arc(cx, cy, bezelOuterR + 5, 0, Math.PI * 2);
+      ctx.strokeStyle = `hsla(${hue}, 55%, 82%, 0.35)`;
+      ctx.lineWidth = 10;
+      ctx.stroke();
+      ctx.restore();
+
+      // Bezel body - annular ring with gradient
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(cx, cy, bezelOuterR, 0, Math.PI * 2);
+      ctx.arc(cx, cy, bezelInnerR, 0, Math.PI * 2, true);
+
+      const bezelGrad = ctx.createLinearGradient(
+        cx - bezelOuterR, cy - bezelOuterR * 0.5,
+        cx + bezelOuterR, cy + bezelOuterR * 0.5,
+      );
+      bezelGrad.addColorStop(0, 'hsla(235, 50%, 90%, 0.80)');
+      bezelGrad.addColorStop(0.25, `hsla(${hue - 10}, 55%, 82%, 0.70)`);
+      bezelGrad.addColorStop(0.5, `hsla(${hue}, 50%, 80%, 0.65)`);
+      bezelGrad.addColorStop(0.75, `hsla(${hue + 25}, 55%, 78%, 0.75)`);
+      bezelGrad.addColorStop(1, 'hsla(240, 45%, 88%, 0.70)');
+      ctx.fillStyle = bezelGrad;
       ctx.fill();
       ctx.restore();
 
-      // Knob body
+      // Inner highlight
+      ctx.beginPath();
+      ctx.arc(cx, cy, bezelInnerR + 0.5, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.55)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      // Outer highlight
+      ctx.beginPath();
+      ctx.arc(cx, cy, bezelOuterR - 0.5, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      // === 6. Center white circle ===
+      // Shadow
+      ctx.save();
+      ctx.filter = `blur(${orbR * 0.08}px)`;
+      ctx.fillStyle = 'rgba(180, 165, 210, 0.15)';
+      ctx.beginPath();
+      ctx.arc(cx, cy + orbR * 0.04, orbR + 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      // White-lavender fill
       const knobGrad = ctx.createRadialGradient(
-        cx - orbR * 0.15,
-        cy - orbR * 0.15,
-        0,
-        cx,
-        cy,
-        orbR,
+        cx - orbR * 0.12, cy - orbR * 0.12, 0,
+        cx, cy, orbR,
       );
-      knobGrad.addColorStop(0, 'rgba(235, 230, 248, 0.98)');
-      knobGrad.addColorStop(0.7, 'rgba(225, 218, 242, 0.95)');
-      knobGrad.addColorStop(1, 'rgba(210, 200, 235, 0.9)');
+      knobGrad.addColorStop(0, 'rgba(253, 251, 255, 0.98)');
+      knobGrad.addColorStop(0.4, 'rgba(250, 248, 255, 0.97)');
+      knobGrad.addColorStop(1, 'rgba(242, 238, 252, 0.96)');
       ctx.fillStyle = knobGrad;
       ctx.beginPath();
       ctx.arc(cx, cy, orbR, 0, Math.PI * 2);
       ctx.fill();
 
-      // Dot indicator
-      const dotRotation =
-        ((amp - 0.2) / 3.8) * Math.PI * 1.67 - Math.PI * 0.83;
-      const dotX = cx + Math.sin(dotRotation) * orbR * 0.65;
-      const dotY = cy + Math.cos(dotRotation) * orbR * 0.65;
-      ctx.fillStyle = 'rgba(210, 195, 230, 0.7)';
+      // Edge highlight
       ctx.beginPath();
-      ctx.arc(dotX, dotY, orbR * 0.1, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Level number
-      const currentLevel = amplitudeToLevel(amp);
-      ctx.fillStyle = 'rgba(120, 100, 160, 0.6)';
-      ctx.font = `bold ${orbR * 0.5}px sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(String(currentLevel), cx, cy);
+      ctx.arc(cx, cy, orbR - 0.5, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
 
       animFrameRef.current = requestAnimationFrame(draw);
     }
@@ -426,19 +378,27 @@ export function FluxRingDial({
     wobbleScaleProp,
     gaussianWidthProp,
     baseSpeedMultiplier,
-    preventDarkening,
   ]);
+
+  const handleWheel = useCallback(
+    (e: React.WheelEvent<HTMLCanvasElement>) => {
+      e.preventDefault();
+      const newAmp = clamp(amplitudeRef.current - e.deltaY * 0.01, 0.2, 4.0);
+      amplitudeRef.current = newAmp;
+      onAmplitudeChange?.(newAmp);
+    },
+    [onAmplitudeChange],
+  );
 
   return (
     <canvas
       ref={canvasRef}
-      width={size}
-      height={size}
       style={{ width: size, height: size, cursor: 'grab', touchAction: 'none' }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerUp}
+      onWheel={handleWheel}
     />
   );
 }

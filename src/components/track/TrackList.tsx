@@ -1,9 +1,12 @@
 import { TrackCard } from './TrackCard';
 import type { Track } from '../../types/track';
+import styles from './TrackList.module.css';
 
 interface TrackListProps {
   tracks: Track[];
   currentTrackId: string | null;
+  isPlaying: boolean;
+  analyserNode: AnalyserNode | null;
   favorites: string[];
   onPlayTrack: (track: Track) => void;
   onPreviewTrack: (track: Track) => void;
@@ -14,6 +17,8 @@ interface TrackListProps {
 export function TrackList({
   tracks,
   currentTrackId,
+  isPlaying,
+  analyserNode,
   favorites,
   onPlayTrack,
   onPreviewTrack,
@@ -21,19 +26,23 @@ export function TrackList({
   onToggleFavorite,
 }: TrackListProps) {
   return (
-    <div style={{ flex: 1, overflowY: 'auto', padding: '16px 0' }}>
-      {tracks.map((track) => (
-        <TrackCard
-          key={track.id}
-          track={track}
-          isPlaying={track.id === currentTrackId}
-          isFavorite={favorites.includes(track.id)}
-          onPlay={() => onPlayTrack(track)}
-          onPreview={() => onPreviewTrack(track)}
-          onAdd={() => onAddTrack(track)}
-          onFavorite={() => onToggleFavorite(track)}
-        />
-      ))}
+    <div className={styles.list}>
+      {tracks.map((track) => {
+        const isCurrent = track.id === currentTrackId;
+        return (
+          <TrackCard
+            key={track.id}
+            track={track}
+            isPlaying={isCurrent && isPlaying}
+            analyserNode={isCurrent && isPlaying ? analyserNode : null}
+            isFavorite={favorites.includes(track.id)}
+            onPlay={() => onPlayTrack(track)}
+            onPreview={() => onPreviewTrack(track)}
+            onAdd={() => onAddTrack(track)}
+            onFavorite={() => onToggleFavorite(track)}
+          />
+        );
+      })}
     </div>
   );
 }

@@ -1,12 +1,11 @@
+import { useRef, useEffect, useState } from 'react';
 import {
-  IoPlayCircle,
-  IoPauseCircle,
+  IoPlay,
+  IoPause,
   IoAdd,
-  IoHeart,
   IoHeartOutline,
+  IoHeart,
 } from 'react-icons/io5';
-import { colors } from '../../theme/colors';
-import { borderRadius } from '../../theme/spacing';
 import type { Track } from '../../types/track';
 import { formatDuration } from '../../types/track';
 import styles from './TrackCard.module.css';
@@ -14,6 +13,7 @@ import styles from './TrackCard.module.css';
 interface TrackCardProps {
   track: Track;
   isPlaying: boolean;
+  analyserNode: AnalyserNode | null;
   onPlay: () => void;
   onPreview: () => void;
   onAdd: () => void;
@@ -21,9 +21,55 @@ interface TrackCardProps {
   isFavorite: boolean;
 }
 
+const DOT_COUNT = 8;
+
+function WaveformDots({ analyserNode }: { analyserNode: AnalyserNode | null }) {
+  const [levels, setLevels] = useState<number[]>(() => new Array(DOT_COUNT).fill(0));
+  const rafRef = useRef(0);
+  const dataRef = useRef<Uint8Array<ArrayBuffer> | null>(null);
+
+  useEffect(() => {
+    if (!analyserNode) return;
+    const binCount = analyserNode.frequencyBinCount;
+    dataRef.current = new Uint8Array(binCount);
+
+    function tick() {
+      if (!analyserNode || !dataRef.current) return;
+      analyserNode.getByteFrequencyData(dataRef.current);
+      const data = dataRef.current;
+      const step = Math.max(1, Math.floor(data.length / DOT_COUNT));
+      const newLevels: number[] = [];
+      for (let i = 0; i < DOT_COUNT; i++) {
+        const idx = Math.min(i * step, data.length - 1);
+        newLevels.push(data[idx] / 255);
+      }
+      setLevels(newLevels);
+      rafRef.current = requestAnimationFrame(tick);
+    }
+    rafRef.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [analyserNode]);
+
+  return (
+    <div className={styles.waveform}>
+      {levels.map((level, i) => (
+        <span
+          key={i}
+          className={styles.waveformDot}
+          style={{
+            transform: `scale(${0.6 + level * 0.8})`,
+            opacity: 0.4 + level * 0.6,
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
 export function TrackCard({
   track,
   isPlaying,
+  analyserNode,
   onPlay,
   onPreview,
   onAdd,
@@ -31,85 +77,61 @@ export function TrackCard({
   isFavorite,
 }: TrackCardProps) {
   return (
-    <div
-      className={styles.card}
-      style={
-        isPlaying
-          ? {
-              backgroundColor: colors.cardActiveBackground,
-              borderRadius: borderRadius.lg,
-              border: `1px solid ${colors.cardBorder}`,
-              boxShadow: `0 2px 8px ${colors.primaryLight}`,
-            }
-          : undefined
-      }
-    >
-      <div className={styles.row}>
-        {/* Album art */}
-        <div className={styles.artworkContainer}>
+    <div className={`${styles.card} ${isPlaying ? styles.cardActive : ''}`}>
+      {/* Artwork */}
+      <div className={styles.artworkContainer}>
+        <div className={styles.artworkRing}>
           {track.artworkUrl ? (
-            <img src={track.artworkUrl} alt={track.title} className={styles.artwork} />
-          ) : (
-            <div
+            <img
+              src={track.artworkUrl}
+              alt={track.title}
               className={styles.artwork}
-              style={{ backgroundColor: colors.backgroundEnd }}
             />
+          ) : (
+            <div className={`${styles.artwork} ${styles.artworkPlaceholder}`} />
           )}
         </div>
+      </div>
 
-        {/* Track info */}
-        <div className={styles.info}>
-          <div className={styles.titleRow}>
+      {/* Right content */}
+      <div className={styles.content}>
+        {/* Header: title+duration on left, controls on right */}
+        <div className={styles.headerRow}>
+          <div className={styles.titleGroup}>
             <span className={styles.title}>{track.title}</span>
             <span className={styles.duration}>{formatDuration(track.duration)}</span>
           </div>
 
-          {/* Controls */}
           <div className={styles.controls}>
-            <button onClick={onPlay} className={styles.playButton}>
-              {isPlaying ? (
-                <IoPauseCircle size={32} color={colors.buttonPlay} />
-              ) : (
-                <IoPlayCircle size={32} color={colors.buttonPlay} />
-              )}
+            <button onClick={onPlay} className={styles.playButton} type="button">
+              {isPlaying ? <IoPause size={14} /> : <IoPlay size={14} style={{ marginLeft: 1 }} />}
             </button>
 
             {isPlaying ? (
-              <div className={styles.waveform}>
-                {Array.from({ length: 8 }).map((_, i) => (
-                  <div
-                    key={i}
-                    className={styles.waveformBar}
-                    style={{
-                      height: 8 + Math.random() * 16,
-                      backgroundColor: colors.primary,
-                    }}
-                  />
-                ))}
-              </div>
+              <WaveformDots analyserNode={analyserNode} />
             ) : (
-              <button onClick={onPreview} className={styles.previewButton}>
+              <button onClick={onPreview} className={styles.previewText} type="button">
                 プレビュー
               </button>
             )}
 
-            <button onClick={onAdd} className={styles.iconButton}>
-              <IoAdd size={20} color={colors.buttonPlus} />
+            <button onClick={onAdd} className={styles.iconButton} type="button">
+              <IoAdd size={15} />
             </button>
 
-            <button onClick={onFavorite} className={styles.iconButton}>
+            <button onClick={onFavorite} className={styles.iconButton} type="button">
               {isFavorite ? (
-                <IoHeart size={20} color={colors.buttonHeart} />
+                <IoHeart size={14} color="#d4a0c8" />
               ) : (
-                <IoHeartOutline size={20} color={colors.buttonHeart} />
+                <IoHeartOutline size={14} />
               )}
             </button>
           </div>
         </div>
-      </div>
 
-      {/* Description */}
-      <p className={styles.description}>{track.description}</p>
+        {/* Description */}
+        <p className={styles.description}>{track.description}</p>
+      </div>
     </div>
   );
 }

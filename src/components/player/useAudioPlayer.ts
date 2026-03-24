@@ -11,6 +11,9 @@ interface AudioPlayerState {
 
 export function useAudioPlayer() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const sourceRef = useRef<MediaElementAudioSourceNode | null>(null);
   const [state, setState] = useState<AudioPlayerState>({
     isPlaying: false,
     currentTrack: null,
@@ -25,11 +28,28 @@ export function useAudioPlayer() {
         audioRef.current.pause();
         audioRef.current.src = '';
       }
+      sourceRef.current = null;
 
       setState((prev) => ({ ...prev, currentTrack: track, isLoading: true }));
 
       const audio = new Audio(track.audioUrl);
+      audio.crossOrigin = 'anonymous';
       audioRef.current = audio;
+
+      // Set up AudioContext + AnalyserNode
+      if (!audioContextRef.current) {
+        audioContextRef.current = new AudioContext();
+        analyserRef.current = audioContextRef.current.createAnalyser();
+        analyserRef.current.fftSize = 32;
+        analyserRef.current.smoothingTimeConstant = 0.8;
+        analyserRef.current.connect(audioContextRef.current.destination);
+      }
+      if (audioContextRef.current.state === 'suspended') {
+        await audioContextRef.current.resume();
+      }
+      const source = audioContextRef.current.createMediaElementSource(audio);
+      source.connect(analyserRef.current!);
+      sourceRef.current = source;
 
       audio.addEventListener('loadedmetadata', () => {
         setState((prev) => ({
@@ -97,6 +117,7 @@ export function useAudioPlayer() {
 
   return {
     ...state,
+    analyserNode: analyserRef.current,
     playTrack,
     togglePlayPause,
     stop,
