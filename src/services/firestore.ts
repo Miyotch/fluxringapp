@@ -18,18 +18,31 @@ function db() {
   return getFirestore();
 }
 
+function parseDuration(value: unknown): number {
+  if (typeof value === 'number') return value;
+  if (typeof value === 'string') {
+    const parts = value.split(':');
+    if (parts.length === 2) {
+      return parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
+    }
+    const n = parseInt(value, 10);
+    return isNaN(n) ? 0 : n;
+  }
+  return 0;
+}
+
 function docToTrack(d: import('firebase/firestore').QueryDocumentSnapshot): Track {
   const data = d.data();
   return {
     id: d.id,
-    title: data.title ?? '',
+    title: data.sound_name ?? data.title ?? '',
     artist: data.artist ?? 'Flux Ring',
-    duration: data.duration ?? 0,
-    artworkUrl: data.artworkUrl ?? data.artwork_url ?? '',
-    audioUrl: data.audioUrl ?? data.audio_url ?? '',
-    description: data.description ?? '',
+    duration: parseDuration(data.length ?? data.duration),
+    artworkUrl: data.thumnail ?? data.artworkUrl ?? '',
+    audioUrl: data.sound ?? data.audioUrl ?? '',
+    description: data.comment ?? data.description ?? '',
     createdAt: data.createdAt?.toDate?.() ?? new Date(),
-    order: data.order ?? 0,
+    order: data.level ?? data.order ?? 0,
   };
 }
 
