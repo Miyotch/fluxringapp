@@ -5,6 +5,7 @@ import styles from './TrackList.module.css';
 interface TrackListProps {
   tracks: Track[];
   currentTrackId: string | null;
+  isPlaying: boolean;
   favorites: string[];
   onPlayTrack: (track: Track) => void;
   onPreviewTrack: (track: Track) => void;
@@ -15,6 +16,7 @@ interface TrackListProps {
 export function TrackList({
   tracks,
   currentTrackId,
+  isPlaying,
   favorites,
   onPlayTrack,
   onPreviewTrack,
@@ -27,7 +29,7 @@ export function TrackList({
         <TrackCard
           key={track.id}
           track={track}
-          isPlaying={track.id === currentTrackId}
+          isPlaying={track.id === currentTrackId && isPlaying}
           isFavorite={favorites.includes(track.id)}
           onPlay={() => onPlayTrack(track)}
           onPreview={() => onPreviewTrack(track)}

@@ -19,7 +19,7 @@ function amplitudeToLevel(amplitude: number): number {
 
 export function HomeScreen() {
   const { tracks, loading, error } = useTracks();
-  const { currentTrack, playTrack, togglePlayPause } = useAudioPlayer();
+  const { currentTrack, isPlaying, playTrack, togglePlayPause } = useAudioPlayer();
   const [favorites, setFavorites] = useState<string[]>([]);
   const [amplitude, setAmplitude] = useState(1.0);
 
@@ -66,6 +66,7 @@ export function HomeScreen() {
           <TrackList
             tracks={tracks}
             currentTrackId={currentTrack?.id ?? null}
+            isPlaying={isPlaying}
             favorites={favorites}
             onPlayTrack={handlePlayTrack}
             onPreviewTrack={handlePlayTrack}
@@ -163,7 +164,7 @@ const containerStyle: React.CSSProperties = {
 
 const trackListStyle: React.CSSProperties = {
   flex: '0 0 40%',
-  borderRight: '1px solid rgba(200, 190, 220, 0.2)',
+  borderRight: 'none',
   overflow: 'hidden',
   display: 'flex',
   flexDirection: 'column',
