@@ -93,6 +93,12 @@ export function FluxRingDial({
     canvas.height = size * dpr;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
+    // Offscreen canvas for screen-blend ring compositing
+    const offCanvas = document.createElement('canvas');
+    offCanvas.width = canvas.width;
+    offCanvas.height = canvas.height;
+    const offCtx = offCanvas.getContext('2d')!;
+
     startTimeRef.current = performance.now();
 
     function draw() {
@@ -154,14 +160,21 @@ export function FluxRingDial({
       ctx.globalAlpha = 1.0;
       ctx.restore();
 
-      // === 3. Cascade ring lines ===
-      const ringInnerR = bezelInnerR - 10;
-      const ringOuterR = bezelOuterR + 25;
-      const ringCount = Math.floor(6 + (level - 1) * 4);
+      // === 3. Cascade ring lines (offscreen + screen blend for veil effect) ===
+      const ringInnerR = bezelOuterR * 0.75;
+      const ringOuterR = maxR * 0.92;
+      const ringCount = 3 + (level - 1) * 3; // Lv1:3, Lv3:9, Lv5:15
       const segments = 40;
       const accelDamping = 1.0 / Math.sqrt(baseSpeedMultiplier);
       const baseSpeed = 0.3 * rotationSpeedScale * baseSpeedMultiplier;
       const levelBoost = level * 0.08 * rotationSpeedScale * accelDamping;
+      const levelVisibility = 0.15 + (level - 1) * 0.12;
+      const lineScale = 0.4 + (level - 1) * 0.15;
+
+      // Draw rings to offscreen canvas for screen-blend compositing
+      offCtx.setTransform(1, 0, 0, 1, 0, 0);
+      offCtx.clearRect(0, 0, offCanvas.width, offCanvas.height);
+      offCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
       for (let i = 0; i < ringCount; i++) {
         const rt = i / ringCount;
@@ -183,19 +196,20 @@ export function FluxRingDial({
           while (angleDelta < -Math.PI) angleDelta += Math.PI * 2;
           const brightness = Math.exp(-(angleDelta * angleDelta) / gaussianWidthProp);
 
-          // Visible alpha - not too dim at level 1
-          const alpha = clamp(
-            0.08 + (1 - rt) * 0.06 + brightness * (0.35 + amp * 0.08) + level * 0.04,
-            0,
-            0.85,
-          );
+          // Alpha matching design spec with levelVisibility
+          const darkDimming = level >= 4 ? 0.3 + brightness * 0.7 : 1.0;
+          const rawAlpha =
+            (0.12 + (1 - rt) * 0.1 + level * 0.08 +
+              brightness * (0.25 + amp * 0.06)) *
+            levelVisibility * darkDimming;
+          const alpha = clamp(rawAlpha, 0, 0.6);
 
-          const segHue = (hue + rt * 30) % 360;
-          const sat = saturation + rt * 10 + level * 2;
-          const lightness = 72 + level * 2;
-          const strokeW = 0.6 + (1 - rt) * 1.0 + brightness * 0.6;
+          const segHue = (hue + rt * 25) % 360;
+          const sat = saturation + rt * 8 + level * 2;
+          const lightness = 70 + level * 2.5;
+          const strokeW = (0.8 + (1 - rt) * 1.2 + brightness * 0.5) * lineScale;
 
-          ctx.beginPath();
+          offCtx.beginPath();
           for (let p = 0; p <= 4; p++) {
             const angle = segStart + (p / 4) * (segEnd - segStart);
             const ampForWobble = Math.min(amp, 2.0 + level * 0.3);
@@ -208,26 +222,35 @@ export function FluxRingDial({
             const ly = r * Math.sin(angle);
             const rx = lx * cosRot - ly * sinRot + cx;
             const ry = lx * sinRot + ly * cosRot + cy;
-            if (p === 0) ctx.moveTo(rx, ry);
-            else ctx.lineTo(rx, ry);
+            if (p === 0) offCtx.moveTo(rx, ry);
+            else offCtx.lineTo(rx, ry);
           }
 
           // Glow on bright segments
-          if (brightness > 0.3) {
-            ctx.save();
-            ctx.strokeStyle = `hsla(${segHue}, ${clamp(sat, 0, 100)}%, 85%, ${clamp(brightness * 0.4, 0, 1)})`;
-            ctx.lineWidth = strokeW + 5;
-            ctx.filter = 'blur(6px)';
-            ctx.stroke();
-            ctx.restore();
+          if (brightness > 0.4) {
+            const glowBoost = 1 + level * 0.15;
+            const glowLightness = 72 + level * 1.5;
+            offCtx.save();
+            offCtx.strokeStyle = `hsla(${segHue}, ${clamp(sat, 0, 100)}%, ${glowLightness}%, ${clamp(brightness * 0.35 * glowBoost, 0, 1)})`;
+            offCtx.lineWidth = strokeW + 4;
+            offCtx.filter = `blur(${6 + level * 2}px)`;
+            offCtx.stroke();
+            offCtx.restore();
           }
 
-          ctx.strokeStyle = `hsla(${segHue}, ${clamp(sat, 0, 100)}%, ${clamp(lightness, 0, 100)}%, ${alpha})`;
-          ctx.lineWidth = strokeW;
-          ctx.lineCap = 'round';
-          ctx.stroke();
+          offCtx.strokeStyle = `hsla(${segHue}, ${clamp(sat, 0, 100)}%, ${clamp(lightness, 0, 100)}%, ${alpha})`;
+          offCtx.lineWidth = strokeW;
+          offCtx.lineCap = 'round';
+          offCtx.stroke();
         }
       }
+
+      // Composite ring layer with screen blend for luminous veil effect
+      ctx.save();
+      ctx.globalCompositeOperation = 'screen';
+      ctx.globalAlpha = 0.9;
+      ctx.drawImage(offCanvas, 0, 0);
+      ctx.restore();
 
       // === 4. Sparkle dots ===
       const sparkAlpha = 0.7 * (0.6 + tNorm * 0.4);
