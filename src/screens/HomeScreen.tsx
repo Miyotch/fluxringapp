@@ -19,7 +19,7 @@ function amplitudeToLevel(amplitude: number): number {
 
 export function HomeScreen() {
   const { tracks, loading, error } = useTracks();
-  const { currentTrack, isPlaying, playTrack, togglePlayPause } = useAudioPlayer();
+  const { currentTrack, isPlaying, analyserNode, playTrack, togglePlayPause } = useAudioPlayer();
   const [favorites, setFavorites] = useState<string[]>([]);
   const [amplitude, setAmplitude] = useState(1.0);
 
@@ -67,6 +67,7 @@ export function HomeScreen() {
             tracks={tracks}
             currentTrackId={currentTrack?.id ?? null}
             isPlaying={isPlaying}
+            analyserNode={analyserNode}
             favorites={favorites}
             onPlayTrack={handlePlayTrack}
             onPreviewTrack={handlePlayTrack}

@@ -6,6 +6,7 @@ interface TrackListProps {
   tracks: Track[];
   currentTrackId: string | null;
   isPlaying: boolean;
+  analyserNode: AnalyserNode | null;
   favorites: string[];
   onPlayTrack: (track: Track) => void;
   onPreviewTrack: (track: Track) => void;
@@ -17,6 +18,7 @@ export function TrackList({
   tracks,
   currentTrackId,
   isPlaying,
+  analyserNode,
   favorites,
   onPlayTrack,
   onPreviewTrack,
@@ -25,18 +27,22 @@ export function TrackList({
 }: TrackListProps) {
   return (
     <div className={styles.list}>
-      {tracks.map((track) => (
-        <TrackCard
-          key={track.id}
-          track={track}
-          isPlaying={track.id === currentTrackId && isPlaying}
-          isFavorite={favorites.includes(track.id)}
-          onPlay={() => onPlayTrack(track)}
-          onPreview={() => onPreviewTrack(track)}
-          onAdd={() => onAddTrack(track)}
-          onFavorite={() => onToggleFavorite(track)}
-        />
-      ))}
+      {tracks.map((track) => {
+        const isCurrent = track.id === currentTrackId;
+        return (
+          <TrackCard
+            key={track.id}
+            track={track}
+            isPlaying={isCurrent && isPlaying}
+            analyserNode={isCurrent && isPlaying ? analyserNode : null}
+            isFavorite={favorites.includes(track.id)}
+            onPlay={() => onPlayTrack(track)}
+            onPreview={() => onPreviewTrack(track)}
+            onAdd={() => onAddTrack(track)}
+            onFavorite={() => onToggleFavorite(track)}
+          />
+        );
+      })}
     </div>
   );
 }

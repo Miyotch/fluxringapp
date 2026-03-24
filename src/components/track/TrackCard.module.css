@@ -154,7 +154,7 @@
   height: 6px;
   border-radius: 50%;
   background: #7a6bb5;
-  opacity: 0.7;
+  transition: transform 0.08s ease-out, opacity 0.08s ease-out;
 }
 
 /* ── Neumorphic icon buttons (+, ♥) ── */

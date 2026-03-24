@@ -70,7 +70,7 @@ export function FluxRingDial({
       if (delta > Math.PI) delta -= 2 * Math.PI;
       if (delta < -Math.PI) delta += 2 * Math.PI;
       lastAngleRef.current = angle;
-      const newAmp = clamp(amplitudeRef.current - delta * 1.5, 0.2, 4.0);
+      const newAmp = clamp(amplitudeRef.current + delta * 1.5, 0.2, 4.0);
       amplitudeRef.current = newAmp;
       onAmplitudeChange?.(newAmp);
     },

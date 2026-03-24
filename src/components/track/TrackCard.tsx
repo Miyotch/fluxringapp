@@ -1,3 +1,4 @@
+import { useRef, useEffect, useState } from 'react';
 import {
   IoPlay,
   IoPause,
@@ -12,6 +13,7 @@ import styles from './TrackCard.module.css';
 interface TrackCardProps {
   track: Track;
   isPlaying: boolean;
+  analyserNode: AnalyserNode | null;
   onPlay: () => void;
   onPreview: () => void;
   onAdd: () => void;
@@ -19,9 +21,55 @@ interface TrackCardProps {
   isFavorite: boolean;
 }
 
+const DOT_COUNT = 8;
+
+function WaveformDots({ analyserNode }: { analyserNode: AnalyserNode | null }) {
+  const [levels, setLevels] = useState<number[]>(() => new Array(DOT_COUNT).fill(0));
+  const rafRef = useRef(0);
+  const dataRef = useRef<Uint8Array<ArrayBuffer> | null>(null);
+
+  useEffect(() => {
+    if (!analyserNode) return;
+    const binCount = analyserNode.frequencyBinCount;
+    dataRef.current = new Uint8Array(binCount);
+
+    function tick() {
+      if (!analyserNode || !dataRef.current) return;
+      analyserNode.getByteFrequencyData(dataRef.current);
+      const data = dataRef.current;
+      const step = Math.max(1, Math.floor(data.length / DOT_COUNT));
+      const newLevels: number[] = [];
+      for (let i = 0; i < DOT_COUNT; i++) {
+        const idx = Math.min(i * step, data.length - 1);
+        newLevels.push(data[idx] / 255);
+      }
+      setLevels(newLevels);
+      rafRef.current = requestAnimationFrame(tick);
+    }
+    rafRef.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [analyserNode]);
+
+  return (
+    <div className={styles.waveform}>
+      {levels.map((level, i) => (
+        <span
+          key={i}
+          className={styles.waveformDot}
+          style={{
+            transform: `scale(${0.6 + level * 0.8})`,
+            opacity: 0.4 + level * 0.6,
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
 export function TrackCard({
   track,
   isPlaying,
+  analyserNode,
   onPlay,
   onPreview,
   onAdd,
@@ -60,11 +108,7 @@ export function TrackCard({
             </button>
 
             {isPlaying ? (
-              <div className={styles.waveform}>
-                {Array.from({ length: 8 }).map((_, i) => (
-                  <span key={i} className={styles.waveformDot} />
-                ))}
-              </div>
+              <WaveformDots analyserNode={analyserNode} />
             ) : (
               <button onClick={onPreview} className={styles.previewText} type="button">
                 プレビュー
