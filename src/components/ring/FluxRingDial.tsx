@@ -92,101 +92,69 @@ export function FluxRingDial({
     canvas.height = size * dpr;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-    // Offscreen canvas at LOGICAL size (matching reference approach)
-    // Reference uses offscreen.width = w, offscreen.height = h (logical, no dpr)
-    const offCanvas = document.createElement('canvas');
-    offCanvas.width = size;
-    offCanvas.height = size;
-    const offCtx = offCanvas.getContext('2d')!;
+    // Offscreen canvas for ring rendering (same physical size for correct DPR)
+    const ringCanvas = document.createElement('canvas');
+    ringCanvas.width = canvas.width;
+    ringCanvas.height = canvas.height;
+    const ringCtx = ringCanvas.getContext('2d')!;
 
     startTimeRef.current = performance.now();
 
     function draw() {
       if (!ctx || !canvas) return;
-      const t = (performance.now() - startTimeRef.current) / 1000;
+      const time = (performance.now() - startTimeRef.current) / 1000;
       const amp = amplitudeRef.current;
       const cx = size / 2;
       const cy = size / 2;
 
       const tNorm = clamp((amp - 0.2) / 3.8, 0, 1);
       const level = Math.min(5, Math.floor(tNorm * 5) + 1);
-      const levelFloat = tNorm * 5;
-      const levelFrac = levelFloat - Math.floor(levelFloat);
-      const fadeAlpha = levelFrac < 0.25 ? levelFrac / 0.25 : 1.0;
 
       // Geometry
       const maxR = size / 2 - 10;
-      const orbR = size * 0.15;
       const visualOrbR = size * 0.18;
       const bezelInnerR = visualOrbR * 1.04;
       const bezelOuterR = visualOrbR * 1.22;
+      // Ring-space orbR: rings start just outside the bezel
+      const ringStartR = bezelOuterR + 4;
 
       ctx.clearRect(0, 0, size, size);
 
-      // === 1. Background glow (rich purple sphere, dark enough for screen blend) ===
-      const bgAlpha = 0.25 + level * 0.08;
-      const bgGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, maxR * 0.95);
-      bgGrad.addColorStop(0, `hsla(${hue}, 65%, 55%, ${bgAlpha * 1.2})`);
-      bgGrad.addColorStop(0.25, `hsla(${hue + 10}, 60%, 52%, ${bgAlpha})`);
-      bgGrad.addColorStop(0.5, `hsla(${hue + 20}, 50%, 60%, ${bgAlpha * 0.6})`);
-      bgGrad.addColorStop(0.75, `hsla(${hue}, 40%, 70%, ${bgAlpha * 0.25})`);
+      // === 1. Background glow (soft lavender sphere) ===
+      const bgGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, maxR);
+      bgGrad.addColorStop(0, `hsla(${hue}, 45%, 82%, 0.35)`);
+      bgGrad.addColorStop(0.4, `hsla(${hue + 10}, 38%, 78%, 0.2)`);
+      bgGrad.addColorStop(0.7, `hsla(${hue}, 30%, 80%, 0.08)`);
       bgGrad.addColorStop(1, 'transparent');
       ctx.fillStyle = bgGrad;
       ctx.beginPath();
-      ctx.arc(cx, cy, maxR * 0.95, 0, Math.PI * 2);
+      ctx.arc(cx, cy, maxR, 0, Math.PI * 2);
       ctx.fill();
 
-      // === 2. Howahowa (もやもや cloud effects with pink/cyan tones) ===
-      ctx.save();
-      ctx.globalCompositeOperation = 'screen';
-      ctx.globalAlpha = 0.8;
-      ctx.translate(cx, cy);
-      ctx.rotate(t * 0.06);
-      const howaHues = [hue, hue + 40, hue - 60, hue + 80, hue - 30, hue + 20, hue + 60, hue - 45];
-      const howaLayers = 4 + level;
-      for (let i = 0; i < howaLayers; i++) {
-        const layerR = maxR * (0.35 + i * 0.07);
-        const angleOff = (i * Math.PI * 2) / howaLayers + t * 0.04;
-        const ox = Math.cos(angleOff) * layerR * 0.15;
-        const oy = Math.sin(angleOff) * layerR * 0.15;
-        const layerHue = howaHues[i % howaHues.length] % 360;
-        const layerAlpha = clamp(0.15 + tNorm * 0.1 - i * 0.012, 0.03, 0.3);
-
-        const g = ctx.createRadialGradient(ox, oy, 0, ox, oy, layerR);
-        g.addColorStop(0, `hsla(${layerHue}, 65%, 70%, ${layerAlpha})`);
-        g.addColorStop(0.4, `hsla(${(layerHue + 20) % 360}, 55%, 65%, ${layerAlpha * 0.45})`);
-        g.addColorStop(0.75, `hsla(${(layerHue + 40) % 360}, 40%, 60%, ${layerAlpha * 0.1})`);
-        g.addColorStop(1, 'transparent');
-        ctx.fillStyle = g;
-        ctx.beginPath();
-        ctx.arc(ox, oy, layerR, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      ctx.restore();
-
-      // === 3. Cascade ring lines (drawn to offscreen, composited with screen blend) ===
-      const ringCount = 3 + (level - 1) * 3;
-      const segments = 40;
+      // === 2. Cascade ring lines (offscreen → dual-pass composite for veil) ===
+      const ringCount = 4 + (level - 1) * 3;
+      const segments = 60;
       const accelDamping = 1.0 / Math.sqrt(baseSpeedMultiplier);
       const baseSpeed = 0.3 * rotationSpeedScale * baseSpeedMultiplier;
-      const levelBoost = level * 0.08 * rotationSpeedScale * accelDamping;
-      const levelVisibility = 0.15 + (level - 1) * 0.12;
-      const lineScale = 0.4 + (level - 1) * 0.15;
+      const levelBoostVal = level * 0.08 * rotationSpeedScale * accelDamping;
+      const wobbleGain = size / 160;
 
-      // Clear offscreen (logical size, no dpr)
-      offCtx.clearRect(0, 0, size, size);
+      // Draw rings to offscreen canvas (physical pixel space)
+      ringCtx.setTransform(1, 0, 0, 1, 0, 0);
+      ringCtx.clearRect(0, 0, ringCanvas.width, ringCanvas.height);
+      ringCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
       for (let i = 0; i < ringCount; i++) {
         const rt = i / ringCount;
-        const baseR = orbR + 12 + rt * (maxR - orbR - 24);
-        const rotation = t * (baseSpeed + levelBoost);
+        const baseR = ringStartR + rt * (maxR - ringStartR - 8);
+        const rotation = time * (baseSpeed + levelBoostVal);
         const cascadePhase =
-          t * (0.6 * baseSpeedMultiplier + level * 0.1 * accelDamping) * cascadeSpeedScale +
+          time * (0.6 * baseSpeedMultiplier + level * 0.1 * accelDamping) * cascadeSpeedScale +
           i * 0.4;
 
-        offCtx.save();
-        offCtx.translate(cx, cy);
-        offCtx.rotate(rotation + i * 0.03);
+        ringCtx.save();
+        ringCtx.translate(cx, cy);
+        ringCtx.rotate(rotation + i * 0.03);
 
         for (let s = 0; s < segments; s++) {
           const segStart = (s / segments) * Math.PI * 2;
@@ -198,133 +166,127 @@ export function FluxRingDial({
           while (angleDelta < -Math.PI) angleDelta += Math.PI * 2;
           const brightness = Math.exp(-(angleDelta * angleDelta) / gaussianWidthProp);
 
-          const darkDimming = level >= 4 ? 0.3 + brightness * 0.7 : 1.0;
-          const rawAlpha =
-            (0.12 + (1 - rt) * 0.1 + level * 0.08 +
-              brightness * (0.25 + amp * 0.06)) *
-            fadeAlpha * levelVisibility * darkDimming;
-          const alpha = Math.min(0.6, rawAlpha);
+          const baseAlpha = 0.22 + level * 0.06;
+          const brightAlpha = brightness * (0.35 + level * 0.08);
+          const alpha = clamp(baseAlpha + brightAlpha, 0.15, 0.88);
 
-          // Wider hue range: purple → pink → cyan across rings
-          const segHue = (hue + rt * 25) % 360;
-          const sat = saturation + rt * 8 + level * 2;
-          const lightness = 70 + level * 2.5;
-          const strokeW = (0.8 + (1 - rt) * 1.2 + brightness * 0.5) * lineScale;
+          const segHue = (310 - rt * 100 + 360) % 360;
+          const sat = clamp(55 + rt * 15 + brightness * 15 + level * 3, 45, 100);
+          const lightness = clamp(52 + brightness * 16 + level * 2, 45, 78);
+          const strokeW = (1.2 + (1 - rt) * 1.4 + brightness * 1.2) *
+            (0.65 + (level - 1) * 0.12);
 
-          offCtx.beginPath();
-          for (let p = 0; p <= 4; p++) {
-            const angle = segStart + (p / 4) * (segEnd - segStart);
+          ringCtx.beginPath();
+          for (let p = 0; p <= 5; p++) {
+            const angle = segStart + (p / 5) * (segEnd - segStart);
             const ampForWobble = Math.min(amp, 2.0 + level * 0.3);
             const wobbleVal =
-              (Math.sin(angle * 2 + t + i * 0.7) * ampForWobble * 3 +
-                Math.sin(angle * 4 + t * 1.3 + i) * ampForWobble * 1.5) *
-              wobbleScaleProp;
+              (Math.sin(angle * 2 + time + i * 0.7) * ampForWobble * 3 +
+                Math.sin(angle * 4 + time * 1.3 + i) * ampForWobble * 1.5) *
+              wobbleScaleProp * wobbleGain;
             const r = baseR + wobbleVal;
             const x = r * Math.cos(angle);
             const y = r * Math.sin(angle);
-            if (p === 0) offCtx.moveTo(x, y);
-            else offCtx.lineTo(x, y);
+            if (p === 0) ringCtx.moveTo(x, y);
+            else ringCtx.lineTo(x, y);
           }
 
-          // Shadow-based glow
-          const glowBoost = 1 + level * 0.15;
-          const glowLightness = 72 + level * 1.5;
-          if (brightness > 0.4) {
-            offCtx.shadowColor = `hsla(${segHue}, ${sat}%, ${glowLightness}%, ${brightness * 0.35 * fadeAlpha * glowBoost})`;
-            offCtx.shadowBlur = 6 + level * 2;
-          } else {
-            offCtx.shadowBlur = 0;
-          }
-
-          offCtx.strokeStyle = `hsla(${segHue}, ${clamp(sat, 0, 100)}%, ${clamp(lightness, 0, 100)}%, ${alpha})`;
-          offCtx.lineWidth = strokeW;
-          offCtx.lineCap = 'round';
-          offCtx.stroke();
+          ringCtx.strokeStyle = `hsla(${segHue}, ${sat}%, ${lightness}%, ${alpha})`;
+          ringCtx.lineWidth = strokeW;
+          ringCtx.lineCap = 'round';
+          ringCtx.stroke();
         }
-
-        offCtx.shadowBlur = 0;
-        offCtx.restore();
+        ringCtx.restore();
       }
 
-      // Composite: draw logical-size offscreen into dpr-scaled main canvas
-      // drawImage(offCanvas, 0, 0, size, size) is interpreted in logical coords by dpr transform
+      // Composite rings onto main canvas: 2-pass for veil effect
+      // Both canvases are at physical pixel size, so use identity transform
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+      // Pass 1: Deep soft glow (widest veil layer)
+      ctx.globalAlpha = 0.35;
+      ctx.filter = 'blur(24px)';
+      ctx.drawImage(ringCanvas, 0, 0);
+
+      // Pass 2: Medium glow
+      ctx.globalAlpha = 0.5;
+      ctx.filter = 'blur(10px)';
+      ctx.drawImage(ringCanvas, 0, 0);
+
+      // Pass 3: Sharp lines on top
+      ctx.globalAlpha = 0.8;
+      ctx.filter = 'none';
+      ctx.drawImage(ringCanvas, 0, 0);
+
+      ctx.restore();
+      // Restore dpr transform for subsequent drawing
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      // === 3. Howahowa (soft cloud overlays AFTER rings) ===
       ctx.save();
       ctx.globalCompositeOperation = 'screen';
-      ctx.globalAlpha = 0.9;
-      ctx.drawImage(offCanvas, 0, 0, size, size);
-      ctx.restore();
+      ctx.globalAlpha = 0.65;
+      const howaCount = 3 + Math.floor(level * 0.5);
+      for (let i = 0; i < howaCount; i++) {
+        const howaAngle = (i * Math.PI * 2) / howaCount + time * 0.04;
+        const hOffset = 12 + i * 3;
+        const hx = cx + Math.cos(howaAngle) * hOffset;
+        const hy = cy + Math.sin(howaAngle) * hOffset;
+        const howaR = maxR * (0.55 + i * 0.06);
+        const layerHue = (hue + i * 25) % 360;
+        const howaAlpha = 0.08 + tNorm * 0.04;
 
-      // === 4. Ring overlay (thin concentric rings for texture) ===
-      ctx.save();
-      ctx.translate(cx, cy);
-      ctx.rotate(t * 0.1);
-      ctx.globalAlpha = 0.12;
-      for (let r = 0; r < 5; r++) {
-        const rr = maxR * (0.45 + r * 0.09);
+        const g = ctx.createRadialGradient(hx, hy, 0, hx, hy, howaR);
+        g.addColorStop(0, `hsla(${layerHue}, 50%, 78%, ${howaAlpha})`);
+        g.addColorStop(0.5, `hsla(${layerHue}, 40%, 75%, ${howaAlpha * 0.3})`);
+        g.addColorStop(1, 'transparent');
+        ctx.fillStyle = g;
         ctx.beginPath();
-        ctx.arc(0, 0, rr, 0, Math.PI * 2);
-        ctx.strokeStyle = `hsla(${hue + r * 10}, 25%, 80%, ${0.08 - r * 0.01})`;
-        ctx.lineWidth = 0.5;
-        ctx.stroke();
+        ctx.arc(hx, hy, howaR, 0, Math.PI * 2);
+        ctx.fill();
       }
       ctx.restore();
 
-      // === 5. Light animation (sparkles) ===
+      // === 4. Sparkles ===
       ctx.save();
       ctx.translate(cx, cy);
-      ctx.rotate(-t * 0.15);
-      const lightAlpha = 0.7 * (0.6 + tNorm * 0.4);
-      const sparkCount = Math.floor(5 + tNorm * 6);
+      ctx.rotate(-time * 0.15);
+      const sparkAlpha = 0.5 * (0.6 + tNorm * 0.4);
+      const sparkCount = Math.floor(4 + tNorm * 5);
       for (let i = 0; i < sparkCount; i++) {
-        const angle = (i * Math.PI * 2) / sparkCount + t * 0.2;
-        const dist = bezelOuterR + 15 + 20 * Math.sin(t * 0.5 + i);
+        const angle = (i * Math.PI * 2) / sparkCount + time * 0.2;
+        const dist = bezelOuterR + 15 + 18 * Math.sin(time * 0.5 + i);
         const sx = Math.cos(angle) * dist;
         const sy = Math.sin(angle) * dist;
-        const sAlpha = clamp(lightAlpha * (0.3 + 0.7 * Math.sin(t * 2 + i)), 0, 1);
+        const sA = clamp(sparkAlpha * (0.3 + 0.7 * Math.sin(time * 2 + i)), 0, 1);
         const sr = 1.5 + tNorm * 2;
-        const cl = 4 + tNorm * 4;
 
         ctx.save();
-        ctx.shadowColor = `hsla(${(hue + 30) % 360}, 50%, 90%, ${sAlpha})`;
-        ctx.shadowBlur = 6;
-        ctx.fillStyle = `hsla(${(hue + 30) % 360}, 45%, 94%, ${sAlpha})`;
+        ctx.shadowColor = `hsla(${(hue + 30) % 360}, 50%, 90%, ${sA})`;
+        ctx.shadowBlur = 5;
+        ctx.fillStyle = `hsla(${(hue + 30) % 360}, 45%, 94%, ${sA})`;
         ctx.beginPath();
         ctx.arc(sx, sy, sr, 0, Math.PI * 2);
         ctx.fill();
         ctx.restore();
-
-        ctx.strokeStyle = `hsla(${(hue + 30) % 360}, 25%, 95%, ${sAlpha * 0.4})`;
-        ctx.lineWidth = 0.5;
-        ctx.beginPath();
-        ctx.moveTo(sx - cl, sy);
-        ctx.lineTo(sx + cl, sy);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(sx, sy - cl);
-        ctx.lineTo(sx, sy + cl);
-        ctx.stroke();
       }
       ctx.restore();
 
-      // === 6. Center unit ===
+      // === 5. Center unit ===
 
       // Purple accent glow
-      const accentGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, visualOrbR * 1.3);
-      accentGrad.addColorStop(0, `hsla(${hue}, 55%, 78%, 0.5)`);
-      accentGrad.addColorStop(0.5, `hsla(${hue}, 45%, 72%, 0.25)`);
+      const accentGrad = ctx.createRadialGradient(cx, cy, visualOrbR * 0.8, cx, cy, visualOrbR * 1.4);
+      accentGrad.addColorStop(0, `hsla(${hue}, 50%, 78%, 0.4)`);
+      accentGrad.addColorStop(0.6, `hsla(${hue}, 40%, 75%, 0.15)`);
       accentGrad.addColorStop(1, 'transparent');
-      ctx.save();
-      ctx.globalAlpha = 0.7;
       ctx.fillStyle = accentGrad;
       ctx.beginPath();
-      ctx.arc(cx, cy, visualOrbR * 1.3, 0, Math.PI * 2);
+      ctx.arc(cx, cy, visualOrbR * 1.4, 0, Math.PI * 2);
       ctx.fill();
-      ctx.restore();
 
-      // Bezel ring (soft-light)
+      // Bezel
       ctx.save();
-      ctx.globalCompositeOperation = 'soft-light';
-      ctx.globalAlpha = 0.9;
       ctx.beginPath();
       ctx.arc(cx, cy, bezelOuterR, 0, Math.PI * 2);
       ctx.arc(cx, cy, bezelInnerR, 0, Math.PI * 2, true);
@@ -332,11 +294,11 @@ export function FluxRingDial({
         cx - bezelOuterR, cy - bezelOuterR * 0.5,
         cx + bezelOuterR, cy + bezelOuterR * 0.5,
       );
-      bezelGrad.addColorStop(0, 'hsla(235, 50%, 92%, 0.85)');
-      bezelGrad.addColorStop(0.3, `hsla(${hue - 10}, 55%, 85%, 0.75)`);
-      bezelGrad.addColorStop(0.5, `hsla(${hue}, 50%, 82%, 0.70)`);
-      bezelGrad.addColorStop(0.7, `hsla(${hue + 25}, 55%, 80%, 0.80)`);
-      bezelGrad.addColorStop(1, 'hsla(240, 45%, 90%, 0.75)');
+      bezelGrad.addColorStop(0, 'hsla(235, 50%, 90%, 0.80)');
+      bezelGrad.addColorStop(0.25, `hsla(${hue - 10}, 55%, 82%, 0.70)`);
+      bezelGrad.addColorStop(0.5, `hsla(${hue}, 50%, 80%, 0.65)`);
+      bezelGrad.addColorStop(0.75, `hsla(${hue + 25}, 55%, 78%, 0.75)`);
+      bezelGrad.addColorStop(1, 'hsla(240, 45%, 88%, 0.70)');
       ctx.fillStyle = bezelGrad;
       ctx.fill();
       ctx.restore();
@@ -347,7 +309,6 @@ export function FluxRingDial({
       ctx.strokeStyle = 'rgba(255, 255, 255, 0.55)';
       ctx.lineWidth = 1.2;
       ctx.stroke();
-
       ctx.beginPath();
       ctx.arc(cx, cy, bezelOuterR - 0.5, 0, Math.PI * 2);
       ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
@@ -363,14 +324,14 @@ export function FluxRingDial({
       ctx.fill();
       ctx.restore();
 
-      // Knob
+      // Knob body
       const knobGrad = ctx.createRadialGradient(
         cx - visualOrbR * 0.15, cy - visualOrbR * 0.15, 0,
         cx, cy, visualOrbR,
       );
-      knobGrad.addColorStop(0, 'rgba(235, 230, 248, 0.98)');
-      knobGrad.addColorStop(0.7, 'rgba(225, 218, 242, 0.95)');
-      knobGrad.addColorStop(1, 'rgba(210, 200, 235, 0.92)');
+      knobGrad.addColorStop(0, 'rgba(240, 237, 250, 0.98)');
+      knobGrad.addColorStop(0.6, 'rgba(232, 226, 248, 0.96)');
+      knobGrad.addColorStop(1, 'rgba(218, 210, 242, 0.94)');
       ctx.fillStyle = knobGrad;
       ctx.beginPath();
       ctx.arc(cx, cy, visualOrbR, 0, Math.PI * 2);
