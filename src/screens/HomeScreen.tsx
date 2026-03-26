@@ -43,7 +43,7 @@ export function HomeScreen() {
   }, []);
 
   const dialSize = Math.min(500, window.innerHeight - 120);
-  const orbR = dialSize * 0.30; // Match FluxRingDial center circle size
+  const orbR = dialSize * 0.18; // Match FluxRingDial visualOrbR
   const auroraSize = Math.floor(orbR * 2 * 0.92);
   const level = amplitudeToLevel(amplitude);
   const knobRotation =
