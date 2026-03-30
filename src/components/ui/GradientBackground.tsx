@@ -6,8 +6,14 @@ interface GradientBackgroundProps {
 
 export function GradientBackground({ children }: GradientBackgroundProps) {
   return (
-    <div style={{ flex: 1, height: '100%' }}>
+    <div style={bgStyle}>
       {children}
     </div>
   );
 }
+
+const bgStyle: React.CSSProperties = {
+  flex: 1,
+  height: '100%',
+  background: 'linear-gradient(180deg, #E6EBF1 0%, #dde3ed 50%, #E6EBF1 100%)',
+};

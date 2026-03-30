@@ -74,7 +74,7 @@
 .title {
   font-size: 15px;
   font-weight: 700;
-  color: #3a3555;
+  color: #7B7CA6;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -84,7 +84,7 @@
 .duration {
   font-size: 12px;
   font-weight: 500;
-  color: #9a92b0;
+  color: rgba(123, 124, 166, 0.64);
   white-space: nowrap;
 }
 
@@ -106,10 +106,10 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(145deg, #9b8fd4 0%, #8577c4 100%);
+  background: linear-gradient(145deg, #a388c8 0%, #9178BD 100%);
   box-shadow:
-    2px 2px 6px rgba(120, 100, 170, 0.32),
-    -1px -1px 4px rgba(180, 170, 220, 0.35);
+    2px 2px 6px rgba(145, 120, 189, 0.32),
+    -1px -1px 4px rgba(255, 255, 255, 0.6);
   color: #fff;
   transition: transform 0.1s, box-shadow 0.15s;
 }
@@ -129,7 +129,7 @@
 .previewText {
   font-size: 12px;
   font-weight: 500;
-  color: #9a92b0;
+  color: rgba(123, 124, 166, 0.64);
   cursor: pointer;
   background: none;
   border: none;
@@ -138,7 +138,7 @@
 }
 
 .previewText:hover {
-  color: #7a6bb5;
+  color: #9178BD;
 }
 
 /* ── Waveform dots ── */
@@ -153,7 +153,7 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #7a6bb5;
+  background: #9178BD;
   transition: transform 0.08s ease-out, opacity 0.08s ease-out;
 }
 
@@ -171,7 +171,7 @@
   box-shadow:
     2px 2px 5px rgba(174, 164, 204, 0.28),
     -2px -2px 4px rgba(255, 255, 255, 0.8);
-  color: #9a92b0;
+  color: rgba(123, 124, 166, 0.64);
   transition: transform 0.1s, box-shadow 0.15s;
 }
 
@@ -190,7 +190,7 @@
 .description {
   font-size: 12px;
   font-weight: 400;
-  color: #9a92b0;
+  color: rgba(123, 124, 166, 0.64);
   line-height: 1.6;
   margin: 0;
   display: -webkit-box;
