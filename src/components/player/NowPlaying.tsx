@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
 import {
   IoChevronBack,
-  IoPlayCircle,
-  IoPauseCircle,
+  IoPlay,
+  IoPause,
   IoPlaySkipBack,
   IoPlaySkipForward,
-  IoVolumeHigh,
-  IoVolumeMute,
-  IoAdd,
+  IoRepeat,
+  IoShuffle,
+  IoSwapHorizontal,
 } from 'react-icons/io5';
 import type { Track } from '../../types/track';
 import { formatDuration } from '../../types/track';
@@ -37,11 +37,14 @@ export function NowPlaying({
 
   return (
     <div style={containerStyle}>
-      {/* Background: blurred artwork */}
+      {/* Background: full artwork image, no blur */}
       <div style={bgStyle}>
-        {track.artworkUrl && (
+        {track.artworkUrl ? (
           <img src={track.artworkUrl} alt="" style={bgImgStyle} />
+        ) : (
+          <div style={{ ...bgImgStyle, background: 'linear-gradient(135deg, #2a2a3e, #1a1a2e)' }} />
         )}
+        {/* Light gradient overlay for readability at bottom */}
         <div style={bgOverlayStyle} />
       </div>
 
@@ -50,70 +53,64 @@ export function NowPlaying({
         <button onClick={onClose} style={iconBtnStyle} type="button">
           <IoChevronBack size={24} color="#fff" />
         </button>
-        <button onClick={() => setShowOrderModal(true)} style={addBtnStyle} type="button">
-          <IoAdd size={22} color="#fff" />
+        <button onClick={() => setShowOrderModal(true)} style={swapBtnStyle} type="button">
+          <IoSwapHorizontal size={20} color="#fff" />
         </button>
       </div>
 
-      {/* Center artwork */}
-      <div style={centerStyle}>
-        <div style={artworkContainerStyle}>
-          {track.artworkUrl ? (
-            <img src={track.artworkUrl} alt={track.title} style={artworkStyle} />
-          ) : (
-            <div style={{ ...artworkStyle, background: 'linear-gradient(135deg, #444, #222)' }} />
-          )}
-        </div>
-      </div>
+      {/* Spacer: pushes controls to bottom */}
+      <div style={{ flex: 1 }} />
 
-      {/* Bottom controls */}
+      {/* Bottom controls — centered, constrained width */}
       <div style={bottomStyle}>
-        {/* Track info */}
-        <div style={infoStyle}>
-          <div style={titleStyle}>{track.title}</div>
-          <div style={artistStyle}>{track.artist}</div>
-        </div>
-
-        {/* Progress bar */}
-        <div style={progressContainerStyle}>
-          <div
-            style={progressBarBgStyle}
-            onClick={(e) => {
-              const rect = e.currentTarget.getBoundingClientRect();
-              const ratio = (e.clientX - rect.left) / rect.width;
-              onSeek(ratio * duration);
-            }}
-          >
-            <div style={{ ...progressBarFillStyle, width: `${progress * 100}%` }} />
-            <div style={{ ...progressKnobStyle, left: `${progress * 100}%` }} />
+        <div style={bottomInnerStyle}>
+          {/* Track info */}
+          <div style={infoStyle}>
+            <div style={titleStyle}>{track.title}</div>
+            <div style={artistStyle}>{track.artist}</div>
           </div>
-          <div style={timeRowStyle}>
-            <span style={timeStyle}>{formatDuration(Math.floor(position))}</span>
-            <span style={timeStyle}>{formatDuration(Math.floor(duration))}</span>
-          </div>
-        </div>
 
-        {/* Playback controls */}
-        <div style={controlsStyle}>
-          <button style={iconBtnStyle} type="button">
-            <IoVolumeMute size={22} color="rgba(255,255,255,0.6)" />
-          </button>
-          <button style={iconBtnStyle} type="button">
-            <IoPlaySkipBack size={26} color="#fff" />
-          </button>
-          <button onClick={onTogglePlay} style={iconBtnStyle} type="button">
-            {isPlaying ? (
-              <IoPauseCircle size={56} color="#fff" />
-            ) : (
-              <IoPlayCircle size={56} color="#fff" />
-            )}
-          </button>
-          <button style={iconBtnStyle} type="button">
-            <IoPlaySkipForward size={26} color="#fff" />
-          </button>
-          <button style={iconBtnStyle} type="button">
-            <IoVolumeHigh size={22} color="rgba(255,255,255,0.6)" />
-          </button>
+          {/* Progress bar */}
+          <div style={progressContainerStyle}>
+            <div
+              style={progressBarBgStyle}
+              onClick={(e) => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                const ratio = (e.clientX - rect.left) / rect.width;
+                onSeek(ratio * duration);
+              }}
+            >
+              <div style={{ ...progressBarFillStyle, width: `${progress * 100}%` }} />
+              <div style={{ ...progressKnobStyle, left: `${progress * 100}%` }} />
+            </div>
+            <div style={timeRowStyle}>
+              <span style={timeStyle}>{formatDuration(Math.floor(position))}</span>
+              <span style={timeStyle}>{formatDuration(Math.floor(duration))}</span>
+            </div>
+          </div>
+
+          {/* Playback controls */}
+          <div style={controlsStyle}>
+            <button style={iconBtnStyle} type="button">
+              <IoRepeat size={20} color="rgba(255,255,255,0.5)" />
+            </button>
+            <button style={iconBtnStyle} type="button">
+              <IoPlaySkipBack size={24} color="#fff" />
+            </button>
+            <button onClick={onTogglePlay} style={playBtnStyle} type="button">
+              {isPlaying ? (
+                <IoPause size={28} color="#fff" />
+              ) : (
+                <IoPlay size={28} color="#fff" style={{ marginLeft: 3 }} />
+              )}
+            </button>
+            <button style={iconBtnStyle} type="button">
+              <IoPlaySkipForward size={24} color="#fff" />
+            </button>
+            <button style={iconBtnStyle} type="button">
+              <IoShuffle size={20} color="rgba(255,255,255,0.5)" />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -138,57 +135,50 @@ const bgStyle: React.CSSProperties = {
 };
 const bgImgStyle: React.CSSProperties = {
   width: '100%', height: '100%', objectFit: 'cover',
-  filter: 'blur(40px) brightness(0.4)',
-  transform: 'scale(1.2)',
 };
 const bgOverlayStyle: React.CSSProperties = {
   position: 'absolute', inset: 0,
-  background: 'linear-gradient(180deg, rgba(0,0,0,0.3) 0%, rgba(0,0,0,0.6) 100%)',
+  background: 'linear-gradient(180deg, rgba(0,0,0,0.05) 0%, rgba(0,0,0,0.15) 50%, rgba(0,0,0,0.55) 100%)',
 };
 const topBarStyle: React.CSSProperties = {
   position: 'relative', zIndex: 1,
   display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-  padding: '16px 20px',
-};
-const centerStyle: React.CSSProperties = {
-  flex: 1, position: 'relative', zIndex: 1,
-  display: 'flex', alignItems: 'center', justifyContent: 'center',
-};
-const artworkContainerStyle: React.CSSProperties = {
-  width: 280, height: 280, borderRadius: 20, overflow: 'hidden',
-  boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
-};
-const artworkStyle: React.CSSProperties = {
-  width: '100%', height: '100%', objectFit: 'cover', display: 'block',
+  padding: '16px 24px',
 };
 const bottomStyle: React.CSSProperties = {
   position: 'relative', zIndex: 1,
-  padding: '0 32px 40px',
+  display: 'flex', justifyContent: 'center',
+  padding: '0 24px 48px',
+};
+const bottomInnerStyle: React.CSSProperties = {
+  width: '100%', maxWidth: 420,
 };
 const infoStyle: React.CSSProperties = {
   textAlign: 'center', marginBottom: 20,
 };
 const titleStyle: React.CSSProperties = {
-  fontSize: 20, fontWeight: 700, marginBottom: 4,
+  fontSize: 18, fontWeight: 700, marginBottom: 4,
+  textShadow: '0 1px 4px rgba(0,0,0,0.4)',
 };
 const artistStyle: React.CSSProperties = {
-  fontSize: 14, opacity: 0.7,
+  fontSize: 13, opacity: 0.7,
+  textShadow: '0 1px 3px rgba(0,0,0,0.3)',
 };
 const progressContainerStyle: React.CSSProperties = {
-  marginBottom: 24,
+  marginBottom: 20,
 };
 const progressBarBgStyle: React.CSSProperties = {
-  position: 'relative', height: 4, borderRadius: 2, cursor: 'pointer',
-  background: 'rgba(255,255,255,0.2)',
+  position: 'relative', height: 3, borderRadius: 2, cursor: 'pointer',
+  background: 'rgba(255,255,255,0.25)',
 };
 const progressBarFillStyle: React.CSSProperties = {
   position: 'absolute', top: 0, left: 0, height: '100%', borderRadius: 2,
   background: '#fff',
 };
 const progressKnobStyle: React.CSSProperties = {
-  position: 'absolute', top: '50%', width: 12, height: 12, borderRadius: '50%',
+  position: 'absolute', top: '50%', width: 10, height: 10, borderRadius: '50%',
   background: '#fff', transform: 'translate(-50%, -50%)',
-  boxShadow: '0 2px 4px rgba(0,0,0,0.3)',
+  boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
 };
 const timeRowStyle: React.CSSProperties = {
   display: 'flex', justifyContent: 'space-between', marginTop: 6,
@@ -197,14 +187,20 @@ const timeStyle: React.CSSProperties = {
   fontSize: 11, opacity: 0.6,
 };
 const controlsStyle: React.CSSProperties = {
-  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 24,
+  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 28,
 };
 const iconBtnStyle: React.CSSProperties = {
-  background: 'none', border: 'none', cursor: 'pointer', padding: 4,
+  background: 'none', border: 'none', cursor: 'pointer', padding: 6,
   display: 'flex', alignItems: 'center', justifyContent: 'center',
 };
-const addBtnStyle: React.CSSProperties = {
-  background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.25)',
+const playBtnStyle: React.CSSProperties = {
+  width: 56, height: 56, borderRadius: '50%', border: 'none', cursor: 'pointer',
+  background: 'rgba(255,255,255,0.15)', backdropFilter: 'blur(8px)',
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+  boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+};
+const swapBtnStyle: React.CSSProperties = {
+  background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.2)',
   borderRadius: '50%', width: 36, height: 36, cursor: 'pointer',
   display: 'flex', alignItems: 'center', justifyContent: 'center',
 };
