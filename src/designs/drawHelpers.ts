@@ -72,11 +72,13 @@ export function drawKnob(
   amplitude: number,
 ) {
   const img = getImage(KNOB_SRC)
-  // amplitude → 回転角度（0.2→0°, 4.0→300°程度）
-  const rotation = ((amplitude - 0.2) / 3.8) * Math.PI * 1.67 - Math.PI * 0.83
+  // amplitude → 回転角度: Lv1(0.2)=12時(0°), Lv5(4.0)=360°(12時に戻る)
+  // ドットは画像/コード共に6時位置にあるため、+πで12時スタートにする
+  const tNorm = (amplitude - 0.2) / 3.8
+  const rotation = Math.PI + tNorm * Math.PI * 2
 
   if (img) {
-    const drawSize = orbR * 2.1
+    const drawSize = orbR * 2.0
     ctx.save()
     ctx.translate(cx, cy)
     ctx.rotate(rotation)
@@ -88,8 +90,8 @@ export function drawKnob(
     ctx.translate(cx, cy)
     ctx.rotate(rotation)
 
-    // ノブ本体
-    const grad = ctx.createRadialGradient(-orbR * 0.15, -orbR * 0.15, 0, 0, 0, orbR)
+    // ノブ本体（グラデーション中心をノブ中心に合わせて回転ブレを防止）
+    const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, orbR)
     grad.addColorStop(0, 'rgba(235, 230, 248, 0.98)')
     grad.addColorStop(0.7, 'rgba(225, 218, 242, 0.95)')
     grad.addColorStop(1, 'rgba(210, 200, 235, 0.9)')
