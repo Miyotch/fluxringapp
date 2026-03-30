@@ -22,7 +22,7 @@ export function useAudioPlayer() {
     isLoading: false,
   });
 
-  const playTrack = useCallback(async (track: Track) => {
+  const playTrack = useCallback(async (track: Track, urlOverride?: string) => {
     try {
       if (audioRef.current) {
         audioRef.current.pause();
@@ -32,7 +32,7 @@ export function useAudioPlayer() {
 
       setState((prev) => ({ ...prev, currentTrack: track, isLoading: true }));
 
-      const audio = new Audio(track.audioUrl);
+      const audio = new Audio(urlOverride ?? track.audioUrl);
       audio.crossOrigin = 'anonymous';
       audioRef.current = audio;
 

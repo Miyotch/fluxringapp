@@ -77,7 +77,11 @@ export function TrackCard({
   isFavorite,
 }: TrackCardProps) {
   return (
-    <div className={`${styles.card} ${isPlaying ? styles.cardActive : ''}`}>
+    <div
+      className={`${styles.card} ${isPlaying ? styles.cardActive : ''}`}
+      onClick={onPlay}
+      style={{ cursor: 'pointer' }}
+    >
       {/* Artwork */}
       <div className={styles.artworkContainer}>
         <div className={styles.artworkRing}>
@@ -102,7 +106,7 @@ export function TrackCard({
             <span className={styles.duration}>{formatDuration(track.duration)}</span>
           </div>
 
-          <div className={styles.controls}>
+          <div className={styles.controls} onClick={(e) => e.stopPropagation()}>
             <button onClick={onPlay} className={styles.playButton} type="button">
               {isPlaying ? <IoPause size={14} /> : <IoPlay size={14} style={{ marginLeft: 1 }} />}
             </button>
