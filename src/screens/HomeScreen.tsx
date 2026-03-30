@@ -2,29 +2,32 @@ import React, { useState, useCallback } from 'react';
 import { GradientBackground } from '../components/ui/GradientBackground';
 import { TrackList } from '../components/track/TrackList';
 import { FluxRingDial } from '../components/ring/FluxRingDial';
+import { NowPlaying } from '../components/player/NowPlaying';
 import { useAudioPlayer } from '../components/player/useAudioPlayer';
 import { useTracks } from '../hooks/useTracks';
 import type { Track } from '../types/track';
 
 export function HomeScreen() {
   const { tracks, loading, error } = useTracks();
-  const { currentTrack, isPlaying, analyserNode, playTrack, togglePlayPause } = useAudioPlayer();
+  const { currentTrack, isPlaying, position, duration, analyserNode, playTrack, togglePlayPause, seekTo } = useAudioPlayer();
   const [favorites, setFavorites] = useState<string[]>([]);
   const [amplitude, setAmplitude] = useState(1.0);
+  const [showNowPlaying, setShowNowPlaying] = useState(false);
 
-  // Row click / play button: play the full track (sound field)
+  // Row click / play button: play the full track and open NowPlaying
   const handlePlayTrack = useCallback(
     (track: Track) => {
       if (currentTrack?.id === track.id) {
-        togglePlayPause();
+        setShowNowPlaying(true);
       } else {
         playTrack(track);
+        setShowNowPlaying(true);
       }
     },
-    [currentTrack, playTrack, togglePlayPause],
+    [currentTrack, playTrack],
   );
 
-  // Preview button: play the preview audio (preview field)
+  // Preview button: play the preview audio (no NowPlaying)
   const handlePreviewTrack = useCallback(
     (track: Track) => {
       const url = track.previewUrl || track.audioUrl;
@@ -77,6 +80,19 @@ export function HomeScreen() {
           />
         </div>
       </div>
+
+      {/* Full-screen NowPlaying overlay */}
+      {showNowPlaying && currentTrack && (
+        <NowPlaying
+          track={currentTrack}
+          isPlaying={isPlaying}
+          position={position}
+          duration={duration}
+          onTogglePlay={togglePlayPause}
+          onSeek={seekTo}
+          onClose={() => setShowNowPlaying(false)}
+        />
+      )}
     </GradientBackground>
   );
 }
