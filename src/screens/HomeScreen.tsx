@@ -12,6 +12,7 @@ export function HomeScreen() {
   const [favorites, setFavorites] = useState<string[]>([]);
   const [amplitude, setAmplitude] = useState(1.0);
 
+  // Row click / play button: play the full track (sound field)
   const handlePlayTrack = useCallback(
     (track: Track) => {
       if (currentTrack?.id === track.id) {
@@ -21,6 +22,15 @@ export function HomeScreen() {
       }
     },
     [currentTrack, playTrack, togglePlayPause],
+  );
+
+  // Preview button: play the preview audio (preview field)
+  const handlePreviewTrack = useCallback(
+    (track: Track) => {
+      const url = track.previewUrl || track.audioUrl;
+      playTrack(track, url);
+    },
+    [playTrack],
   );
 
   const handleToggleFavorite = useCallback((track: Track) => {
@@ -54,7 +64,7 @@ export function HomeScreen() {
             analyserNode={analyserNode}
             favorites={favorites}
             onPlayTrack={handlePlayTrack}
-            onPreviewTrack={handlePlayTrack}
+            onPreviewTrack={handlePreviewTrack}
             onAddTrack={() => {}}
             onToggleFavorite={handleToggleFavorite}
           />

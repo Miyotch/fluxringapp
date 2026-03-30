@@ -5,6 +5,7 @@ export interface Track {
   duration: number; // seconds
   artworkUrl: string;
   audioUrl: string;
+  previewUrl: string;
   description: string;
   createdAt: Date;
   order: number;

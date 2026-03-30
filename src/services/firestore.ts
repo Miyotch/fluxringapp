@@ -40,6 +40,7 @@ function docToTrack(d: import('firebase/firestore').QueryDocumentSnapshot): Trac
     duration: parseDuration(data.length ?? data.duration),
     artworkUrl: data.thumnail ?? data.artworkUrl ?? '',
     audioUrl: data.sound ?? data.audioUrl ?? '',
+    previewUrl: data.preview ?? '',
     description: data.comment ?? data.description ?? '',
     createdAt: data.createdAt?.toDate?.() ?? new Date(),
     order: data.level ?? data.order ?? 0,
