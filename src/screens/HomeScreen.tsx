@@ -41,7 +41,7 @@ export function HomeScreen() {
     );
   }, []);
 
-  const dialSize = Math.min(500, window.innerHeight - 120);
+  const dialSize = Math.min(600, window.innerHeight - 80);
 
   return (
     <GradientBackground>
@@ -88,15 +88,16 @@ const containerStyle: React.CSSProperties = {
 };
 
 const trackListStyle: React.CSSProperties = {
-  flex: '0 0 40%',
-  borderRight: 'none',
+  flex: '1 1 50%',
+  minWidth: 0,
   overflow: 'hidden',
   display: 'flex',
   flexDirection: 'column',
 };
 
 const dialContainerStyle: React.CSSProperties = {
-  flex: '0 0 60%',
+  flex: '1 1 50%',
+  minWidth: 0,
   position: 'relative',
   overflow: 'hidden',
   display: 'flex',
