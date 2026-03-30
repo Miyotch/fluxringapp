@@ -1,3 +1,46 @@
+/**
+ * Flux Ring — Global Design Rules
+ *
+ * Font: Inter (bold 700 / medium 500 / regular 400)
+ * Color Style: bluegray
+ * 3-layer: Glassmorphism → Neumorphism → Flat/Minimal
+ */
+
+:root {
+  /* Primary */
+  --color-primary: #9178BD;
+  --color-primary-light: rgba(145, 120, 189, 0.4);
+
+  /* Text */
+  --color-text-main: #7B7CA6;
+  --color-text-sub: rgba(123, 124, 166, 0.64);
+  --color-text-inverse: #FFFFFF;
+
+  /* Background */
+  --color-bg-base: #E6EBF1;
+  --color-bg-dither: rgba(143, 143, 143, 0.16);
+
+  /* Effects */
+  --glass-bg: rgba(255, 255, 255, 0.6);
+  --glass-border: rgba(255, 255, 255, 0.7);
+  --shadow-neu-dark: rgba(155, 141, 255, 0.4);
+  --shadow-neu-light: rgba(255, 255, 255, 0.8);
+  --overlay: rgba(0, 0, 0, 0.2);
+
+  /* Spacing (base 4px grid) */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+
+  /* Border radius */
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 16px;
+  --radius-full: 9999px;
+}
+
 * {
   margin: 0;
   padding: 0;
@@ -12,4 +55,6 @@ html, body, #root {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   overflow: hidden;
+  background-color: var(--color-bg-base);
+  color: var(--color-text-main);
 }

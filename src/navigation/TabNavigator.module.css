@@ -2,7 +2,7 @@
   display: flex;
   flex-direction: column;
   height: 100vh;
-  background: linear-gradient(135deg, #f5f3fa 0%, #f0ecf8 50%, #e8e0f5 100%);
+  background: linear-gradient(135deg, #E6EBF1 0%, #E6EBF1 50%, #dde3ed 100%);
 }
 
 .content {
@@ -38,7 +38,7 @@
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   box-shadow:
-    8px 8px 24px rgba(174, 164, 204, 0.35),
+    8px 8px 24px rgba(155, 141, 255, 0.25),
     -6px -6px 18px rgba(255, 255, 255, 0.95),
     inset 0 1px 1px rgba(255, 255, 255, 0.8),
     inset 0 -1px 1px rgba(200, 190, 220, 0.08);
@@ -55,12 +55,12 @@
   text-decoration: none;
   flex: 1;
   padding: 6px 0;
-  color: #b8b0d0;
+  color: #b0a8c8;
   transition: color 0.2s;
 }
 
 .tabItemActive {
-  color: #7a6bb5;
+  color: #9178BD;
 }
 
 .tabLabel {
