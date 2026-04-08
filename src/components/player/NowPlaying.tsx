@@ -129,12 +129,14 @@ const containerStyle: React.CSSProperties = {
   position: 'fixed', inset: 0, zIndex: 100,
   display: 'flex', flexDirection: 'column',
   color: '#fff',
+  animation: 'nowPlayingFadeIn 0.6s ease-out',
 };
 const bgStyle: React.CSSProperties = {
   position: 'absolute', inset: 0, overflow: 'hidden',
 };
 const bgImgStyle: React.CSSProperties = {
   width: '100%', height: '100%', objectFit: 'cover',
+  animation: 'nowPlayingBgFadeIn 0.9s ease-out',
 };
 const bgOverlayStyle: React.CSSProperties = {
   position: 'absolute', inset: 0,
@@ -144,11 +146,13 @@ const topBarStyle: React.CSSProperties = {
   position: 'relative', zIndex: 1,
   display: 'flex', justifyContent: 'space-between', alignItems: 'center',
   padding: '16px 24px',
+  animation: 'nowPlayingContentFadeIn 0.7s ease-out 0.1s backwards',
 };
 const bottomStyle: React.CSSProperties = {
   position: 'relative', zIndex: 1,
   display: 'flex', justifyContent: 'center',
   padding: '0 24px 48px',
+  animation: 'nowPlayingContentFadeIn 0.8s ease-out 0.15s backwards',
 };
 const bottomInnerStyle: React.CSSProperties = {
   width: '100%', maxWidth: 420,
