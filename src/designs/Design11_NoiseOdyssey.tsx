@@ -86,8 +86,8 @@ export function drawNoiseOdyssey(
   const cx = w / 2
   const cy = h / 2
   const maxR = Math.min(w, h) / 2 - 10
-  // 中心の円とその周りのリングを2倍サイズに
-  const orbR = 76
+  // 中心の円とその周りのリングを 76 → 114 (1.5x) に
+  const orbR = 114
   const level = amplitudeToLevel(amplitude)
   const dpr = window.devicePixelRatio ?? 1
 
