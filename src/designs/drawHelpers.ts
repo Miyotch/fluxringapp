@@ -5,7 +5,7 @@
  * Figmaレイヤー順（下→上）:
  *   背景のアニメーション → ほわほわ(SCREEN) → 光のアニメーション → Subtract(SOFT_LIGHT) → レベル(LINEAR_BURN, 0.4) → つまみ → テキスト
  */
-import { getImage, SPHERE_SRC, KNOB_SRC, RING_BEZEL_SRC, RING_OVERLAY_SRC, RING_LEVELS_SRC, RING_LEVELS, HOWAHOWA_SRCS, LIGHT_ANIM_SRCS } from './assetLoader'
+import { getImage, SPHERE_SRC, RING_BEZEL_SRC, RING_OVERLAY_SRC, RING_LEVELS_SRC, RING_LEVELS, HOWAHOWA_SRCS, LIGHT_ANIM_SRCS } from './assetLoader'
 
 /**
  * 背景グロー（sphere.png = 背景のアニメーション）
@@ -63,7 +63,8 @@ export function drawHowahowa(
 /**
  * 中心のつまみ（ノブ）を描画
  * ノブ本体は静止させ、回転インジケータ（ドット）のみが回転する。
- * これにより、画像に含まれる影が一緒に動くことによる「中心ずれ」錯覚を防ぐ。
+ * 画像のベイクインされたドット/影を避けるため完全にコード描画。
+ * 回転ドットは元のデザインと同じニューモーフィック凹みスタイル。
  */
 export function drawKnob(
   ctx: CanvasRenderingContext2D,
@@ -72,55 +73,103 @@ export function drawKnob(
   orbR: number,
   amplitude: number,
 ) {
-  const img = getImage(KNOB_SRC)
   // Lv1(0.2)=12時(0°), Lv5(4.0)=360° のインジケータ回転角
   const tNorm = Math.max(0, Math.min(1, (amplitude - 0.2) / 3.8))
-  const indicatorAngle = -Math.PI / 2 + tNorm * Math.PI * 2 // -90°(12時) → +270°
+  const indicatorAngle = -Math.PI / 2 + tNorm * Math.PI * 2
 
-  if (img) {
-    // ノブ画像は回転させず静止させる（影も動かない）
-    const drawSize = orbR * 2.0
-    ctx.save()
-    ctx.drawImage(img, cx - drawSize / 2, cy - drawSize / 2, drawSize, drawSize)
-    ctx.restore()
-  } else {
-    // フォールバック: コードで描画（本体は静止）
-    const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, orbR)
-    grad.addColorStop(0, 'rgba(235, 230, 248, 0.98)')
-    grad.addColorStop(0.7, 'rgba(225, 218, 242, 0.95)')
-    grad.addColorStop(1, 'rgba(210, 200, 235, 0.9)')
-    ctx.beginPath()
-    ctx.arc(cx, cy, orbR, 0, Math.PI * 2)
-    ctx.fillStyle = grad
-    ctx.fill()
-  }
-
-  // 回転インジケータ（ドット）: 幾何学的な円の中心 (cx, cy) を軸に回転
-  const dotR = orbR * 0.72
-  const dotX = cx + Math.cos(indicatorAngle) * dotR
-  const dotY = cy + Math.sin(indicatorAngle) * dotR
+  // ── Knob body (neumorphism: raised dome) ──
+  // Drop shadow
   ctx.save()
+  ctx.shadowColor = 'rgba(140, 120, 170, 0.28)'
+  ctx.shadowBlur = orbR * 0.25
+  ctx.shadowOffsetX = orbR * 0.05
+  ctx.shadowOffsetY = orbR * 0.08
   ctx.beginPath()
-  ctx.arc(dotX, dotY, orbR * 0.08, 0, Math.PI * 2)
-  ctx.fillStyle = 'rgba(145, 120, 189, 0.85)'
-  ctx.shadowColor = 'rgba(145, 120, 189, 0.6)'
-  ctx.shadowBlur = 6
+  ctx.arc(cx, cy, orbR, 0, Math.PI * 2)
+  ctx.fillStyle = '#ece8f5'
   ctx.fill()
   ctx.restore()
 
-  // レベル番号とラベル（ノブ中心に固定表示）
-  // フォントサイズを +5px
+  // Highlight (top-left light source)
+  const bodyGrad = ctx.createRadialGradient(
+    cx - orbR * 0.25, cy - orbR * 0.3, orbR * 0.05,
+    cx, cy, orbR,
+  )
+  bodyGrad.addColorStop(0, 'rgba(255, 255, 255, 0.95)')
+  bodyGrad.addColorStop(0.45, 'rgba(245, 242, 252, 0.85)')
+  bodyGrad.addColorStop(0.85, 'rgba(228, 222, 245, 0.75)')
+  bodyGrad.addColorStop(1, 'rgba(212, 205, 232, 0.55)')
+  ctx.beginPath()
+  ctx.arc(cx, cy, orbR, 0, Math.PI * 2)
+  ctx.fillStyle = bodyGrad
+  ctx.fill()
+
+  // Subtle rim highlight (inner edge catches light)
+  ctx.beginPath()
+  ctx.arc(cx, cy, orbR - 1, 0, Math.PI * 2)
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.55)'
+  ctx.lineWidth = 1.2
+  ctx.stroke()
+
+  // Bottom-right rim shadow
+  ctx.beginPath()
+  ctx.arc(cx, cy, orbR - 0.5, Math.PI * 0.1, Math.PI * 0.9)
+  ctx.strokeStyle = 'rgba(160, 145, 190, 0.12)'
+  ctx.lineWidth = 1
+  ctx.stroke()
+
+  // ── Rotation indicator (neumorphic INSET dent) ──
+  // Matches the original neumorphism-style knob indicator:
+  // appears pressed into the surface with inner shadow on top-left
+  // and inner highlight on bottom-right.
+  const dotCenterR = orbR * 0.75
+  const dotR = orbR * 0.1
+  const dotX = cx + Math.cos(indicatorAngle) * dotCenterR
+  const dotY = cy + Math.sin(indicatorAngle) * dotCenterR
+
+  // Soft darkened depression base
+  const dentGrad = ctx.createRadialGradient(
+    dotX + dotR * 0.3, dotY + dotR * 0.3, 0,
+    dotX, dotY, dotR * 1.1,
+  )
+  dentGrad.addColorStop(0, 'rgba(205, 195, 225, 0.95)')
+  dentGrad.addColorStop(0.6, 'rgba(190, 178, 215, 0.85)')
+  dentGrad.addColorStop(1, 'rgba(175, 160, 200, 0.7)')
+  ctx.beginPath()
+  ctx.arc(dotX, dotY, dotR, 0, Math.PI * 2)
+  ctx.fillStyle = dentGrad
+  ctx.fill()
+
+  // Upper-left dark rim (shadow cast into the dent)
+  ctx.save()
+  ctx.beginPath()
+  ctx.arc(dotX, dotY, dotR, Math.PI * 0.9, Math.PI * 1.9)
+  ctx.strokeStyle = 'rgba(130, 115, 165, 0.5)'
+  ctx.lineWidth = 1.2
+  ctx.stroke()
+  ctx.restore()
+
+  // Lower-right light rim (light reflecting off opposite inner wall)
+  ctx.save()
+  ctx.beginPath()
+  ctx.arc(dotX, dotY, dotR, -Math.PI * 0.1, Math.PI * 0.9)
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.75)'
+  ctx.lineWidth = 1
+  ctx.stroke()
+  ctx.restore()
+
+  // ── Level number + label (fixed, not rotating) ──
   const level = amplitudeToLevel(amplitude)
   const levelStr = String(level).padStart(2, '0')
   ctx.save()
   ctx.font = `200 ${orbR * 0.55 + 5}px -apple-system, sans-serif`
-  ctx.fillStyle = 'rgba(160, 145, 195, 0.55)'
+  ctx.fillStyle = 'rgba(123, 124, 166, 0.75)'
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
   ctx.fillText(levelStr, cx, cy - orbR * 0.05)
   ctx.font = `300 ${orbR * 0.18}px -apple-system, sans-serif`
-  ctx.fillStyle = 'rgba(160, 145, 195, 0.45)'
-  ctx.fillText('Flux Ring', cx, cy + orbR * 0.35)
+  ctx.fillStyle = 'rgba(123, 124, 166, 0.55)'
+  ctx.fillText('Flux Ring', cx, cy + orbR * 0.38)
   ctx.restore()
 }
 

@@ -4,14 +4,8 @@ import { GradientBackground } from '../components/ui/GradientBackground';
 import { OrbSphere } from '../components/ui/OrbSphere';
 import { colors } from '../theme/colors';
 import { useTracks } from '../hooks/useTracks';
+import { usePlaylists, type Playlist } from '../hooks/usePlaylists';
 import { PlaylistEditModal } from '../components/playlist/PlaylistEditModal';
-
-interface Playlist {
-  id: string;
-  name: string;
-  count: number;
-  hue: number; // orb color
-}
 
 interface CustomTrack {
   id: string;
@@ -20,32 +14,26 @@ interface CustomTrack {
   artworkUrl?: string;
 }
 
-const DEFAULT_PLAYLISTS: Playlist[] = [
-  { id: '1', name: 'お気に入り', count: 0, hue: 290 },
-  { id: '2', name: '集中モード', count: 0, hue: 260 },
-  { id: '3', name: 'リラックス', count: 0, hue: 195 },
-];
-
 // TODO: Replace with real user state from auth/subscription
 const IS_PREMIUM_USER = false;
 const CUSTOM_TRACKS: CustomTrack[] = [];
 
 export function PlaylistScreen() {
   const { tracks } = useTracks();
-  const [playlists, setPlaylists] = useState<Playlist[]>(DEFAULT_PLAYLISTS);
+  const { playlists, createPlaylist, updatePlaylist, deletePlaylist } = usePlaylists();
   const [editModal, setEditModal] = useState<{ mode: 'add' | 'edit'; playlist?: Playlist } | null>(null);
 
   const handleSavePlaylist = (name: string, hue: number, id?: string) => {
     if (id) {
-      setPlaylists((prev) => prev.map((p) => (p.id === id ? { ...p, name, hue } : p)));
+      updatePlaylist(id, name, hue);
     } else {
-      setPlaylists((prev) => [...prev, { id: String(Date.now()), name, count: 0, hue }]);
+      createPlaylist(name, hue);
     }
     setEditModal(null);
   };
 
   const handleDeletePlaylist = (id: string) => {
-    setPlaylists((prev) => prev.filter((p) => p.id !== id));
+    deletePlaylist(id);
     setEditModal(null);
   };
 
@@ -145,7 +133,7 @@ export function PlaylistScreen() {
               >
                 <OrbSphere size={72} hue={pl.hue} />
                 <div style={plNameStyle}>{pl.name}</div>
-                <div style={plCountStyle}>{pl.count} 曲</div>
+                <div style={plCountStyle}>{pl.trackIds.length} 曲</div>
               </div>
             ))}
           </div>
