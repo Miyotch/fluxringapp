@@ -58,3 +58,14 @@ html, body, #root {
   background-color: var(--color-bg-base);
   color: var(--color-text-main);
 }
+
+/* ── Search modal fade-in animations ── */
+@keyframes searchFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes searchPanelFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}

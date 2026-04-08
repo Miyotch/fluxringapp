@@ -1,18 +1,25 @@
 import React, { useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { GradientBackground } from '../components/ui/GradientBackground';
 import { TrackList } from '../components/track/TrackList';
 import { FluxRingDial } from '../components/ring/FluxRingDial';
 import { NowPlaying } from '../components/player/NowPlaying';
+import { SearchModal } from '../components/search/SearchModal';
 import { useAudioPlayer } from '../components/player/useAudioPlayer';
 import { useTracks } from '../hooks/useTracks';
 import type { Track } from '../types/track';
 
-export function HomeScreen() {
+interface HomeScreenProps {
+  searchOpen?: boolean;
+}
+
+export function HomeScreen({ searchOpen = false }: HomeScreenProps) {
   const { tracks, loading, error } = useTracks();
   const { currentTrack, isPlaying, position, duration, analyserNode, playTrack, togglePlayPause, seekTo } = useAudioPlayer();
   const [favorites, setFavorites] = useState<string[]>([]);
   const [amplitude, setAmplitude] = useState(1.0);
   const [showNowPlaying, setShowNowPlaying] = useState(false);
+  const navigate = useNavigate();
 
   // Row click / play button: play the full track and open NowPlaying
   const handlePlayTrack = useCallback(
@@ -80,6 +87,9 @@ export function HomeScreen() {
           />
         </div>
       </div>
+
+      {/* Search modal overlay — right half */}
+      <SearchModal visible={searchOpen} onClose={() => navigate('/')} />
 
       {/* Full-screen NowPlaying overlay */}
       {showNowPlaying && currentTrack && (
