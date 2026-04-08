@@ -7,6 +7,7 @@ interface AudioPlayerState {
   position: number;
   duration: number;
   isLoading: boolean;
+  repeat: boolean;
 }
 
 export function useAudioPlayer() {
@@ -20,7 +21,9 @@ export function useAudioPlayer() {
     position: 0,
     duration: 0,
     isLoading: false,
+    repeat: false,
   });
+  const repeatRef = useRef(false);
 
   const playTrack = useCallback(async (track: Track, urlOverride?: string) => {
     try {
@@ -34,6 +37,7 @@ export function useAudioPlayer() {
 
       const audio = new Audio(urlOverride ?? track.audioUrl);
       audio.crossOrigin = 'anonymous';
+      audio.loop = repeatRef.current;
       audioRef.current = audio;
 
       // Set up AudioContext + AnalyserNode
@@ -115,6 +119,15 @@ export function useAudioPlayer() {
     audio.currentTime = seconds;
   }, []);
 
+  const toggleRepeat = useCallback(() => {
+    const next = !repeatRef.current;
+    repeatRef.current = next;
+    if (audioRef.current) {
+      audioRef.current.loop = next;
+    }
+    setState((prev) => ({ ...prev, repeat: next }));
+  }, []);
+
   return {
     ...state,
     analyserNode: analyserRef.current,
@@ -122,5 +135,6 @@ export function useAudioPlayer() {
     togglePlayPause,
     stop,
     seekTo,
+    toggleRepeat,
   };
 }

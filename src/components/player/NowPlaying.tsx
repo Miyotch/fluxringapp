@@ -7,8 +7,10 @@ import {
   IoPlaySkipForward,
   IoRepeat,
   IoShuffle,
-  IoSwapHorizontal,
+  IoClose,
+  IoArrowForward,
 } from 'react-icons/io5';
+import { FaCrown } from 'react-icons/fa';
 import type { Track } from '../../types/track';
 import { formatDuration } from '../../types/track';
 import { CustomOrderModal } from './CustomOrderModal';
@@ -18,7 +20,9 @@ interface NowPlayingProps {
   isPlaying: boolean;
   position: number;
   duration: number;
+  repeat: boolean;
   onTogglePlay: () => void;
+  onToggleRepeat: () => void;
   onSeek: (seconds: number) => void;
   onClose: () => void;
 }
@@ -28,10 +32,13 @@ export function NowPlaying({
   isPlaying,
   position,
   duration,
+  repeat,
   onTogglePlay,
+  onToggleRepeat,
   onSeek,
   onClose,
 }: NowPlayingProps) {
+  const [showUpsell, setShowUpsell] = useState(false);
   const [showOrderModal, setShowOrderModal] = useState(false);
   const progress = duration > 0 ? position / duration : 0;
 
@@ -44,7 +51,6 @@ export function NowPlaying({
         ) : (
           <div style={{ ...bgImgStyle, background: 'linear-gradient(135deg, #2a2a3e, #1a1a2e)' }} />
         )}
-        {/* Light gradient overlay for readability at bottom */}
         <div style={bgOverlayStyle} />
       </div>
 
@@ -53,8 +59,13 @@ export function NowPlaying({
         <button onClick={onClose} style={iconBtnStyle} type="button">
           <IoChevronBack size={24} color="#fff" />
         </button>
-        <button onClick={() => setShowOrderModal(true)} style={swapBtnStyle} type="button">
-          <IoSwapHorizontal size={20} color="#fff" />
+        <button
+          onClick={() => setShowUpsell(true)}
+          style={crownBtnStyle}
+          type="button"
+          aria-label="カスタム制作を見る"
+        >
+          <FaCrown size={18} color="#FFD54A" />
         </button>
       </div>
 
@@ -91,8 +102,17 @@ export function NowPlaying({
 
           {/* Playback controls */}
           <div style={controlsStyle}>
-            <button style={iconBtnStyle} type="button">
-              <IoRepeat size={20} color="rgba(255,255,255,0.5)" />
+            <button
+              onClick={onToggleRepeat}
+              style={iconBtnStyle}
+              type="button"
+              aria-label={repeat ? 'リピートをオフ' : 'リピートをオン'}
+            >
+              <IoRepeat
+                size={20}
+                color={repeat ? '#fff' : 'rgba(255,255,255,0.5)'}
+              />
+              {repeat && <div style={repeatDotStyle} />}
             </button>
             <button style={iconBtnStyle} type="button">
               <IoPlaySkipBack size={24} color="#fff" />
@@ -113,6 +133,40 @@ export function NowPlaying({
           </div>
         </div>
       </div>
+
+      {/* Upsell popover */}
+      {showUpsell && (
+        <div style={upsellOverlayStyle} onClick={() => setShowUpsell(false)}>
+          <div style={upsellCardStyle} onClick={(e) => e.stopPropagation()}>
+            <button
+              onClick={() => setShowUpsell(false)}
+              style={upsellCloseStyle}
+              type="button"
+            >
+              <IoClose size={18} color="rgba(255,255,255,0.7)" />
+            </button>
+            <div style={upsellIconWrapStyle}>
+              <FaCrown size={36} color="#FFD54A" />
+            </div>
+            <h3 style={upsellTitleStyle}>
+              アプリで探せない<br />『究極の1曲』を。
+            </h3>
+            <p style={upsellDescStyle}>
+              あなたのブランド専用の周波数制作はこちら
+            </p>
+            <button
+              onClick={() => {
+                setShowUpsell(false);
+                setShowOrderModal(true);
+              }}
+              style={upsellCtaStyle}
+              type="button"
+            >
+              カスタム制作を見る <IoArrowForward size={16} />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Custom order modal */}
       {showOrderModal && (
@@ -195,7 +249,12 @@ const controlsStyle: React.CSSProperties = {
 };
 const iconBtnStyle: React.CSSProperties = {
   background: 'none', border: 'none', cursor: 'pointer', padding: 6,
-  display: 'flex', alignItems: 'center', justifyContent: 'center',
+  display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative',
+};
+const repeatDotStyle: React.CSSProperties = {
+  position: 'absolute', bottom: 1, left: '50%',
+  transform: 'translateX(-50%)',
+  width: 3, height: 3, borderRadius: '50%', background: '#fff',
 };
 const playBtnStyle: React.CSSProperties = {
   width: 56, height: 56, borderRadius: '50%', border: 'none', cursor: 'pointer',
@@ -203,8 +262,58 @@ const playBtnStyle: React.CSSProperties = {
   display: 'flex', alignItems: 'center', justifyContent: 'center',
   boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
 };
-const swapBtnStyle: React.CSSProperties = {
-  background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.2)',
-  borderRadius: '50%', width: 36, height: 36, cursor: 'pointer',
+
+/* Gold crown button */
+const crownBtnStyle: React.CSSProperties = {
+  background: 'linear-gradient(145deg, rgba(255,213,74,0.25), rgba(255,180,50,0.15))',
+  border: '1px solid rgba(255,213,74,0.5)',
+  borderRadius: '50%', width: 40, height: 40, cursor: 'pointer',
   display: 'flex', alignItems: 'center', justifyContent: 'center',
+  boxShadow: '0 2px 10px rgba(255,200,60,0.35), inset 0 1px 0 rgba(255,255,255,0.3)',
+  transition: 'transform 0.15s',
+};
+
+/* Upsell popover */
+const upsellOverlayStyle: React.CSSProperties = {
+  position: 'fixed', inset: 0, zIndex: 150,
+  background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(8px)',
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+  animation: 'searchFadeIn 0.3s ease-out',
+};
+const upsellCardStyle: React.CSSProperties = {
+  position: 'relative',
+  background: 'linear-gradient(160deg, #2a2438 0%, #1c1c2e 100%)',
+  border: '1px solid rgba(255,213,74,0.3)',
+  borderRadius: 20, padding: '36px 32px 28px',
+  maxWidth: 380, width: '90%', textAlign: 'center',
+  boxShadow: '0 20px 60px rgba(0,0,0,0.5), 0 0 40px rgba(255,200,60,0.15)',
+};
+const upsellCloseStyle: React.CSSProperties = {
+  position: 'absolute', top: 14, right: 14,
+  background: 'rgba(255,255,255,0.08)', border: 'none',
+  borderRadius: '50%', width: 28, height: 28, cursor: 'pointer',
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+};
+const upsellIconWrapStyle: React.CSSProperties = {
+  width: 72, height: 72, borderRadius: '50%',
+  background: 'radial-gradient(circle, rgba(255,213,74,0.25), rgba(255,180,50,0.05))',
+  border: '1px solid rgba(255,213,74,0.4)',
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+  margin: '0 auto 18px',
+  boxShadow: '0 0 30px rgba(255,200,60,0.3)',
+};
+const upsellTitleStyle: React.CSSProperties = {
+  fontSize: 18, fontWeight: 700, color: '#fff', margin: '0 0 10px',
+  lineHeight: 1.5, letterSpacing: '0.02em',
+};
+const upsellDescStyle: React.CSSProperties = {
+  fontSize: 13, color: 'rgba(255,255,255,0.7)', margin: '0 0 22px', lineHeight: 1.6,
+};
+const upsellCtaStyle: React.CSSProperties = {
+  display: 'inline-flex', alignItems: 'center', gap: 6,
+  padding: '12px 24px', borderRadius: 24, border: 'none', cursor: 'pointer',
+  background: 'linear-gradient(135deg, #FFD54A, #FFB33C)',
+  color: '#2a2438', fontSize: 13, fontWeight: 700,
+  boxShadow: '0 4px 14px rgba(255,180,50,0.4)',
+  letterSpacing: '0.03em',
 };
