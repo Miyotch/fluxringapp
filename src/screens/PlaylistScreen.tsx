@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { IoAdd } from 'react-icons/io5';
+import { IoAdd, IoLockClosed, IoPlayCircle } from 'react-icons/io5';
 import { GradientBackground } from '../components/ui/GradientBackground';
 import { OrbSphere } from '../components/ui/OrbSphere';
 import { colors } from '../theme/colors';
@@ -13,28 +13,22 @@ interface Playlist {
   hue: number; // orb color
 }
 
+interface CustomTrack {
+  id: string;
+  title: string;
+  duration: string;
+  artworkUrl?: string;
+}
+
 const DEFAULT_PLAYLISTS: Playlist[] = [
   { id: '1', name: 'お気に入り', count: 0, hue: 290 },
   { id: '2', name: '集中モード', count: 0, hue: 260 },
   { id: '3', name: 'リラックス', count: 0, hue: 195 },
 ];
 
-const CUSTOM_ORDERS = [
-  {
-    id: 'semi',
-    label: 'Semi order',
-    title: '時間を延長する',
-    desc: 'お気に入りの曲を希望の長さに延長',
-    badgeColor: '#6c5ce7',
-  },
-  {
-    id: 'full',
-    label: 'Full order',
-    title: 'オリジナルBGM制作',
-    desc: 'プロによるオリジナル楽曲制作',
-    badgeColor: '#9178BD',
-  },
-];
+// TODO: Replace with real user state from auth/subscription
+const IS_PREMIUM_USER = false;
+const CUSTOM_TRACKS: CustomTrack[] = [];
 
 export function PlaylistScreen() {
   const { tracks } = useTracks();
@@ -55,13 +49,15 @@ export function PlaylistScreen() {
     setEditModal(null);
   };
 
+  const hasCustomTracks = IS_PREMIUM_USER && CUSTOM_TRACKS.length > 0;
+
   return (
     <GradientBackground>
       <div style={pageStyle}>
         <h1 style={headingStyle}>ライブラリ</h1>
         <p style={subStyle}>コードやプレイリストを管理できるページ</p>
 
-        {/* ── Section 1: Recent Tracks (default 10) ── */}
+        {/* ── Section 1: Recent Tracks (10) ── */}
         <div style={sectionStyle}>
           <h2 style={sectionTitleStyle}>最近再生した曲</h2>
           <div style={trackListStyle}>
@@ -86,24 +82,52 @@ export function PlaylistScreen() {
           </div>
         </div>
 
-        {/* ── Section 2: Custom Order ── */}
+        {/* ── Section 2: Custom Order (full width row) ── */}
         <div style={sectionStyle}>
           <h2 style={sectionTitleStyle}>カスタム制作</h2>
-          <div style={orderGridStyle}>
-            {CUSTOM_ORDERS.map((order) => (
-              <div key={order.id} style={orderCardStyle}>
-                <span style={{ ...orderBadgeStyle, background: order.badgeColor }}>{order.label}</span>
-                <div style={orderTitleStyle}>{order.title}</div>
-                <div style={orderDescStyle}>{order.desc}</div>
+          <div style={customOrderCardStyle}>
+            {hasCustomTracks ? (
+              // Premium user with custom tracks
+              <div style={customTracksWrapStyle}>
+                {CUSTOM_TRACKS.map((track) => (
+                  <div key={track.id} style={customTrackItemStyle}>
+                    <div style={customTrackArtStyle}>
+                      {track.artworkUrl ? (
+                        <img src={track.artworkUrl} alt="" style={trackImgStyle} />
+                      ) : (
+                        <div style={{ ...trackImgStyle, background: 'linear-gradient(135deg, #9178BD, #6c5ce7)' }} />
+                      )}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={customTrackTitleStyle}>{track.title}</div>
+                      <div style={customTrackMetaStyle}>カスタム制作 · {track.duration}</div>
+                    </div>
+                    <IoPlayCircle size={28} color={colors.primary} />
+                  </div>
+                ))}
               </div>
-            ))}
+            ) : (
+              // Free user: show lock centered
+              <div style={lockedWrapStyle}>
+                <div style={lockIconCircleStyle}>
+                  <IoLockClosed size={26} color={colors.primary} />
+                </div>
+                <div style={lockedTitleStyle}>カスタム制作はプレミアム機能です</div>
+                <div style={lockedDescStyle}>
+                  あなただけのオリジナル楽曲を作成するには、プレミアムプランへのアップグレードが必要です
+                </div>
+                <button style={unlockBtnStyle} type="button">
+                  プレミアムにアップグレード
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
         {/* ── Section 3: Playlists with Orb Spheres ── */}
         <div style={sectionStyle}>
           <div style={sectionHeaderStyle}>
-            <h2 style={sectionTitleStyle}>プレイリスト</h2>
+            <h2 style={sectionTitleStyle}>作成したプレイリスト</h2>
             <button
               onClick={() => setEditModal({ mode: 'add' })}
               style={addBtnStyle}
@@ -161,19 +185,49 @@ const trackImgStyle: React.CSSProperties = { width: '100%', height: '100%', obje
 const trackTitleStyle: React.CSSProperties = { fontSize: 13, fontWeight: 600, color: colors.textPrimary, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' };
 const trackArtistStyle: React.CSSProperties = { fontSize: 11, color: colors.textSecondary };
 
-// Custom order
-const orderGridStyle: React.CSSProperties = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 };
-const orderCardStyle: React.CSSProperties = {
-  padding: '16px 14px', borderRadius: 14, cursor: 'pointer',
+// Custom order — full-width row
+const customOrderCardStyle: React.CSSProperties = {
+  width: '100%', minHeight: 140, borderRadius: 16, padding: '24px 20px',
   background: 'rgba(255,255,255,0.55)', border: '1px solid rgba(255,255,255,0.65)',
-  boxShadow: '2px 2px 8px rgba(174,164,204,0.12), -1px -1px 4px rgba(255,255,255,0.7)',
+  boxShadow: '3px 3px 12px rgba(174,164,204,0.15), -2px -2px 6px rgba(255,255,255,0.8)',
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
 };
-const orderBadgeStyle: React.CSSProperties = {
-  fontSize: 10, fontWeight: 600, padding: '3px 10px', borderRadius: 6, color: '#fff',
-  display: 'inline-block', marginBottom: 8,
+
+// Locked (free user)
+const lockedWrapStyle: React.CSSProperties = {
+  display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 6,
 };
-const orderTitleStyle: React.CSSProperties = { fontSize: 14, fontWeight: 600, color: colors.textPrimary, marginBottom: 4 };
-const orderDescStyle: React.CSSProperties = { fontSize: 11, color: colors.textSecondary, lineHeight: 1.5 };
+const lockIconCircleStyle: React.CSSProperties = {
+  width: 56, height: 56, borderRadius: '50%',
+  background: 'linear-gradient(145deg, rgba(255,255,255,0.9), rgba(230,225,245,0.7))',
+  border: '1px solid rgba(255,255,255,0.8)',
+  boxShadow: '3px 3px 8px rgba(174,164,204,0.2), -2px -2px 6px rgba(255,255,255,0.9)',
+  display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 6,
+};
+const lockedTitleStyle: React.CSSProperties = { fontSize: 14, fontWeight: 600, color: colors.textPrimary };
+const lockedDescStyle: React.CSSProperties = {
+  fontSize: 11, color: colors.textSecondary, lineHeight: 1.6, maxWidth: 340, margin: '0 auto 12px',
+};
+const unlockBtnStyle: React.CSSProperties = {
+  fontSize: 12, fontWeight: 600, color: '#fff', border: 'none', cursor: 'pointer',
+  background: 'linear-gradient(135deg, #a388c8, #9178BD)',
+  borderRadius: 20, padding: '8px 18px',
+  boxShadow: '0 3px 10px rgba(145,120,189,0.35)',
+};
+
+// Custom tracks (premium user)
+const customTracksWrapStyle: React.CSSProperties = {
+  width: '100%', display: 'flex', flexDirection: 'column', gap: 8,
+};
+const customTrackItemStyle: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: 14, padding: '10px 14px', borderRadius: 12,
+  background: 'rgba(255,255,255,0.6)', border: '1px solid rgba(255,255,255,0.7)', cursor: 'pointer',
+};
+const customTrackArtStyle: React.CSSProperties = {
+  width: 48, height: 48, borderRadius: 10, overflow: 'hidden', flexShrink: 0,
+};
+const customTrackTitleStyle: React.CSSProperties = { fontSize: 14, fontWeight: 600, color: colors.textPrimary };
+const customTrackMetaStyle: React.CSSProperties = { fontSize: 11, color: colors.primary, marginTop: 2 };
 
 // Playlists
 const addBtnStyle: React.CSSProperties = {
