@@ -81,7 +81,10 @@ export function SettingsScreen() {
   );
 }
 
-const pageStyle: React.CSSProperties = { padding: '32px 28px', height: '100%', overflowY: 'auto' };
+const pageStyle: React.CSSProperties = {
+  padding: '32px 28px', height: '100%', overflowY: 'auto',
+  maxWidth: 900, margin: '0 auto', width: '100%',
+};
 const headingStyle: React.CSSProperties = { fontSize: 22, fontWeight: 700, color: colors.textPrimary, margin: '0 0 4px' };
 const subStyle: React.CSSProperties = { fontSize: 13, color: colors.textSecondary, margin: '0 0 20px' };
 const profileCardStyle: React.CSSProperties = {
