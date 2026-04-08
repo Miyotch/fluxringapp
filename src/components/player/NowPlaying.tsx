@@ -40,14 +40,26 @@ export function NowPlaying({
 }: NowPlayingProps) {
   const [showUpsell, setShowUpsell] = useState(false);
   const [showOrderModal, setShowOrderModal] = useState(false);
+  const [isClosing, setIsClosing] = useState(false);
   const progress = duration > 0 ? position / duration : 0;
 
+  const handleClose = () => {
+    if (isClosing) return;
+    setIsClosing(true);
+    // Wait for fade-out animation to finish before unmounting
+    window.setTimeout(onClose, 420);
+  };
+
   return (
-    <div style={containerStyle}>
+    <div style={{ ...containerStyle, ...(isClosing ? containerClosingStyle : null) }}>
       {/* Background: full artwork image, no blur */}
       <div style={bgStyle}>
         {track.artworkUrl ? (
-          <img src={track.artworkUrl} alt="" style={bgImgStyle} />
+          <img
+            src={track.artworkUrl}
+            alt=""
+            style={{ ...bgImgStyle, ...(isClosing ? bgImgClosingStyle : null) }}
+          />
         ) : (
           <div style={{ ...bgImgStyle, background: 'linear-gradient(135deg, #2a2a3e, #1a1a2e)' }} />
         )}
@@ -55,8 +67,8 @@ export function NowPlaying({
       </div>
 
       {/* Top bar */}
-      <div style={topBarStyle}>
-        <button onClick={onClose} style={iconBtnStyle} type="button">
+      <div style={{ ...topBarStyle, ...(isClosing ? topBarClosingStyle : null) }}>
+        <button onClick={handleClose} style={iconBtnStyle} type="button">
           <IoChevronBack size={24} color="#fff" />
         </button>
         <button
@@ -73,7 +85,7 @@ export function NowPlaying({
       <div style={{ flex: 1 }} />
 
       {/* Bottom controls — centered, constrained width */}
-      <div style={bottomStyle}>
+      <div style={{ ...bottomStyle, ...(isClosing ? bottomClosingStyle : null) }}>
         <div style={bottomInnerStyle}>
           {/* Track info */}
           <div style={infoStyle}>
@@ -185,12 +197,18 @@ const containerStyle: React.CSSProperties = {
   color: '#fff',
   animation: 'nowPlayingFadeIn 0.6s ease-out',
 };
+const containerClosingStyle: React.CSSProperties = {
+  animation: 'nowPlayingFadeOut 0.42s ease-in forwards',
+};
 const bgStyle: React.CSSProperties = {
   position: 'absolute', inset: 0, overflow: 'hidden',
 };
 const bgImgStyle: React.CSSProperties = {
   width: '100%', height: '100%', objectFit: 'cover',
   animation: 'nowPlayingBgFadeIn 0.9s ease-out',
+};
+const bgImgClosingStyle: React.CSSProperties = {
+  animation: 'nowPlayingBgFadeOut 0.42s ease-in forwards',
 };
 const bgOverlayStyle: React.CSSProperties = {
   position: 'absolute', inset: 0,
@@ -202,11 +220,17 @@ const topBarStyle: React.CSSProperties = {
   padding: '16px 24px',
   animation: 'nowPlayingContentFadeIn 0.7s ease-out 0.1s backwards',
 };
+const topBarClosingStyle: React.CSSProperties = {
+  animation: 'nowPlayingContentFadeOut 0.38s ease-in forwards',
+};
 const bottomStyle: React.CSSProperties = {
   position: 'relative', zIndex: 1,
   display: 'flex', justifyContent: 'center',
   padding: '0 24px 48px',
   animation: 'nowPlayingContentFadeIn 0.8s ease-out 0.15s backwards',
+};
+const bottomClosingStyle: React.CSSProperties = {
+  animation: 'nowPlayingContentFadeOut 0.38s ease-in forwards',
 };
 const bottomInnerStyle: React.CSSProperties = {
   width: '100%', maxWidth: 420,

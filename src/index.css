@@ -87,6 +87,22 @@ html, body, #root {
   100% { opacity: 1; transform: translateY(0); }
 }
 
+/* ── NowPlaying fade-out animation ── */
+@keyframes nowPlayingFadeOut {
+  0%   { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1.01); }
+}
+
+@keyframes nowPlayingBgFadeOut {
+  0%   { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1.04); }
+}
+
+@keyframes nowPlayingContentFadeOut {
+  0%   { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; transform: translateY(6px); }
+}
+
 /* ── Gradient range slider (thicker track with purple gradient) ── */
 input[type="range"].gradient-slider {
   -webkit-appearance: none;

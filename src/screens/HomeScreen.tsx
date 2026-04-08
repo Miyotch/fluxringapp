@@ -5,8 +5,10 @@ import { TrackList } from '../components/track/TrackList';
 import { FluxRingDial } from '../components/ring/FluxRingDial';
 import { NowPlaying } from '../components/player/NowPlaying';
 import { SearchModal } from '../components/search/SearchModal';
+import { PlaylistPickerModal } from '../components/playlist/PlaylistPickerModal';
 import { useAudioPlayer } from '../components/player/useAudioPlayer';
 import { useTracks } from '../hooks/useTracks';
+import { usePlaylists } from '../hooks/usePlaylists';
 import type { Track } from '../types/track';
 
 interface HomeScreenProps {
@@ -27,10 +29,14 @@ export function HomeScreen({ searchOpen = false }: HomeScreenProps) {
     seekTo,
     toggleRepeat,
   } = useAudioPlayer();
-  const [favorites, setFavorites] = useState<string[]>([]);
+  const { playlists, toggleFavorite, addTrack } = usePlaylists();
   const [amplitude, setAmplitude] = useState(1.0);
   const [showNowPlaying, setShowNowPlaying] = useState(false);
+  const [pickerTrack, setPickerTrack] = useState<Track | null>(null);
   const navigate = useNavigate();
+
+  // Favorite IDs derived from the "favorites" playlist (live updates)
+  const favoriteIds = playlists.find((p) => p.id === 'favorites')?.trackIds ?? [];
 
   // Row click / play button: play the full track and open NowPlaying
   const handlePlayTrack = useCallback(
@@ -54,13 +60,29 @@ export function HomeScreen({ searchOpen = false }: HomeScreenProps) {
     [playTrack],
   );
 
-  const handleToggleFavorite = useCallback((track: Track) => {
-    setFavorites((prev) =>
-      prev.includes(track.id)
-        ? prev.filter((id) => id !== track.id)
-        : [...prev, track.id],
-    );
+  // Heart button: toggle track in favorites playlist
+  const handleToggleFavorite = useCallback(
+    (track: Track) => {
+      toggleFavorite(track.id);
+    },
+    [toggleFavorite],
+  );
+
+  // + button: open playlist picker modal
+  const handleAddTrack = useCallback((track: Track) => {
+    setPickerTrack(track);
   }, []);
+
+  // When user picks a playlist in the modal
+  const handlePickPlaylist = useCallback(
+    (playlistId: string) => {
+      if (pickerTrack) {
+        addTrack(playlistId, pickerTrack.id);
+      }
+      setPickerTrack(null);
+    },
+    [pickerTrack, addTrack],
+  );
 
   const dialSize = Math.min(600, window.innerHeight - 80);
 
@@ -83,10 +105,10 @@ export function HomeScreen({ searchOpen = false }: HomeScreenProps) {
             currentTrackId={currentTrack?.id ?? null}
             isPlaying={isPlaying}
             analyserNode={analyserNode}
-            favorites={favorites}
+            favorites={favoriteIds}
             onPlayTrack={handlePlayTrack}
             onPreviewTrack={handlePreviewTrack}
-            onAddTrack={() => {}}
+            onAddTrack={handleAddTrack}
             onToggleFavorite={handleToggleFavorite}
           />
         </div>
@@ -99,8 +121,18 @@ export function HomeScreen({ searchOpen = false }: HomeScreenProps) {
         </div>
       </div>
 
-      {/* Search modal overlay — right half */}
+      {/* Search modal overlay */}
       <SearchModal visible={searchOpen} onClose={() => navigate('/')} />
+
+      {/* Playlist picker modal (opens from + button) */}
+      {pickerTrack && (
+        <PlaylistPickerModal
+          track={pickerTrack}
+          playlists={playlists}
+          onPick={handlePickPlaylist}
+          onClose={() => setPickerTrack(null)}
+        />
+      )}
 
       {/* Full-screen NowPlaying overlay */}
       {showNowPlaying && currentTrack && (
