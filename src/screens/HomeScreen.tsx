@@ -15,7 +15,18 @@ interface HomeScreenProps {
 
 export function HomeScreen({ searchOpen = false }: HomeScreenProps) {
   const { tracks, loading, error } = useTracks();
-  const { currentTrack, isPlaying, position, duration, analyserNode, playTrack, togglePlayPause, seekTo } = useAudioPlayer();
+  const {
+    currentTrack,
+    isPlaying,
+    position,
+    duration,
+    analyserNode,
+    repeat,
+    playTrack,
+    togglePlayPause,
+    seekTo,
+    toggleRepeat,
+  } = useAudioPlayer();
   const [favorites, setFavorites] = useState<string[]>([]);
   const [amplitude, setAmplitude] = useState(1.0);
   const [showNowPlaying, setShowNowPlaying] = useState(false);
@@ -98,7 +109,9 @@ export function HomeScreen({ searchOpen = false }: HomeScreenProps) {
           isPlaying={isPlaying}
           position={position}
           duration={duration}
+          repeat={repeat}
           onTogglePlay={togglePlayPause}
+          onToggleRepeat={toggleRepeat}
           onSeek={seekTo}
           onClose={() => setShowNowPlaying(false)}
         />

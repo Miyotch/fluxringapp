@@ -62,7 +62,8 @@ export function drawHowahowa(
 
 /**
  * 中心のつまみ（ノブ）を描画
- * amplitude に応じて回転し、レベルインジケーターとして機能する
+ * ノブ本体は静止させ、回転インジケータ（ドット）のみが回転する。
+ * これにより、画像に含まれる影が一緒に動くことによる「中心ずれ」錯覚を防ぐ。
  */
 export function drawKnob(
   ctx: CanvasRenderingContext2D,
@@ -72,55 +73,53 @@ export function drawKnob(
   amplitude: number,
 ) {
   const img = getImage(KNOB_SRC)
-  // amplitude → 回転角度: Lv1(0.2)=12時(0°), Lv5(4.0)=360°(12時に戻る)
-  // ドットは画像/コード共に6時位置にあるため、+πで12時スタートにする
-  const tNorm = (amplitude - 0.2) / 3.8
-  const rotation = Math.PI + tNorm * Math.PI * 2
+  // Lv1(0.2)=12時(0°), Lv5(4.0)=360° のインジケータ回転角
+  const tNorm = Math.max(0, Math.min(1, (amplitude - 0.2) / 3.8))
+  const indicatorAngle = -Math.PI / 2 + tNorm * Math.PI * 2 // -90°(12時) → +270°
 
   if (img) {
+    // ノブ画像は回転させず静止させる（影も動かない）
     const drawSize = orbR * 2.0
     ctx.save()
-    ctx.translate(cx, cy)
-    ctx.rotate(rotation)
-    ctx.drawImage(img, -drawSize / 2, -drawSize / 2, drawSize, drawSize)
+    ctx.drawImage(img, cx - drawSize / 2, cy - drawSize / 2, drawSize, drawSize)
     ctx.restore()
   } else {
-    // フォールバック: コードで描画
-    ctx.save()
-    ctx.translate(cx, cy)
-    ctx.rotate(rotation)
-
-    // ノブ本体（グラデーション中心をノブ中心に合わせて回転ブレを防止）
-    const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, orbR)
+    // フォールバック: コードで描画（本体は静止）
+    const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, orbR)
     grad.addColorStop(0, 'rgba(235, 230, 248, 0.98)')
     grad.addColorStop(0.7, 'rgba(225, 218, 242, 0.95)')
     grad.addColorStop(1, 'rgba(210, 200, 235, 0.9)')
     ctx.beginPath()
-    ctx.arc(0, 0, orbR, 0, Math.PI * 2)
+    ctx.arc(cx, cy, orbR, 0, Math.PI * 2)
     ctx.fillStyle = grad
     ctx.fill()
-
-    // ドットインジケーター
-    ctx.beginPath()
-    ctx.arc(0, orbR * 0.65, orbR * 0.1, 0, Math.PI * 2)
-    ctx.fillStyle = 'rgba(210, 195, 230, 0.7)'
-    ctx.fill()
-
-    ctx.restore()
   }
 
-  // レベル番号をノブの上に描画
-  // Figma: gradient text (紫→ピンク系)
+  // 回転インジケータ（ドット）: 幾何学的な円の中心 (cx, cy) を軸に回転
+  const dotR = orbR * 0.72
+  const dotX = cx + Math.cos(indicatorAngle) * dotR
+  const dotY = cy + Math.sin(indicatorAngle) * dotR
+  ctx.save()
+  ctx.beginPath()
+  ctx.arc(dotX, dotY, orbR * 0.08, 0, Math.PI * 2)
+  ctx.fillStyle = 'rgba(145, 120, 189, 0.85)'
+  ctx.shadowColor = 'rgba(145, 120, 189, 0.6)'
+  ctx.shadowBlur = 6
+  ctx.fill()
+  ctx.restore()
+
+  // レベル番号とラベル（ノブ中心に固定表示）
+  // フォントサイズを +5px
   const level = amplitudeToLevel(amplitude)
   const levelStr = String(level).padStart(2, '0')
   ctx.save()
-  ctx.font = `200 ${orbR * 0.55}px -apple-system, sans-serif`
-  ctx.fillStyle = 'rgba(160, 145, 195, 0.5)'
+  ctx.font = `200 ${orbR * 0.55 + 5}px -apple-system, sans-serif`
+  ctx.fillStyle = 'rgba(160, 145, 195, 0.55)'
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
   ctx.fillText(levelStr, cx, cy - orbR * 0.05)
   ctx.font = `300 ${orbR * 0.18}px -apple-system, sans-serif`
-  ctx.fillStyle = 'rgba(160, 145, 195, 0.4)'
+  ctx.fillStyle = 'rgba(160, 145, 195, 0.45)'
   ctx.fillText('Flux Ring', cx, cy + orbR * 0.35)
   ctx.restore()
 }
