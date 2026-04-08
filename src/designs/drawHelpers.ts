@@ -118,45 +118,48 @@ export function drawKnob(
   ctx.lineWidth = 1
   ctx.stroke()
 
-  // ── Rotation indicator (neumorphic INSET dent) ──
-  // Matches the original neumorphism-style knob indicator:
-  // appears pressed into the surface with inner shadow on top-left
-  // and inner highlight on bottom-right.
-  const dotCenterR = orbR * 0.75
-  const dotR = orbR * 0.1
+  // ── Rotation indicator (symmetric neumorphic raised bump) ──
+  // A smooth radially-symmetric bump that looks identical from every
+  // orbital angle — no directional rim shadows that would "flip"
+  // as the indicator rotates around the knob.
+  const dotCenterR = orbR * 0.74
+  const dotR = orbR * 0.11
   const dotX = cx + Math.cos(indicatorAngle) * dotCenterR
   const dotY = cy + Math.sin(indicatorAngle) * dotCenterR
 
-  // Soft darkened depression base
-  const dentGrad = ctx.createRadialGradient(
-    dotX + dotR * 0.3, dotY + dotR * 0.3, 0,
-    dotX, dotY, dotR * 1.1,
-  )
-  dentGrad.addColorStop(0, 'rgba(205, 195, 225, 0.95)')
-  dentGrad.addColorStop(0.6, 'rgba(190, 178, 215, 0.85)')
-  dentGrad.addColorStop(1, 'rgba(175, 160, 200, 0.7)')
+  // Outer soft shadow halo (gives a sense of lift from the knob surface)
+  ctx.save()
+  ctx.shadowColor = 'rgba(130, 115, 170, 0.35)'
+  ctx.shadowBlur = dotR * 2
+  ctx.shadowOffsetX = 0
+  ctx.shadowOffsetY = 0
   ctx.beginPath()
   ctx.arc(dotX, dotY, dotR, 0, Math.PI * 2)
-  ctx.fillStyle = dentGrad
+  ctx.fillStyle = 'rgba(195, 185, 220, 1)'
+  ctx.fill()
+  ctx.restore()
+
+  // Concentric glossy gradient — center bright, edge soft-dark
+  // Symmetric around the dot center so rotation has no "direction"
+  const bumpGrad = ctx.createRadialGradient(
+    dotX, dotY, 0,
+    dotX, dotY, dotR,
+  )
+  bumpGrad.addColorStop(0, 'rgba(255, 252, 255, 0.95)')
+  bumpGrad.addColorStop(0.45, 'rgba(225, 215, 240, 0.85)')
+  bumpGrad.addColorStop(0.85, 'rgba(180, 165, 205, 0.75)')
+  bumpGrad.addColorStop(1, 'rgba(160, 145, 190, 0.55)')
+  ctx.beginPath()
+  ctx.arc(dotX, dotY, dotR, 0, Math.PI * 2)
+  ctx.fillStyle = bumpGrad
   ctx.fill()
 
-  // Upper-left dark rim (shadow cast into the dent)
-  ctx.save()
+  // Thin symmetric rim for crisp edge
   ctx.beginPath()
-  ctx.arc(dotX, dotY, dotR, Math.PI * 0.9, Math.PI * 1.9)
-  ctx.strokeStyle = 'rgba(130, 115, 165, 0.5)'
-  ctx.lineWidth = 1.2
+  ctx.arc(dotX, dotY, dotR - 0.5, 0, Math.PI * 2)
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)'
+  ctx.lineWidth = 0.8
   ctx.stroke()
-  ctx.restore()
-
-  // Lower-right light rim (light reflecting off opposite inner wall)
-  ctx.save()
-  ctx.beginPath()
-  ctx.arc(dotX, dotY, dotR, -Math.PI * 0.1, Math.PI * 0.9)
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.75)'
-  ctx.lineWidth = 1
-  ctx.stroke()
-  ctx.restore()
 
   // ── Level number + label (fixed, not rotating) ──
   const level = amplitudeToLevel(amplitude)
@@ -203,9 +206,10 @@ export function drawCenterUnit(
 
   // 2. ベゼルリング（Subtract）
   // Figma: fills white, blendMode SOFT_LIGHT
+  // サイズを 2.2 → 3.3 (1.5x) に拡大
   const bezelImg = getImage(RING_BEZEL_SRC)
   if (bezelImg) {
-    const bezelSize = orbR * 2.2
+    const bezelSize = orbR * 3.3
     ctx.save()
     ctx.globalCompositeOperation = 'soft-light'
     ctx.globalAlpha = 0.9
@@ -215,9 +219,9 @@ export function drawCenterUnit(
     ctx.save()
     ctx.globalCompositeOperation = 'soft-light'
     ctx.beginPath()
-    ctx.arc(cx, cy, orbR * 1.06, 0, Math.PI * 2)
+    ctx.arc(cx, cy, orbR * 1.59, 0, Math.PI * 2)
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)'
-    ctx.lineWidth = orbR * 0.08
+    ctx.lineWidth = orbR * 0.12
     ctx.stroke()
     ctx.restore()
   }

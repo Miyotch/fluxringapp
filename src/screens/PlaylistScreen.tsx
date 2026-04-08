@@ -1,11 +1,14 @@
 import React, { useState } from 'react';
-import { IoAdd, IoLockClosed, IoPlayCircle } from 'react-icons/io5';
+import { IoAdd, IoLockClosed, IoPlayCircle, IoSettingsOutline } from 'react-icons/io5';
 import { GradientBackground } from '../components/ui/GradientBackground';
 import { OrbSphere } from '../components/ui/OrbSphere';
 import { colors } from '../theme/colors';
 import { useTracks } from '../hooks/useTracks';
 import { usePlaylists, type Playlist } from '../hooks/usePlaylists';
+import { useAudioPlayer } from '../components/player/useAudioPlayer';
 import { PlaylistEditModal } from '../components/playlist/PlaylistEditModal';
+import { PlaylistDetailModal } from '../components/playlist/PlaylistDetailModal';
+import type { Track } from '../types/track';
 
 interface CustomTrack {
   id: string;
@@ -20,8 +23,22 @@ const CUSTOM_TRACKS: CustomTrack[] = [];
 
 export function PlaylistScreen() {
   const { tracks } = useTracks();
-  const { playlists, createPlaylist, updatePlaylist, deletePlaylist } = usePlaylists();
+  const {
+    playlists,
+    createPlaylist,
+    updatePlaylist,
+    deletePlaylist,
+    removeTrack,
+  } = usePlaylists();
+  const { currentTrack, isPlaying, playTrack, togglePlayPause } = useAudioPlayer();
   const [editModal, setEditModal] = useState<{ mode: 'add' | 'edit'; playlist?: Playlist } | null>(null);
+  const [detailPlaylistId, setDetailPlaylistId] = useState<string | null>(null);
+  const [hoveredPlaylistId, setHoveredPlaylistId] = useState<string | null>(null);
+
+  // Resolve the detail playlist from the live list so it updates on edit
+  const detailPlaylist = detailPlaylistId
+    ? playlists.find((p) => p.id === detailPlaylistId) ?? null
+    : null;
 
   const handleSavePlaylist = (name: string, hue: number, id?: string) => {
     if (id) {
@@ -35,6 +52,19 @@ export function PlaylistScreen() {
   const handleDeletePlaylist = (id: string) => {
     deletePlaylist(id);
     setEditModal(null);
+    if (detailPlaylistId === id) setDetailPlaylistId(null);
+  };
+
+  const handlePlayFromDetail = (track: Track) => {
+    if (currentTrack?.id === track.id) {
+      togglePlayPause();
+    } else {
+      playTrack(track);
+    }
+  };
+
+  const handleRemoveFromPlaylist = (trackId: string) => {
+    if (detailPlaylistId) removeTrack(detailPlaylistId, trackId);
   };
 
   const hasCustomTracks = IS_PREMIUM_USER && CUSTOM_TRACKS.length > 0;
@@ -125,22 +155,58 @@ export function PlaylistScreen() {
             </button>
           </div>
           <div style={plGridStyle}>
-            {playlists.map((pl) => (
-              <div
-                key={pl.id}
-                style={plCardStyle}
-                onClick={() => setEditModal({ mode: 'edit', playlist: pl })}
-              >
-                <OrbSphere size={72} hue={pl.hue} />
-                <div style={plNameStyle}>{pl.name}</div>
-                <div style={plCountStyle}>{pl.trackIds.length} 曲</div>
-              </div>
-            ))}
+            {playlists.map((pl) => {
+              const hovered = hoveredPlaylistId === pl.id;
+              return (
+                <div
+                  key={pl.id}
+                  style={plCardStyle}
+                  onClick={() => setDetailPlaylistId(pl.id)}
+                  onMouseEnter={() => setHoveredPlaylistId(pl.id)}
+                  onMouseLeave={() => setHoveredPlaylistId(null)}
+                >
+                  {/* Gear icon — visible only on hover */}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setEditModal({ mode: 'edit', playlist: pl });
+                    }}
+                    style={{
+                      ...gearBtnStyle,
+                      opacity: hovered ? 1 : 0,
+                      pointerEvents: hovered ? 'auto' : 'none',
+                    }}
+                    type="button"
+                    aria-label="プレイリスト設定"
+                  >
+                    <IoSettingsOutline size={14} color={colors.textSecondary} />
+                  </button>
+
+                  <OrbSphere size={72} hue={pl.hue} />
+                  <div style={plNameStyle}>{pl.name}</div>
+                  <div style={plCountStyle}>{pl.trackIds.length} 曲</div>
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
 
-      {/* Playlist add/edit modal */}
+      {/* Playlist detail modal — click on a playlist card */}
+      {detailPlaylist && (
+        <PlaylistDetailModal
+          playlist={detailPlaylist}
+          allTracks={tracks}
+          currentTrackId={currentTrack?.id ?? null}
+          isPlaying={isPlaying}
+          onPlayTrack={handlePlayFromDetail}
+          onRemoveTrack={handleRemoveFromPlaylist}
+          onOpenEdit={() => setEditModal({ mode: 'edit', playlist: detailPlaylist })}
+          onClose={() => setDetailPlaylistId(null)}
+        />
+      )}
+
+      {/* Playlist add/edit modal — gear icon (hover) or "新規作成" */}
       {editModal && (
         <PlaylistEditModal
           mode={editModal.mode}
@@ -233,9 +299,19 @@ const plGridStyle: React.CSSProperties = {
   gap: 14,
 };
 const plCardStyle: React.CSSProperties = {
+  position: 'relative',
   display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, padding: '16px 8px', borderRadius: 16,
   background: 'rgba(255,255,255,0.55)', border: '1px solid rgba(255,255,255,0.65)',
   boxShadow: '3px 3px 10px rgba(174,164,204,0.12), -2px -2px 6px rgba(255,255,255,0.8)', cursor: 'pointer',
 };
 const plNameStyle: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: colors.textPrimary, textAlign: 'center' };
 const plCountStyle: React.CSSProperties = { fontSize: 10, color: colors.textSecondary };
+const gearBtnStyle: React.CSSProperties = {
+  position: 'absolute', top: 8, right: 8,
+  width: 26, height: 26, borderRadius: '50%',
+  background: 'rgba(255,255,255,0.8)', border: '1px solid rgba(255,255,255,0.7)',
+  cursor: 'pointer',
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+  boxShadow: '2px 2px 5px rgba(174,164,204,0.18), -1px -1px 3px rgba(255,255,255,0.9)',
+  transition: 'opacity 0.2s ease-out',
+};
