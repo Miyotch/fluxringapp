@@ -238,6 +238,7 @@ function SliderRow({
           max={100}
           value={value}
           onChange={(e) => onChange(Number(e.target.value))}
+          className="gradient-slider"
           style={sliderInputStyle}
         />
         <span style={sliderEndLabelStyle}>{rightLabel}</span>
@@ -320,23 +321,23 @@ const tagStyle: React.CSSProperties = {
 
 /* Slider */
 const sliderContainerStyle: React.CSSProperties = {
-  marginBottom: 16,
+  marginBottom: 20,
 };
 const sliderLabelStyle: React.CSSProperties = {
-  fontSize: 12, fontWeight: 600, color: colors.textPrimary, marginBottom: 6,
+  fontSize: 12, fontWeight: 600, color: colors.textPrimary, marginBottom: 10,
 };
 const sliderTrackRowStyle: React.CSSProperties = {
-  display: 'flex', alignItems: 'center', gap: 10,
+  display: 'flex', alignItems: 'center', gap: 14,
 };
 const sliderEndLabelStyle: React.CSSProperties = {
-  fontSize: 10, color: colors.textSecondary, width: 52, flexShrink: 0,
+  fontSize: 11, fontWeight: 500, color: colors.textSecondary, width: 56, flexShrink: 0,
   textAlign: 'center',
 };
 const sliderInputStyle: React.CSSProperties = {
-  flex: 1, height: 4, appearance: 'none' as const,
-  background: 'rgba(145,120,189,0.2)', borderRadius: 2, outline: 'none',
-  accentColor: '#9178BD',
+  flex: 1,
 };
+
+/* Slider wrapper spacing */
 
 /* Advanced */
 const advancedToggleStyle: React.CSSProperties = {

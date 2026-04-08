@@ -69,3 +69,87 @@ html, body, #root {
   from { opacity: 0; }
   to   { opacity: 1; }
 }
+
+/* ── Gradient range slider (thicker track with purple gradient) ── */
+input[type="range"].gradient-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 10px;
+  border-radius: 6px;
+  background: linear-gradient(
+    90deg,
+    rgba(145, 120, 189, 0.18) 0%,
+    rgba(145, 120, 189, 0.38) 35%,
+    #b8a5d8 60%,
+    #9178BD 100%
+  );
+  outline: none;
+  box-shadow:
+    inset 1px 1px 3px rgba(145, 120, 189, 0.25),
+    inset -1px -1px 2px rgba(255, 255, 255, 0.6);
+  cursor: pointer;
+}
+
+/* WebKit thumb */
+input[type="range"].gradient-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, #fff, #e0d8f0 60%, #b8a5d8 100%);
+  border: 2px solid #9178BD;
+  cursor: grab;
+  box-shadow:
+    0 3px 8px rgba(145, 120, 189, 0.45),
+    0 1px 2px rgba(0, 0, 0, 0.1);
+  transition: transform 0.1s ease-out, box-shadow 0.15s;
+}
+
+input[type="range"].gradient-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.1);
+}
+
+input[type="range"].gradient-slider::-webkit-slider-thumb:active {
+  cursor: grabbing;
+  transform: scale(1.05);
+  box-shadow:
+    0 2px 5px rgba(145, 120, 189, 0.5),
+    0 0 0 4px rgba(145, 120, 189, 0.15);
+}
+
+/* Firefox thumb */
+input[type="range"].gradient-slider::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, #fff, #e0d8f0 60%, #b8a5d8 100%);
+  border: 2px solid #9178BD;
+  cursor: grab;
+  box-shadow:
+    0 3px 8px rgba(145, 120, 189, 0.45),
+    0 1px 2px rgba(0, 0, 0, 0.1);
+  transition: transform 0.1s ease-out;
+}
+
+input[type="range"].gradient-slider::-moz-range-thumb:hover {
+  transform: scale(1.1);
+}
+
+/* Firefox track */
+input[type="range"].gradient-slider::-moz-range-track {
+  width: 100%;
+  height: 10px;
+  border-radius: 6px;
+  background: linear-gradient(
+    90deg,
+    rgba(145, 120, 189, 0.18) 0%,
+    rgba(145, 120, 189, 0.38) 35%,
+    #b8a5d8 60%,
+    #9178BD 100%
+  );
+  box-shadow:
+    inset 1px 1px 3px rgba(145, 120, 189, 0.25),
+    inset -1px -1px 2px rgba(255, 255, 255, 0.6);
+}
