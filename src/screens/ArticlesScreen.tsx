@@ -42,7 +42,7 @@ export function ArticlesScreen() {
   return (
     <GradientBackground>
       <div style={pageStyle}>
-        <h1 style={headingStyle}>記事を読む</h1>
+        <h1 style={headingStyle}>Knowledge and Frequency</h1>
         <p style={subStyle}>サウンドと集中力に関する記事</p>
 
         <div style={articleListStyle}>
