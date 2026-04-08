@@ -166,7 +166,10 @@ export function PlaylistScreen() {
   );
 }
 
-const pageStyle: React.CSSProperties = { padding: '32px 28px', height: '100%', overflowY: 'auto' };
+const pageStyle: React.CSSProperties = {
+  padding: '32px 28px', height: '100%', overflowY: 'auto',
+  maxWidth: 900, margin: '0 auto', width: '100%',
+};
 const headingStyle: React.CSSProperties = { fontSize: 22, fontWeight: 700, color: colors.textPrimary, margin: '0 0 4px' };
 const subStyle: React.CSSProperties = { fontSize: 13, color: colors.textSecondary, margin: '0 0 24px' };
 const sectionStyle: React.CSSProperties = { marginBottom: 28 };
@@ -236,7 +239,11 @@ const addBtnStyle: React.CSSProperties = {
   borderRadius: 10, padding: '6px 12px', cursor: 'pointer',
   boxShadow: '2px 2px 6px rgba(174,164,204,0.15), -1px -1px 4px rgba(255,255,255,0.7)',
 };
-const plGridStyle: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: 14 };
+const plGridStyle: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(3, 1fr)',
+  gap: 14,
+};
 const plCardStyle: React.CSSProperties = {
   display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, padding: '16px 8px', borderRadius: 16,
   background: 'rgba(255,255,255,0.55)', border: '1px solid rgba(255,255,255,0.65)',
