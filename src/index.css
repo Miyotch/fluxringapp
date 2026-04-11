@@ -103,7 +103,7 @@ html, body, #root {
   100% { opacity: 0; transform: translateY(6px); }
 }
 
-/* ── Gradient range slider (thicker track with purple gradient) ── */
+/* ── Gradient range slider (white left → multi-hue fluffy gradient right) ── */
 input[type="range"].gradient-slider {
   -webkit-appearance: none;
   appearance: none;
@@ -112,15 +112,17 @@ input[type="range"].gradient-slider {
   border-radius: 6px;
   background: linear-gradient(
     90deg,
-    rgba(145, 120, 189, 0.18) 0%,
-    rgba(145, 120, 189, 0.38) 35%,
-    #b8a5d8 60%,
-    #9178BD 100%
+    #ffffff 0%,
+    #ffffff 44%,
+    #dcd1ee 55%,
+    #b49ada 68%,
+    #9178BD 82%,
+    #c48cc8 100%
   );
   outline: none;
   box-shadow:
-    inset 1px 1px 3px rgba(145, 120, 189, 0.25),
-    inset -1px -1px 2px rgba(255, 255, 255, 0.6);
+    inset 1px 1px 3px rgba(180, 170, 210, 0.22),
+    inset -1px -1px 2px rgba(255, 255, 255, 0.75);
   cursor: pointer;
 }
 
@@ -177,12 +179,14 @@ input[type="range"].gradient-slider::-moz-range-track {
   border-radius: 6px;
   background: linear-gradient(
     90deg,
-    rgba(145, 120, 189, 0.18) 0%,
-    rgba(145, 120, 189, 0.38) 35%,
-    #b8a5d8 60%,
-    #9178BD 100%
+    #ffffff 0%,
+    #ffffff 44%,
+    #dcd1ee 55%,
+    #b49ada 68%,
+    #9178BD 82%,
+    #c48cc8 100%
   );
   box-shadow:
-    inset 1px 1px 3px rgba(145, 120, 189, 0.25),
-    inset -1px -1px 2px rgba(255, 255, 255, 0.6);
+    inset 1px 1px 3px rgba(180, 170, 210, 0.22),
+    inset -1px -1px 2px rgba(255, 255, 255, 0.75);
 }
