@@ -7,17 +7,17 @@ import {
   IoInformationCircleOutline,
   IoLogOutOutline,
   IoChevronForward,
-  IoMailOutline,
 } from 'react-icons/io5';
 import { GradientBackground } from '../components/ui/GradientBackground';
 import { colors } from '../theme/colors';
+import { useAuth } from '../hooks/useAuth';
+import { signOut } from '../services/auth';
 
-const settingsGroups = [
+const basicGroups = [
   {
     title: 'アカウント',
     items: [
       { icon: IoPersonCircleOutline, label: 'プロフィール編集', desc: '名前・アバターの変更' },
-      { icon: IoMailOutline, label: 'メールアドレス', desc: 'example@fluxring.app' },
     ],
   },
   {
@@ -32,12 +32,28 @@ const settingsGroups = [
     title: 'その他',
     items: [
       { icon: IoInformationCircleOutline, label: 'アプリについて', desc: 'バージョン 1.0.0' },
-      { icon: IoLogOutOutline, label: 'ログアウト', desc: '' },
     ],
   },
 ];
 
 export function SettingsScreen() {
+  const { user } = useAuth();
+
+  const displayName =
+    user?.displayName ||
+    user?.email?.split('@')[0] ||
+    (user?.isAnonymous ? 'ゲストユーザー' : 'Flux Ringユーザー');
+  const displayEmail = user?.email || (user?.isAnonymous ? '匿名セッション' : '');
+
+  const handleLogout = async () => {
+    if (!window.confirm('ログアウトしますか？')) return;
+    try {
+      await signOut();
+    } catch (err) {
+      console.error('Logout failed', err);
+    }
+  };
+
   return (
     <GradientBackground>
       <div style={pageStyle}>
@@ -47,16 +63,24 @@ export function SettingsScreen() {
         {/* Profile card */}
         <div style={profileCardStyle}>
           <div style={avatarStyle}>
-            <IoPersonCircleOutline size={44} color={colors.primary} />
+            {user?.photoURL ? (
+              <img
+                src={user.photoURL}
+                alt={displayName}
+                style={{ width: 44, height: 44, borderRadius: '50%', objectFit: 'cover' }}
+              />
+            ) : (
+              <IoPersonCircleOutline size={44} color={colors.primary} />
+            )}
           </div>
-          <div>
-            <div style={profileNameStyle}>ゲストユーザー</div>
-            <div style={profileEmailStyle}>ログインしていません</div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={profileNameStyle}>{displayName}</div>
+            <div style={profileEmailStyle}>{displayEmail}</div>
           </div>
         </div>
 
         {/* Settings groups */}
-        {settingsGroups.map((group) => (
+        {basicGroups.map((group) => (
           <div key={group.title} style={groupStyle}>
             <h2 style={groupTitleStyle}>{group.title}</h2>
             <div style={groupCardStyle}>
@@ -76,10 +100,29 @@ export function SettingsScreen() {
             </div>
           </div>
         ))}
+
+        {/* Logout */}
+        <div style={groupStyle}>
+          <div style={groupCardStyle}>
+            <button type="button" onClick={handleLogout} style={logoutBtnStyle}>
+              <IoLogOutOutline size={20} color="#c25a65" />
+              <div style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
+                <div style={{ ...rowLabelStyle, color: '#c25a65' }}>ログアウト</div>
+                <div style={rowDescStyle}>現在のアカウントからサインアウトします</div>
+              </div>
+              <IoChevronForward size={16} color={colors.tabInactive} />
+            </button>
+          </div>
+        </div>
       </div>
     </GradientBackground>
   );
 }
+
+const logoutBtnStyle: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', cursor: 'pointer',
+  width: '100%', background: 'transparent', border: 'none',
+};
 
 const pageStyle: React.CSSProperties = {
   padding: '32px 28px', height: '100%', overflowY: 'auto',
