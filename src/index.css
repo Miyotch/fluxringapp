@@ -190,3 +190,91 @@ input[type="range"].gradient-slider::-moz-range-track {
     inset 1px 1px 3px rgba(180, 170, 210, 0.22),
     inset -1px -1px 2px rgba(255, 255, 255, 0.75);
 }
+
+/* ────────────────────────────────────────────────────────────
+ * Home dashboard ambient animations
+ * 1) Aurora sweep — two diagonal light bands flow across bg
+ * 2) Aurora orbs  — soft blurred colored blobs drift
+ * 3) Breathing glow — purple boa halo behind each thumbnail
+ * ──────────────────────────────────────────────────────────── */
+
+.aurora-sweep {
+  position: absolute;
+  inset: -60% -20%;
+  pointer-events: none;
+  z-index: 0;
+}
+.aurora-band {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    105deg,
+    transparent             0%,
+    transparent            28%,
+    rgba(220, 210, 255, 0)  30%,
+    rgba(230, 218, 255, 0.28) 34%,
+    rgba(210, 190, 255, 0.34) 38%,
+    rgba(245, 235, 255, 0.22) 42%,
+    rgba(220, 210, 255, 0)  46%,
+    transparent           100%
+  );
+  animation: sweepMove 18s linear infinite;
+  will-change: transform;
+}
+.aurora-band-b {
+  animation-delay: -9s;
+  background: linear-gradient(
+    105deg,
+    transparent             0%,
+    transparent            28%,
+    rgba(200, 195, 255, 0)  30%,
+    rgba(215, 205, 255, 0.22) 34%,
+    rgba(195, 178, 255, 0.3) 38%,
+    rgba(230, 222, 255, 0.18) 42%,
+    rgba(200, 195, 255, 0)  46%,
+    transparent           100%
+  );
+}
+@keyframes sweepMove {
+  0%   { transform: translateX(-55%) translateY(15%); }
+  100% { transform: translateX( 55%) translateY(-15%); }
+}
+
+.aurora-orb {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  filter: blur(42px);
+  animation: orbDrift var(--od, 18s) var(--odel, 0s) ease-in-out infinite alternate;
+}
+@keyframes orbDrift {
+  0%   { opacity: 0;   transform: translate(0, 0) scale(1); }
+  15%  { opacity: 1; }
+  85%  { opacity: 1; }
+  100% { opacity: 0.4; transform: translate(30px, -20px) scale(1.15); }
+}
+
+/* Breathing purple halo behind track thumbnails */
+.thumb-glow-ring {
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  pointer-events: none;
+  animation: breatheSlow var(--period, 9s) var(--phase, 0s) ease-in-out infinite;
+  z-index: 0;
+}
+@keyframes breatheSlow {
+  0%, 100% {
+    box-shadow:
+      0 0 6px 2px rgba(170, 130, 255, 0.12),
+      0 0 14px 5px rgba(150, 110, 240, 0.06);
+    opacity: 0.35;
+  }
+  50% {
+    box-shadow:
+      0 0 20px 7px rgba(180, 140, 255, 0.55),
+      0 0 40px 14px rgba(160, 120, 240, 0.3),
+      0 0 60px 22px rgba(140, 100, 220, 0.14);
+    opacity: 1;
+  }
+}

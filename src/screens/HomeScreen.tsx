@@ -88,6 +88,46 @@ export function HomeScreen({ searchOpen = false }: HomeScreenProps) {
 
   return (
     <GradientBackground>
+      {/* Aurora sweep bands — two staggered diagonal light streams */}
+      <div className="aurora-sweep">
+        <div className="aurora-band" />
+        <div className="aurora-band aurora-band-b" />
+      </div>
+
+      {/* Soft blurred color orbs drifting in background */}
+      <div
+        className="aurora-orb"
+        style={{
+          width: 220, height: 140, top: '6%', left: '54%',
+          background: 'rgba(200, 170, 255, 0.32)',
+          ['--od' as any]: '22s', ['--odel' as any]: '0s',
+        }}
+      />
+      <div
+        className="aurora-orb"
+        style={{
+          width: 170, height: 110, top: '52%', left: '60%',
+          background: 'rgba(160, 200, 255, 0.26)',
+          ['--od' as any]: '18s', ['--odel' as any]: '-6s',
+        }}
+      />
+      <div
+        className="aurora-orb"
+        style={{
+          width: 130, height: 90, top: '72%', left: '46%',
+          background: 'rgba(220, 180, 255, 0.28)',
+          ['--od' as any]: '25s', ['--odel' as any]: '-12s',
+        }}
+      />
+      <div
+        className="aurora-orb"
+        style={{
+          width: 100, height: 70, top: '16%', left: '80%',
+          background: 'rgba(180, 220, 200, 0.22)',
+          ['--od' as any]: '20s', ['--odel' as any]: '-4s',
+        }}
+      />
+
       <div style={containerStyle}>
         <div style={trackListStyle}>
           {loading && (
@@ -156,6 +196,8 @@ const containerStyle: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'row',
   height: '100%',
+  position: 'relative',
+  zIndex: 1,
 };
 
 const trackListStyle: React.CSSProperties = {

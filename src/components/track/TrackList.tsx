@@ -27,12 +27,13 @@ export function TrackList({
 }: TrackListProps) {
   return (
     <div className={styles.list}>
-      {tracks.map((track) => {
+      {tracks.map((track, index) => {
         const isCurrent = track.id === currentTrackId;
         return (
           <TrackCard
             key={track.id}
             track={track}
+            index={index}
             isPlaying={isCurrent && isPlaying}
             analyserNode={isCurrent && isPlaying ? analyserNode : null}
             isFavorite={favorites.includes(track.id)}
