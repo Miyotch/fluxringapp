@@ -1,5 +1,4 @@
 import React, { useState, useCallback } from 'react';
-import { FaGoogle, FaApple, FaFacebookF } from 'react-icons/fa';
 import { IoMailOutline, IoLockClosedOutline } from 'react-icons/io5';
 import {
   signInWithEmail,
@@ -175,7 +174,13 @@ export function LoginScreen() {
   );
 }
 
-/* ── Social button ── */
+/* ── Social button (official brand logos) ── */
+const BRAND_LOGOS: Record<Provider, { src: string; label: string; size: number }> = {
+  google: { src: '/brand/google.svg', label: 'Google', size: 22 },
+  apple: { src: '/brand/apple.svg', label: 'Apple', size: 22 },
+  facebook: { src: '/brand/facebook.svg', label: 'Facebook', size: 22 },
+};
+
 function SocialButton({
   provider,
   busy,
@@ -185,11 +190,7 @@ function SocialButton({
   busy: null | Provider | 'email';
   onClick: () => void;
 }) {
-  const config = {
-    google: { icon: <FaGoogle size={18} color="#DB4437" />, label: 'Google' },
-    apple: { icon: <FaApple size={20} color="#111" />, label: 'Apple' },
-    facebook: { icon: <FaFacebookF size={18} color="#1877F2" />, label: 'Facebook' },
-  }[provider];
+  const config = BRAND_LOGOS[provider];
   const isBusy = busy === provider;
   const disabled = busy !== null;
 
@@ -205,7 +206,16 @@ function SocialButton({
       }}
       aria-label={`${config.label}でログイン`}
     >
-      <span style={socialIconWrapStyle}>{config.icon}</span>
+      <span style={socialIconWrapStyle}>
+        <img
+          src={config.src}
+          alt=""
+          width={config.size}
+          height={config.size}
+          style={{ display: 'block' }}
+          draggable={false}
+        />
+      </span>
       <span style={socialLabelStyle}>{isBusy ? '処理中...' : config.label}</span>
     </button>
   );
