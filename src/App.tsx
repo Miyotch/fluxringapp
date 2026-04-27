@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { TabNavigator } from './navigation/TabNavigator';
 import { HomeScreen } from './screens/HomeScreen';
 import { LoginScreen } from './screens/LoginScreen';
+import { SetupUsernameScreen } from './screens/SetupUsernameScreen';
 
 import { PlaylistScreen } from './screens/PlaylistScreen';
 import { ArticlesScreen } from './screens/ArticlesScreen';
@@ -10,16 +11,22 @@ import { NotificationsScreen } from './screens/NotificationsScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { AdminScreen } from './screens/admin/AdminScreen';
 import { useAuth } from './hooks/useAuth';
+import { useUserPlan } from './hooks/useUserPlan';
 
 export default function App() {
-  const { user, loading } = useAuth();
+  const { user, loading: authLoading } = useAuth();
+  const { needsUsername, loading: planLoading } = useUserPlan();
 
-  if (loading) {
+  if (authLoading || (user && planLoading)) {
     return <div style={splashStyle} />;
   }
 
   if (!user) {
     return <LoginScreen />;
+  }
+
+  if (needsUsername) {
+    return <SetupUsernameScreen />;
   }
 
   return (
