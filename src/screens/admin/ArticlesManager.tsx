@@ -164,49 +164,72 @@ function ArticleEditor({
   };
 
   return (
-    <form onSubmit={handleSave} style={editorFormStyle}>
-      <div style={editorHeaderStyle}>
-        <h3 style={editorTitleStyle}>{article ? '記事を編集' : '新規記事'}</h3>
-        <button type="button" onClick={onDone} style={editorCancelStyle}>キャンセル</button>
+    <div style={editorWrapStyle}>
+      {/* Left: form */}
+      <form onSubmit={handleSave} style={editorFormStyle}>
+        <div style={editorHeaderStyle}>
+          <h3 style={editorTitleStyle}>{article ? '記事を編集' : '新規記事'}</h3>
+          <button type="button" onClick={onDone} style={editorCancelStyle}>キャンセル</button>
+        </div>
+
+        <label style={fieldLabelStyle}>
+          タイトル
+          <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} required style={fieldInputStyle} placeholder="記事タイトル" />
+        </label>
+
+        <label style={fieldLabelStyle}>
+          公開日
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={fieldInputStyle} />
+        </label>
+
+        <label style={fieldLabelStyle}>
+          サムネイルURL
+          <input type="url" value={thumbnailUrl} onChange={(e) => setThumbnailUrl(e.target.value)} style={fieldInputStyle} placeholder="https://..." />
+        </label>
+
+        <label style={fieldLabelStyle}>
+          本文
+          <textarea
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            rows={14}
+            style={textareaStyle}
+            placeholder="Markdown / HTMLで記述できます"
+          />
+        </label>
+
+        <label style={checkLabelStyle}>
+          <input type="checkbox" checked={pinned} onChange={(e) => setPinned(e.target.checked)} />
+          <IoPin size={14} color={pinned ? '#FFB33C' : colors.textSecondary} />
+          上部に固定する
+        </label>
+
+        <button type="submit" disabled={busy} style={saveBtnStyle}>
+          {busy ? '保存中...' : article ? '更新する' : '投稿する'}
+        </button>
+      </form>
+
+      {/* Right: live preview */}
+      <div style={previewPanelStyle}>
+        <div style={previewLabelStyle}>プレビュー</div>
+        <div style={previewCardStyle}>
+          {thumbnailUrl && (
+            <img src={thumbnailUrl} alt="" style={previewThumbStyle} />
+          )}
+          <div style={previewDateStyle}>{date}</div>
+          <h2 style={previewHeadingStyle}>{title || '（タイトル未入力）'}</h2>
+          <div
+            style={previewBodyStyle}
+            dangerouslySetInnerHTML={{ __html: body || '<span style="color:#aaa">本文がここに表示されます...</span>' }}
+          />
+          {pinned && (
+            <div style={previewPinBadgeStyle}>
+              <IoPin size={12} color="#fff" /> 固定記事
+            </div>
+          )}
+        </div>
       </div>
-
-      <label style={fieldLabelStyle}>
-        タイトル
-        <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} required style={fieldInputStyle} placeholder="記事タイトル" />
-      </label>
-
-      <label style={fieldLabelStyle}>
-        公開日
-        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={fieldInputStyle} />
-      </label>
-
-      <label style={fieldLabelStyle}>
-        サムネイルURL
-        <input type="url" value={thumbnailUrl} onChange={(e) => setThumbnailUrl(e.target.value)} style={fieldInputStyle} placeholder="https://..." />
-      </label>
-      {thumbnailUrl && <img src={thumbnailUrl} alt="preview" style={thumbPreviewStyle} />}
-
-      <label style={fieldLabelStyle}>
-        本文
-        <textarea
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-          rows={12}
-          style={textareaStyle}
-          placeholder="Markdown / HTMLで記述できます"
-        />
-      </label>
-
-      <label style={checkLabelStyle}>
-        <input type="checkbox" checked={pinned} onChange={(e) => setPinned(e.target.checked)} />
-        <IoPin size={14} color={pinned ? '#FFB33C' : colors.textSecondary} />
-        上部に固定する
-      </label>
-
-      <button type="submit" disabled={busy} style={saveBtnStyle}>
-        {busy ? '保存中...' : article ? '更新する' : '投稿する'}
-      </button>
-    </form>
+    </div>
   );
 }
 
@@ -248,8 +271,12 @@ const iconBtn: React.CSSProperties = {
   background: 'rgba(255,255,255,0.5)',
 };
 
-/* Editor */
+/* Editor wrapper: side-by-side */
+const editorWrapStyle: React.CSSProperties = {
+  display: 'flex', gap: 20, alignItems: 'flex-start',
+};
 const editorFormStyle: React.CSSProperties = {
+  flex: '1 1 50%', minWidth: 0,
   display: 'flex', flexDirection: 'column', gap: 14,
   padding: '20px 22px', borderRadius: 16,
   background: 'rgba(255,255,255,0.65)', border: '1px solid rgba(255,255,255,0.7)',
@@ -278,9 +305,6 @@ const textareaStyle: React.CSSProperties = {
   ...fieldInputStyle,
   resize: 'vertical' as const, fontFamily: 'inherit', lineHeight: 1.7,
 };
-const thumbPreviewStyle: React.CSSProperties = {
-  width: 120, height: 80, objectFit: 'cover', borderRadius: 8,
-};
 const checkLabelStyle: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 6,
   fontSize: 12, fontWeight: 500, color: colors.textPrimary, cursor: 'pointer',
@@ -290,4 +314,41 @@ const saveBtnStyle: React.CSSProperties = {
   background: `linear-gradient(135deg, #a388c8, ${colors.primary})`,
   color: '#fff', fontSize: 13, fontWeight: 600,
   boxShadow: '0 3px 10px rgba(145,120,189,0.3)',
+};
+
+/* Preview panel */
+const previewPanelStyle: React.CSSProperties = {
+  flex: '1 1 50%', minWidth: 0,
+  position: 'sticky', top: 24,
+};
+const previewLabelStyle: React.CSSProperties = {
+  fontSize: 11, fontWeight: 600, color: colors.textSecondary,
+  textTransform: 'uppercase', letterSpacing: '0.06em',
+  marginBottom: 8,
+};
+const previewCardStyle: React.CSSProperties = {
+  borderRadius: 16, padding: '22px 24px',
+  background: 'rgba(255,255,255,0.75)', border: '1px solid rgba(255,255,255,0.7)',
+  boxShadow: '3px 3px 10px rgba(174,164,204,0.12), -2px -2px 6px rgba(255,255,255,0.7)',
+  maxHeight: '75vh', overflowY: 'auto',
+};
+const previewThumbStyle: React.CSSProperties = {
+  width: '100%', maxHeight: 200, objectFit: 'cover', borderRadius: 10, marginBottom: 14,
+};
+const previewDateStyle: React.CSSProperties = {
+  fontSize: 11, color: colors.textSecondary, marginBottom: 6,
+};
+const previewHeadingStyle: React.CSSProperties = {
+  fontSize: 18, fontWeight: 700, color: colors.textPrimary, margin: '0 0 14px',
+  lineHeight: 1.4,
+};
+const previewBodyStyle: React.CSSProperties = {
+  fontSize: 13, color: colors.textPrimary, lineHeight: 1.8,
+  wordBreak: 'break-word',
+};
+const previewPinBadgeStyle: React.CSSProperties = {
+  display: 'inline-flex', alignItems: 'center', gap: 4,
+  marginTop: 16, padding: '4px 12px', borderRadius: 16,
+  background: 'linear-gradient(135deg, #FFD54A, #FFB33C)',
+  color: '#fff', fontSize: 10, fontWeight: 700,
 };
