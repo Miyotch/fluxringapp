@@ -37,10 +37,10 @@ export function UsersManager() {
       const db = getFirestore();
       let q = query(
         collection(db, 'users'),
-        orderBy('createdAt', 'desc'),
+        orderBy('created_time', 'desc'),
         limit(PAGE_SIZE + 1),
       );
-      if (cursor) q = query(collection(db, 'users'), orderBy('createdAt', 'desc'), startAfter(cursor), limit(PAGE_SIZE + 1));
+      if (cursor) q = query(collection(db, 'users'), orderBy('created_time', 'desc'), startAfter(cursor), limit(PAGE_SIZE + 1));
 
       const snap = await getDocs(q);
       const docs: UserDoc[] = snap.docs.slice(0, PAGE_SIZE).map((d) => {
@@ -51,7 +51,7 @@ export function UsersManager() {
           displayName: data.displayName ?? '',
           plan: data.user_type ?? 'free',
           admin: data.admin === true,
-          createdAt: data.createdAt?.toDate?.() ?? null,
+          createdAt: (data.created_time ?? data.createdAt)?.toDate?.() ?? null,
         };
       });
       setUsers(docs);

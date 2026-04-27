@@ -136,7 +136,7 @@ export async function syncUserProfile(user: User): Promise<void> {
       providers: providerIds,
       user_type: 'free',
       admin: false,
-      createdAt: serverTimestamp(),
+      created_time: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
   } else {
