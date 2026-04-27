@@ -17,7 +17,7 @@ import { GradientBackground } from '../components/ui/GradientBackground';
 import { colors } from '../theme/colors';
 import { useAuth } from '../hooks/useAuth';
 import { useUserPlan } from '../hooks/useUserPlan';
-import { signOut, readableAuthError } from '../services/auth';
+import { signOut, readableAuthError, hasPasswordProvider } from '../services/auth';
 import {
   updatePassword,
   updateEmail,
@@ -198,6 +198,7 @@ function ModalOverlay({ children, onClose }: { children: React.ReactNode; onClos
 export function SettingsScreen() {
   const { user } = useAuth();
   const { planName, isAdmin } = useUserPlan();
+  const isEmailUser = hasPasswordProvider(user);
   const [modal, setModal] = useState<'password' | 'email' | 'delete' | null>(null);
   const navigate = useNavigate();
 
@@ -242,8 +243,10 @@ export function SettingsScreen() {
         <div style={groupStyle}>
           <h2 style={groupTitleStyle}>アカウント</h2>
           <div style={groupCardStyle}>
-            <SettingRow icon={IoMailOutline} label="メールアドレス変更" desc={user?.email ?? ''} onClick={() => setModal('email')} />
-            <SettingRow icon={IoLockClosedOutline} label="パスワード変更" last onClick={() => setModal('password')} />
+            <SettingRow icon={IoMailOutline} label="メールアドレス変更" desc={user?.email ?? ''} last={!isEmailUser} onClick={() => setModal('email')} />
+            {isEmailUser && (
+              <SettingRow icon={IoLockClosedOutline} label="パスワード変更" last onClick={() => setModal('password')} />
+            )}
           </div>
         </div>
 

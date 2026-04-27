@@ -17,15 +17,17 @@ const PLAN_NAMES: Record<PlanId, string> = {
   premium: 'プレミアム（¥2,980/月）',
 };
 
+const VALID_PLANS: PlanId[] = ['free', 'standard', 'premium'];
+
 export function useUserPlan(): UserPlan {
   const { user } = useAuth();
-  const [planId, setPlanId] = useState<PlanId>('standard');
+  const [planId, setPlanId] = useState<PlanId>('free');
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!user) {
-      setPlanId('standard');
+      setPlanId('free');
       setIsAdmin(false);
       setLoading(false);
       return;
@@ -34,16 +36,14 @@ export function useUserPlan(): UserPlan {
       doc(getFirestore(), 'users', user.uid),
       (snap) => {
         const data = snap.data();
-        const raw = data?.plan ?? data?.planId ?? 'standard';
-        const id = (['free', 'standard', 'premium'] as PlanId[]).includes(raw)
-          ? (raw as PlanId)
-          : 'standard';
+        const raw = data?.user_type ?? 'free';
+        const id = VALID_PLANS.includes(raw) ? (raw as PlanId) : 'free';
         setPlanId(id);
         setIsAdmin(data?.admin === true);
         setLoading(false);
       },
       () => {
-        setPlanId('standard');
+        setPlanId('free');
         setIsAdmin(false);
         setLoading(false);
       },
