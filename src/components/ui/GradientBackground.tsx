@@ -15,5 +15,7 @@ export function GradientBackground({ children }: GradientBackgroundProps) {
 const bgStyle: React.CSSProperties = {
   flex: 1,
   height: '100%',
+  position: 'relative',
+  overflow: 'hidden',
   background: 'linear-gradient(180deg, #E6EBF1 0%, #dde3ed 50%, #E6EBF1 100%)',
 };

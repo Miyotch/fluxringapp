@@ -12,6 +12,7 @@ import styles from './TrackCard.module.css';
 
 interface TrackCardProps {
   track: Track;
+  index?: number;
   isPlaying: boolean;
   analyserNode: AnalyserNode | null;
   onPlay: () => void;
@@ -68,6 +69,7 @@ function WaveformDots({ analyserNode }: { analyserNode: AnalyserNode | null }) {
 
 export function TrackCard({
   track,
+  index = 0,
   isPlaying,
   analyserNode,
   onPlay,
@@ -76,6 +78,10 @@ export function TrackCard({
   onFavorite,
   isFavorite,
 }: TrackCardProps) {
+  // Per-track phase & period so each thumbnail breathes independently
+  const period = (8.5 + ((index * 0.7) % 2)).toFixed(2) + 's';
+  const phase = (-(index * 1.9) % 10).toFixed(2) + 's';
+
   return (
     <div
       className={`${styles.card} ${isPlaying ? styles.cardActive : ''}`}
@@ -84,6 +90,10 @@ export function TrackCard({
     >
       {/* Artwork */}
       <div className={styles.artworkContainer}>
+        <div
+          className="thumb-glow-ring"
+          style={{ ['--period' as any]: period, ['--phase' as any]: phase }}
+        />
         <div className={styles.artworkRing}>
           {track.artworkUrl ? (
             <img
