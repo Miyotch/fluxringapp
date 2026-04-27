@@ -166,6 +166,16 @@ export function LoginScreen() {
           />
         </div>
 
+        <div style={commercialNoticeBoxStyle}>
+          <strong style={commercialNoticeTitleStyle}>商用利用に関する注意事項</strong>
+          <p style={commercialNoticeTextStyle}>
+            Flux Ring で配信される楽曲の商用利用（店舗BGM・広告・映像制作など）には、
+            プレミアムプラン（¥2,980/月）へのご加入が必要です。
+            スタンダードプランおよび無料プランでの商用利用は許可されておりません。
+            詳しくは利用規約をご確認ください。
+          </p>
+        </div>
+
         <p style={termsStyle}>
           続行することで、利用規約およびプライバシーポリシーに同意したものとみなされます。
         </p>
@@ -412,8 +422,29 @@ const socialLabelStyle: React.CSSProperties = {
   letterSpacing: '0.03em',
 };
 
+const commercialNoticeBoxStyle: React.CSSProperties = {
+  marginTop: 18,
+  padding: '12px 14px',
+  borderRadius: 10,
+  background: 'rgba(145, 120, 189, 0.06)',
+  border: '1px solid rgba(145, 120, 189, 0.15)',
+};
+const commercialNoticeTitleStyle: React.CSSProperties = {
+  display: 'block',
+  fontSize: 11,
+  fontWeight: 700,
+  color: colors.textPrimary,
+  marginBottom: 4,
+};
+const commercialNoticeTextStyle: React.CSSProperties = {
+  fontSize: 10,
+  color: colors.textSecondary,
+  lineHeight: 1.7,
+  margin: 0,
+};
+
 const termsStyle: React.CSSProperties = {
-  marginTop: 16,
+  marginTop: 12,
   fontSize: 10,
   color: colors.textSecondary,
   textAlign: 'center',

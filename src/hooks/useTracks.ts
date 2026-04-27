@@ -15,6 +15,7 @@ const SAMPLE_TRACKS: Track[] = [
       '穏やかなメロディが低周波ノイズ（交通音など）を包み込み、集中状態へ導きます。',
     createdAt: new Date(),
     order: 1,
+    paidMusic: false,
   },
   {
     id: '2',
@@ -28,6 +29,7 @@ const SAMPLE_TRACKS: Track[] = [
       '優しいピアノと自然音が、近くの会話ノイズを穏やかな音色に置き換えます。',
     createdAt: new Date(),
     order: 2,
+    paidMusic: false,
   },
   {
     id: '3',
@@ -41,6 +43,7 @@ const SAMPLE_TRACKS: Track[] = [
       '爽やかな透明感が耳障りな高音ノイズ（キーボード音）をかき消し、思考をクリアにします。',
     createdAt: new Date(),
     order: 3,
+    paidMusic: false,
   },
   {
     id: '4',
@@ -54,6 +57,7 @@ const SAMPLE_TRACKS: Track[] = [
       '暖かな音の層が突発的な騒音（ドアの開閉など）を和らげ、安心感のある空間を作ります。',
     createdAt: new Date(),
     order: 4,
+    paidMusic: false,
   },
   {
     id: '5',
@@ -67,6 +71,7 @@ const SAMPLE_TRACKS: Track[] = [
       'ミニマルな静謐さが、静かな場所での小さな物音の意識を遠ざけ、集中を維持します。',
     createdAt: new Date(),
     order: 5,
+    paidMusic: false,
   },
 ];
 

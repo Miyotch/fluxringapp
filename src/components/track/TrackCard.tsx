@@ -5,6 +5,7 @@ import {
   IoAdd,
   IoHeartOutline,
   IoHeart,
+  IoLockClosed,
 } from 'react-icons/io5';
 import type { Track } from '../../types/track';
 import { formatDuration } from '../../types/track';
@@ -15,10 +16,12 @@ interface TrackCardProps {
   index?: number;
   isPlaying: boolean;
   analyserNode: AnalyserNode | null;
+  locked?: boolean;
   onPlay: () => void;
   onPreview: () => void;
   onAdd: () => void;
   onFavorite: () => void;
+  onLockTap?: () => void;
   isFavorite: boolean;
 }
 
@@ -72,20 +75,26 @@ export function TrackCard({
   index = 0,
   isPlaying,
   analyserNode,
+  locked = false,
   onPlay,
   onPreview,
   onAdd,
   onFavorite,
+  onLockTap,
   isFavorite,
 }: TrackCardProps) {
-  // Per-track phase & period so each thumbnail breathes independently
   const period = (8.5 + ((index * 0.7) % 2)).toFixed(2) + 's';
   const phase = (-(index * 1.9) % 10).toFixed(2) + 's';
+
+  const handleCardClick = () => {
+    if (locked && onLockTap) { onLockTap(); return; }
+    onPlay();
+  };
 
   return (
     <div
       className={`${styles.card} ${isPlaying ? styles.cardActive : ''}`}
-      onClick={onPlay}
+      onClick={handleCardClick}
       style={{ cursor: 'pointer' }}
     >
       {/* Artwork */}
@@ -100,9 +109,15 @@ export function TrackCard({
               src={track.artworkUrl}
               alt={track.title}
               className={styles.artwork}
+              style={locked ? { filter: 'brightness(0.7) grayscale(0.3)' } : undefined}
             />
           ) : (
             <div className={`${styles.artwork} ${styles.artworkPlaceholder}`} />
+          )}
+          {locked && (
+            <div className={styles.lockOverlay}>
+              <IoLockClosed size={22} color="#fff" />
+            </div>
           )}
         </div>
       </div>
