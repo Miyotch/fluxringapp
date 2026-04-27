@@ -53,6 +53,17 @@
   background: linear-gradient(135deg, #e0d8f0 0%, #c8bde5 50%, #d5cff0 100%);
 }
 
+.lockOverlay {
+  position: absolute;
+  inset: 4px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+}
+
 /* ── Content (right side) ── */
 .content {
   flex: 1;

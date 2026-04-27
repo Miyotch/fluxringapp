@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { GradientBackground } from '../components/ui/GradientBackground';
 import { TrackList } from '../components/track/TrackList';
@@ -6,9 +6,11 @@ import { FluxRingDial } from '../components/ring/FluxRingDial';
 import { NowPlaying } from '../components/player/NowPlaying';
 import { SearchModal } from '../components/search/SearchModal';
 import { PlaylistPickerModal } from '../components/playlist/PlaylistPickerModal';
+import { SubscriptionModal } from '../components/subscription/SubscriptionModal';
 import { useAudioPlayer } from '../components/player/useAudioPlayer';
 import { useTracks } from '../hooks/useTracks';
 import { usePlaylists } from '../hooks/usePlaylists';
+import { useUserPlan } from '../hooks/useUserPlan';
 import type { Track } from '../types/track';
 
 interface HomeScreenProps {
@@ -30,13 +32,21 @@ export function HomeScreen({ searchOpen = false }: HomeScreenProps) {
     toggleRepeat,
   } = useAudioPlayer();
   const { playlists, toggleFavorite, addTrack } = usePlaylists();
+  const { planId } = useUserPlan();
   const [amplitude, setAmplitude] = useState(1.0);
   const [showNowPlaying, setShowNowPlaying] = useState(false);
+  const [showSubscription, setShowSubscription] = useState(false);
   const [pickerTrack, setPickerTrack] = useState<Track | null>(null);
   const navigate = useNavigate();
 
   // Favorite IDs derived from the "favorites" playlist (live updates)
   const favoriteIds = playlists.find((p) => p.id === 'favorites')?.trackIds ?? [];
+
+  // Lock paid tracks for free users
+  const lockedTrackIds = useMemo(() => {
+    if (planId !== 'free') return undefined;
+    return new Set(tracks.filter((t) => t.paidMusic).map((t) => t.id));
+  }, [tracks, planId]);
 
   // Row click / play button: play the full track and open NowPlaying
   const handlePlayTrack = useCallback(
@@ -146,10 +156,12 @@ export function HomeScreen({ searchOpen = false }: HomeScreenProps) {
             isPlaying={isPlaying}
             analyserNode={analyserNode}
             favorites={favoriteIds}
+            lockedTrackIds={lockedTrackIds}
             onPlayTrack={handlePlayTrack}
             onPreviewTrack={handlePreviewTrack}
             onAddTrack={handleAddTrack}
             onToggleFavorite={handleToggleFavorite}
+            onLockTap={() => setShowSubscription(true)}
           />
         </div>
         <div style={dialContainerStyle}>
@@ -172,6 +184,11 @@ export function HomeScreen({ searchOpen = false }: HomeScreenProps) {
           onPick={handlePickPlaylist}
           onClose={() => setPickerTrack(null)}
         />
+      )}
+
+      {/* Subscription upsell modal (opens from locked track tap) */}
+      {showSubscription && (
+        <SubscriptionModal onClose={() => setShowSubscription(false)} />
       )}
 
       {/* Full-screen NowPlaying overlay */}

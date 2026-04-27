@@ -44,6 +44,7 @@ function docToTrack(d: import('firebase/firestore').QueryDocumentSnapshot): Trac
     description: data.comment ?? data.description ?? '',
     createdAt: data.createdAt?.toDate?.() ?? new Date(),
     order: data.level ?? data.order ?? 0,
+    paidMusic: data.paid_music === true,
   };
 }
 

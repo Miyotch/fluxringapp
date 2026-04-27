@@ -9,6 +9,7 @@ export interface Track {
   description: string;
   createdAt: Date;
   order: number;
+  paidMusic: boolean;
 }
 
 export interface Playlist {

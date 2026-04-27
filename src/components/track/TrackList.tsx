@@ -8,10 +8,12 @@ interface TrackListProps {
   isPlaying: boolean;
   analyserNode: AnalyserNode | null;
   favorites: string[];
+  lockedTrackIds?: Set<string>;
   onPlayTrack: (track: Track) => void;
   onPreviewTrack: (track: Track) => void;
   onAddTrack: (track: Track) => void;
   onToggleFavorite: (track: Track) => void;
+  onLockTap?: () => void;
 }
 
 export function TrackList({
@@ -20,15 +22,18 @@ export function TrackList({
   isPlaying,
   analyserNode,
   favorites,
+  lockedTrackIds,
   onPlayTrack,
   onPreviewTrack,
   onAddTrack,
   onToggleFavorite,
+  onLockTap,
 }: TrackListProps) {
   return (
     <div className={styles.list}>
       {tracks.map((track, index) => {
         const isCurrent = track.id === currentTrackId;
+        const isLocked = lockedTrackIds?.has(track.id) ?? false;
         return (
           <TrackCard
             key={track.id}
@@ -37,10 +42,12 @@ export function TrackList({
             isPlaying={isCurrent && isPlaying}
             analyserNode={isCurrent && isPlaying ? analyserNode : null}
             isFavorite={favorites.includes(track.id)}
+            locked={isLocked}
             onPlay={() => onPlayTrack(track)}
             onPreview={() => onPreviewTrack(track)}
             onAdd={() => onAddTrack(track)}
             onFavorite={() => onToggleFavorite(track)}
+            onLockTap={onLockTap}
           />
         );
       })}
