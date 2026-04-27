@@ -72,7 +72,6 @@ function WaveformDots({ analyserNode }: { analyserNode: AnalyserNode | null }) {
 
 export function TrackCard({
   track,
-  index = 0,
   isPlaying,
   analyserNode,
   locked = false,
@@ -83,8 +82,10 @@ export function TrackCard({
   onLockTap,
   isFavorite,
 }: TrackCardProps) {
-  const period = (8.5 + ((index * 0.7) % 2)).toFixed(2) + 's';
-  const phase = (-(index * 1.9) % 10).toFixed(2) + 's';
+  // Derive pseudo-random period & phase from track ID for organic feel
+  const hash = track.id.split('').reduce((h, c) => ((h << 5) - h + c.charCodeAt(0)) | 0, 0);
+  const period = (8.0 + Math.abs(hash % 370) / 100).toFixed(2) + 's';
+  const phase = (-Math.abs((hash * 2654435761) % 950) / 100).toFixed(2) + 's';
 
   const handleCardClick = () => {
     if (locked && onLockTap) { onLockTap(); return; }

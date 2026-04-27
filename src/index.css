@@ -278,3 +278,33 @@ input[type="range"].gradient-slider::-moz-range-track {
     opacity: 1;
   }
 }
+
+/* ────────────────────────────────────────────────────────────
+ * Responsive layout
+ * ──────────────────────────────────────────────────────────── */
+
+/* Narrow screens (phone portrait, ≤640px): stack vertically */
+@media (max-width: 640px) {
+  .home-container {
+    flex-direction: column !important;
+  }
+  .home-tracklist {
+    flex: 1 1 auto !important;
+    max-height: 55vh;
+  }
+  .home-dial {
+    flex: 0 0 auto !important;
+    height: 40vh;
+    min-height: 200px;
+  }
+}
+
+/* Medium screens (tablet portrait, 641–1024px) */
+@media (min-width: 641px) and (max-width: 1024px) {
+  .home-tracklist {
+    flex: 1 1 45% !important;
+  }
+  .home-dial {
+    flex: 1 1 55% !important;
+  }
+}

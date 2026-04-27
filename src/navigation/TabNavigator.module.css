@@ -68,3 +68,25 @@
   font-weight: 600;
   letter-spacing: 0.02em;
 }
+
+/* ── Responsive ── */
+@media (max-width: 640px) {
+  .tabBarOuter {
+    padding: 6px 12px 12px;
+  }
+  .tabBar {
+    height: 56px;
+    padding: 0 4px;
+    border-radius: 28px;
+    max-width: 100%;
+  }
+  .tabLabel {
+    font-size: 8px;
+  }
+}
+
+@media (min-width: 641px) and (max-width: 1024px) {
+  .tabBar {
+    max-width: 540px;
+  }
+}
