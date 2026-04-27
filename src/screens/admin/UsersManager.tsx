@@ -49,7 +49,7 @@ export function UsersManager() {
           id: d.id,
           email: data.email ?? '',
           displayName: data.displayName ?? '',
-          plan: data.plan ?? data.planId ?? 'standard',
+          plan: data.user_type ?? 'free',
           admin: data.admin === true,
           createdAt: data.createdAt?.toDate?.() ?? null,
         };

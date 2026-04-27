@@ -96,3 +96,10 @@ export function readableAuthError(err: unknown): string {
       return (err as { message?: string })?.message ?? 'ログインに失敗しました。';
   }
 }
+
+/* ── Helper: check if user signed in with email/password ── */
+
+export function hasPasswordProvider(user: User | null): boolean {
+  if (!user) return false;
+  return user.providerData.some((p) => p.providerId === 'password');
+}

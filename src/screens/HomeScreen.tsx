@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { GradientBackground } from '../components/ui/GradientBackground';
 import { TrackList } from '../components/track/TrackList';
@@ -94,7 +94,13 @@ export function HomeScreen({ searchOpen = false }: HomeScreenProps) {
     [pickerTrack, addTrack],
   );
 
-  const dialSize = Math.min(600, window.innerHeight - 80);
+  const [winSize, setWinSize] = useState({ w: window.innerWidth, h: window.innerHeight });
+  useEffect(() => {
+    const onResize = () => setWinSize({ w: window.innerWidth, h: window.innerHeight });
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+  const dialSize = Math.min(600, winSize.w * 0.45, winSize.h - 80);
 
   return (
     <GradientBackground>
@@ -138,8 +144,8 @@ export function HomeScreen({ searchOpen = false }: HomeScreenProps) {
         }}
       />
 
-      <div style={containerStyle}>
-        <div style={trackListStyle}>
+      <div className="home-container" style={containerStyle}>
+        <div className="home-tracklist" style={trackListStyle}>
           {loading && (
             <div style={{ padding: 24, color: 'rgba(160, 145, 195, 0.6)', textAlign: 'center' }}>
               読み込み中...
@@ -164,7 +170,7 @@ export function HomeScreen({ searchOpen = false }: HomeScreenProps) {
             onLockTap={() => setShowSubscription(true)}
           />
         </div>
-        <div style={dialContainerStyle}>
+        <div className="home-dial" style={dialContainerStyle}>
           <FluxRingDial
             size={dialSize}
             amplitude={amplitude}

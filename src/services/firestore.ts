@@ -7,11 +7,14 @@ import {
   getDocs,
   doc,
   getDoc,
+  setDoc,
   updateDoc,
   onSnapshot,
   arrayRemove,
   arrayUnion,
+  serverTimestamp,
 } from 'firebase/firestore';
+import type { User } from 'firebase/auth';
 import type { Track, Playlist, Article } from '../types/track';
 
 function db() {
@@ -111,5 +114,38 @@ export async function toggleFavorite(
     await updateDoc(userRef, { favorites: arrayRemove(trackId) });
   } else {
     await updateDoc(userRef, { favorites: arrayUnion(trackId) });
+  }
+}
+
+/**
+ * Sync authenticated user profile to Firestore users/{uid}.
+ * Creates the document if it doesn't exist (with user_type: 'free').
+ * Merges displayName / email / photoURL / provider on every login.
+ */
+export async function syncUserProfile(user: User): Promise<void> {
+  const userRef = doc(db(), 'users', user.uid);
+  const snap = await getDoc(userRef);
+
+  const providerIds = user.providerData.map((p) => p.providerId);
+
+  if (!snap.exists()) {
+    await setDoc(userRef, {
+      email: user.email ?? '',
+      displayName: user.displayName ?? '',
+      photoURL: user.photoURL ?? '',
+      providers: providerIds,
+      user_type: 'free',
+      admin: false,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+  } else {
+    await updateDoc(userRef, {
+      email: user.email ?? '',
+      displayName: user.displayName ?? '',
+      photoURL: user.photoURL ?? '',
+      providers: providerIds,
+      updatedAt: serverTimestamp(),
+    });
   }
 }
