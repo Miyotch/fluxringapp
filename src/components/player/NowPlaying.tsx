@@ -9,11 +9,13 @@ import {
   IoShuffle,
   IoClose,
   IoArrowForward,
+  IoDiamondOutline,
 } from 'react-icons/io5';
 import { FaCrown } from 'react-icons/fa';
 import type { Track } from '../../types/track';
 import { formatDuration } from '../../types/track';
 import { CustomOrderModal } from './CustomOrderModal';
+import { useUserPlan } from '../../hooks/useUserPlan';
 
 interface NowPlayingProps {
   track: Track;
@@ -38,6 +40,8 @@ export function NowPlaying({
   onSeek,
   onClose,
 }: NowPlayingProps) {
+  const { planId } = useUserPlan();
+  const isPremium = planId === 'premium';
   const [showUpsell, setShowUpsell] = useState(false);
   const [showOrderModal, setShowOrderModal] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
@@ -71,15 +75,29 @@ export function NowPlaying({
         <button onClick={handleClose} style={iconBtnStyle} type="button">
           <IoChevronBack size={24} color="#fff" />
         </button>
-        <button
-          onClick={() => setShowUpsell(true)}
-          style={crownBtnStyle}
-          type="button"
-          aria-label="カスタム制作を見る"
-        >
-          <FaCrown size={18} color="#FFD54A" />
-        </button>
+        {isPremium ? (
+          <div style={vipBadgeStyle}>
+            <IoDiamondOutline size={14} color="#fff" />
+            <span style={vipLabelStyle}>VIP</span>
+          </div>
+        ) : (
+          <button
+            onClick={() => setShowUpsell(true)}
+            style={crownBtnStyle}
+            type="button"
+            aria-label="カスタム制作を見る"
+          >
+            <FaCrown size={18} color="#FFD54A" />
+          </button>
+        )}
       </div>
+
+      {/* Commercial use notice (standard plan only) */}
+      {!isPremium && (
+        <div style={commercialNoticeStyle}>
+          商用利用はプレミアム機能限定です
+        </div>
+      )}
 
       {/* Spacer: pushes controls to bottom */}
       <div style={{ flex: 1 }} />
@@ -340,4 +358,26 @@ const upsellCtaStyle: React.CSSProperties = {
   color: '#2a2438', fontSize: 13, fontWeight: 700,
   boxShadow: '0 4px 14px rgba(255,180,50,0.4)',
   letterSpacing: '0.03em',
+};
+
+/* VIP badge for premium users */
+const vipBadgeStyle: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: 5,
+  padding: '6px 14px', borderRadius: 20,
+  background: 'linear-gradient(135deg, rgba(255,255,255,0.22), rgba(255,255,255,0.08))',
+  border: '1px solid rgba(255,255,255,0.35)',
+  backdropFilter: 'blur(8px)',
+};
+const vipLabelStyle: React.CSSProperties = {
+  fontSize: 11, fontWeight: 700, color: '#fff',
+  letterSpacing: '0.12em',
+};
+
+/* Commercial use notice for standard plan */
+const commercialNoticeStyle: React.CSSProperties = {
+  position: 'relative', zIndex: 1,
+  textAlign: 'center',
+  fontSize: 10, fontWeight: 500, letterSpacing: '0.03em',
+  color: 'rgba(255,255,255,0.55)',
+  padding: '0 24px',
 };
