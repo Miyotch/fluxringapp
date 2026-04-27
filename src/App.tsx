@@ -8,6 +8,7 @@ import { PlaylistScreen } from './screens/PlaylistScreen';
 import { ArticlesScreen } from './screens/ArticlesScreen';
 import { NotificationsScreen } from './screens/NotificationsScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
+import { AdminScreen } from './screens/admin/AdminScreen';
 import { useAuth } from './hooks/useAuth';
 
 export default function App() {
@@ -31,6 +32,7 @@ export default function App() {
           <Route path="articles" element={<ArticlesScreen />} />
           <Route path="notifications" element={<NotificationsScreen />} />
           <Route path="settings" element={<SettingsScreen />} />
+          <Route path="admin" element={<AdminScreen />} />
         </Route>
       </Routes>
     </BrowserRouter>

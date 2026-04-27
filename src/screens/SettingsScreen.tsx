@@ -10,7 +10,9 @@ import {
   IoChevronForward,
   IoShieldCheckmark,
   IoWarningOutline,
+  IoConstructOutline,
 } from 'react-icons/io5';
+import { useNavigate } from 'react-router-dom';
 import { GradientBackground } from '../components/ui/GradientBackground';
 import { colors } from '../theme/colors';
 import { useAuth } from '../hooks/useAuth';
@@ -195,8 +197,9 @@ function ModalOverlay({ children, onClose }: { children: React.ReactNode; onClos
 
 export function SettingsScreen() {
   const { user } = useAuth();
-  const { planName } = useUserPlan();
+  const { planName, isAdmin } = useUserPlan();
   const [modal, setModal] = useState<'password' | 'email' | 'delete' | null>(null);
+  const navigate = useNavigate();
 
   const displayName =
     user?.displayName ||
@@ -251,6 +254,16 @@ export function SettingsScreen() {
             <SettingRow icon={IoNotificationsOutline} label="通知設定" desc="リマインダー・お知らせ通知" last />
           </div>
         </div>
+
+        {/* Admin CMS — only visible to admins */}
+        {isAdmin && (
+          <div style={groupStyle}>
+            <h2 style={groupTitleStyle}>運営管理</h2>
+            <div style={groupCardStyle}>
+              <SettingRow icon={IoConstructOutline} label="サービス管理画面" desc="記事・ユーザー管理" last onClick={() => navigate('/admin')} />
+            </div>
+          </div>
+        )}
 
         {/* Info */}
         <div style={groupStyle}>
