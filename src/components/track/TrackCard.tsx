@@ -87,6 +87,10 @@ export function TrackCard({
   const period = (8.0 + Math.abs(hash % 370) / 100).toFixed(2) + 's';
   const phase = (-Math.abs((hash * 2654435761) % 950) / 100).toFixed(2) + 's';
 
+  // Glow timing for + and heart buttons (unique per track)
+  const addGlow = { ['--glow-period' as string]: ((6.5 + Math.abs(hash % 250) / 100) + 's'), ['--glow-phase' as string]: ((-Math.abs((hash * 31) % 800) / 100) + 's') };
+  const favGlow = { ['--glow-period' as string]: ((7.0 + Math.abs((hash * 17) % 300) / 100) + 's'), ['--glow-phase' as string]: ((-Math.abs((hash * 53) % 900) / 100) + 's') };
+
   const handleCardClick = () => {
     if (locked && onLockTap) { onLockTap(); return; }
     onPlay();
@@ -145,11 +149,11 @@ export function TrackCard({
               </button>
             )}
 
-            <button onClick={onAdd} className={styles.iconButton} type="button">
+            <button onClick={onAdd} className={styles.iconButton} type="button" style={addGlow}>
               <IoAdd size={15} />
             </button>
 
-            <button onClick={onFavorite} className={styles.iconButton} type="button">
+            <button onClick={onFavorite} className={styles.iconButton} type="button" style={favGlow}>
               {isFavorite ? (
                 <IoHeart size={14} color="#d4a0c8" />
               ) : (

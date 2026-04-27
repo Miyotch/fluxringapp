@@ -175,6 +175,7 @@
 
 /* ── Neumorphic icon buttons (+, ♥) ── */
 .iconButton {
+  position: relative;
   width: 30px;
   height: 30px;
   border-radius: 50%;
@@ -189,6 +190,30 @@
     -2px -2px 4px rgba(255, 255, 255, 0.8);
   color: rgba(123, 124, 166, 0.64);
   transition: transform 0.1s, box-shadow 0.15s;
+}
+
+.iconButton::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  pointer-events: none;
+  animation: iconGlow var(--glow-period, 7s) var(--glow-phase, 0s) ease-in-out infinite;
+}
+
+@keyframes iconGlow {
+  0%, 100% {
+    box-shadow:
+      0 0 3px 1px rgba(170, 130, 255, 0.08),
+      0 0 8px 3px rgba(150, 110, 240, 0.04);
+    opacity: 0.25;
+  }
+  50% {
+    box-shadow:
+      0 0 10px 4px rgba(180, 140, 255, 0.35),
+      0 0 22px 8px rgba(160, 120, 240, 0.18);
+    opacity: 1;
+  }
 }
 
 .iconButton:hover {

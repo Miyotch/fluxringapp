@@ -8,6 +8,7 @@ export interface UserPlan {
   planId: PlanId;
   planName: string;
   isAdmin: boolean;
+  needsUsername: boolean;
   loading: boolean;
 }
 
@@ -23,12 +24,14 @@ export function useUserPlan(): UserPlan {
   const { user } = useAuth();
   const [planId, setPlanId] = useState<PlanId>('free');
   const [isAdmin, setIsAdmin] = useState(false);
+  const [needsUsername, setNeedsUsername] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!user) {
       setPlanId('free');
       setIsAdmin(false);
+      setNeedsUsername(false);
       setLoading(false);
       return;
     }
@@ -40,16 +43,18 @@ export function useUserPlan(): UserPlan {
         const id = VALID_PLANS.includes(raw) ? (raw as PlanId) : 'free';
         setPlanId(id);
         setIsAdmin(data?.admin === true);
+        setNeedsUsername(!data?.displayName);
         setLoading(false);
       },
       () => {
         setPlanId('free');
         setIsAdmin(false);
+        setNeedsUsername(false);
         setLoading(false);
       },
     );
     return unsub;
   }, [user]);
 
-  return { planId, planName: PLAN_NAMES[planId], isAdmin, loading };
+  return { planId, planName: PLAN_NAMES[planId], isAdmin, needsUsername, loading };
 }
