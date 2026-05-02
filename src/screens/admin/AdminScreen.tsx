@@ -6,12 +6,13 @@ import { colors } from '../../theme/colors';
 import { useUserPlan } from '../../hooks/useUserPlan';
 import { ArticlesManager } from './ArticlesManager';
 import { UsersManager } from './UsersManager';
+import { TracksManager } from './TracksManager';
 
-type Tab = 'articles' | 'users';
+type Tab = 'articles' | 'users' | 'tracks';
 
 export function AdminScreen() {
   const { isAdmin, loading } = useUserPlan();
-  const [tab, setTab] = useState<Tab>('articles');
+  const [tab, setTab] = useState<Tab>('tracks');
   const navigate = useNavigate();
 
   if (loading) return <GradientBackground><div /></GradientBackground>;
@@ -37,30 +38,26 @@ export function AdminScreen() {
           </button>
           <div>
             <h1 style={headingStyle}>サービス管理画面</h1>
-            <p style={subStyle}>記事投稿・ユーザー管理</p>
+            <p style={subStyle}>楽曲・記事・ユーザー管理</p>
           </div>
         </div>
 
         {/* Tab bar */}
         <div style={tabBarStyle}>
-          <button
-            type="button"
-            onClick={() => setTab('articles')}
-            style={tabBtnStyle(tab === 'articles')}
-          >
+          <button type="button" onClick={() => setTab('tracks')} style={tabBtnStyle(tab === 'tracks')}>
+            楽曲管理
+          </button>
+          <button type="button" onClick={() => setTab('articles')} style={tabBtnStyle(tab === 'articles')}>
             記事管理
           </button>
-          <button
-            type="button"
-            onClick={() => setTab('users')}
-            style={tabBtnStyle(tab === 'users')}
-          >
+          <button type="button" onClick={() => setTab('users')} style={tabBtnStyle(tab === 'users')}>
             登録者一覧
           </button>
         </div>
 
-        {/* Content */}
-        {tab === 'articles' ? <ArticlesManager /> : <UsersManager />}
+        {tab === 'tracks' && <TracksManager />}
+        {tab === 'articles' && <ArticlesManager />}
+        {tab === 'users' && <UsersManager />}
       </div>
     </GradientBackground>
   );
