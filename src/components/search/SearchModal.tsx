@@ -7,25 +7,39 @@ import {
 } from 'react-icons/io5';
 import { colors } from '../../theme/colors';
 
+export interface SearchFilters {
+  query: string;
+  frequencyMode: boolean | null;
+  melodyMode: boolean | null;
+  earphone: boolean;
+  speaker: boolean;
+  noiseLevel: number;
+  tone: number;
+  rhythm: number;
+  justIntonation: boolean | null;
+  equalTemperament: boolean | null;
+  rootFrequency: string | null;
+  brainwave: string | null;
+  pinkNoiseFluctuation: boolean | null;
+}
+
 interface SearchModalProps {
   visible: boolean;
   onClose: () => void;
+  onSearch: (filters: SearchFilters) => void;
 }
 
 const QUICK_TAGS = ['#528Hz', '#安眠', '#集中', '#浄化', '#自然音', '#ピアノ', '#瞑想', '#リラックス'];
 
-export function SearchModal({ visible, onClose }: SearchModalProps) {
+export function SearchModal({ visible, onClose, onSearch }: SearchModalProps) {
   const [query, setQuery] = useState('');
-  // Top toggles
   const [frequencyMode, setFrequencyMode] = useState(false);
   const [melodyMode, setMelodyMode] = useState(false);
   const [earphone, setEarphone] = useState(true);
   const [speaker, setSpeaker] = useState(false);
-  // Quick solution sliders
   const [noiseLevel, setNoiseLevel] = useState(50);
   const [tone, setTone] = useState(50);
   const [rhythm, setRhythm] = useState(50);
-  // Advanced
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [frequency, setFrequency] = useState('432');
   const [justIntonation, setJustIntonation] = useState(false);
@@ -40,17 +54,25 @@ export function SearchModal({ visible, onClose }: SearchModalProps) {
     });
   }, []);
 
-  const handleDirectSubmit = useCallback(() => {
-    console.log('Search:', { query, frequencyMode, melodyMode, earphone, speaker });
-  }, [query, frequencyMode, melodyMode, earphone, speaker]);
+  const buildFilters = useCallback((): SearchFilters => ({
+    query: query.trim(),
+    frequencyMode: frequencyMode || null,
+    melodyMode: melodyMode || null,
+    earphone,
+    speaker,
+    noiseLevel,
+    tone,
+    rhythm,
+    justIntonation: justIntonation || null,
+    equalTemperament: equalTemperament || null,
+    rootFrequency: frequency !== '432' ? frequency : null,
+    brainwave: brainwave !== 'OFF' ? brainwave : null,
+    pinkNoiseFluctuation: fluctuation || null,
+  }), [query, frequencyMode, melodyMode, earphone, speaker, noiseLevel, tone, rhythm, justIntonation, equalTemperament, frequency, brainwave, fluctuation]);
 
-  const handleQuickSubmit = useCallback(() => {
-    console.log('Quick:', { noiseLevel, tone, rhythm });
-  }, [noiseLevel, tone, rhythm]);
-
-  const handleAdvancedSubmit = useCallback(() => {
-    console.log('Advanced:', { frequency, justIntonation, equalTemperament, brainwave, fluctuation });
-  }, [frequency, justIntonation, equalTemperament, brainwave, fluctuation]);
+  const handleSubmit = useCallback(() => {
+    onSearch(buildFilters());
+  }, [onSearch, buildFilters]);
 
   if (!visible) return null;
 
@@ -89,6 +111,10 @@ export function SearchModal({ visible, onClose }: SearchModalProps) {
                   スピーカー
                 </label>
               </div>
+
+              <button onClick={handleSubmit} style={confirmBtnStyle} type="button">
+                決定
+              </button>
             </div>
 
             {/* ── Section 1: 目的から選ぶ ── */}
@@ -115,7 +141,7 @@ export function SearchModal({ visible, onClose }: SearchModalProps) {
                 ))}
               </div>
 
-              <button onClick={handleDirectSubmit} style={confirmBtnStyle} type="button">
+              <button onClick={handleSubmit} style={confirmBtnStyle} type="button">
                 決定
               </button>
             </div>
@@ -131,7 +157,7 @@ export function SearchModal({ visible, onClose }: SearchModalProps) {
               <SliderRow label="音色特性（Tone）" leftLabel="Cool" rightLabel="Warm" value={tone} onChange={setTone} />
               <SliderRow label="リズム調整" leftLabel="Ambient" rightLabel="Rhythmic" value={rhythm} onChange={setRhythm} />
 
-              <button onClick={handleQuickSubmit} style={confirmBtnStyle} type="button">
+              <button onClick={handleSubmit} style={confirmBtnStyle} type="button">
                 決定
               </button>
             </div>
@@ -183,7 +209,7 @@ export function SearchModal({ visible, onClose }: SearchModalProps) {
                     <ToggleRow label="1/f ゆらぎ" checked={fluctuation} onChange={setFluctuation} />
                   </div>
 
-                  <button onClick={handleAdvancedSubmit} style={confirmBtnStyle} type="button">
+                  <button onClick={handleSubmit} style={confirmBtnStyle} type="button">
                     決定
                   </button>
                 </>
@@ -286,7 +312,6 @@ const tagStyle: React.CSSProperties = {
   color: colors.primary, cursor: 'pointer',
 };
 
-/* Toggle */
 const toggleGroupStyle: React.CSSProperties = {
   display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 14,
 };
@@ -307,12 +332,11 @@ const toggleKnobStyle: React.CSSProperties = {
   transition: 'transform 0.2s',
 };
 
-/* Checkbox */
 const envLabelStyle: React.CSSProperties = {
   fontSize: 12, fontWeight: 600, color: colors.textPrimary, marginBottom: 8,
 };
 const checkGroupStyle: React.CSSProperties = {
-  display: 'flex', gap: 20,
+  display: 'flex', gap: 20, marginBottom: 14,
 };
 const checkItemStyle: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 6,
@@ -322,7 +346,6 @@ const checkboxStyle: React.CSSProperties = {
   width: 16, height: 16, accentColor: colors.primary,
 };
 
-/* Slider */
 const sliderContainerStyle: React.CSSProperties = { marginBottom: 20 };
 const sliderLabelStyle: React.CSSProperties = {
   fontSize: 12, fontWeight: 600, color: colors.textPrimary, marginBottom: 10,
@@ -335,7 +358,6 @@ const sliderEndLabelStyle: React.CSSProperties = {
 };
 const sliderInputStyle: React.CSSProperties = { flex: 1 };
 
-/* Advanced */
 const advancedToggleStyle: React.CSSProperties = {
   display: 'flex', alignItems: 'center', justifyContent: 'space-between',
   width: '100%', background: 'none', border: 'none', cursor: 'pointer',
@@ -358,7 +380,6 @@ const selectStyle: React.CSSProperties = {
   color: colors.textPrimary, outline: 'none',
 };
 
-/* Confirm button */
 const confirmBtnStyle: React.CSSProperties = {
   display: 'block', width: '100%', marginTop: 8,
   padding: '11px 0', borderRadius: 12, border: 'none', cursor: 'pointer',
