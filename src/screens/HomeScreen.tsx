@@ -13,6 +13,7 @@ import { usePlaylists } from '../hooks/usePlaylists';
 import { useUserPlan } from '../hooks/useUserPlan';
 import type { Track } from '../types/track';
 import { colors } from '../theme/colors';
+import { amplitudeToLevel } from '../designs/drawHelpers';
 
 interface HomeScreenProps {
   searchOpen?: boolean;
@@ -47,35 +48,43 @@ export function HomeScreen({ searchOpen = false }: HomeScreenProps) {
     return new Set(tracks.filter((t) => t.paidMusic).map((t) => t.id));
   }, [tracks, planId]);
 
-  // Apply search filters to track list
+  // Current dial level (1-5) derived from amplitude
+  const currentLevel = amplitudeToLevel(amplitude);
+
+  // Filter tracks by dial level + search filters
   const SLIDER_THRESHOLD = 20;
   const displayTracks = useMemo(() => {
-    if (!searchFilters) return tracks;
-    const f = searchFilters;
-    return tracks.filter((t) => {
-      if (f.query) {
-        const q = f.query.toLowerCase();
-        const match = t.title.toLowerCase().includes(q)
-          || t.artist.toLowerCase().includes(q)
-          || t.description.toLowerCase().includes(q)
-          || t.rootFrequency.includes(q);
-        if (!match) return false;
-      }
-      if (f.frequencyMode && !t.frequencyMode) return false;
-      if (f.melodyMode && !t.melodyMode) return false;
-      if (f.earphone && !t.earphoneOptimized) return false;
-      if (f.speaker && !t.speakerOptimized) return false;
-      if (Math.abs(f.noiseLevel - 50) > 10 && Math.abs(t.noiseLevel - f.noiseLevel) > SLIDER_THRESHOLD) return false;
-      if (Math.abs(f.tone - 50) > 10 && Math.abs(t.toneCharacter - f.tone) > SLIDER_THRESHOLD) return false;
-      if (Math.abs(f.rhythm - 50) > 10 && Math.abs(t.rhythmIntensity - f.rhythm) > SLIDER_THRESHOLD) return false;
-      if (f.justIntonation && !t.justIntonation) return false;
-      if (f.equalTemperament && !t.equalTemperament) return false;
-      if (f.rootFrequency && t.rootFrequency !== f.rootFrequency) return false;
-      if (f.brainwave && t.brainwaveEntrainment !== f.brainwave) return false;
-      if (f.pinkNoiseFluctuation && !t.pinkNoiseFluctuation) return false;
-      return true;
-    });
-  }, [tracks, searchFilters]);
+    let filtered = tracks.filter((t) => t.order === currentLevel);
+
+    if (searchFilters) {
+      const f = searchFilters;
+      filtered = filtered.filter((t) => {
+        if (f.query) {
+          const q = f.query.toLowerCase();
+          const match = t.title.toLowerCase().includes(q)
+            || t.artist.toLowerCase().includes(q)
+            || t.description.toLowerCase().includes(q)
+            || t.rootFrequency.includes(q);
+          if (!match) return false;
+        }
+        if (f.frequencyMode && !t.frequencyMode) return false;
+        if (f.melodyMode && !t.melodyMode) return false;
+        if (f.earphone && !t.earphoneOptimized) return false;
+        if (f.speaker && !t.speakerOptimized) return false;
+        if (Math.abs(f.noiseLevel - 50) > 10 && Math.abs(t.noiseLevel - f.noiseLevel) > SLIDER_THRESHOLD) return false;
+        if (Math.abs(f.tone - 50) > 10 && Math.abs(t.toneCharacter - f.tone) > SLIDER_THRESHOLD) return false;
+        if (Math.abs(f.rhythm - 50) > 10 && Math.abs(t.rhythmIntensity - f.rhythm) > SLIDER_THRESHOLD) return false;
+        if (f.justIntonation && !t.justIntonation) return false;
+        if (f.equalTemperament && !t.equalTemperament) return false;
+        if (f.rootFrequency && t.rootFrequency !== f.rootFrequency) return false;
+        if (f.brainwave && t.brainwaveEntrainment !== f.brainwave) return false;
+        if (f.pinkNoiseFluctuation && !t.pinkNoiseFluctuation) return false;
+        return true;
+      });
+    }
+
+    return filtered;
+  }, [tracks, currentLevel, searchFilters]);
 
   const handleSearch = useCallback((filters: SearchFilters) => {
     setSearchFilters(filters);
@@ -182,9 +191,13 @@ export function HomeScreen({ searchOpen = false }: HomeScreenProps) {
               {error}
             </div>
           )}
+          <div style={levelBarStyle}>
+            <span style={levelBarTextStyle}>Lv.{currentLevel}</span>
+            <span style={levelBarCountStyle}>{displayTracks.length} 曲</span>
+          </div>
           {searchFilters && (
             <div style={filterBarStyle}>
-              <span style={filterBarTextStyle}>検索フィルター適用中（{displayTracks.length}/{tracks.length} 曲）</span>
+              <span style={filterBarTextStyle}>検索フィルター適用中</span>
               <button type="button" onClick={() => setSearchFilters(null)} style={filterClearBtnStyle}>クリア</button>
             </div>
           )}
@@ -270,6 +283,17 @@ const dialContainerStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
+};
+
+const levelBarStyle: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+  padding: '6px 16px', margin: '0 8px 2px',
+};
+const levelBarTextStyle: React.CSSProperties = {
+  fontSize: 13, fontWeight: 700, color: colors.primary,
+};
+const levelBarCountStyle: React.CSSProperties = {
+  fontSize: 11, fontWeight: 500, color: colors.textSecondary,
 };
 
 const filterBarStyle: React.CSSProperties = {

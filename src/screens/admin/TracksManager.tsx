@@ -255,7 +255,16 @@ function TrackEditor({ track, onDone }: { track: TrackDoc | null; onDone: () => 
         <Row label="タイトル *"><input type="text" value={title} onChange={(e) => setTitle(e.target.value)} required style={inputStyle} /></Row>
         <Row label="アーティスト"><input type="text" value={artist} onChange={(e) => setArtist(e.target.value)} style={inputStyle} /></Row>
         <Row label="再生時間 (mm:ss)"><input type="text" value={duration} onChange={(e) => setDuration(e.target.value)} style={inputStyle} placeholder="03:45" /></Row>
-        <Row label="表示順 (level)"><input type="number" value={order} onChange={(e) => setOrder(Number(e.target.value))} style={inputStyle} min={0} /></Row>
+        <Row label="表示順 (level)">
+          <div style={levelRadioGroupStyle}>
+            {[1, 2, 3, 4, 5].map((lv) => (
+              <label key={lv} style={levelRadioLabelStyle}>
+                <input type="radio" name="level" value={lv} checked={order === lv} onChange={() => setOrder(lv)} style={levelRadioInputStyle} />
+                <span style={levelRadioBadgeStyle(order === lv)}>{lv}</span>
+              </label>
+            ))}
+          </div>
+        </Row>
         <Row label="説明"><textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} style={{ ...inputStyle, resize: 'vertical' as const }} /></Row>
         <Toggle label="有料楽曲 (paid_music)" checked={paidMusic} onChange={setPaidMusic} />
       </fieldset>
@@ -412,3 +421,23 @@ const saveBtnStyle: React.CSSProperties = {
   padding: '12px 0', borderRadius: 10, border: 'none', cursor: 'pointer',
   background: `linear-gradient(135deg, #a388c8, ${colors.primary})`, color: '#fff', fontSize: 14, fontWeight: 600,
 };
+
+const levelRadioGroupStyle: React.CSSProperties = {
+  display: 'flex', gap: 6,
+};
+const levelRadioLabelStyle: React.CSSProperties = {
+  cursor: 'pointer', display: 'flex',
+};
+const levelRadioInputStyle: React.CSSProperties = {
+  position: 'absolute', opacity: 0, width: 0, height: 0,
+};
+const levelRadioBadgeStyle = (active: boolean): React.CSSProperties => ({
+  width: 36, height: 36, borderRadius: 10,
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+  fontSize: 14, fontWeight: 700,
+  background: active ? colors.primary : 'rgba(255,255,255,0.6)',
+  color: active ? '#fff' : colors.textPrimary,
+  border: active ? 'none' : '1px solid rgba(200,190,220,0.3)',
+  boxShadow: active ? '0 2px 8px rgba(145,120,189,0.35)' : 'none',
+  transition: 'all 0.15s',
+});
