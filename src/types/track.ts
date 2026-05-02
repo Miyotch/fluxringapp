@@ -10,6 +10,21 @@ export interface Track {
   createdAt: Date;
   order: number;
   paidMusic: boolean;
+  // Mode & environment
+  frequencyMode: boolean;
+  melodyMode: boolean;
+  earphoneOptimized: boolean;
+  speakerOptimized: boolean;
+  // Space tuning
+  noiseLevel: number;
+  toneCharacter: number;
+  rhythmIntensity: number;
+  // Advanced protocol
+  justIntonation: boolean;
+  equalTemperament: boolean;
+  rootFrequency: string;
+  brainwaveEntrainment: string;
+  pinkNoiseFluctuation: boolean;
 }
 
 export interface Playlist {

@@ -48,6 +48,18 @@ function docToTrack(d: import('firebase/firestore').QueryDocumentSnapshot): Trac
     createdAt: data.createdAt?.toDate?.() ?? new Date(),
     order: data.level ?? data.order ?? 0,
     paidMusic: data.paid_music === true,
+    frequencyMode: data.frequency_mode === true,
+    melodyMode: data.melody_mode === true,
+    earphoneOptimized: data.earphone_optimized === true,
+    speakerOptimized: data.speaker_optimized === true,
+    noiseLevel: typeof data.noise_level === 'number' ? data.noise_level : 50,
+    toneCharacter: typeof data.tone_character === 'number' ? data.tone_character : 50,
+    rhythmIntensity: typeof data.rhythm_intensity === 'number' ? data.rhythm_intensity : 50,
+    justIntonation: data.just_intonation === true,
+    equalTemperament: data.equal_temperament !== false,
+    rootFrequency: data.root_frequency ?? '440',
+    brainwaveEntrainment: data.brainwave_entrainment ?? 'OFF',
+    pinkNoiseFluctuation: data.pink_noise_fluctuation === true,
   };
 }
 
