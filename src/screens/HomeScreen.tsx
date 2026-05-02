@@ -4,7 +4,7 @@ import { GradientBackground } from '../components/ui/GradientBackground';
 import { TrackList } from '../components/track/TrackList';
 import { FluxRingDial } from '../components/ring/FluxRingDial';
 import { NowPlaying } from '../components/player/NowPlaying';
-import { SearchModal } from '../components/search/SearchModal';
+import { SearchModal, type SearchFilters } from '../components/search/SearchModal';
 import { PlaylistPickerModal } from '../components/playlist/PlaylistPickerModal';
 import { SubscriptionModal } from '../components/subscription/SubscriptionModal';
 import { useAudioPlayer } from '../components/player/useAudioPlayer';
@@ -12,6 +12,7 @@ import { useTracks } from '../hooks/useTracks';
 import { usePlaylists } from '../hooks/usePlaylists';
 import { useUserPlan } from '../hooks/useUserPlan';
 import type { Track } from '../types/track';
+import { colors } from '../theme/colors';
 
 interface HomeScreenProps {
   searchOpen?: boolean;
@@ -37,6 +38,7 @@ export function HomeScreen({ searchOpen = false }: HomeScreenProps) {
   const [showNowPlaying, setShowNowPlaying] = useState(false);
   const [showSubscription, setShowSubscription] = useState(false);
   const [pickerTrack, setPickerTrack] = useState<Track | null>(null);
+  const [searchFilters, setSearchFilters] = useState<SearchFilters | null>(null);
   const navigate = useNavigate();
 
   // Lock paid tracks for free users
@@ -44,6 +46,41 @@ export function HomeScreen({ searchOpen = false }: HomeScreenProps) {
     if (planId !== 'free') return undefined;
     return new Set(tracks.filter((t) => t.paidMusic).map((t) => t.id));
   }, [tracks, planId]);
+
+  // Apply search filters to track list
+  const SLIDER_THRESHOLD = 20;
+  const displayTracks = useMemo(() => {
+    if (!searchFilters) return tracks;
+    const f = searchFilters;
+    return tracks.filter((t) => {
+      if (f.query) {
+        const q = f.query.toLowerCase();
+        const match = t.title.toLowerCase().includes(q)
+          || t.artist.toLowerCase().includes(q)
+          || t.description.toLowerCase().includes(q)
+          || t.rootFrequency.includes(q);
+        if (!match) return false;
+      }
+      if (f.frequencyMode && !t.frequencyMode) return false;
+      if (f.melodyMode && !t.melodyMode) return false;
+      if (f.earphone && !t.earphoneOptimized) return false;
+      if (f.speaker && !t.speakerOptimized) return false;
+      if (Math.abs(f.noiseLevel - 50) > 10 && Math.abs(t.noiseLevel - f.noiseLevel) > SLIDER_THRESHOLD) return false;
+      if (Math.abs(f.tone - 50) > 10 && Math.abs(t.toneCharacter - f.tone) > SLIDER_THRESHOLD) return false;
+      if (Math.abs(f.rhythm - 50) > 10 && Math.abs(t.rhythmIntensity - f.rhythm) > SLIDER_THRESHOLD) return false;
+      if (f.justIntonation && !t.justIntonation) return false;
+      if (f.equalTemperament && !t.equalTemperament) return false;
+      if (f.rootFrequency && t.rootFrequency !== f.rootFrequency) return false;
+      if (f.brainwave && t.brainwaveEntrainment !== f.brainwave) return false;
+      if (f.pinkNoiseFluctuation && !t.pinkNoiseFluctuation) return false;
+      return true;
+    });
+  }, [tracks, searchFilters]);
+
+  const handleSearch = useCallback((filters: SearchFilters) => {
+    setSearchFilters(filters);
+    navigate('/');
+  }, [navigate]);
 
   // Row click / play button: play the full track and open NowPlaying
   const handlePlayTrack = useCallback(
@@ -145,8 +182,14 @@ export function HomeScreen({ searchOpen = false }: HomeScreenProps) {
               {error}
             </div>
           )}
+          {searchFilters && (
+            <div style={filterBarStyle}>
+              <span style={filterBarTextStyle}>検索フィルター適用中（{displayTracks.length}/{tracks.length} 曲）</span>
+              <button type="button" onClick={() => setSearchFilters(null)} style={filterClearBtnStyle}>クリア</button>
+            </div>
+          )}
           <TrackList
-            tracks={tracks}
+            tracks={displayTracks}
             currentTrackId={currentTrack?.id ?? null}
             isPlaying={isPlaying}
             analyserNode={analyserNode}
@@ -167,7 +210,7 @@ export function HomeScreen({ searchOpen = false }: HomeScreenProps) {
       </div>
 
       {/* Search modal overlay */}
-      <SearchModal visible={searchOpen} onClose={() => navigate('/')} />
+      <SearchModal visible={searchOpen} onClose={() => navigate('/')} onSearch={handleSearch} />
 
       {/* Playlist picker modal (opens from + button) */}
       {pickerTrack && (
@@ -227,4 +270,18 @@ const dialContainerStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
+};
+
+const filterBarStyle: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+  padding: '8px 16px', margin: '0 8px 4px',
+  borderRadius: 10,
+  background: 'rgba(145,120,189,0.1)', border: '1px solid rgba(145,120,189,0.18)',
+};
+const filterBarTextStyle: React.CSSProperties = {
+  fontSize: 11, fontWeight: 500, color: colors.primary,
+};
+const filterClearBtnStyle: React.CSSProperties = {
+  background: 'none', border: 'none', cursor: 'pointer',
+  fontSize: 11, fontWeight: 600, color: colors.textSecondary,
 };
