@@ -22,6 +22,8 @@ import {
   doc,
   Timestamp,
 } from 'firebase/firestore';
+import ReactQuill from 'react-quill-new';
+import 'react-quill-new/dist/quill.snow.css';
 import { colors } from '../../theme/colors';
 import { uploadArticleThumbnail } from '../../services/storage';
 
@@ -38,6 +40,16 @@ interface ArticleDoc {
 }
 
 const COLLECTION = 'article';
+
+const QUILL_MODULES = {
+  toolbar: [
+    [{ header: [2, 3, false] }],
+    ['bold', 'italic', 'underline'],
+    [{ list: 'ordered' }, { list: 'bullet' }],
+    ['blockquote', 'link'],
+    ['clean'],
+  ],
+};
 
 export function ArticlesManager() {
   const [articles, setArticles] = useState<ArticleDoc[]>([]);
@@ -250,18 +262,19 @@ function ArticleEditor({ article, onDone }: { article: ArticleDoc | null; onDone
           <span style={fieldHintStyle}>外部リンクがある場合、概要は空でも投稿できます</span>
         </label>
 
-        {/* Summary (descriptions) */}
-        <label style={fieldLabelStyle}>
+        {/* Summary (descriptions) — rich text */}
+        <div style={fieldLabelStyle}>
           概要 {!externalLink.trim() && '*'}
-          <textarea
-            value={descriptions}
-            onChange={(e) => setDescriptions(e.target.value)}
-            rows={4}
-            style={textareaStyle}
-            placeholder="記事の概要を入力してください"
-            required={!externalLink.trim()}
-          />
-        </label>
+          <div style={quillWrapStyle}>
+            <ReactQuill
+              theme="snow"
+              value={descriptions}
+              onChange={setDescriptions}
+              modules={QUILL_MODULES}
+              placeholder="記事の概要を入力してください"
+            />
+          </div>
+        </div>
 
         <div style={checkRowStyle}>
           <label style={checkLabelStyle}>
@@ -294,7 +307,11 @@ function ArticleEditor({ article, onDone }: { article: ArticleDoc | null; onDone
           </div>
           <h2 style={previewTitleStyle}>{title || '（タイトル未入力）'}</h2>
           {subtitle && <p style={previewSubtitleStyle}>{subtitle}</p>}
-          <p style={previewDescStyle}>{descriptions || '概要がここに表示されます...'}</p>
+          <div
+            className="ql-editor"
+            style={previewDescStyle}
+            dangerouslySetInnerHTML={{ __html: descriptions || '<p style="color:#aaa">概要がここに表示されます...</p>' }}
+          />
         </div>
       </div>
     </div>
@@ -333,7 +350,11 @@ const editorCancelStyle: React.CSSProperties = { background: 'none', border: 'no
 const fieldLabelStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, fontWeight: 600, color: colors.textPrimary };
 const fieldInputStyle: React.CSSProperties = { padding: '9px 12px', borderRadius: 8, border: '1px solid rgba(200,190,220,0.3)', background: 'rgba(255,255,255,0.75)', fontSize: 13, color: colors.textPrimary, outline: 'none' };
 const fieldHintStyle: React.CSSProperties = { fontSize: 10, color: colors.textSecondary, fontWeight: 400 };
-const textareaStyle: React.CSSProperties = { ...fieldInputStyle, resize: 'vertical' as const, fontFamily: 'inherit', lineHeight: 1.7 };
+const quillWrapStyle: React.CSSProperties = {
+  borderRadius: 8, overflow: 'hidden',
+  border: '1px solid rgba(200,190,220,0.3)',
+  background: 'rgba(255,255,255,0.75)',
+};
 const uploadAreaStyle: React.CSSProperties = { borderRadius: 10, border: '2px dashed rgba(200,190,220,0.4)', background: 'rgba(255,255,255,0.5)', cursor: 'pointer', overflow: 'hidden', minHeight: 100, display: 'flex', alignItems: 'center', justifyContent: 'center' };
 const uploadPreviewStyle: React.CSSProperties = { width: '100%', maxHeight: 180, objectFit: 'cover', display: 'block' };
 const uploadPlaceholderStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, padding: 20, fontSize: 11, color: colors.textSecondary };
@@ -353,4 +374,4 @@ const previewDraftStyle: React.CSSProperties = { fontSize: 9, fontWeight: 600, p
 const previewLinkTagStyle: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 9, fontWeight: 600, padding: '1px 6px', borderRadius: 4, background: 'rgba(145,120,189,0.12)', color: colors.primary };
 const previewTitleStyle: React.CSSProperties = { fontSize: 18, fontWeight: 700, color: colors.textPrimary, margin: '0 0 4px', lineHeight: 1.4 };
 const previewSubtitleStyle: React.CSSProperties = { fontSize: 13, color: colors.textSecondary, margin: '0 0 10px', lineHeight: 1.5 };
-const previewDescStyle: React.CSSProperties = { fontSize: 13, color: colors.textPrimary, lineHeight: 1.7, margin: 0 };
+const previewDescStyle: React.CSSProperties = { fontSize: 13, color: colors.textPrimary, lineHeight: 1.7, padding: 0, border: 'none' };
