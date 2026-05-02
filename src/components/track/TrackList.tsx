@@ -7,12 +7,10 @@ interface TrackListProps {
   currentTrackId: string | null;
   isPlaying: boolean;
   analyserNode: AnalyserNode | null;
-  favorites: string[];
   lockedTrackIds?: Set<string>;
   onPlayTrack: (track: Track) => void;
   onPreviewTrack: (track: Track) => void;
   onAddTrack: (track: Track) => void;
-  onToggleFavorite: (track: Track) => void;
   onLockTap?: () => void;
 }
 
@@ -21,12 +19,10 @@ export function TrackList({
   currentTrackId,
   isPlaying,
   analyserNode,
-  favorites,
   lockedTrackIds,
   onPlayTrack,
   onPreviewTrack,
   onAddTrack,
-  onToggleFavorite,
   onLockTap,
 }: TrackListProps) {
   return (
@@ -41,12 +37,10 @@ export function TrackList({
             index={index}
             isPlaying={isCurrent && isPlaying}
             analyserNode={isCurrent && isPlaying ? analyserNode : null}
-            isFavorite={favorites.includes(track.id)}
             locked={isLocked}
             onPlay={() => onPlayTrack(track)}
             onPreview={() => onPreviewTrack(track)}
             onAdd={() => onAddTrack(track)}
-            onFavorite={() => onToggleFavorite(track)}
             onLockTap={onLockTap}
           />
         );
