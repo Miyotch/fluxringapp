@@ -3,8 +3,6 @@ import {
   IoPlay,
   IoPause,
   IoAdd,
-  IoHeartOutline,
-  IoHeart,
   IoLockClosed,
 } from 'react-icons/io5';
 import type { Track } from '../../types/track';
@@ -20,9 +18,7 @@ interface TrackCardProps {
   onPlay: () => void;
   onPreview: () => void;
   onAdd: () => void;
-  onFavorite: () => void;
   onLockTap?: () => void;
-  isFavorite: boolean;
 }
 
 const DOT_COUNT = 8;
@@ -78,18 +74,16 @@ export function TrackCard({
   onPlay,
   onPreview,
   onAdd,
-  onFavorite,
   onLockTap,
-  isFavorite,
 }: TrackCardProps) {
-  // Derive pseudo-random period & phase from track ID for organic feel
   const hash = track.id.split('').reduce((h, c) => ((h << 5) - h + c.charCodeAt(0)) | 0, 0);
   const period = (8.0 + Math.abs(hash % 370) / 100).toFixed(2) + 's';
   const phase = (-Math.abs((hash * 2654435761) % 950) / 100).toFixed(2) + 's';
 
-  // Glow timing for + and heart buttons (unique per track)
-  const addGlow = { ['--glow-period' as string]: ((6.5 + Math.abs(hash % 250) / 100) + 's'), ['--glow-phase' as string]: ((-Math.abs((hash * 31) % 800) / 100) + 's') };
-  const favGlow = { ['--glow-period' as string]: ((7.0 + Math.abs((hash * 17) % 300) / 100) + 's'), ['--glow-phase' as string]: ((-Math.abs((hash * 53) % 900) / 100) + 's') };
+  const addGlow = {
+    ['--glow-period' as string]: (6.5 + Math.abs(hash % 250) / 100) + 's',
+    ['--glow-phase' as string]: (-Math.abs((hash * 31) % 800) / 100) + 's',
+  };
 
   const handleCardClick = () => {
     if (locked && onLockTap) { onLockTap(); return; }
@@ -129,7 +123,6 @@ export function TrackCard({
 
       {/* Right content */}
       <div className={styles.content}>
-        {/* Header: title+duration on left, controls on right */}
         <div className={styles.headerRow}>
           <div className={styles.titleGroup}>
             <span className={styles.title}>{track.title}</span>
@@ -152,18 +145,9 @@ export function TrackCard({
             <button onClick={onAdd} className={styles.iconButton} type="button" style={addGlow}>
               <IoAdd size={15} />
             </button>
-
-            <button onClick={onFavorite} className={styles.iconButton} type="button" style={favGlow}>
-              {isFavorite ? (
-                <IoHeart size={14} color="#d4a0c8" />
-              ) : (
-                <IoHeartOutline size={14} />
-              )}
-            </button>
           </div>
         </div>
 
-        {/* Description */}
         <p className={styles.description}>{track.description}</p>
       </div>
     </div>

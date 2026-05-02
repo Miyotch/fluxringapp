@@ -31,16 +31,13 @@ export function HomeScreen({ searchOpen = false }: HomeScreenProps) {
     seekTo,
     toggleRepeat,
   } = useAudioPlayer();
-  const { playlists, toggleFavorite, addTrack } = usePlaylists();
+  const { playlists, addTrack, createPlaylist } = usePlaylists();
   const { planId } = useUserPlan();
   const [amplitude, setAmplitude] = useState(1.0);
   const [showNowPlaying, setShowNowPlaying] = useState(false);
   const [showSubscription, setShowSubscription] = useState(false);
   const [pickerTrack, setPickerTrack] = useState<Track | null>(null);
   const navigate = useNavigate();
-
-  // Favorite IDs derived from the "favorites" playlist (live updates)
-  const favoriteIds = playlists.find((p) => p.id === 'favorites')?.trackIds ?? [];
 
   // Lock paid tracks for free users
   const lockedTrackIds = useMemo(() => {
@@ -68,14 +65,6 @@ export function HomeScreen({ searchOpen = false }: HomeScreenProps) {
       playTrack(track, url);
     },
     [playTrack],
-  );
-
-  // Heart button: toggle track in favorites playlist
-  const handleToggleFavorite = useCallback(
-    (track: Track) => {
-      toggleFavorite(track.id);
-    },
-    [toggleFavorite],
   );
 
   // + button: open playlist picker modal
@@ -161,12 +150,10 @@ export function HomeScreen({ searchOpen = false }: HomeScreenProps) {
             currentTrackId={currentTrack?.id ?? null}
             isPlaying={isPlaying}
             analyserNode={analyserNode}
-            favorites={favoriteIds}
             lockedTrackIds={lockedTrackIds}
             onPlayTrack={handlePlayTrack}
             onPreviewTrack={handlePreviewTrack}
             onAddTrack={handleAddTrack}
-            onToggleFavorite={handleToggleFavorite}
             onLockTap={() => setShowSubscription(true)}
           />
         </div>
@@ -188,6 +175,7 @@ export function HomeScreen({ searchOpen = false }: HomeScreenProps) {
           track={pickerTrack}
           playlists={playlists}
           onPick={handlePickPlaylist}
+          onCreatePlaylist={createPlaylist}
           onClose={() => setPickerTrack(null)}
         />
       )}
