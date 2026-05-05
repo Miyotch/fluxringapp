@@ -11,6 +11,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Slider from '@react-native-community/slider';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { GradientBackground } from '@/components/ui/GradientBackground';
 import { useSearchFilters } from '@/hooks/useSearchFilters';
@@ -22,11 +23,11 @@ const QUICK_TAGS: readonly string[] = [
   '#528Hz',
   '#安眠',
   '#集中',
+  '#浄化',
+  '#自然音',
+  '#ピアノ',
   '#瞑想',
   '#リラックス',
-  '#朝活',
-  '#ヒーリング',
-  '#脳波調整',
 ];
 
 const ROOT_FREQUENCY_OPTIONS: readonly string[] = ['432', '440', '444'];
@@ -40,16 +41,10 @@ const BRAINWAVE_OPTIONS: readonly string[] = [
   'Gamma',
 ];
 
-const PAID_OPTIONS: ReadonlyArray<{ label: string; value: boolean | null }> = [
-  { label: 'すべて', value: null },
-  { label: '無料のみ', value: false },
-  { label: '有料のみ', value: true },
-];
-
 export default function SearchScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { filters, setFilters, resetFilters, hasActiveFilters } = useSearchFilters();
+  const { filters, setFilters } = useSearchFilters();
   const [advancedOpen, setAdvancedOpen] = useState<boolean>(false);
 
   const update = useCallback(
@@ -70,8 +65,12 @@ export default function SearchScreen() {
     [filters, setFilters],
   );
 
-  const handleSubmit = useCallback(() => {
-    router.push('/(tabs)');
+  const handleClose = useCallback(() => {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.push('/(tabs)');
+    }
   }, [router]);
 
   const bottomPad = useMemo(
@@ -84,22 +83,18 @@ export default function SearchScreen() {
       <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
         <View style={styles.headerRow}>
           <Text style={styles.headerTitle}>サーチ</Text>
-          {hasActiveFilters ? (
-            <Pressable
-              onPress={resetFilters}
-              style={({ pressed }) => [
-                styles.resetButton,
-                pressed && styles.resetButtonPressed,
-              ]}
-            >
-              <Ionicons
-                name="refresh"
-                size={16}
-                color={colors.textPrimary}
-              />
-              <Text style={styles.resetButtonText}>リセット</Text>
-            </Pressable>
-          ) : null}
+          <Pressable
+            onPress={handleClose}
+            hitSlop={12}
+            style={({ pressed }) => [
+              styles.closeButton,
+              pressed && styles.closeButtonPressed,
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel="閉じる"
+          >
+            <Ionicons name="close" size={20} color={colors.textPrimary} />
+          </Pressable>
         </View>
 
         <ScrollView
@@ -111,62 +106,41 @@ export default function SearchScreen() {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          {/* ── Section: モード・再生環境 ── */}
+          {/* Section 1: モード・再生環境 */}
           <View style={styles.section}>
             <Text style={styles.sectionLabel}>モード・再生環境</Text>
 
             <ToggleRow
-              label="周波数モード（Frequency）"
+              label="空間調律（Frequency）"
               value={filters.frequencyMode}
               onChange={(v) => update('frequencyMode', v)}
             />
             <ToggleRow
-              label="旋律モード（Melody）"
+              label="空間演出（Melody）"
               value={filters.melodyMode}
               onChange={(v) => update('melodyMode', v)}
             />
-            <ToggleRow
-              label="イヤホン最適化"
-              value={filters.earphoneOptimized}
-              onChange={(v) => update('earphoneOptimized', v)}
-            />
-            <ToggleRow
-              label="スピーカー最適化"
-              value={filters.speakerOptimized}
-              onChange={(v) => update('speakerOptimized', v)}
-            />
 
             <View style={styles.subBlock}>
-              <Text style={styles.subLabel}>商用利用可</Text>
-              <View style={styles.pillRow}>
-                {PAID_OPTIONS.map((opt) => {
-                  const active = filters.paidMusic === opt.value;
-                  return (
-                    <Pressable
-                      key={opt.label}
-                      onPress={() => update('paidMusic', opt.value)}
-                      style={({ pressed }) => [
-                        styles.pill,
-                        active && styles.pillActive,
-                        pressed && styles.pillPressed,
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.pillText,
-                          active && styles.pillTextActive,
-                        ]}
-                      >
-                        {opt.label}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
+              <Text style={styles.subLabel}>再生環境</Text>
+              <View style={styles.checkboxRow}>
+                <CheckboxRow
+                  label="イヤホン"
+                  value={filters.earphoneOptimized}
+                  onChange={(v) => update('earphoneOptimized', v)}
+                />
+                <CheckboxRow
+                  label="スピーカー"
+                  value={filters.speakerOptimized}
+                  onChange={(v) => update('speakerOptimized', v)}
+                />
               </View>
             </View>
+
+            <ConfirmButton onPress={handleClose} />
           </View>
 
-          {/* ── Section: 目的から選ぶ ── */}
+          {/* Section 2: 目的から選ぶ */}
           <View style={styles.section}>
             <Text style={styles.sectionLabel}>目的から選ぶ</Text>
 
@@ -224,39 +198,43 @@ export default function SearchScreen() {
                 );
               })}
             </View>
+
+            <ConfirmButton onPress={handleClose} />
           </View>
 
-          {/* ── Section: 空間を調律する ── */}
+          {/* Section 3: 空間を調律する */}
           <View style={styles.section}>
             <Text style={styles.sectionLabel}>空間を調律する</Text>
             <Text style={styles.sectionDesc}>
               スライダー操作で、言葉にできない「今の空気感」を即座に音へ反映。
             </Text>
 
-            <RangeSliderRow
+            <SingleSliderRow
               label="周囲のノイズレベル"
               leftLabel="Low"
               rightLabel="High"
               range={filters.noiseLevel}
               onChange={(r) => update('noiseLevel', r)}
             />
-            <RangeSliderRow
+            <SingleSliderRow
               label="音色特性（Tone）"
-              leftLabel="Cool"
-              rightLabel="Warm"
+              leftLabel="Low"
+              rightLabel="High"
               range={filters.toneCharacter}
               onChange={(r) => update('toneCharacter', r)}
             />
-            <RangeSliderRow
+            <SingleSliderRow
               label="リズム調整"
-              leftLabel="Ambient"
-              rightLabel="Rhythmic"
+              leftLabel="Low"
+              rightLabel="High"
               range={filters.rhythmIntensity}
               onChange={(r) => update('rhythmIntensity', r)}
             />
+
+            <ConfirmButton onPress={handleClose} />
           </View>
 
-          {/* ── Section: 深層設定 ── */}
+          {/* Section 4: 深層設定 — Advanced Protocol (collapsible) */}
           <View style={styles.section}>
             <Pressable
               onPress={() => setAdvancedOpen((v) => !v)}
@@ -369,20 +347,49 @@ export default function SearchScreen() {
                   value={filters.pinkNoiseFluctuation}
                   onChange={(v) => update('pinkNoiseFluctuation', v)}
                 />
+
+                <View style={styles.subBlock}>
+                  <Text style={styles.subLabel}>商用利用可</Text>
+                  <View style={styles.pillRow}>
+                    {[
+                      { label: 'すべて', value: null },
+                      { label: '無料のみ', value: false },
+                      { label: '有料のみ', value: true },
+                    ].map((opt) => {
+                      const active = filters.paidMusic === opt.value;
+                      return (
+                        <Pressable
+                          key={opt.label}
+                          onPress={() =>
+                            update(
+                              'paidMusic',
+                              opt.value as boolean | null,
+                            )
+                          }
+                          style={({ pressed }) => [
+                            styles.pill,
+                            active && styles.pillActive,
+                            pressed && styles.pillPressed,
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.pillText,
+                              active && styles.pillTextActive,
+                            ]}
+                          >
+                            {opt.label}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </View>
               </View>
             ) : null}
-          </View>
 
-          {/* ── Footer: 決定 ── */}
-          <Pressable
-            onPress={handleSubmit}
-            style={({ pressed }) => [
-              styles.confirmButton,
-              pressed && styles.confirmButtonPressed,
-            ]}
-          >
-            <Text style={styles.confirmButtonText}>決定</Text>
-          </Pressable>
+            <ConfirmButton onPress={handleClose} />
+          </View>
         </ScrollView>
       </SafeAreaView>
     </GradientBackground>
@@ -390,6 +397,33 @@ export default function SearchScreen() {
 }
 
 /* ── Sub-components ── */
+
+interface ConfirmButtonProps {
+  onPress: () => void;
+}
+
+function ConfirmButton({ onPress }: ConfirmButtonProps) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.confirmButtonWrap,
+        pressed && styles.confirmButtonPressed,
+      ]}
+      accessibilityRole="button"
+      accessibilityLabel="決定"
+    >
+      <LinearGradient
+        colors={['#a388c8', '#9178BD']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.confirmButton}
+      >
+        <Text style={styles.confirmButtonText}>決定</Text>
+      </LinearGradient>
+    </Pressable>
+  );
+}
 
 interface ToggleRowProps {
   label: string;
@@ -412,6 +446,34 @@ function ToggleRow({ label, value, onChange }: ToggleRowProps) {
         ios_backgroundColor="rgba(200,195,215,0.5)"
       />
     </View>
+  );
+}
+
+interface CheckboxRowProps {
+  label: string;
+  value: boolean;
+  onChange: (next: boolean) => void;
+}
+
+function CheckboxRow({ label, value, onChange }: CheckboxRowProps) {
+  return (
+    <Pressable
+      onPress={() => onChange(!value)}
+      style={({ pressed }) => [
+        styles.checkboxItem,
+        pressed && styles.checkboxItemPressed,
+      ]}
+      accessibilityRole="checkbox"
+      accessibilityState={{ checked: value }}
+      accessibilityLabel={label}
+    >
+      <Ionicons
+        name={value ? 'checkbox' : 'square-outline'}
+        size={20}
+        color={value ? colors.primary : colors.textSecondary}
+      />
+      <Text style={styles.checkboxLabel}>{label}</Text>
+    </Pressable>
   );
 }
 
@@ -459,76 +521,52 @@ function TriStateRow({ label, value, onChange }: TriStateRowProps) {
   );
 }
 
-interface RangeSliderRowProps {
+interface SingleSliderRowProps {
   label: string;
   leftLabel: string;
   rightLabel: string;
+  /** Range stored in filters; we read/write a single value as [v, v]. */
   range: [number, number];
   onChange: (next: [number, number]) => void;
 }
 
-function RangeSliderRow({
+function SingleSliderRow({
   label,
   leftLabel,
   rightLabel,
   range,
   onChange,
-}: RangeSliderRowProps) {
-  const [minVal, maxVal] = range;
+}: SingleSliderRowProps) {
+  // Use the upper bound as the single-thumb value so the default
+  // [0,100] state shows the thumb at "High" — matches the screenshot
+  // where untouched sliders sit at the right edge of the gradient.
+  const value = range[1];
 
-  const handleMinChange = useCallback(
+  const handleChange = useCallback(
     (next: number) => {
-      const clamped = Math.min(next, maxVal);
-      onChange([Math.round(clamped), maxVal]);
+      const v = Math.round(next);
+      onChange([v, v]);
     },
-    [maxVal, onChange],
-  );
-
-  const handleMaxChange = useCallback(
-    (next: number) => {
-      const clamped = Math.max(next, minVal);
-      onChange([minVal, Math.round(clamped)]);
-    },
-    [minVal, onChange],
+    [onChange],
   );
 
   return (
     <View style={styles.sliderBlock}>
-      <View style={styles.sliderHeader}>
-        <Text style={styles.sliderLabel}>{label}</Text>
-        <Text style={styles.sliderValue}>
-          {minVal} – {maxVal}
-        </Text>
-      </View>
-
+      <Text style={styles.sliderLabel}>{label}</Text>
       <View style={styles.sliderRow}>
-        <Text style={styles.sliderEndLabel}>下限 {leftLabel}</Text>
+        <Text style={styles.sliderEndLabel}>{leftLabel}</Text>
         <Slider
           style={styles.slider}
           minimumValue={0}
           maximumValue={100}
           step={1}
-          value={minVal}
-          onValueChange={handleMinChange}
+          value={value}
+          onValueChange={handleChange}
           minimumTrackTintColor={colors.primary}
           maximumTrackTintColor="rgba(200,195,215,0.5)"
           thumbTintColor={colors.primary}
         />
-      </View>
-
-      <View style={styles.sliderRow}>
-        <Text style={styles.sliderEndLabel}>上限 {rightLabel}</Text>
-        <Slider
-          style={styles.slider}
-          minimumValue={0}
-          maximumValue={100}
-          step={1}
-          value={maxVal}
-          onValueChange={handleMaxChange}
-          minimumTrackTintColor={colors.primary}
-          maximumTrackTintColor="rgba(200,195,215,0.5)"
-          thumbTintColor={colors.primary}
-        />
+        <Text style={styles.sliderEndLabel}>{rightLabel}</Text>
       </View>
     </View>
   );
@@ -545,28 +583,23 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.sm,
   },
   headerTitle: {
-    fontSize: 22,
+    fontSize: 28,
     fontWeight: '700',
     color: colors.textPrimary,
+    letterSpacing: 1,
   },
-  resetButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
+  closeButton: {
+    width: 36,
+    height: 36,
     borderRadius: borderRadius.full,
-    backgroundColor: colors.glass,
+    backgroundColor: 'rgba(255,255,255,0.7)',
     borderWidth: 1,
-    borderColor: colors.glassBorder,
+    borderColor: 'rgba(255,255,255,0.85)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  resetButtonPressed: {
+  closeButtonPressed: {
     opacity: 0.7,
-  },
-  resetButtonText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: colors.textPrimary,
   },
   scroll: {
     flex: 1,
@@ -576,15 +609,20 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   section: {
-    backgroundColor: colors.glass,
-    borderRadius: borderRadius.lg,
+    backgroundColor: 'rgba(255,255,255,0.7)',
+    borderRadius: 28,
     borderWidth: 1,
-    borderColor: colors.glassBorder,
-    padding: spacing.md,
-    gap: spacing.sm,
+    borderColor: 'rgba(255,255,255,0.85)',
+    padding: spacing.lg,
+    gap: 14,
+    shadowColor: '#9b8dff',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 18,
+    elevation: 2,
   },
   sectionLabel: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '700',
     color: colors.textPrimary,
   },
@@ -613,6 +651,26 @@ const styles = StyleSheet.create({
   subLabel: {
     fontSize: 12,
     fontWeight: '600',
+    color: colors.textPrimary,
+  },
+  checkboxRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.lg,
+  },
+  checkboxItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.xs,
+    paddingRight: spacing.sm,
+  },
+  checkboxItemPressed: {
+    opacity: 0.6,
+  },
+  checkboxLabel: {
+    fontSize: 13,
+    fontWeight: '500',
     color: colors.textPrimary,
   },
   pillRow: {
@@ -664,9 +722,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: 10,
     borderRadius: borderRadius.md,
-    backgroundColor: 'rgba(255,255,255,0.7)',
+    backgroundColor: 'rgba(255,255,255,0.85)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.8)',
+    borderColor: 'rgba(255,255,255,0.9)',
   },
   searchInput: {
     flex: 1,
@@ -681,20 +739,20 @@ const styles = StyleSheet.create({
   },
   tag: {
     paddingHorizontal: spacing.md,
-    paddingVertical: 5,
+    paddingVertical: 6,
     borderRadius: borderRadius.full,
-    backgroundColor: 'rgba(145,120,189,0.1)',
+    backgroundColor: 'rgba(255,255,255,0.55)',
     borderWidth: 1,
-    borderColor: 'rgba(145,120,189,0.2)',
+    borderColor: 'rgba(200,195,215,0.4)',
   },
   tagActive: {
     backgroundColor: colors.primaryMuted,
     borderColor: colors.primary,
   },
   tagText: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '500',
-    color: colors.primary,
+    color: colors.textPrimary,
   },
   tagTextActive: {
     color: colors.white,
@@ -704,20 +762,10 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
     paddingVertical: spacing.xs,
   },
-  sliderHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
   sliderLabel: {
     fontSize: 12,
     fontWeight: '600',
     color: colors.textPrimary,
-  },
-  sliderValue: {
-    fontSize: 11,
-    fontWeight: '500',
-    color: colors.textSecondary,
   },
   sliderRow: {
     flexDirection: 'row',
@@ -725,10 +773,11 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   sliderEndLabel: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '500',
     color: colors.textSecondary,
-    width: 80,
+    width: 36,
+    textAlign: 'center',
     flexShrink: 0,
   },
   slider: {
@@ -755,18 +804,21 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xs,
     gap: spacing.sm,
   },
-  confirmButton: {
+  confirmButtonWrap: {
     marginTop: spacing.sm,
-    paddingVertical: 14,
-    borderRadius: borderRadius.md,
-    backgroundColor: colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
+    borderRadius: borderRadius.full,
+    overflow: 'hidden',
     shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.3,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
     shadowRadius: 10,
     elevation: 4,
+  },
+  confirmButton: {
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: borderRadius.full,
   },
   confirmButtonPressed: {
     opacity: 0.85,
@@ -774,7 +826,7 @@ const styles = StyleSheet.create({
   confirmButtonText: {
     color: colors.white,
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '700',
     letterSpacing: 1,
   },
 });
