@@ -4,7 +4,7 @@ compatibility_date = "2025-01-01"
 
 [[r2_buckets]]
 binding = "BUCKET"
-bucket_name = "fluxring-sounds"  # ← rename to your actual R2 bucket
+bucket_name = "music-app-storage"
 
 [vars]
 FIREBASE_PROJECT_ID = "sound-curtain-5unwwh"
