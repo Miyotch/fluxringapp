@@ -6,7 +6,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { GradientBackground } from '@/components/ui/GradientBackground';
@@ -48,6 +48,7 @@ export default function PlaylistScreen() {
 
   const [editModal, setEditModal] = useState<EditModalState>(null);
   const [detailPlaylistId, setDetailPlaylistId] = useState<string | null>(null);
+  const insets = useSafeAreaInsets();
 
   // Resolve detail playlist live so it stays fresh as the user edits / removes.
   const detailPlaylist = useMemo(
@@ -130,7 +131,7 @@ export default function PlaylistScreen() {
           contentContainerStyle={{
             padding: spacing.lg,
             gap: spacing.md,
-            paddingBottom: 120,
+            paddingBottom: insets.bottom + 68 + 16,
           }}
         >
           {/* Heading */}
@@ -191,19 +192,19 @@ export default function PlaylistScreen() {
                 <View style={styles.lockIconCircle}>
                   <Ionicons
                     name="lock-closed-outline"
-                    size={26}
+                    size={32}
                     color={colors.primary}
                   />
                 </View>
                 <Text style={styles.lockTitle}>
-                  カスタム制作はプレミアムプラン限定です
+                  カスタム制作はプレミアム機能です
                 </Text>
                 <Text style={styles.lockDesc}>
-                  あなただけのオリジナル楽曲を作成するには、プレミアムプランへのアップグレードが必要です
+                  あなただけのオリジナル楽曲を作成するには、プレミアムプランへの
+                  アップグレードが必要です
                 </Text>
                 <Pressable
-                  // TODO: hook this up to the upgrade flow once subscription
-                  // purchase is implemented (see backend follow-ups).
+                  // TODO: subscription flow
                   onPress={() => {}}
                   style={styles.upgradeButton}
                 >
@@ -355,55 +356,51 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.lg,
   },
 
-  // Locked card
+  // Locked card — single big centered card
   lockCard: {
     width: '100%',
-    minHeight: 160,
-    borderRadius: borderRadius.lg,
-    paddingVertical: spacing.lg,
-    paddingHorizontal: spacing.xl,
-    backgroundColor: colors.cardBackground,
+    borderRadius: borderRadius.xl,
+    padding: spacing.xl,
+    backgroundColor: colors.glass,
     borderWidth: 1,
-    borderColor: colors.cardBorder,
+    borderColor: colors.glassBorder,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
+    gap: spacing.sm,
   },
   lockIconCircle: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: 'rgba(255,255,255,0.85)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.8)',
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: 'rgba(145,120,189,0.12)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 6,
+    marginBottom: spacing.sm,
   },
   lockTitle: {
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 15,
+    fontWeight: '700',
     color: colors.textPrimary,
     textAlign: 'center',
   },
   lockDesc: {
-    fontSize: 11,
-    lineHeight: 18,
+    fontSize: 13,
+    lineHeight: 20,
     color: colors.textSecondary,
     textAlign: 'center',
-    maxWidth: 360,
-    marginBottom: spacing.sm,
+    maxWidth: 420,
+    marginBottom: spacing.md,
   },
   upgradeButton: {
     paddingHorizontal: spacing.lg,
-    paddingVertical: 8,
-    borderRadius: 20,
+    paddingVertical: 12,
+    borderRadius: borderRadius.full,
     overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
   },
   upgradeText: {
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: '700',
     color: colors.white,
   },
