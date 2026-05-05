@@ -42,7 +42,7 @@ function docToTrack(d: import('firebase/firestore').QueryDocumentSnapshot): Trac
     artist: data.artist ?? 'Flux Ring',
     duration: parseDuration(data.length ?? data.duration),
     artworkUrl: data.thumnail ?? data.artworkUrl ?? '',
-    audioUrl: data.sound ?? data.audioUrl ?? '',
+    audioUrl: data.r2_url ?? data.sound ?? data.audioUrl ?? '',
     previewUrl: data.preview ?? '',
     description: data.comment ?? data.description ?? '',
     createdAt: data.createdAt?.toDate?.() ?? new Date(),
