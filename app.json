@@ -5,14 +5,8 @@
     "scheme": "fluxring",
     "version": "0.1.0",
     "orientation": "landscape",
-    "icon": "./assets/images/icon.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
-    "splash": {
-      "image": "./assets/images/splash.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#E6EBF1"
-    },
     "ios": {
       "supportsTablet": true,
       "requireFullScreen": true,
@@ -28,15 +22,10 @@
       }
     },
     "android": {
-      "package": "com.fluxring.app",
-      "adaptiveIcon": {
-        "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#E6EBF1"
-      }
+      "package": "com.fluxring.app"
     },
     "web": {
-      "bundler": "metro",
-      "favicon": "./assets/images/favicon.png"
+      "bundler": "metro"
     },
     "plugins": [
       "expo-router",
@@ -45,15 +34,6 @@
         "expo-screen-orientation",
         {
           "initialOrientation": "LANDSCAPE"
-        }
-      ],
-      [
-        "expo-splash-screen",
-        {
-          "image": "./assets/images/splash.png",
-          "imageWidth": 200,
-          "resizeMode": "contain",
-          "backgroundColor": "#E6EBF1"
         }
       ]
     ],
