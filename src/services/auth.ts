@@ -1,34 +1,30 @@
 import {
-  getAuth,
   signInAnonymously as firebaseSignInAnonymously,
   signOut as firebaseSignOut,
   onAuthStateChanged as firebaseOnAuthStateChanged,
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
-  signInWithPopup,
-  GoogleAuthProvider,
-  OAuthProvider,
-  FacebookAuthProvider,
   type User,
   type UserCredential,
 } from 'firebase/auth';
+import { getRNAuth } from './firebase';
 
 export function getCurrentUser(): User | null {
-  return getAuth().currentUser;
+  return getRNAuth().currentUser;
 }
 
-export async function signInAnonymously() {
-  return firebaseSignInAnonymously(getAuth());
+export async function signInAnonymously(): Promise<UserCredential> {
+  return firebaseSignInAnonymously(getRNAuth());
 }
 
-export async function signOut() {
-  return firebaseSignOut(getAuth());
+export async function signOut(): Promise<void> {
+  return firebaseSignOut(getRNAuth());
 }
 
 export function onAuthStateChanged(
   callback: (user: User | null) => void,
 ): () => void {
-  return firebaseOnAuthStateChanged(getAuth(), callback);
+  return firebaseOnAuthStateChanged(getRNAuth(), callback);
 }
 
 /* ── Email / password ──────────────────────────────────────────── */
@@ -37,35 +33,34 @@ export async function signUpWithEmail(
   email: string,
   password: string,
 ): Promise<UserCredential> {
-  return createUserWithEmailAndPassword(getAuth(), email, password);
+  return createUserWithEmailAndPassword(getRNAuth(), email, password);
 }
 
 export async function signInWithEmail(
   email: string,
   password: string,
 ): Promise<UserCredential> {
-  return signInWithEmailAndPassword(getAuth(), email, password);
+  return signInWithEmailAndPassword(getRNAuth(), email, password);
 }
 
-/* ── Social providers (popup flow) ─────────────────────────────── */
+/* ── Social providers ──────────────────────────────────────────────
+ * Native sign-in (Google / Apple / Facebook) requires expo-auth-session
+ * or expo-apple-authentication on iOS. The browser popup flow is not
+ * available on React Native. These stubs throw with a clear message so
+ * that the UI can disable the buttons until the OAuth flows are wired up.
+ * Tracked: backend-developer should implement these with expo-auth-session.
+ * ─────────────────────────────────────────────────────────────── */
 
 export async function signInWithGoogle(): Promise<UserCredential> {
-  const provider = new GoogleAuthProvider();
-  provider.setCustomParameters({ prompt: 'select_account' });
-  return signInWithPopup(getAuth(), provider);
+  throw new Error('Google sign-in is not yet implemented on iPad. Use email or anonymous sign-in.');
 }
 
 export async function signInWithApple(): Promise<UserCredential> {
-  const provider = new OAuthProvider('apple.com');
-  provider.addScope('email');
-  provider.addScope('name');
-  return signInWithPopup(getAuth(), provider);
+  throw new Error('Apple sign-in is not yet implemented on iPad. Use email or anonymous sign-in.');
 }
 
 export async function signInWithFacebook(): Promise<UserCredential> {
-  const provider = new FacebookAuthProvider();
-  provider.addScope('email');
-  return signInWithPopup(getAuth(), provider);
+  throw new Error('Facebook sign-in is not yet implemented on iPad. Use email or anonymous sign-in.');
 }
 
 /* ── Human-readable error mapping ──────────────────────────────── */
@@ -83,9 +78,6 @@ export function readableAuthError(err: unknown): string {
       return 'このメールアドレスは既に登録されています。';
     case 'auth/weak-password':
       return 'パスワードは6文字以上で入力してください。';
-    case 'auth/popup-closed-by-user':
-    case 'auth/cancelled-popup-request':
-      return 'ログインがキャンセルされました。';
     case 'auth/account-exists-with-different-credential':
       return '同じメールアドレスの別プロバイダーアカウントが存在します。';
     case 'auth/operation-not-allowed':
@@ -96,8 +88,6 @@ export function readableAuthError(err: unknown): string {
       return (err as { message?: string })?.message ?? 'ログインに失敗しました。';
   }
 }
-
-/* ── Helper: check if user signed in with email/password ── */
 
 export function hasPasswordProvider(user: User | null): boolean {
   if (!user) return false;

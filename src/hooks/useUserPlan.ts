@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getFirestore, doc, onSnapshot } from 'firebase/firestore';
+import { initFirebase } from '../services/firebase';
 import { useAuth } from './useAuth';
 
 export type PlanId = 'free' | 'standard' | 'premium';
@@ -36,7 +37,7 @@ export function useUserPlan(): UserPlan {
       return;
     }
     const unsub = onSnapshot(
-      doc(getFirestore(), 'users', user.uid),
+      doc(getFirestore(initFirebase()), 'users', user.uid),
       (snap) => {
         const data = snap.data();
         const raw = data?.user_type ?? 'free';

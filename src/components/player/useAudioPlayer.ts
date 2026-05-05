@@ -1,4 +1,5 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
+import { Audio, type AVPlaybackStatus } from 'expo-av';
 import type { Track } from '../../types/track';
 
 interface AudioPlayerState {
@@ -8,13 +9,36 @@ interface AudioPlayerState {
   duration: number;
   isLoading: boolean;
   repeat: boolean;
+  /**
+   * Synthesized amplitude level in 0..1 range while playing. Real-time FFT
+   * (Web Audio AnalyserNode) is unavailable on native; consumers that used
+   * `analyserNode` should read `level` instead.
+   */
+  level: number;
+}
+
+let audioModeConfigured = false;
+
+async function ensureAudioMode() {
+  if (audioModeConfigured) return;
+  try {
+    await Audio.setAudioModeAsync({
+      staysActiveInBackground: true,
+      playsInSilentModeIOS: true,
+      shouldDuckAndroid: true,
+      playThroughEarpieceAndroid: false,
+    });
+    audioModeConfigured = true;
+  } catch (err) {
+    console.warn('Failed to set audio mode:', err);
+  }
 }
 
 export function useAudioPlayer() {
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const sourceRef = useRef<MediaElementAudioSourceNode | null>(null);
+  const soundRef = useRef<Audio.Sound | null>(null);
+  const repeatRef = useRef(false);
+  const levelTickRef = useRef(0);
+
   const [state, setState] = useState<AudioPlayerState>({
     isPlaying: false,
     currentTrack: null,
@@ -22,115 +46,128 @@ export function useAudioPlayer() {
     duration: 0,
     isLoading: false,
     repeat: false,
+    level: 0,
   });
-  const repeatRef = useRef(false);
 
-  const playTrack = useCallback(async (track: Track, urlOverride?: string) => {
-    try {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.src = '';
+  const onPlaybackStatus = useCallback((status: AVPlaybackStatus) => {
+    if (!status.isLoaded) {
+      setState((prev) => ({ ...prev, isLoading: !('error' in status), isPlaying: false }));
+      return;
+    }
+    // Synthesize a soft pseudo-level signal so visualizers have something to react to.
+    levelTickRef.current = (levelTickRef.current + 1) % 1024;
+    const t = levelTickRef.current * 0.06;
+    const synth = status.isPlaying
+      ? 0.45 + 0.35 * Math.abs(Math.sin(t)) + 0.2 * Math.abs(Math.sin(t * 1.7 + 0.6))
+      : 0;
+
+    setState((prev) => ({
+      ...prev,
+      isPlaying: status.isPlaying,
+      isLoading: status.isBuffering && !status.isPlaying,
+      position: (status.positionMillis ?? 0) / 1000,
+      duration: (status.durationMillis ?? 0) / 1000,
+      level: synth,
+    }));
+  }, []);
+
+  const unload = useCallback(async () => {
+    const sound = soundRef.current;
+    soundRef.current = null;
+    if (sound) {
+      try {
+        await sound.unloadAsync();
+      } catch {
+        // ignore
       }
-      sourceRef.current = null;
-
-      setState((prev) => ({ ...prev, currentTrack: track, isLoading: true }));
-
-      const audio = new Audio(urlOverride ?? track.audioUrl);
-      audio.crossOrigin = 'anonymous';
-      audio.loop = repeatRef.current;
-      audioRef.current = audio;
-
-      // Set up AudioContext + AnalyserNode
-      if (!audioContextRef.current) {
-        audioContextRef.current = new AudioContext();
-        analyserRef.current = audioContextRef.current.createAnalyser();
-        analyserRef.current.fftSize = 32;
-        analyserRef.current.smoothingTimeConstant = 0.8;
-        analyserRef.current.connect(audioContextRef.current.destination);
-      }
-      if (audioContextRef.current.state === 'suspended') {
-        await audioContextRef.current.resume();
-      }
-      const source = audioContextRef.current.createMediaElementSource(audio);
-      source.connect(analyserRef.current!);
-      sourceRef.current = source;
-
-      audio.addEventListener('loadedmetadata', () => {
-        setState((prev) => ({
-          ...prev,
-          duration: audio.duration || 0,
-          isLoading: false,
-        }));
-      });
-
-      audio.addEventListener('timeupdate', () => {
-        setState((prev) => ({
-          ...prev,
-          position: audio.currentTime,
-        }));
-      });
-
-      audio.addEventListener('ended', () => {
-        setState((prev) => ({ ...prev, isPlaying: false, position: 0 }));
-      });
-
-      audio.addEventListener('playing', () => {
-        setState((prev) => ({ ...prev, isPlaying: true }));
-      });
-
-      audio.addEventListener('pause', () => {
-        setState((prev) => ({ ...prev, isPlaying: false }));
-      });
-
-      await audio.play();
-    } catch (error) {
-      console.error('Error playing track:', error);
-      setState((prev) => ({ ...prev, isLoading: false }));
     }
   }, []);
+
+  const playTrack = useCallback(
+    async (track: Track, urlOverride?: string) => {
+      try {
+        await ensureAudioMode();
+        await unload();
+
+        const uri = urlOverride ?? track.audioUrl;
+        if (!uri) {
+          console.warn('Track has no audioUrl');
+          return;
+        }
+
+        setState((prev) => ({
+          ...prev,
+          currentTrack: track,
+          isLoading: true,
+          position: 0,
+          duration: 0,
+        }));
+
+        const { sound } = await Audio.Sound.createAsync(
+          { uri },
+          {
+            shouldPlay: true,
+            isLooping: repeatRef.current,
+            progressUpdateIntervalMillis: 200,
+          },
+          onPlaybackStatus,
+        );
+        soundRef.current = sound;
+      } catch (error) {
+        console.error('Error playing track:', error);
+        setState((prev) => ({ ...prev, isLoading: false }));
+      }
+    },
+    [onPlaybackStatus, unload],
+  );
 
   const togglePlayPause = useCallback(async () => {
-    const audio = audioRef.current;
-    if (!audio) return;
-
-    if (audio.paused) {
-      await audio.play();
+    const sound = soundRef.current;
+    if (!sound) return;
+    const status = await sound.getStatusAsync();
+    if (!status.isLoaded) return;
+    if (status.isPlaying) {
+      await sound.pauseAsync();
     } else {
-      audio.pause();
+      await sound.playAsync();
     }
   }, []);
 
-  const stop = useCallback(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    audio.pause();
-    audio.currentTime = 0;
+  const stop = useCallback(async () => {
+    await unload();
     setState((prev) => ({
       ...prev,
       isPlaying: false,
       position: 0,
       currentTrack: null,
+      level: 0,
     }));
+  }, [unload]);
+
+  const seekTo = useCallback(async (seconds: number) => {
+    const sound = soundRef.current;
+    if (!sound) return;
+    await sound.setPositionAsync(Math.max(0, seconds * 1000));
   }, []);
 
-  const seekTo = useCallback((seconds: number) => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    audio.currentTime = seconds;
-  }, []);
-
-  const toggleRepeat = useCallback(() => {
+  const toggleRepeat = useCallback(async () => {
     const next = !repeatRef.current;
     repeatRef.current = next;
-    if (audioRef.current) {
-      audioRef.current.loop = next;
+    const sound = soundRef.current;
+    if (sound) {
+      await sound.setIsLoopingAsync(next);
     }
     setState((prev) => ({ ...prev, repeat: next }));
   }, []);
 
+  useEffect(() => {
+    return () => {
+      void unload();
+    };
+  }, [unload]);
+
   return {
     ...state,
-    analyserNode: analyserRef.current,
     playTrack,
     togglePlayPause,
     stop,

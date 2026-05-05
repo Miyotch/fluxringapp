@@ -16,9 +16,10 @@ import {
 } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
 import type { Track, Playlist, Article } from '../types/track';
+import { initFirebase } from './firebase';
 
 function db() {
-  return getFirestore();
+  return getFirestore(initFirebase());
 }
 
 function parseDuration(value: unknown): number {

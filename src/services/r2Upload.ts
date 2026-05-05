@@ -1,19 +1,31 @@
 /**
- * Cloudflare R2 upload helper.
+ * Cloudflare R2 upload helper for the React Native iPad app.
  *
  * Authentication: uses the current Firebase user's ID token.
  * The Worker validates the token via Firestore and checks that
  * users/{uid}.admin === true before issuing a presigned URL.
  *
- * Configure via env (Vercel → Project → Environment Variables):
- *   VITE_R2_UPLOAD_ENDPOINT - Worker base URL
+ * Configure the endpoint via expo-constants `extra.r2UploadEndpoint`
+ * (set in app.json `expo.extra.r2UploadEndpoint` or via EAS env vars).
  */
 
-import { getAuth } from 'firebase/auth';
+import Constants from 'expo-constants';
+import { getRNAuth } from './firebase';
 
-const ENDPOINT = import.meta.env.VITE_R2_UPLOAD_ENDPOINT as string | undefined;
+const ENDPOINT: string | undefined = (Constants.expoConfig?.extra as
+  | { r2UploadEndpoint?: string }
+  | undefined)?.r2UploadEndpoint;
 
 export type UploadKind = 'audio' | 'preview' | 'artwork';
+
+export interface UploadAsset {
+  /** Local file URI (e.g. from expo-document-picker / expo-image-picker). */
+  uri: string;
+  /** MIME type, e.g. "audio/mp4". */
+  contentType: string;
+  /** File extension without the dot, e.g. "m4a". */
+  ext: string;
+}
 
 export interface UploadResult {
   publicUrl: string;
@@ -25,26 +37,27 @@ export function isR2Configured(): boolean {
 }
 
 /**
- * Upload a file to R2 via the presigned URL Worker.
- * Reports progress through the optional callback (0–1).
+ * Upload a local file to R2 via the presigned URL Worker.
+ *
+ * Note: progress reporting via `XMLHttpRequest.upload.onprogress` is
+ * supported on React Native, but if the runtime falls back to the
+ * `fetch` polyfill, granular progress may be unavailable.
  */
 export async function uploadToR2(
-  file: File,
+  asset: UploadAsset,
   trackId: string,
   kind: UploadKind = 'audio',
   onProgress?: (progress: number) => void,
 ): Promise<UploadResult> {
   if (!ENDPOINT) {
-    throw new Error('R2 upload is not configured. Set VITE_R2_UPLOAD_ENDPOINT.');
+    throw new Error('R2 upload is not configured. Set expo.extra.r2UploadEndpoint in app.json.');
   }
 
-  const user = getAuth().currentUser;
+  const user = getRNAuth().currentUser;
   if (!user) {
     throw new Error('ログインが必要です。');
   }
   const idToken = await user.getIdToken();
-
-  const ext = file.name.split('.').pop() ?? 'bin';
 
   const presignRes = await fetch(`${ENDPOINT.replace(/\/$/, '')}/upload-url`, {
     method: 'POST',
@@ -54,8 +67,8 @@ export async function uploadToR2(
     },
     body: JSON.stringify({
       trackId,
-      ext,
-      contentType: file.type || 'application/octet-stream',
+      ext: asset.ext,
+      contentType: asset.contentType,
       kind,
     }),
   });
@@ -74,19 +87,24 @@ export async function uploadToR2(
     key: string;
   };
 
+  const fileResponse = await fetch(asset.uri);
+  const blob = await fileResponse.blob();
+
   await new Promise<void>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('PUT', uploadUrl, true);
-    xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable && onProgress) onProgress(e.loaded / e.total);
-    };
+    xhr.setRequestHeader('Content-Type', asset.contentType);
+    if (xhr.upload && onProgress) {
+      xhr.upload.onprogress = (e: ProgressEvent) => {
+        if (e.lengthComputable) onProgress(e.loaded / e.total);
+      };
+    }
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) resolve();
       else reject(new Error(`R2 upload failed: ${xhr.status} ${xhr.responseText}`));
     };
     xhr.onerror = () => reject(new Error('Network error while uploading to R2'));
-    xhr.send(file);
+    xhr.send(blob);
   });
 
   return { publicUrl, key };
