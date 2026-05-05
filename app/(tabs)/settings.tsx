@@ -1,23 +1,17 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
-  ActivityIndicator,
   Alert,
-  Linking,
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
-  Switch,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
-import { updateProfile } from 'firebase/auth';
 import { GradientBackground } from '@/components/ui/GradientBackground';
-import { OrbSphere } from '@/components/ui/OrbSphere';
 import { PasswordModal } from '@/components/settings/PasswordModal';
 import { EmailModal } from '@/components/settings/EmailModal';
 import { DeleteAccountModal } from '@/components/settings/DeleteAccountModal';
@@ -27,13 +21,13 @@ import { hasPasswordProvider, signOut } from '@/services/auth';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
 
-const NOTIF_KEY = 'flux:notifications';
-const PRIVACY_URL = 'https://fluxringweb.vercel.app/privacy';
-const TERMS_URL = 'https://fluxringweb.vercel.app/terms';
 const DANGER = '#c25a65';
+const SOFT_AVATAR_BG = 'rgba(220,225,240,1)';
+const AVATAR_ICON_COLOR = '#a8b3d6';
+const ROW_SEPARATOR = 'rgba(145,120,189,0.1)';
+const CHEVRON_COLOR = '#b0a8c8';
 
 type IconName = keyof typeof Ionicons.glyphMap;
-
 type ModalKind = 'password' | 'email' | 'delete' | null;
 
 export default function SettingsScreen() {
@@ -43,70 +37,13 @@ export default function SettingsScreen() {
   const isEmailUser = hasPasswordProvider(user);
 
   const [modal, setModal] = useState<ModalKind>(null);
-  const [editingName, setEditingName] = useState(false);
-  const [nameDraft, setNameDraft] = useState('');
-  const [savingName, setSavingName] = useState(false);
-  const [notifEnabled, setNotifEnabled] = useState(false);
 
-  // Hydrate notification toggle from AsyncStorage.
-  useEffect(() => {
-    let cancelled = false;
-    AsyncStorage.getItem(NOTIF_KEY)
-      .then((raw) => {
-        if (cancelled) return;
-        setNotifEnabled(raw === '1');
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const displayName = useMemo(
-    () =>
-      user?.displayName ||
-      user?.email?.split('@')[0] ||
-      (user?.isAnonymous ? 'ゲストユーザー' : '匿名ユーザー'),
-    [user],
-  );
+  const displayName =
+    user?.displayName ||
+    user?.email?.split('@')[0] ||
+    (user?.isAnonymous ? 'ゲストユーザー' : '匿名ユーザー');
   const displayEmail = user?.email || (user?.isAnonymous ? '匿名セッション' : '');
   const appVersion = Constants.expoConfig?.version ?? '1.0.0';
-
-  const handleNotifToggle = async (value: boolean) => {
-    setNotifEnabled(value);
-    try {
-      await AsyncStorage.setItem(NOTIF_KEY, value ? '1' : '0');
-    } catch (err) {
-      console.warn('Failed to persist notification setting', err);
-    }
-  };
-
-  const beginEditName = () => {
-    setNameDraft(user?.displayName ?? '');
-    setEditingName(true);
-  };
-  const cancelEditName = () => {
-    setEditingName(false);
-    setNameDraft('');
-  };
-  const saveName = async () => {
-    if (!user) return;
-    const trimmed = nameDraft.trim();
-    if (!trimmed || trimmed === user.displayName) {
-      cancelEditName();
-      return;
-    }
-    setSavingName(true);
-    try {
-      await updateProfile(user, { displayName: trimmed });
-      setEditingName(false);
-    } catch (err) {
-      Alert.alert('エラー', '表示名の更新に失敗しました。');
-      console.warn('updateProfile failed', err);
-    } finally {
-      setSavingName(false);
-    }
-  };
 
   const handleLogout = () => {
     Alert.alert('ログアウト', 'ログアウトしますか？', [
@@ -121,10 +58,6 @@ export default function SettingsScreen() {
     ]);
   };
 
-  const openLink = (url: string) => {
-    Linking.openURL(url).catch(() => undefined);
-  };
-
   return (
     <GradientBackground>
       <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
@@ -136,90 +69,39 @@ export default function SettingsScreen() {
           ]}
           showsVerticalScrollIndicator={false}
         >
-          <Text style={styles.heading}>設定</Text>
+          {/* In-page title block */}
+          <Text style={styles.heading}>マイアカウント</Text>
           <Text style={styles.subHeading}>アカウント情報と各種設定</Text>
 
           {/* Profile card */}
           <View style={styles.profileCard}>
-            <View style={styles.profileAvatar}>
-              <OrbSphere size={64} hue={266} />
+            <View style={styles.avatarWrap}>
+              {user?.photoURL ? (
+                <Image source={{ uri: user.photoURL }} style={styles.avatarImage} />
+              ) : (
+                <Ionicons
+                  name="person-circle"
+                  size={56}
+                  color={AVATAR_ICON_COLOR}
+                />
+              )}
             </View>
             <View style={styles.profileBody}>
-              {editingName ? (
-                <View style={styles.nameEditRow}>
-                  <TextInput
-                    value={nameDraft}
-                    onChangeText={setNameDraft}
-                    placeholder="表示名"
-                    placeholderTextColor={colors.textMuted}
-                    style={styles.nameInput}
-                    autoFocus
-                    editable={!savingName}
-                    maxLength={32}
-                  />
-                  <Pressable
-                    onPress={saveName}
-                    disabled={savingName}
-                    style={({ pressed }) => [
-                      styles.nameActionBtn,
-                      styles.nameActionPrimary,
-                      (pressed || savingName) && { opacity: 0.7 },
-                    ]}
-                  >
-                    {savingName ? (
-                      <ActivityIndicator size="small" color={colors.white} />
-                    ) : (
-                      <Ionicons name="checkmark" size={16} color={colors.white} />
-                    )}
-                  </Pressable>
-                  <Pressable
-                    onPress={cancelEditName}
-                    disabled={savingName}
-                    style={({ pressed }) => [
-                      styles.nameActionBtn,
-                      pressed && { opacity: 0.7 },
-                    ]}
-                  >
-                    <Ionicons name="close" size={16} color={colors.textSecondary} />
-                  </Pressable>
-                </View>
-              ) : (
-                <View style={styles.nameRow}>
-                  <Text style={styles.profileName} numberOfLines={1}>
-                    {displayName}
-                  </Text>
-                  <Pressable
-                    onPress={beginEditName}
-                    hitSlop={8}
-                    style={({ pressed }) => [
-                      styles.editBtn,
-                      pressed && { opacity: 0.6 },
-                    ]}
-                  >
-                    <Ionicons name="pencil" size={14} color={colors.primary} />
-                  </Pressable>
-                </View>
-              )}
+              <Text style={styles.profileName} numberOfLines={1}>
+                {displayName}
+              </Text>
               {displayEmail ? (
                 <Text style={styles.profileEmail} numberOfLines={1}>
                   {displayEmail}
                 </Text>
               ) : null}
-              <View style={styles.badgeRow}>
-                <View style={styles.planBadge}>
-                  <Text style={styles.planBadgeText}>{planName}</Text>
-                </View>
-                {isAdmin ? (
-                  <View style={styles.adminBadge}>
-                    <Ionicons name="shield-checkmark" size={11} color={colors.primary} />
-                    <Text style={styles.adminBadgeText}>管理者</Text>
-                  </View>
-                ) : null}
-              </View>
+            </View>
+            <View style={styles.planBadge}>
+              <Text style={styles.planBadgeText}>{planName}</Text>
             </View>
           </View>
 
-          {/* Account section */}
+          {/* アカウント */}
           <SectionHeader label="アカウント" />
           <View style={styles.groupCard}>
             <SettingRow
@@ -233,81 +115,50 @@ export default function SettingsScreen() {
               <SettingRow
                 icon="lock-closed-outline"
                 label="パスワード変更"
+                desc="••••••••"
                 last
                 onPress={() => setModal('password')}
               />
             ) : null}
           </View>
 
-          {/* App settings */}
+          {/* アプリ設定 */}
           <SectionHeader label="アプリ設定" />
           <View style={styles.groupCard}>
             <SettingRow
               icon="notifications-outline"
-              label="通知"
+              label="通知設定"
               desc="リマインダー・お知らせ通知"
-              right={
-                <Switch
-                  value={notifEnabled}
-                  onValueChange={handleNotifToggle}
-                  trackColor={{ false: 'rgba(200,190,220,0.4)', true: colors.primaryLight }}
-                  thumbColor={notifEnabled ? colors.primary : '#f4f4f8'}
-                  ios_backgroundColor="rgba(200,190,220,0.4)"
-                />
-              }
-            />
-            <SettingRow
-              icon="musical-notes-outline"
-              label="サウンド設定"
-              desc="（プレースホルダー）"
               last
-              onPress={() => console.log('TODO: sound settings')}
+              onPress={() => console.log('TODO: notifications')}
             />
           </View>
 
-          {/* Admin section — admins only */}
+          {/* 運営管理 — admin only */}
           {isAdmin ? (
             <>
               <SectionHeader label="運営管理" />
               <View style={styles.groupCard}>
                 <SettingRow
-                  icon="musical-notes-outline"
-                  label="楽曲管理"
-                  onPress={() => console.log('TODO: admin tracks')}
-                />
-                <SettingRow
-                  icon="document-text-outline"
-                  label="記事管理"
-                  onPress={() => console.log('TODO: admin articles')}
-                />
-                <SettingRow
-                  icon="people-outline"
-                  label="ユーザー管理"
+                  icon="construct-outline"
+                  label="サービス管理画面"
+                  desc="記事・ユーザー管理"
                   last
-                  onPress={() => console.log('TODO: admin users')}
+                  onPress={() => console.log('TODO: admin')}
                 />
               </View>
             </>
           ) : null}
 
-          {/* Other */}
+          {/* その他 */}
           <SectionHeader label="その他" />
           <View style={styles.groupCard}>
             <SettingRow
               icon="information-circle-outline"
               label="アプリについて"
               desc={`バージョン ${appVersion}`}
-            />
-            <SettingRow
-              icon="shield-outline"
-              label="プライバシーポリシー"
-              onPress={() => openLink(PRIVACY_URL)}
-            />
-            <SettingRow
-              icon="document-text-outline"
-              label="利用規約"
               last
-              onPress={() => openLink(TERMS_URL)}
+              onPress={() => undefined}
             />
           </View>
 
@@ -319,7 +170,6 @@ export default function SettingsScreen() {
               pressed && { opacity: 0.85 },
             ]}
           >
-            <Ionicons name="log-out-outline" size={18} color={colors.white} />
             <Text style={styles.logoutLabel}>ログアウト</Text>
           </Pressable>
 
@@ -331,7 +181,6 @@ export default function SettingsScreen() {
               pressed && { opacity: 0.7 },
             ]}
           >
-            <Ionicons name="trash-outline" size={16} color={DANGER} />
             <Text style={styles.deleteAccountLabel}>アカウントを削除</Text>
           </Pressable>
         </ScrollView>
@@ -386,11 +235,7 @@ function SettingRow({ icon, label, desc, last, onPress, right }: SettingRowProps
           </Text>
         ) : null}
       </View>
-      {right ?? (
-        interactive ? (
-          <Ionicons name="chevron-forward" size={16} color={colors.tabInactive} />
-        ) : null
-      )}
+      {right ?? <Ionicons name="chevron-forward" size={20} color={CHEVRON_COLOR} />}
     </Pressable>
   );
 }
@@ -407,8 +252,10 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     width: '100%',
   },
+
+  // Header
   heading: {
-    fontSize: 24,
+    fontSize: 26,
     fontWeight: '700',
     color: colors.textPrimary,
   },
@@ -419,151 +266,86 @@ const styles = StyleSheet.create({
     marginBottom: spacing.lg,
   },
 
-  // Profile
+  // Profile card
   profileCard: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.md + 2,
-    borderRadius: borderRadius.lg,
-    marginBottom: spacing.lg,
-    backgroundColor: 'rgba(255,255,255,0.65)',
+    padding: 20,
+    borderRadius: 24,
+    marginBottom: spacing.sm,
+    backgroundColor: colors.glass,
     borderWidth: 1,
     borderColor: colors.glassBorder,
   },
-  profileAvatar: {
-    width: 64,
-    height: 64,
+  avatarWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: SOFT_AVATAR_BG,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  avatarImage: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
   },
   profileBody: {
     flex: 1,
     minWidth: 0,
-    gap: 2,
-  },
-  nameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
   },
   profileName: {
-    flexShrink: 1,
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '700',
     color: colors.textPrimary,
-  },
-  editBtn: {
-    width: 24,
-    height: 24,
-    borderRadius: borderRadius.full,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(145,120,189,0.12)',
-  },
-  nameEditRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-  },
-  nameInput: {
-    flex: 1,
-    paddingVertical: 6,
-    paddingHorizontal: spacing.sm + 2,
-    borderRadius: borderRadius.sm,
-    borderWidth: 1,
-    borderColor: 'rgba(200,190,220,0.5)',
-    backgroundColor: 'rgba(255,255,255,0.85)',
-    fontSize: 14,
-    color: colors.textPrimary,
-  },
-  nameActionBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: borderRadius.full,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.7)',
-    borderWidth: 1,
-    borderColor: 'rgba(200,190,220,0.4)',
-  },
-  nameActionPrimary: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
   },
   profileEmail: {
-    fontSize: 12,
+    fontSize: 13,
     color: colors.textSecondary,
     marginTop: 2,
   },
-  badgeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs + 2,
-    marginTop: spacing.xs + 2,
-    flexWrap: 'wrap',
-  },
   planBadge: {
-    paddingVertical: 4,
-    paddingHorizontal: 10,
-    borderRadius: borderRadius.full,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 999,
     backgroundColor: 'rgba(145,120,189,0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(145,120,189,0.2)',
   },
   planBadgeText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: colors.primary,
-  },
-  adminBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    borderRadius: borderRadius.full,
-    backgroundColor: 'rgba(145,120,189,0.08)',
-    borderWidth: 1,
-    borderColor: 'rgba(145,120,189,0.2)',
-  },
-  adminBadgeText: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: colors.primary,
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#9178BD',
   },
 
   // Section / group
   sectionLabel: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '600',
     color: colors.textSecondary,
-    marginTop: spacing.sm,
-    marginBottom: spacing.sm,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
+    marginTop: 24,
+    marginBottom: 8,
+    paddingHorizontal: 4,
   },
   groupCard: {
-    borderRadius: borderRadius.lg,
+    borderRadius: 20,
     overflow: 'hidden',
-    backgroundColor: 'rgba(255,255,255,0.6)',
+    backgroundColor: colors.glass,
     borderWidth: 1,
     borderColor: colors.glassBorder,
-    marginBottom: spacing.md,
   },
 
   // Rows
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm + 2,
-    paddingVertical: spacing.md - 2,
-    paddingHorizontal: spacing.md,
+    gap: spacing.md - 4,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
   },
   rowDivider: {
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(200,190,220,0.35)',
+    borderBottomColor: ROW_SEPARATOR,
   },
   rowBody: {
     flex: 1,
@@ -571,23 +353,22 @@ const styles = StyleSheet.create({
   },
   rowLabel: {
     fontSize: 14,
-    fontWeight: '500',
+    fontWeight: '700',
     color: colors.textPrimary,
   },
   rowDesc: {
-    fontSize: 11,
+    fontSize: 12,
     color: colors.textSecondary,
     marginTop: 2,
   },
 
   // Buttons
   logoutBtn: {
-    marginTop: spacing.md,
+    marginTop: spacing.lg,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: spacing.sm,
-    paddingVertical: 14,
+    paddingVertical: 16,
     borderRadius: borderRadius.md,
     backgroundColor: colors.primary,
   },
@@ -599,10 +380,8 @@ const styles = StyleSheet.create({
   },
   deleteAccountBtn: {
     marginTop: spacing.md,
-    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: spacing.xs + 2,
     paddingVertical: spacing.sm + 2,
   },
   deleteAccountLabel: {
