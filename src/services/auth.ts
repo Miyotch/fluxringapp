@@ -4,6 +4,11 @@ import {
   onAuthStateChanged as firebaseOnAuthStateChanged,
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
+  EmailAuthProvider,
+  reauthenticateWithCredential,
+  updatePassword as firebaseUpdatePassword,
+  updateEmail as firebaseUpdateEmail,
+  deleteUser as firebaseDeleteUser,
   type User,
   type UserCredential,
 } from 'firebase/auth';
@@ -92,4 +97,50 @@ export function readableAuthError(err: unknown): string {
 export function hasPasswordProvider(user: User | null): boolean {
   if (!user) return false;
   return user.providerData.some((p) => p.providerId === 'password');
+}
+
+/* ── Account management helpers ────────────────────────────────── */
+
+/**
+ * Re-authenticate the current user with their email + current password.
+ * Required by Firebase before privileged ops (updateEmail, updatePassword,
+ * deleteUser) when the session has aged.
+ */
+async function reauthWithPassword(user: User, currentPassword: string): Promise<void> {
+  if (!user.email) {
+    throw Object.assign(new Error('メール認証でないアカウントは変更できません。'), {
+      code: 'auth/no-email',
+    });
+  }
+  const cred = EmailAuthProvider.credential(user.email, currentPassword);
+  await reauthenticateWithCredential(user, cred);
+}
+
+/** Change the current user's password. Re-auths with the current password first. */
+export async function changePassword(current: string, next: string): Promise<void> {
+  const user = getRNAuth().currentUser;
+  if (!user) throw new Error('ログインしていません。');
+  await reauthWithPassword(user, current);
+  await firebaseUpdatePassword(user, next);
+}
+
+/** Change the current user's email. Re-auths with the current password first. */
+export async function changeEmail(currentPassword: string, newEmail: string): Promise<void> {
+  const user = getRNAuth().currentUser;
+  if (!user) throw new Error('ログインしていません。');
+  await reauthWithPassword(user, currentPassword);
+  await firebaseUpdateEmail(user, newEmail.trim());
+}
+
+/**
+ * Permanently delete the current user. If the account uses email/password,
+ * a re-auth with the current password is performed first.
+ */
+export async function deleteAccount(password: string): Promise<void> {
+  const user = getRNAuth().currentUser;
+  if (!user) throw new Error('ログインしていません。');
+  if (user.email && password) {
+    await reauthWithPassword(user, password);
+  }
+  await firebaseDeleteUser(user);
 }
