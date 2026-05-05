@@ -153,12 +153,17 @@ export async function syncUserProfile(user: User): Promise<void> {
       updatedAt: serverTimestamp(),
     });
   } else {
-    await updateDoc(userRef, {
+    const updates: Record<string, unknown> = {
       email: user.email ?? '',
-      displayName: user.displayName ?? '',
       photoURL: user.photoURL ?? '',
       providers: providerIds,
       updatedAt: serverTimestamp(),
-    });
+    };
+    // Only overwrite Firestore displayName when Auth has one set (e.g. Google/Apple),
+    // so a username saved via setup-username is not cleared on email-password login.
+    if (user.displayName) {
+      updates.displayName = user.displayName;
+    }
+    await updateDoc(userRef, updates);
   }
 }
