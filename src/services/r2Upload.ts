@@ -1,16 +1,17 @@
 /**
  * Cloudflare R2 upload helper.
  *
- * Calls the R2 upload Worker to obtain a presigned PUT URL,
- * then uploads the file directly to R2.
+ * Authentication: uses the current Firebase user's ID token.
+ * The Worker validates the token via Firestore and checks that
+ * users/{uid}.admin === true before issuing a presigned URL.
  *
- * Configure via environment variables (see .env):
+ * Configure via env (Vercel → Project → Environment Variables):
  *   VITE_R2_UPLOAD_ENDPOINT - Worker base URL
- *   VITE_R2_ADMIN_TOKEN     - shared secret for authenticating with the Worker
  */
 
+import { getAuth } from 'firebase/auth';
+
 const ENDPOINT = import.meta.env.VITE_R2_UPLOAD_ENDPOINT as string | undefined;
-const ADMIN_TOKEN = import.meta.env.VITE_R2_ADMIN_TOKEN as string | undefined;
 
 export type UploadKind = 'audio' | 'preview' | 'artwork';
 
@@ -20,7 +21,7 @@ export interface UploadResult {
 }
 
 export function isR2Configured(): boolean {
-  return Boolean(ENDPOINT && ADMIN_TOKEN);
+  return Boolean(ENDPOINT);
 }
 
 /**
@@ -33,9 +34,15 @@ export async function uploadToR2(
   kind: UploadKind = 'audio',
   onProgress?: (progress: number) => void,
 ): Promise<UploadResult> {
-  if (!ENDPOINT || !ADMIN_TOKEN) {
-    throw new Error('R2 upload is not configured. Set VITE_R2_UPLOAD_ENDPOINT and VITE_R2_ADMIN_TOKEN.');
+  if (!ENDPOINT) {
+    throw new Error('R2 upload is not configured. Set VITE_R2_UPLOAD_ENDPOINT.');
   }
+
+  const user = getAuth().currentUser;
+  if (!user) {
+    throw new Error('ログインが必要です。');
+  }
+  const idToken = await user.getIdToken();
 
   const ext = file.name.split('.').pop() ?? 'bin';
 
@@ -43,7 +50,7 @@ export async function uploadToR2(
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${ADMIN_TOKEN}`,
+      Authorization: `Bearer ${idToken}`,
     },
     body: JSON.stringify({
       trackId,
@@ -55,7 +62,10 @@ export async function uploadToR2(
 
   if (!presignRes.ok) {
     const errBody = await presignRes.text();
-    throw new Error(`Failed to get upload URL: ${presignRes.status} ${errBody}`);
+    if (presignRes.status === 403) {
+      throw new Error('管理者権限がありません。');
+    }
+    throw new Error(`アップロードURLの取得に失敗しました: ${presignRes.status} ${errBody}`);
   }
 
   const { uploadUrl, publicUrl, key } = (await presignRes.json()) as {
@@ -64,7 +74,6 @@ export async function uploadToR2(
     key: string;
   };
 
-  // Upload via XHR so we can report progress
   await new Promise<void>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('PUT', uploadUrl, true);

@@ -1,30 +1,41 @@
 /**
- * Cloudflare Worker: R2 Presigned Upload URL issuer
+ * Cloudflare Worker: R2 Presigned Upload URL issuer (Firebase auth)
  *
- * Issues short-lived presigned PUT URLs that the admin frontend can use
- * to upload audio files directly to R2 without exposing R2 credentials.
+ * Auth flow:
+ *   1. Frontend gets the current user's Firebase ID token
+ *   2. Sends it as `Authorization: Bearer <idToken>`
+ *   3. Worker decodes the UID from the token (without verifying signature)
+ *   4. Worker calls Firestore REST API with the SAME token to read
+ *      users/{uid}. Firestore validates the token signature + expiration.
+ *   5. Worker checks `admin === true` in the returned doc.
+ *   6. If admin, issues a short-lived presigned PUT URL for R2.
+ *
+ * This delegation means we never have to verify Firebase JWT signatures
+ * ourselves — Firestore does it. If the token is invalid/expired,
+ * Firestore returns 401 and the Worker rejects.
  *
  * Endpoints:
  *   GET  /              → health check
  *   POST /upload-url    → { trackId, ext, contentType, kind }
- *                         returns { uploadUrl, publicUrl }
+ *                         returns { uploadUrl, publicUrl, key }
  *
- * Required bindings (set via wrangler.toml or dashboard):
- *   - R2 binding: BUCKET (your R2 bucket)
- *   - Vars:       R2_PUBLIC_BASE  (e.g. "https://pub-xxxxxxxx.r2.dev")
- *                 ALLOWED_ORIGIN  (e.g. "https://fluxringweb.vercel.app")
- *                 ADMIN_TOKEN     (shared secret, sent as Authorization header)
- *                 R2_ACCESS_KEY_ID
- *                 R2_SECRET_ACCESS_KEY
- *                 R2_ACCOUNT_ID
- *                 R2_BUCKET_NAME
+ * Required vars (wrangler.toml):
+ *   - FIREBASE_PROJECT_ID
+ *   - R2_PUBLIC_BASE     (e.g. "https://pub-xxxxxxxx.r2.dev")
+ *   - ALLOWED_ORIGIN     (e.g. "https://fluxringweb.vercel.app")
+ *
+ * Required secrets (wrangler secret put):
+ *   - R2_ACCESS_KEY_ID
+ *   - R2_SECRET_ACCESS_KEY
+ *   - R2_ACCOUNT_ID
+ *   - R2_BUCKET_NAME
  */
 
 interface Env {
   BUCKET: R2Bucket;
+  FIREBASE_PROJECT_ID: string;
   R2_PUBLIC_BASE: string;
   ALLOWED_ORIGIN: string;
-  ADMIN_TOKEN: string;
   R2_ACCESS_KEY_ID: string;
   R2_SECRET_ACCESS_KEY: string;
   R2_ACCOUNT_ID: string;
@@ -37,6 +48,60 @@ const corsHeaders = (origin: string) => ({
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   'Access-Control-Max-Age': '86400',
 });
+
+/* ── Firebase auth (delegated to Firestore) ────────────────────── */
+
+function decodeJwtPayload<T = Record<string, unknown>>(token: string): T | null {
+  const parts = token.split('.');
+  if (parts.length !== 3) return null;
+  try {
+    const padded = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    return JSON.parse(atob(padded)) as T;
+  } catch {
+    return null;
+  }
+}
+
+interface FirebaseIdTokenPayload {
+  user_id?: string;
+  sub?: string;
+  iss?: string;
+  aud?: string;
+  exp?: number;
+}
+
+/**
+ * Verify the user is an admin by:
+ *  1. Decoding the UID from the ID token (no signature check)
+ *  2. Calling Firestore REST API with the token (which validates it)
+ *  3. Checking that users/{uid}.admin === true
+ *
+ * Returns the UID if admin, null otherwise.
+ */
+async function verifyAdmin(idToken: string, projectId: string): Promise<string | null> {
+  const payload = decodeJwtPayload<FirebaseIdTokenPayload>(idToken);
+  if (!payload) return null;
+  const uid = payload.user_id || payload.sub;
+  if (!uid) return null;
+
+  // Sanity check: the token should be issued for this Firebase project
+  const expectedIss = `https://securetoken.google.com/${projectId}`;
+  if (payload.iss !== expectedIss || payload.aud !== projectId) return null;
+  if (payload.exp && payload.exp * 1000 < Date.now()) return null;
+
+  // Firestore REST API — Firestore will reject invalid/expired tokens
+  const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/users/${uid}`;
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${idToken}` },
+  });
+  if (!res.ok) return null;
+
+  const data = (await res.json()) as { fields?: { admin?: { booleanValue?: boolean } } };
+  const isAdmin = data.fields?.admin?.booleanValue === true;
+  return isAdmin ? uid : null;
+}
+
+/* ── R2 SigV4 presign ──────────────────────────────────────────── */
 
 async function sha256(message: string): Promise<string> {
   const data = new TextEncoder().encode(message);
@@ -62,14 +127,9 @@ async function getSignatureKey(secret: string, date: string, region: string, ser
   return hmacSha256(kService, 'aws4_request');
 }
 
-/**
- * Generate AWS SigV4 presigned URL for PUT to R2 (S3-compatible).
- * Valid for 5 minutes.
- */
 async function presignR2PutUrl(
   env: Env,
   key: string,
-  contentType: string,
   expiresInSec = 300,
 ): Promise<string> {
   const region = 'auto';
@@ -87,7 +147,6 @@ async function presignR2PutUrl(
     'X-Amz-Expires': String(expiresInSec),
     'X-Amz-SignedHeaders': 'host',
   });
-  // Query params must be URI-encoded and alphabetically sorted
   const sortedQuery = [...params.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
@@ -119,6 +178,8 @@ async function presignR2PutUrl(
   return `https://${host}/${env.R2_BUCKET_NAME}/${encodeURIComponent(key).replace(/%2F/g, '/')}?${sortedQuery}&X-Amz-Signature=${signature}`;
 }
 
+/* ── Request handler ───────────────────────────────────────────── */
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const origin = env.ALLOWED_ORIGIN || '*';
@@ -135,11 +196,19 @@ export default {
     }
 
     if (request.method === 'POST' && url.pathname === '/upload-url') {
-      // Auth
       const authHeader = request.headers.get('Authorization') ?? '';
-      if (authHeader !== `Bearer ${env.ADMIN_TOKEN}`) {
-        return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      const idToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+      if (!idToken) {
+        return new Response(JSON.stringify({ error: 'Missing token' }), {
           status: 401,
+          headers: { ...cors, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const adminUid = await verifyAdmin(idToken, env.FIREBASE_PROJECT_ID);
+      if (!adminUid) {
+        return new Response(JSON.stringify({ error: 'Forbidden — admin only' }), {
+          status: 403,
           headers: { ...cors, 'Content-Type': 'application/json' },
         });
       }
@@ -161,7 +230,7 @@ export default {
 
         const safeExt = ext.replace(/[^a-zA-Z0-9]/g, '').slice(0, 6) || 'bin';
         const key = `tracks/${trackId}/${kind}.${safeExt}`;
-        const uploadUrl = await presignR2PutUrl(env, key, contentType);
+        const uploadUrl = await presignR2PutUrl(env, key);
         const publicUrl = `${env.R2_PUBLIC_BASE.replace(/\/$/, '')}/${key}`;
 
         return new Response(JSON.stringify({ uploadUrl, publicUrl, key }), {

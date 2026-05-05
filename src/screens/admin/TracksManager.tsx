@@ -294,7 +294,7 @@ function TrackEditor({ track, onDone }: { track: TrackDoc | null; onDone: () => 
             )}
             {!isR2Configured() && (
               <span style={{ fontSize: 10, color: '#c25a65' }}>
-                ⚠ R2 アップロード未設定 (.env に VITE_R2_UPLOAD_ENDPOINT / VITE_R2_ADMIN_TOKEN を設定)
+                ⚠ R2 アップロード未設定 (Vercel に VITE_R2_UPLOAD_ENDPOINT を設定)
               </span>
             )}
           </div>
