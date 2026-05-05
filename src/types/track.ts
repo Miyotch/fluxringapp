@@ -44,9 +44,19 @@ export interface UserProfile {
 export interface Article {
   id: string;
   title: string;
-  body: string;
-  imageUrl: string;
-  publishedAt: Date;
+  subtitle: string;
+  /** HTML body (rendered from rich-text editor). Stored as `descriptions` in Firestore. */
+  descriptions: string;
+  /** Sort field. Stored as `date` in Firestore (Timestamp). */
+  date: Date;
+  published: boolean;
+  /** Pinned items, render first. */
+  stable: boolean;
+  /** Optional. When non-empty, tapping the article opens this URL in the system browser.
+   *  Stored as `external_link` (snake_case) in Firestore. */
+  externalLink: string;
+  /** Image URL. Stored as `thumbnail` in Firestore. */
+  thumbnail: string;
 }
 
 export function formatDuration(seconds: number): string {

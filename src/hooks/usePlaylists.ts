@@ -115,12 +115,31 @@ export function usePlaylists() {
   );
 
   const createPlaylist = useCallback(
-    (name: string, hue: number) => {
+    (name: string, hue: number): string => {
+      const id = String(Date.now());
       const next = [
         ...memoryCache,
-        { id: String(Date.now()), name, hue, trackIds: [] },
+        { id, name, hue, trackIds: [] },
       ];
       void persist(next);
+      return id;
+    },
+    [persist],
+  );
+
+  /**
+   * Create a new playlist and immediately add a track to it. Returns the new
+   * playlist id.
+   */
+  const createPlaylistWithTrack = useCallback(
+    (name: string, hue: number, trackId: string): string => {
+      const id = String(Date.now());
+      const next = [
+        ...memoryCache,
+        { id, name, hue, trackIds: [trackId] },
+      ];
+      void persist(next);
+      return id;
     },
     [persist],
   );
@@ -156,8 +175,14 @@ export function usePlaylists() {
     removeTrack,
     toggleFavorite,
     createPlaylist,
+    createPlaylistWithTrack,
     updatePlaylist,
     deletePlaylist,
     isFavorite,
+    // Friendlier aliases used by the playlist screen / modals.
+    addPlaylist: createPlaylist,
+    removePlaylist: deletePlaylist,
+    addTrackToPlaylist: addTrack,
+    removeTrackFromPlaylist: removeTrack,
   };
 }

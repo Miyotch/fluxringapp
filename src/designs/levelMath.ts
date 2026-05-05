@@ -6,6 +6,7 @@
 
 /** Map dial amplitude (0.2–4.0) to a discrete level 1–5. */
 export function amplitudeToLevel(amplitude: number): number {
+  'worklet';
   const t = Math.max(0, Math.min(1, (amplitude - 0.2) / 3.8));
   return Math.min(5, Math.floor(t * 5) + 1);
 }

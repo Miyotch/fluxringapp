@@ -43,3 +43,6 @@ android/
 *.njsproj
 *.sln
 *.sw?
+
+# Local read-only reference mirror of legacy web app sources (used by agents)
+.reference/
