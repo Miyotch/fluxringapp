@@ -17,6 +17,9 @@ const firebaseConfig = {
   appId: '1:496626750767:web:fb627d42fc98e95ca57dda',
 };
 
+// Google OAuth Web Client ID — find this in Firebase Console > Authentication > Sign-in method > Google > Web SDK configuration
+export const GOOGLE_WEB_CLIENT_ID = '496626750767-REPLACE_WITH_YOUR_WEB_CLIENT_ID.apps.googleusercontent.com';
+
 let cachedApp: FirebaseApp | null = null;
 let cachedAuth: Auth | null = null;
 

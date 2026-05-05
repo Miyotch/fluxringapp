@@ -9,6 +9,8 @@ import {
   updatePassword as firebaseUpdatePassword,
   updateEmail as firebaseUpdateEmail,
   deleteUser as firebaseDeleteUser,
+  GoogleAuthProvider,
+  signInWithCredential,
   type User,
   type UserCredential,
 } from 'firebase/auth';
@@ -51,11 +53,20 @@ export async function signInWithEmail(
 /* ── Social providers ──────────────────────────────────────────────
  * Native sign-in (Google / Apple / Facebook) requires expo-auth-session
  * or expo-apple-authentication on iOS. The browser popup flow is not
- * available on React Native. These stubs throw with a clear message so
- * that the UI can disable the buttons until the OAuth flows are wired up.
- * Tracked: backend-developer should implement these with expo-auth-session.
+ * available on React Native.
  * ─────────────────────────────────────────────────────────────── */
 
+/**
+ * Sign in with a Google ID token obtained via expo-auth-session.
+ * The caller (login.tsx) obtains the idToken via Google.useIdTokenAuthRequest
+ * and passes it here to exchange for a Firebase UserCredential.
+ */
+export async function signInWithGoogleCredential(idToken: string): Promise<UserCredential> {
+  const credential = GoogleAuthProvider.credential(idToken);
+  return signInWithCredential(getRNAuth(), credential);
+}
+
+/** @deprecated Use signInWithGoogleCredential instead. Kept for compat. */
 export async function signInWithGoogle(): Promise<UserCredential> {
   throw new Error('Google sign-in is not yet implemented on iPad. Use email or anonymous sign-in.');
 }
