@@ -14,6 +14,7 @@ import {
   runOnJS,
   useAnimatedReaction,
   useDerivedValue,
+  useFrameCallback,
   useSharedValue,
 } from 'react-native-reanimated';
 import { Design11NoiseOdyssey } from '../../designs/Design11_NoiseOdyssey';
@@ -51,6 +52,15 @@ export function FluxRingDial({
   const amp = useSharedValue(externalAmplitude ?? 1.0);
   const rotation = useSharedValue(0);
   const lastAngle = useSharedValue(0);
+
+  // ── Free-running 60fps animation clock (seconds since mount) ──
+  // Drives the noise / breathing pulse / per-ring rotation inside Design11
+  // so the dial keeps animating even when the user isn't touching it.
+  const clock = useSharedValue(0);
+  useFrameCallback((info) => {
+    'worklet';
+    clock.value += (info.timeSincePreviousFrame ?? 16) / 1000;
+  }, true);
 
   // Sync external amplitude prop into the shared value when it changes.
   useEffect(() => {
@@ -135,9 +145,14 @@ export function FluxRingDial({
   return (
     <GestureDetector gesture={pan}>
       <View style={[styles.root, { width: size, height: size }]}>
-        {/* Aurora ribbons + particles + howahowa overlay (Design11 imperative picture) */}
+        {/* Concentric noise rings + particles + howahowa overlay (Design11) */}
         <View style={StyleSheet.absoluteFill} pointerEvents="none">
-          <Design11NoiseOdyssey amplitude={amp} rotation={rotation} size={size} />
+          <Design11NoiseOdyssey
+            amplitude={amp}
+            rotation={rotation}
+            clock={clock}
+            size={size}
+          />
         </View>
 
         {/* Pearl knob + level text overlay */}
