@@ -1,8 +1,18 @@
-import { Tabs } from 'expo-router';
-
+import { useEffect } from 'react';
+import { Tabs, useRouter } from 'expo-router';
+import { useAuth } from '@/hooks/useAuth';
 import { FloatingCapsuleTabBar } from '@/components/navigation/FloatingCapsuleTabBar';
 
 export default function TabsLayout() {
+  const { user, loading } = useAuth();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!loading && !user) {
+      router.replace('/login');
+    }
+  }, [loading, user, router]);
+
   return (
     <Tabs
       screenOptions={{ headerShown: false }}

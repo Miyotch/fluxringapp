@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -12,15 +12,21 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as WebBrowser from 'expo-web-browser';
+import * as Google from 'expo-auth-session/providers/google';
 import {
   signInWithEmail,
   signUpWithEmail,
+  signInWithGoogleCredential,
   readableAuthError,
 } from '@/services/auth';
+import { GOOGLE_WEB_CLIENT_ID } from '@/services/firebase';
 import { OrbSphere } from '@/components/ui/OrbSphere';
 import { GradientBackground } from '@/components/ui/GradientBackground';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
+
+WebBrowser.maybeCompleteAuthSession();
 
 type Mode = 'signin' | 'signup';
 
@@ -33,6 +39,25 @@ function SocialButton({ icon, label }: { icon: React.ComponentProps<typeof Ionic
         <Text style={socialStyles.soon}>準備中</Text>
       </View>
     </View>
+  );
+}
+
+function ActiveSocialButton({
+  icon,
+  label,
+  onPress,
+}: {
+  icon: React.ComponentProps<typeof Ionicons>['name'];
+  label: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable style={socialStyles.wrap} onPress={onPress}>
+      <View style={[socialStyles.btn, socialStyles.btnActive]}>
+        <Ionicons name={icon} size={20} color={colors.primary} />
+        <Text style={[socialStyles.label, socialStyles.labelActive]}>{label}</Text>
+      </View>
+    </Pressable>
   );
 }
 
@@ -50,10 +75,18 @@ const socialStyles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.7)',
     opacity: 0.6,
   },
+  btnActive: {
+    opacity: 1,
+    backgroundColor: 'rgba(255,255,255,0.75)',
+    borderColor: 'rgba(145,120,189,0.3)',
+  },
   label: {
     fontSize: 11,
     fontWeight: '600',
     color: colors.textSecondary,
+  },
+  labelActive: {
+    color: colors.primary,
   },
   soon: {
     fontSize: 9,
@@ -67,6 +100,24 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [, googleResponse, promptGoogleAsync] = Google.useIdTokenAuthRequest({
+    clientId: GOOGLE_WEB_CLIENT_ID,
+  });
+
+  useEffect(() => {
+    if (googleResponse?.type === 'success') {
+      const idToken = googleResponse.params.id_token;
+      if (idToken) {
+        setBusy(true);
+        signInWithGoogleCredential(idToken)
+          .catch((err) => setError(readableAuthError(err)))
+          .finally(() => setBusy(false));
+      }
+    } else if (googleResponse?.type === 'error') {
+      setError(googleResponse.error?.message ?? 'Googleログインに失敗しました。');
+    }
+  }, [googleResponse]);
 
   const handleSubmit = useCallback(async () => {
     if (busy) return;
@@ -179,7 +230,7 @@ export default function LoginScreen() {
               </View>
 
               <View style={styles.socialRow}>
-                <SocialButton icon="logo-google" label="Google" />
+                <ActiveSocialButton icon="logo-google" label="Google" onPress={() => promptGoogleAsync()} />
                 <SocialButton icon="logo-apple" label="Apple" />
                 <SocialButton icon="logo-facebook" label="Facebook" />
               </View>
