@@ -1,19 +1,20 @@
 /**
- * Design 11: Noise Odyssey — Skia port
+ * Design 11: Noise Odyssey — Skia port (aurora ribbon edition)
  *
- * Renders the Flux Ring's animated outer ring system:
- *   - Inner clockwise ring group (5..17 rings, domain-warped FBM noise)
- *   - Outer counter-clockwise ring group (6..22 rings, ridged + warped noise mix)
- *   - Floating luminous particles (12..52)
- *   - Soft "howahowa" radial overlay
+ * Renders the Flux Ring's calm flowing aurora ribbons:
+ *   - 6 unified aurora ribbons (3 inner clockwise, 3 outer counter-clockwise)
+ *     each built from 32 sample points connected with cubic Bezier curves
+ *     (Catmull-Rom -> Bezier conversion) for smooth flowing waves
+ *   - 12 small floating sparkle particles
+ *   - Soft pearl/lavender "howahowa" radial overlay
+ *   - Faint vertical purple glow rising from below the dial
  *
  * Knob, level number text, and "Flux Ring" sub-label are rendered by the
- * parent `FluxRingDial`, NOT here. This component only owns the ring + particle
- * canvas.
+ * parent `FluxRingDial`, NOT here. This component owns the ring + particle
+ * canvas + background glow.
  *
- * Uses an imperative `Skia.PictureRecorder` inside a `useDerivedValue` so we
- * can drive ~25 rings * 72 segments per frame with per-segment color from a
- * single Picture, rather than thousands of declarative Skia nodes.
+ * Uses an imperative `Skia.PictureRecorder` inside a `useDerivedValue` so all
+ * curves are recorded into a single Picture per frame.
  */
 import { useMemo } from 'react';
 import {
@@ -28,15 +29,14 @@ import { useDerivedValue } from 'react-native-reanimated';
 import {
   amplitudeToLevel,
   hash,
-  ridgedNoise,
   smooth,
   warpedNoise,
 } from './noise';
 
 export type Design11Props = {
-  /** 0.2..4.0 — drives ring count, hue range, brightness. */
+  /** 0.2..4.0 — drives ribbon amplitude response, hue spread, brightness. */
   amplitude: SharedValue<number>;
-  /** Radians, accumulated user rotation; rotates the entire ring group. */
+  /** Radians, accumulated user rotation; rotates the entire ribbon group. */
   rotation: SharedValue<number>;
   /** Canvas square size in px. */
   size: number;
@@ -48,85 +48,93 @@ function hsla(h: number, s: number, l: number, a: number): string {
   return `hsla(${h.toFixed(1)}, ${s.toFixed(1)}%, ${l.toFixed(1)}%, ${a.toFixed(3)})`;
 }
 
-/** Hard caps on ring + segment counts. iPad can handle 25 * 72 line segments. */
-const SEGMENTS = 72;
-const MAX_INNER_RINGS = 12; // web maxes at 17; tuned down for mobile
-const MAX_OUTER_RINGS = 16; // web maxes at 22
-const MAX_PARTICLES = 40;   // web maxes at 52
+/** Sample count per ribbon. 32 gives smooth cubic curves without hot loops. */
+const SAMPLES = 32;
+
+/** Total ribbon count: 3 inner + 3 outer = 6. */
+const INNER_RIBBONS = 3;
+const OUTER_RIBBONS = 3;
+
+/** Sparkle particle count (fixed; no longer scales with level). */
+const PARTICLES = 12;
+
+/**
+ * Aurora ribbon palette. Each ribbon picks a base hue from this set; the hue
+ * rotates slowly with time to give a gentle color shift. Pinks, lavenders,
+ * cyans and pale yellow.
+ */
+const RIBBON_HUES = [318, 280, 258, 198, 168, 50];
 
 export function Design11NoiseOdyssey({ amplitude, rotation, size }: Design11Props) {
   const cx = size / 2;
   const cy = size / 2;
-  const maxR = Math.min(size, size) / 2 - 10;
+  const maxR = size / 2 - 10;
   const orbR = size * 0.18; // matches FluxRingDial inner orb radius
-  const innerMaxR = orbR + 16 + (maxR - orbR - 28) * 0.45;
-  const outerMinR = innerMaxR + 4;
-  const outerMaxR = orbR + 16 + (maxR - orbR - 28) * 0.98;
 
-  // Memoise the dimensions object; size is stable per render so this is cheap.
+  // Ribbon radius band: starts just outside the orb, ends just inside the bezel.
+  const innerBand = orbR + 24;
+  const outerBand = maxR - 6;
+  const bandSpan = outerBand - innerBand;
+
   const dims = useMemo(
-    () => ({ cx, cy, maxR, orbR, innerMaxR, outerMinR, outerMaxR }),
-    [cx, cy, maxR, orbR, innerMaxR, outerMinR, outerMaxR],
+    () => ({ cx, cy, maxR, orbR, innerBand, outerBand, bandSpan }),
+    [cx, cy, maxR, orbR, innerBand, outerBand, bandSpan],
   );
 
   const picture = useDerivedValue(() => {
     const amp = amplitude.value;
     const rot = rotation.value;
-    // Drive the noise time off the rotation so the rings continuously animate
-    // as the user spins the dial. We add a minor phase offset so a static dial
-    // still has a tiny sense of life.
+    // Drive noise time off the rotation so ribbons continuously animate as the
+    // user spins the dial. The small base offset keeps a static dial alive.
     const time = rot * 0.25;
     const level = amplitudeToLevel(amp);
 
-    // Breathing pulse (organic global rhythm).
-    const breath = 1 + Math.sin(time * 0.8) * 0.015 * level;
-
-    // Ring counts grow with level. Floor + clamp to mobile-friendly maxes.
-    const innerCount = Math.min(
-      MAX_INNER_RINGS,
-      Math.floor(5 + (level - 1) * 3),
-    );
-    const outerCount = Math.min(
-      MAX_OUTER_RINGS,
-      Math.floor(6 + (level - 1) * 4),
-    );
-    const particleCount = Math.min(
-      MAX_PARTICLES,
-      Math.floor(12 + (level - 1) * 10),
-    );
+    // Breathing pulse (gentle global rhythm, far smaller than the segmented
+    // version had — we want calm motion not a thumping bass meter).
+    const breath = 1 + Math.sin(time * 0.6) * 0.012 * level;
 
     return createPicture((canvas) => {
-      // Apply user rotation to the whole assembly.
+      // ── Background vertical purple glow (bottom-most layer) ──
+      drawBackgroundGlow(canvas, size);
+
+      // Apply user rotation to the whole ribbon assembly.
       canvas.save();
       canvas.translate(dims.cx, dims.cy);
       canvas.rotate((rot * 180) / Math.PI, 0, 0);
       canvas.translate(-dims.cx, -dims.cy);
 
-      // ── Inner ring group (clockwise, warped noise) ──
-      for (let i = 0; i < innerCount; i++) {
-        const t = innerCount > 1 ? i / innerCount : 0;
-        const baseR = (dims.orbR + 18 + t * (dims.innerMaxR - dims.orbR - 18)) * breath;
-        const rotSpeed = 0.1 + level * level * 0.04;
-        const ringRot = time * rotSpeed + i * 0.15;
+      // ── Inner ribbons (clockwise) ──
+      for (let i = 0; i < INNER_RIBBONS; i++) {
+        const t = i / INNER_RIBBONS;
+        // Inner ribbons live in the lower 55% of the band.
+        const baseR =
+          (dims.innerBand + (0.05 + t * 0.5) * dims.bandSpan) * breath;
+        const ribbonRot = time * (0.08 + level * 0.02) + i * 0.7;
+        const phase = i * 1.7;
+        const hue = RIBBON_HUES[i % RIBBON_HUES.length];
 
         canvas.save();
         canvas.translate(dims.cx, dims.cy);
-        canvas.rotate((ringRot * 180) / Math.PI, 0, 0);
-        drawWarpedRing(canvas, baseR, time, i, amp, level, t, true);
+        canvas.rotate((ribbonRot * 180) / Math.PI, 0, 0);
+        drawAuroraRibbon(canvas, baseR, time, phase, hue, amp, level, t, true);
         canvas.restore();
       }
 
-      // ── Outer ring group (counter-clockwise, ridged + warped) ──
-      for (let i = 0; i < outerCount; i++) {
-        const t = outerCount > 1 ? i / outerCount : 0;
-        const baseR = (dims.outerMinR + t * (dims.outerMaxR - dims.outerMinR)) * breath;
-        const rotSpeed = -(0.06 + level * level * 0.025);
-        const ringRot = time * rotSpeed - i * 0.1;
+      // ── Outer ribbons (counter-clockwise) ──
+      for (let i = 0; i < OUTER_RIBBONS; i++) {
+        const t = i / OUTER_RIBBONS;
+        // Outer ribbons live in the upper 55% of the band.
+        const baseR =
+          (dims.innerBand + (0.45 + t * 0.55) * dims.bandSpan) * breath;
+        const ribbonRot = -(time * (0.05 + level * 0.015) + i * 0.55);
+        const phase = i * 2.3 + 4.7;
+        const hue =
+          RIBBON_HUES[(i + INNER_RIBBONS) % RIBBON_HUES.length];
 
         canvas.save();
         canvas.translate(dims.cx, dims.cy);
-        canvas.rotate((ringRot * 180) / Math.PI, 0, 0);
-        drawWarpedRing(canvas, baseR, time, i + innerCount, amp, level, t, false);
+        canvas.rotate((ribbonRot * 180) / Math.PI, 0, 0);
+        drawAuroraRibbon(canvas, baseR, time, phase, hue, amp, level, t, false);
         canvas.restore();
       }
 
@@ -135,14 +143,13 @@ export function Design11NoiseOdyssey({ amplitude, rotation, size }: Design11Prop
         canvas,
         dims.cx,
         dims.cy,
-        dims.maxR,
+        dims.outerBand,
         dims.orbR,
         time,
         level,
-        particleCount,
       );
 
-      // ── Howahowa soft radial overlay ──
+      // ── Howahowa soft pearl/lavender radial overlay ──
       drawHowahowa(canvas, dims.cx, dims.cy, size, time, Math.min(amp, 1.8));
 
       canvas.restore();
@@ -160,21 +167,54 @@ export function Design11NoiseOdyssey({ amplitude, rotation, size }: Design11Prop
 
 // ---------------------------------------------------------------------------
 // Worklet draw helpers — invoked from inside `createPicture` on the UI thread.
-// They take a Skia `SkCanvas` and use the imperative API directly.
 // ---------------------------------------------------------------------------
 
 type SkCanvasLike = Parameters<Parameters<typeof createPicture>[0]>[0];
 
 /**
- * Single ring with domain-warped or ridged noise + per-segment HSL stroke.
- * Mirrors the web `drawWarpedRing` but emits straight line segments (lineTo)
- * for each of the 72 chunks.
+ * Build a smooth closed curve through SAMPLES points using Catmull-Rom -> Bezier
+ * conversion. This gives a continuous wavy aurora line, not a segmented zigzag.
+ *
+ * Catmull-Rom segment between p1 and p2 with neighbours p0, p3 maps to a cubic
+ * Bezier with control points:
+ *   c1 = p1 + (p2 - p0) / 6
+ *   c2 = p2 - (p3 - p1) / 6
  */
-function drawWarpedRing(
+function buildSmoothClosedPath(xs: number[], ys: number[]): ReturnType<typeof Skia.Path.Make> {
+  'worklet';
+  const path = Skia.Path.Make();
+  const n = xs.length;
+  if (n < 2) return path;
+
+  path.moveTo(xs[0], ys[0]);
+  for (let i = 0; i < n; i++) {
+    const i0 = (i - 1 + n) % n;
+    const i1 = i;
+    const i2 = (i + 1) % n;
+    const i3 = (i + 2) % n;
+
+    const c1x = xs[i1] + (xs[i2] - xs[i0]) / 6;
+    const c1y = ys[i1] + (ys[i2] - ys[i0]) / 6;
+    const c2x = xs[i2] - (xs[i3] - xs[i1]) / 6;
+    const c2y = ys[i2] - (ys[i3] - ys[i1]) / 6;
+
+    path.cubicTo(c1x, c1y, c2x, c2y, xs[i2], ys[i2]);
+  }
+  path.close();
+  return path;
+}
+
+/**
+ * Draw a single aurora ribbon: a smooth closed curve perturbed by FBM noise,
+ * rendered as a translucent wide glow underneath plus a thin bright stroke
+ * on top.
+ */
+function drawAuroraRibbon(
   canvas: SkCanvasLike,
   baseR: number,
   time: number,
-  ringIdx: number,
+  phase: number,
+  baseHue: number,
   amplitude: number,
   level: number,
   t: number,
@@ -182,105 +222,73 @@ function drawWarpedRing(
 ): void {
   'worklet';
   const clampedAmp = Math.min(amplitude, 2.8);
-  const noiseScale = 2.0 + ringIdx * 0.25;
-  const warpIntensity = 0.8 + level * 0.3;
 
-  // Pre-compute ring points + brightness.
+  // Lower frequency than before: we want broad gentle waves, not high-frequency
+  // chatter. 1.8..2.4 across the ribbon stack.
+  const noiseFreq = 1.8 + t * 0.6;
+  const warpIntensity = 0.55 + level * 0.18;
+  const ampResp = (3.5 + clampedAmp * 3.2) * (0.6 + level * 0.06);
+
   const xs: number[] = [];
   const ys: number[] = [];
-  const bs: number[] = [];
 
-  for (let s = 0; s <= SEGMENTS; s++) {
-    const angle = (s / SEGMENTS) * Math.PI * 2;
-    const nx = Math.cos(angle) * noiseScale;
-    const ny = Math.sin(angle) * noiseScale;
+  for (let s = 0; s < SAMPLES; s++) {
+    const angle = (s / SAMPLES) * Math.PI * 2;
+    const nx = Math.cos(angle) * noiseFreq + phase;
+    const ny = Math.sin(angle) * noiseFreq + phase;
 
-    let noiseVal: number;
-    if (isInner) {
-      noiseVal = warpedNoise(nx, ny, time + ringIdx * 0.5, warpIntensity);
-    } else {
-      const warped = warpedNoise(nx, ny, time + ringIdx * 0.3, warpIntensity * 0.6);
-      const ridged = ridgedNoise(nx * 0.8, ny * 0.8, time + ringIdx * 0.7);
-      noiseVal = warped * 0.6 + ridged * 0.4;
-    }
+    // Inner ribbons get pure warped noise; outer get a slightly stronger warp
+    // to spiral away from the inner trio.
+    const noiseVal = isInner
+      ? warpedNoise(nx, ny, time + phase * 0.3, warpIntensity)
+      : warpedNoise(nx, ny, time + phase * 0.4, warpIntensity * 1.15);
 
-    const displacement = noiseVal * (2.5 + clampedAmp * 2.5) * (0.5 + level * 0.08);
-    const r = baseR + displacement;
+    const r = baseR + noiseVal * ampResp;
     xs.push(r * Math.cos(angle));
     ys.push(r * Math.sin(angle));
-
-    const brightPhase = time * (0.5 + level * 0.15) + ringIdx * 0.6;
-    let angleDelta = angle - brightPhase;
-    while (angleDelta > Math.PI) angleDelta -= Math.PI * 2;
-    while (angleDelta < -Math.PI) angleDelta += Math.PI * 2;
-    const brightness = Math.exp(-(angleDelta * angleDelta) / (1.2 + level * 0.2));
-    bs.push(brightness);
   }
 
-  const baseHue = isInner ? 270 : 262;
-  const levelVis = 0.18 + (level - 1) * (level >= 4 ? 0.09 : 0.14);
-  const alphaCap = level >= 4 ? 0.35 : 0.45;
-  const widthScale = 0.5 + (level - 1) * 0.13;
+  const path = buildSmoothClosedPath(xs, ys);
 
-  // ── Per-segment colored strokes ──
-  // We allocate one Paint per segment (cheap; lives only inside the picture).
-  const segPaint = Skia.Paint();
-  segPaint.setStyle(1); // 1 = Stroke
-  segPaint.setAntiAlias(true);
+  // Slow hue shift over time keeps the palette alive without being noisy.
+  const hue = baseHue + Math.sin(time * 0.2 + phase) * 12;
+  const sat = 62 + level * 3;
+  const light = 72 + Math.min(level, 3) * 2;
+  const visibility = 0.55 + (level - 1) * 0.08;
 
-  for (let s = 0; s < xs.length - 1; s++) {
-    const segT = s / (xs.length - 1);
-    const brightness = bs[s];
+  // Wide soft glow stroke (under).
+  const glowPaint = Skia.Paint();
+  glowPaint.setStyle(1); // 1 = Stroke
+  glowPaint.setAntiAlias(true);
+  glowPaint.setStrokeWidth(10 + level * 1.4);
+  glowPaint.setColor(Skia.Color(hsla(hue, sat, light + 4, 0.18 * visibility)));
+  glowPaint.setBlendMode(14); // 14 = Screen — additive feel for aurora
+  canvas.drawPath(path, glowPaint);
 
-    const hue = baseHue + segT * 30 + brightness * 15 + t * 15;
-    const sat = 58 + level * 4 + brightness * 10 + t * 8;
-    const light = 70 + Math.min(level, 3) * 2 + brightness * 4;
+  // Mid stroke for body.
+  const midPaint = Skia.Paint();
+  midPaint.setStyle(1);
+  midPaint.setAntiAlias(true);
+  midPaint.setStrokeWidth(4.5 + level * 0.4);
+  midPaint.setColor(Skia.Color(hsla(hue, sat + 6, light + 2, 0.32 * visibility)));
+  midPaint.setBlendMode(14);
+  canvas.drawPath(path, midPaint);
 
-    const baseAlpha = (1 - t * 0.35) * levelVis;
-    const alpha = Math.min(alphaCap, baseAlpha * (0.45 + brightness * 0.45));
-
-    const baseWidth = 1 - t * 0.4;
-    const lw = (0.6 + baseWidth * 0.8 + brightness * 0.6) * widthScale;
-
-    segPaint.setColor(Skia.Color(hsla(hue, sat, light, alpha)));
-    segPaint.setStrokeWidth(lw);
-
-    const path = Skia.Path.Make();
-    path.moveTo(xs[s], ys[s]);
-    path.lineTo(xs[s + 1], ys[s + 1]);
-    canvas.drawPath(path, segPaint);
-  }
-
-  // ── Neumorphic highlight stroke (offset up) ──
-  const hlAlpha = Math.min(level >= 4 ? 0.16 : 0.22, (1 - t * 0.35) * levelVis * 0.25);
-  const hlPaint = Skia.Paint();
-  hlPaint.setStyle(1);
-  hlPaint.setAntiAlias(true);
-  hlPaint.setColor(
-    Skia.Color(hsla(baseHue + t * 20, 55 + level * 4, 80 + Math.min(level, 3), hlAlpha)),
+  // Sharp top stroke for the bright ribbon line.
+  const linePaint = Skia.Paint();
+  linePaint.setStyle(1);
+  linePaint.setAntiAlias(true);
+  linePaint.setStrokeWidth(2.2);
+  linePaint.setColor(
+    Skia.Color(hsla(hue, Math.min(80, sat + 12), light + 8, 0.55 * visibility)),
   );
-  hlPaint.setStrokeWidth((0.4 + (1 - t * 0.5) * 0.4) * (0.5 + (level - 1) * 0.12));
-  const hlPath = Skia.Path.Make();
-  hlPath.moveTo(xs[0], ys[0] - 1);
-  for (let s = 1; s < xs.length; s++) hlPath.lineTo(xs[s], ys[s] - 1);
-  canvas.drawPath(hlPath, hlPaint);
-
-  // ── Neumorphic shadow stroke (offset down) ──
-  const shAlpha = Math.min(0.18, (1 - t * 0.35) * levelVis * 0.22);
-  const shPaint = Skia.Paint();
-  shPaint.setStyle(1);
-  shPaint.setAntiAlias(true);
-  shPaint.setColor(
-    Skia.Color(hsla(baseHue + t * 20 - 5, 55 + level * 3, 70 + level * 2, shAlpha)),
-  );
-  shPaint.setStrokeWidth((0.4 + (1 - t * 0.5) * 0.4) * (0.5 + (level - 1) * 0.12));
-  const shPath = Skia.Path.Make();
-  shPath.moveTo(xs[0], ys[0] + 1);
-  for (let s = 1; s < xs.length; s++) shPath.lineTo(xs[s], ys[s] + 1);
-  canvas.drawPath(shPath, shPaint);
+  canvas.drawPath(path, linePaint);
 }
 
-/** Floating luminous particles drifting between the rings. */
+/**
+ * Floating luminous sparkle particles — small (2-3px) and sparse so they read
+ * as drifting motes, not a confetti spray.
+ */
 function drawParticles(
   canvas: SkCanvasLike,
   cx: number,
@@ -289,40 +297,40 @@ function drawParticles(
   orbR: number,
   time: number,
   level: number,
-  particleCount: number,
 ): void {
   'worklet';
   const paint = Skia.Paint();
   paint.setStyle(0); // 0 = Fill
   paint.setAntiAlias(true);
 
-  for (let i = 0; i < particleCount; i++) {
+  const span = maxR - orbR - 30;
+
+  for (let i = 0; i < PARTICLES; i++) {
     const seed = i * 137.5;
-    const orbitR =
-      orbR + 22 + hash(seed, 0) * 0.5 * (maxR - orbR - 30) + (maxR - orbR - 30) * 0.5;
-    const orbitSpeed = 0.08 + hash(seed, 1) * 0.04 + level * 0.02;
+    const orbitR = orbR + 24 + (hash(seed, 0) * 0.5 + 0.5) * span;
+    const orbitSpeed = 0.06 + hash(seed, 1) * 0.03 + level * 0.012;
     const angle = time * orbitSpeed * (i % 2 === 0 ? 1 : -1) + seed;
 
-    const flutter = smooth(time * 0.3 + i * 0.7, i * 2.3) * 8 * (0.5 + level * 0.1);
+    const flutter = smooth(time * 0.25 + i * 0.6, i * 2.1) * 6 * (0.4 + level * 0.08);
     const r = orbitR + flutter;
     const x = cx + r * Math.cos(angle);
     const y = cy + r * Math.sin(angle);
 
-    const pulse = 0.5 + 0.5 * Math.sin(time * 1.5 + i * 0.9);
-    const alpha = (0.15 + pulse * 0.25) * (0.3 + (level - 1) * 0.18);
-    const sizePx = 1.0 + pulse * 1.5 + level * 0.3;
+    const pulse = 0.5 + 0.5 * Math.sin(time * 1.2 + i * 0.9);
+    const alpha = (0.18 + pulse * 0.22) * (0.55 + (level - 1) * 0.1);
+    const sizePx = 1.2 + pulse * 1.2; // 1.2..2.4 px
 
-    const hueP = 268 + hash(seed, 2) * 20;
-    const sat = 60 + level * 5;
+    const hueP = 268 + hash(seed, 2) * 30;
+    const sat = 55 + level * 4;
 
-    paint.setColor(Skia.Color(hsla(hueP, sat, 82, alpha)));
+    paint.setColor(Skia.Color(hsla(hueP, sat, 84, alpha)));
     canvas.drawCircle(x, y, sizePx, paint);
   }
 }
 
 /**
- * Soft purple radial overlay approximating the web `howahowa-N.png` sprites.
- * Procedural so we don't have to ship 5 PNG variants.
+ * Soft pearl-lavender radial overlay around the dial. Replaces the older
+ * "purple cloud" — this is tuned to the pastel screenshot palette.
  */
 function drawHowahowa(
   canvas: SkCanvasLike,
@@ -336,7 +344,6 @@ function drawHowahowa(
   const t = Math.max(0, Math.min(1, (amplitude - 0.2) / 3.8));
   const radius = size * 0.475;
 
-  // Soft outer glow
   const outerPaint = Skia.Paint();
   outerPaint.setStyle(0);
   outerPaint.setAntiAlias(true);
@@ -344,21 +351,43 @@ function drawHowahowa(
     { x: cx, y: cy },
     radius,
     [
-      Skia.Color(`rgba(180, 150, 220, ${(0.18 + t * 0.18).toFixed(3)})`),
-      Skia.Color('rgba(170, 140, 215, 0.08)'),
-      Skia.Color('rgba(170, 140, 215, 0)'),
+      Skia.Color(`rgba(232, 222, 245, ${(0.16 + t * 0.14).toFixed(3)})`),
+      Skia.Color('rgba(210, 198, 232, 0.07)'),
+      Skia.Color('rgba(200, 188, 225, 0)'),
     ],
     [0, 0.55, 1],
     0, // 0 = Clamp tile mode
   );
   outerPaint.setShader(outerShader);
-  outerPaint.setBlendMode(13); // 13 = Screen
+  outerPaint.setBlendMode(14); // 14 = Screen
 
   canvas.save();
   canvas.translate(cx, cy);
-  canvas.rotate((time * 0.06 * 180) / Math.PI, 0, 0);
+  canvas.rotate((time * 0.05 * 180) / Math.PI, 0, 0);
   canvas.translate(-cx, -cy);
   canvas.drawCircle(cx, cy, radius, outerPaint);
   canvas.restore();
 }
 
+/**
+ * Vertical purple glow rising from the bottom of the canvas — bottom-most
+ * draw so all ribbons sit on top of it.
+ */
+function drawBackgroundGlow(canvas: SkCanvasLike, size: number): void {
+  'worklet';
+  const paint = Skia.Paint();
+  paint.setStyle(0);
+  paint.setAntiAlias(true);
+  const shader = Skia.Shader.MakeLinearGradient(
+    { x: size / 2, y: 0 },
+    { x: size / 2, y: size },
+    [
+      Skia.Color('rgba(145, 120, 189, 0)'),
+      Skia.Color('rgba(145, 120, 189, 0.15)'),
+    ],
+    [0, 1],
+    0, // Clamp
+  );
+  paint.setShader(shader);
+  canvas.drawRect({ x: 0, y: 0, width: size, height: size }, paint);
+}

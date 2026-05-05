@@ -34,9 +34,9 @@ function clampWorklet(v: number, min: number, max: number) {
 }
 
 /**
- * Animated ring dial. Combines the Design11 Noise Odyssey ring layers (Skia
- * Picture) with a static neumorphic knob + level indicator + "Flux Ring"
- * sub-label rendered on top. Touch/drag rotates the dial and adjusts amplitude.
+ * Animated ring dial. Combines the Design11 Noise Odyssey aurora ribbons (Skia
+ * Picture) with a static pearl knob + level indicator + "Flux Ring" sub-label
+ * rendered on top. Touch/drag rotates the dial and adjusts amplitude.
  */
 export function FluxRingDial({
   size,
@@ -85,27 +85,26 @@ export function FluxRingDial({
       amp.value = clampWorklet(amp.value + delta * 1.5, 0.2, 4.0);
     });
 
-  // ── Knob indicator dot position (rotates with amplitude, not user rotation) ──
-  const dotCenterR = orbR * 0.74;
-  const dotR = orbR * 0.11;
+  // ── Pearl-knob indicator dot ──
+  // Per spec: tiny dot just outside the sphere edge at angle `rotation - π/2`
+  // (3 o'clock when rotation = π/2 — matches the screenshot), color primary
+  // accent, radius 4px. Rotates with the user spin so the user can see how far
+  // they've turned the dial.
+  const indicatorRadius = 4;
+  const indicatorOrbit = orbR + 8; // just outside the sphere rim
 
   const dotX = useDerivedValue(() => {
-    const tNorm = clampWorklet((amp.value - 0.2) / 3.8, 0, 1);
-    const indicatorAngle = -Math.PI / 2 + tNorm * Math.PI * 2;
-    return cx + Math.cos(indicatorAngle) * dotCenterR;
+    const a = rotation.value - Math.PI / 2;
+    return cx + Math.cos(a) * indicatorOrbit;
   });
-
   const dotY = useDerivedValue(() => {
-    const tNorm = clampWorklet((amp.value - 0.2) / 3.8, 0, 1);
-    const indicatorAngle = -Math.PI / 2 + tNorm * Math.PI * 2;
-    return cy + Math.sin(indicatorAngle) * dotCenterR;
+    const a = rotation.value - Math.PI / 2;
+    return cy + Math.sin(a) * indicatorOrbit;
   });
-
-  const dotCenter = useDerivedValue(() => vec(dotX.value, dotY.value));
 
   // ── Level number text + font ──
-  const levelFontSize = orbR * 0.55 + 5;
-  const subFontSize = orbR * 0.18;
+  const levelFontSize = Math.round(orbR * 0.95); // big "02" — ~64px on a 350px orb
+  const subFontSize = Math.round(orbR * 0.18);
 
   const levelFont = useMemo(
     () => matchFont({ fontFamily: 'System', fontSize: levelFontSize, fontWeight: '200' }),
@@ -123,92 +122,60 @@ export function FluxRingDial({
 
   const subText = 'Flux Ring';
 
-  // Approximate text-centering: character widths come from font metrics on
-  // native, but for our needs an empirical advance ratio is sufficient. The
-  // legacy web design used `textAlign: 'center'`; we replicate that by
-  // shifting -width/2.
-  const levelX = useDerivedValue(() => cx - levelText.value.length * levelFontSize * 0.32);
+  // Approximate text-centering using empirical advance ratios for the system
+  // font. matchFont gives metrics on native but reading them from a derived
+  // value is awkward; these factors land within a pixel of true center.
+  const levelX = useDerivedValue(() => cx - levelText.value.length * levelFontSize * 0.3);
   const subX = cx - subText.length * subFontSize * 0.27;
+
+  // Pearl gradient center — slight offset so the highlight reads as a soft
+  // top-left light source (kept consistent with the original neumorphism).
+  const pearlCenter = vec(cx - orbR * 0.18, cy - orbR * 0.22);
 
   return (
     <GestureDetector gesture={pan}>
       <View style={[styles.root, { width: size, height: size }]}>
-        {/* Ring + particles + howahowa overlay (Design11 imperative picture) */}
+        {/* Aurora ribbons + particles + howahowa overlay (Design11 imperative picture) */}
         <View style={StyleSheet.absoluteFill} pointerEvents="none">
           <Design11NoiseOdyssey amplitude={amp} rotation={rotation} size={size} />
         </View>
 
-        {/* Knob + level text overlay (static, not affected by user rotation) */}
+        {/* Pearl knob + level text overlay */}
         <Canvas style={[StyleSheet.absoluteFill, { width: size, height: size }]}>
-          {/* ── Knob body: drop shadow, dome highlight, rim ── */}
-          {/* Drop shadow (a slightly larger dimmer disc offset down-right) */}
-          <Group opacity={0.28}>
+          {/* Drop shadow under the sphere */}
+          <Group opacity={0.22}>
             <Circle
-              cx={cx + orbR * 0.05}
-              cy={cy + orbR * 0.08}
+              cx={cx + orbR * 0.04}
+              cy={cy + orbR * 0.07}
               r={orbR}
               color={colors.knobShadow}
             />
           </Group>
 
-          {/* Base body fill */}
-          <Circle cx={cx} cy={cy} r={orbR} color={colors.knobBody} />
-
-          {/* Neumorphic dome highlight (top-left light source) */}
+          {/* Pearl body: pure white center fading to a cool grey rim. This is
+              the key change from the previous neumorphic look — pearlier,
+              calmer, more like a smooth marble. */}
+          <Circle cx={cx} cy={cy} r={orbR} color="#ffffff" />
           <Circle cx={cx} cy={cy} r={orbR}>
             <RadialGradient
-              c={vec(cx - orbR * 0.25, cy - orbR * 0.3)}
-              r={orbR}
+              c={pearlCenter}
+              r={orbR * 1.08}
               colors={[
-                'rgba(255, 255, 255, 0.95)',
-                'rgba(245, 242, 252, 0.85)',
-                'rgba(228, 222, 245, 0.75)',
-                'rgba(212, 205, 232, 0.55)',
+                '#ffffff',
+                '#f6f5fb',
+                '#e6e4ee',
+                '#dcdce8',
               ]}
-              positions={[0, 0.45, 0.85, 1]}
+              positions={[0, 0.5, 0.85, 1]}
             />
           </Circle>
 
-          {/* Rim highlight */}
+          {/* Subtle outer rim hairline — gives the bezel-on-pearl edge */}
           <Circle
             cx={cx}
             cy={cy}
-            r={orbR - 1}
-            color="rgba(255, 255, 255, 0.55)"
-            style="stroke"
-            strokeWidth={1.2}
-          />
-
-          {/* ── Rotation indicator dot (neumorphic raised bump) ── */}
-          {/* Outer halo */}
-          <Group opacity={0.35}>
-            <Circle cx={dotX} cy={dotY} r={dotR * 1.4} color={colors.knobShadow} />
-          </Group>
-
-          {/* Bump body */}
-          <Circle cx={dotX} cy={dotY} r={dotR} color={colors.knobIndicator} />
-
-          {/* Bump glossy gradient */}
-          <Circle cx={dotX} cy={dotY} r={dotR}>
-            <RadialGradient
-              c={dotCenter}
-              r={dotR}
-              colors={[
-                'rgba(255, 252, 255, 0.95)',
-                'rgba(225, 215, 240, 0.85)',
-                'rgba(180, 165, 205, 0.75)',
-                'rgba(160, 145, 190, 0.55)',
-              ]}
-              positions={[0, 0.45, 0.85, 1]}
-            />
-          </Circle>
-
-          {/* Bump rim */}
-          <Circle
-            cx={dotX}
-            cy={dotY}
-            r={dotR - 0.5}
-            color="rgba(255, 255, 255, 0.4)"
+            r={orbR - 0.5}
+            color="rgba(220, 220, 232, 0.9)"
             style="stroke"
             strokeWidth={0.8}
           />
@@ -216,10 +183,10 @@ export function FluxRingDial({
           {/* ── Level number "0X" centered in the knob ── */}
           <SkiaText
             x={levelX}
-            y={cy + orbR * 0.05}
+            y={cy + orbR * 0.12}
             text={levelText}
             font={levelFont}
-            color={colors.knobLabel}
+            color={colors.textPrimary}
           />
 
           {/* Sub-label "Flux Ring" below the number */}
@@ -228,7 +195,15 @@ export function FluxRingDial({
             y={cy + orbR * 0.55}
             text={subText}
             font={subFont}
-            color={colors.knobSubLabel}
+            color={colors.textSecondary}
+          />
+
+          {/* ── Indicator dot on the sphere rim ── */}
+          <Circle
+            cx={dotX}
+            cy={dotY}
+            r={indicatorRadius}
+            color={colors.primary}
           />
         </Canvas>
       </View>
