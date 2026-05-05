@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { onTracksSnapshot } from '../services/firestore';
 import type { Track } from '../types/track';
+import type { SearchFilters } from '../types/searchFilters';
 
 const SAMPLE_TRACKS: Track[] = [
   {
@@ -119,4 +120,101 @@ export function useTracks() {
   }, []);
 
   return { tracks, loading, error };
+}
+
+/**
+ * Pure helper: filter a list of tracks by an arbitrary `SearchFilters` object.
+ *
+ * Mirrors the legacy filter logic in
+ * `.reference/web/src/screens/HomeScreen.tsx` (the `displayTracks` memo) but
+ * adapted to the new `SearchFilters` shape, where slider values are `[min,max]`
+ * ranges and tri-state booleans (`null`) mean "any".
+ */
+export function filterTracks(tracks: Track[], filters: SearchFilters): Track[] {
+  const keyword = filters.keyword.trim().toLowerCase();
+  // Quick-tags become substring matches on title / description
+  // (the legacy app stored them inline in `query`; we keep them separate).
+  const tagNeedles = filters.tags.map((t) => t.replace(/^#/, '').toLowerCase());
+
+  const inRange = (value: number, range: [number, number]): boolean => {
+    const [min, max] = range;
+    // Full-span = effectively no filter — accept everything.
+    if (min <= 0 && max >= 100) return true;
+    return value >= min && value <= max;
+  };
+
+  return tracks.filter((t) => {
+    // Mode toggles — if the filter is true, require the track to have it.
+    if (filters.frequencyMode && !t.frequencyMode) return false;
+    if (filters.melodyMode && !t.melodyMode) return false;
+
+    // Environment — if the filter is true, require the track to be optimised for it.
+    if (filters.earphoneOptimized && !t.earphoneOptimized) return false;
+    if (filters.speakerOptimized && !t.speakerOptimized) return false;
+
+    // Paid music tri-state.
+    if (filters.paidMusic !== null && t.paidMusic !== filters.paidMusic) {
+      return false;
+    }
+
+    // Keyword search across the human-readable text fields.
+    if (keyword) {
+      const haystack = [
+        t.title,
+        t.artist,
+        t.description,
+        t.rootFrequency,
+        t.brainwaveEntrainment,
+      ]
+        .join(' ')
+        .toLowerCase();
+      if (!haystack.includes(keyword)) return false;
+    }
+
+    // Tag search — every requested tag must appear somewhere in title/description.
+    if (tagNeedles.length > 0) {
+      const haystack = `${t.title} ${t.description}`.toLowerCase();
+      const allMatch = tagNeedles.every((needle) => haystack.includes(needle));
+      if (!allMatch) return false;
+    }
+
+    // Slider ranges.
+    if (!inRange(t.noiseLevel, filters.noiseLevel)) return false;
+    if (!inRange(t.toneCharacter, filters.toneCharacter)) return false;
+    if (!inRange(t.rhythmIntensity, filters.rhythmIntensity)) return false;
+
+    // Advanced protocol tri-states.
+    if (
+      filters.justIntonation !== null &&
+      t.justIntonation !== filters.justIntonation
+    ) {
+      return false;
+    }
+    if (
+      filters.equalTemperament !== null &&
+      t.equalTemperament !== filters.equalTemperament
+    ) {
+      return false;
+    }
+    if (
+      filters.rootFrequency !== null &&
+      t.rootFrequency !== filters.rootFrequency
+    ) {
+      return false;
+    }
+    if (
+      filters.brainwaveEntrainment !== null &&
+      t.brainwaveEntrainment !== filters.brainwaveEntrainment
+    ) {
+      return false;
+    }
+    if (
+      filters.pinkNoiseFluctuation !== null &&
+      t.pinkNoiseFluctuation !== filters.pinkNoiseFluctuation
+    ) {
+      return false;
+    }
+
+    return true;
+  });
 }

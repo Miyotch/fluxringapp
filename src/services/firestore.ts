@@ -102,17 +102,43 @@ export async function getPlaylists(userId: string): Promise<Playlist[]> {
   })) as Playlist[];
 }
 
-export async function getArticles(): Promise<Article[]> {
-  const q = query(
-    collection(db(), 'articles'),
-    orderBy('publishedAt', 'desc'),
-  );
-  const snapshot = await getDocs(q);
-  return snapshot.docs.map((d) => ({
+function docToArticle(d: import('firebase/firestore').QueryDocumentSnapshot): Article {
+  const data = d.data();
+  return {
     id: d.id,
-    ...d.data(),
-    publishedAt: d.data().publishedAt?.toDate?.() ?? new Date(),
-  })) as Article[];
+    title: data.title ?? '',
+    subtitle: data.subtitle ?? '',
+    descriptions: data.descriptions ?? '',
+    date: data.date?.toDate?.() ?? new Date(),
+    published: data.published === true,
+    stable: data.stable === true,
+    externalLink: data.external_link ?? '',
+    thumbnail: data.thumbnail ?? '',
+  };
+}
+
+export async function getArticles(): Promise<Article[]> {
+  const q = query(collection(db(), 'article'), orderBy('date', 'desc'));
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map(docToArticle).filter((a) => a.published);
+}
+
+export function onArticlesSnapshot(
+  callback: (articles: Article[]) => void,
+  onError?: (error: Error) => void,
+): () => void {
+  const q = query(collection(db(), 'article'), orderBy('date', 'desc'));
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const all = snapshot.docs.map(docToArticle);
+      callback(all.filter((a) => a.published));
+    },
+    (error) => {
+      console.error('Firestore article snapshot error:', error);
+      onError?.(error);
+    },
+  );
 }
 
 export async function toggleFavorite(
