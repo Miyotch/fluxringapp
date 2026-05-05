@@ -43,10 +43,24 @@ export const colors = {
   tabBarBorder: 'rgba(200, 190, 220, 0.3)',
   tabActive: '#9178BD',
   tabInactive: '#b0a8c8',
+  // Floating capsule gradient (top → mid → bottom) — matches legacy web CSS
+  tabBarCapsuleStart: 'rgba(255, 255, 255, 0.92)',
+  tabBarCapsuleMid: 'rgba(245, 242, 252, 0.88)',
+  tabBarCapsuleEnd: 'rgba(238, 234, 248, 0.85)',
+  tabBarCapsuleBorder: 'rgba(255, 255, 255, 0.95)',
+  tabBarCapsuleShadow: 'rgba(155, 141, 255, 1)',
 
   // ── Ring ──
   ringGlow: 'rgba(145, 120, 189, 0.7)',
   ringBezel: 'rgba(255, 255, 255, 0.85)',
+  ringInnerHueBase: 270,   // purple base for inner clockwise rings
+  ringOuterHueBase: 262,   // blue-violet base for outer counter-clockwise rings
+  ringParticleHueBase: 268,
+  knobBody: '#ece8f5',
+  knobIndicator: 'rgba(195, 185, 220, 1)',
+  knobShadow: 'rgba(140, 120, 170, 0.28)',
+  knobLabel: 'rgba(123, 124, 166, 0.75)',
+  knobSubLabel: 'rgba(123, 124, 166, 0.55)',
 
   // ── Buttons ──
   buttonPlay: '#9178BD',
