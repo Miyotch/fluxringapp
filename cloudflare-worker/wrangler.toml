@@ -8,7 +8,7 @@ bucket_name = "fluxring-sounds"  # ← rename to your actual R2 bucket
 
 [vars]
 FIREBASE_PROJECT_ID = "sound-curtain-5unwwh"
-R2_PUBLIC_BASE = "https://pub-XXXXXXXXXXXX.r2.dev"  # ← your R2 public dev URL
+R2_PUBLIC_BASE = "https://pub-cf88142f89d0432db9d3077919d59dd0.r2.dev"
 ALLOWED_ORIGIN = "https://fluxringweb.vercel.app"   # ← your frontend origin
 
 # Set the following secrets via:  wrangler secret put NAME
