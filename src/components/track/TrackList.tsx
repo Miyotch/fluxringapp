@@ -1,12 +1,13 @@
+import { FlatList, StyleSheet } from 'react-native';
 import { TrackCard } from './TrackCard';
 import type { Track } from '../../types/track';
-import styles from './TrackList.module.css';
 
 interface TrackListProps {
   tracks: Track[];
   currentTrackId: string | null;
   isPlaying: boolean;
-  analyserNode: AnalyserNode | null;
+  /** Synthesized 0..1 amplitude from the audio player. */
+  level: number;
   lockedTrackIds?: Set<string>;
   onPlayTrack: (track: Track) => void;
   onPreviewTrack: (track: Track) => void;
@@ -18,7 +19,7 @@ export function TrackList({
   tracks,
   currentTrackId,
   isPlaying,
-  analyserNode,
+  level,
   lockedTrackIds,
   onPlayTrack,
   onPreviewTrack,
@@ -26,25 +27,32 @@ export function TrackList({
   onLockTap,
 }: TrackListProps) {
   return (
-    <div className={styles.list}>
-      {tracks.map((track, index) => {
-        const isCurrent = track.id === currentTrackId;
-        const isLocked = lockedTrackIds?.has(track.id) ?? false;
+    <FlatList
+      data={tracks}
+      keyExtractor={(t) => t.id}
+      contentContainerStyle={styles.content}
+      renderItem={({ item }) => {
+        const isCurrent = item.id === currentTrackId;
+        const isLocked = lockedTrackIds?.has(item.id) ?? false;
         return (
           <TrackCard
-            key={track.id}
-            track={track}
-            index={index}
+            track={item}
             isPlaying={isCurrent && isPlaying}
-            analyserNode={isCurrent && isPlaying ? analyserNode : null}
+            level={isCurrent && isPlaying ? level : 0}
             locked={isLocked}
-            onPlay={() => onPlayTrack(track)}
-            onPreview={() => onPreviewTrack(track)}
-            onAdd={() => onAddTrack(track)}
+            onPlay={() => onPlayTrack(item)}
+            onPreview={() => onPreviewTrack(item)}
+            onAdd={() => onAddTrack(item)}
             onLockTap={onLockTap}
           />
         );
-      })}
-    </div>
+      }}
+    />
   );
 }
+
+const styles = StyleSheet.create({
+  content: {
+    paddingVertical: 8,
+  },
+});

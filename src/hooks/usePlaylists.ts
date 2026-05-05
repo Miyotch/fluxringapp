@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export interface Playlist {
   id: string;
@@ -15,85 +16,90 @@ const DEFAULT_PLAYLISTS: Playlist[] = [
   { id: 'relax', name: 'リラックス', hue: 195, trackIds: [] },
 ];
 
-function loadPlaylists(): Playlist[] {
+let memoryCache: Playlist[] = DEFAULT_PLAYLISTS;
+let hydrated = false;
+
+async function loadPlaylists(): Promise<Playlist[]> {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = await AsyncStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as Playlist[];
-      // Ensure favorites playlist always exists
       const hasFavorites = parsed.some((p) => p.id === 'favorites');
-      if (!hasFavorites) {
-        return [DEFAULT_PLAYLISTS[0], ...parsed];
-      }
-      return parsed;
+      const next = hasFavorites ? parsed : [DEFAULT_PLAYLISTS[0], ...parsed];
+      memoryCache = next;
+      return next;
     }
   } catch {
     // ignore parse errors
   }
+  memoryCache = DEFAULT_PLAYLISTS;
   return DEFAULT_PLAYLISTS;
 }
 
-function savePlaylists(playlists: Playlist[]) {
+async function savePlaylists(playlists: Playlist[]): Promise<void> {
+  memoryCache = playlists;
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(playlists));
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(playlists));
   } catch {
     // ignore storage errors
   }
 }
 
-// Simple pub-sub so multiple components stay in sync
-const listeners = new Set<() => void>();
+const listeners = new Set<(next: Playlist[]) => void>();
 
-function notify() {
-  listeners.forEach((l) => l());
+function notify(next: Playlist[]) {
+  listeners.forEach((l) => l(next));
 }
 
 export function usePlaylists() {
-  const [playlists, setPlaylists] = useState<Playlist[]>(loadPlaylists);
+  const [playlists, setPlaylists] = useState<Playlist[]>(memoryCache);
 
   useEffect(() => {
-    const update = () => setPlaylists(loadPlaylists());
+    const update = (next: Playlist[]) => setPlaylists(next);
     listeners.add(update);
+    if (!hydrated) {
+      hydrated = true;
+      loadPlaylists().then((p) => notify(p));
+    } else {
+      setPlaylists(memoryCache);
+    }
     return () => {
       listeners.delete(update);
     };
   }, []);
 
-  const persist = useCallback((next: Playlist[]) => {
-    savePlaylists(next);
-    notify();
+  const persist = useCallback(async (next: Playlist[]) => {
+    await savePlaylists(next);
+    notify(next);
   }, []);
 
   const addTrack = useCallback(
     (playlistId: string, trackId: string) => {
-      const cur = loadPlaylists();
-      const next = cur.map((p) => {
+      const next = memoryCache.map((p) => {
         if (p.id !== playlistId) return p;
         if (p.trackIds.includes(trackId)) return p;
         return { ...p, trackIds: [...p.trackIds, trackId] };
       });
-      persist(next);
+      void persist(next);
     },
     [persist],
   );
 
   const removeTrack = useCallback(
     (playlistId: string, trackId: string) => {
-      const cur = loadPlaylists();
-      const next = cur.map((p) =>
+      const next = memoryCache.map((p) =>
         p.id === playlistId
           ? { ...p, trackIds: p.trackIds.filter((id) => id !== trackId) }
           : p,
       );
-      persist(next);
+      void persist(next);
     },
     [persist],
   );
 
   const toggleFavorite = useCallback(
     (trackId: string) => {
-      const cur = loadPlaylists();
-      const next = cur.map((p) => {
+      const next = memoryCache.map((p) => {
         if (p.id !== 'favorites') return p;
         const has = p.trackIds.includes(trackId);
         return {
@@ -103,38 +109,35 @@ export function usePlaylists() {
             : [...p.trackIds, trackId],
         };
       });
-      persist(next);
+      void persist(next);
     },
     [persist],
   );
 
   const createPlaylist = useCallback(
     (name: string, hue: number) => {
-      const cur = loadPlaylists();
       const next = [
-        ...cur,
+        ...memoryCache,
         { id: String(Date.now()), name, hue, trackIds: [] },
       ];
-      persist(next);
+      void persist(next);
     },
     [persist],
   );
 
   const updatePlaylist = useCallback(
     (id: string, name: string, hue: number) => {
-      const cur = loadPlaylists();
-      const next = cur.map((p) => (p.id === id ? { ...p, name, hue } : p));
-      persist(next);
+      const next = memoryCache.map((p) => (p.id === id ? { ...p, name, hue } : p));
+      void persist(next);
     },
     [persist],
   );
 
   const deletePlaylist = useCallback(
     (id: string) => {
-      if (id === 'favorites') return; // protect favorites
-      const cur = loadPlaylists();
-      const next = cur.filter((p) => p.id !== id);
-      persist(next);
+      if (id === 'favorites') return;
+      const next = memoryCache.filter((p) => p.id !== id);
+      void persist(next);
     },
     [persist],
   );

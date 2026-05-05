@@ -1,21 +1,31 @@
-import React from 'react';
+import type { ReactNode } from 'react';
+import { StyleSheet, View } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { colors } from '../../theme/colors';
 
 interface GradientBackgroundProps {
-  children: React.ReactNode;
+  children?: ReactNode;
 }
 
 export function GradientBackground({ children }: GradientBackgroundProps) {
   return (
-    <div style={bgStyle}>
+    <View style={styles.root}>
+      <LinearGradient
+        colors={[colors.backgroundStart, colors.backgroundMid, colors.backgroundEnd]}
+        start={{ x: 0.5, y: 0 }}
+        end={{ x: 0.5, y: 1 }}
+        locations={[0, 0.5, 1]}
+        style={StyleSheet.absoluteFill}
+      />
       {children}
-    </div>
+    </View>
   );
 }
 
-const bgStyle: React.CSSProperties = {
-  flex: 1,
-  height: '100%',
-  position: 'relative',
-  overflow: 'hidden',
-  background: 'linear-gradient(180deg, #E6EBF1 0%, #dde3ed 50%, #E6EBF1 100%)',
-};
+const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+    overflow: 'hidden',
+    backgroundColor: colors.backgroundBase,
+  },
+});

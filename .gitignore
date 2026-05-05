@@ -7,10 +7,25 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Dependencies
 node_modules
+
+# Expo
+.expo
+.expo-shared
 dist
-dist-ssr
-*.local
+web-build
+expo-env.d.ts.lock
+
+# Native build artifacts
+ios/
+android/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
 
 # Local env / secrets
 .env
