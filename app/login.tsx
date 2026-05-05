@@ -24,6 +24,43 @@ import { spacing, borderRadius } from '@/theme/spacing';
 
 type Mode = 'signin' | 'signup';
 
+function SocialButton({ icon, label }: { icon: React.ComponentProps<typeof Ionicons>['name']; label: string }) {
+  return (
+    <View style={socialStyles.wrap}>
+      <View style={socialStyles.btn}>
+        <Ionicons name={icon} size={20} color={colors.textSecondary} />
+        <Text style={socialStyles.label}>{label}</Text>
+        <Text style={socialStyles.soon}>準備中</Text>
+      </View>
+    </View>
+  );
+}
+
+const socialStyles = StyleSheet.create({
+  wrap: { flex: 1 },
+  btn: {
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderRadius: borderRadius.md,
+    backgroundColor: 'rgba(255,255,255,0.5)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.7)',
+    opacity: 0.6,
+  },
+  label: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  soon: {
+    fontSize: 9,
+    color: colors.textMuted,
+  },
+});
+
 export default function LoginScreen() {
   const [mode, setMode] = useState<Mode>('signin');
   const [email, setEmail] = useState('');
@@ -134,6 +171,18 @@ export default function LoginScreen() {
                   )}
                 </LinearGradient>
               </Pressable>
+
+              <View style={styles.dividerRow}>
+                <View style={styles.dividerLine} />
+                <Text style={styles.dividerText}>または</Text>
+                <View style={styles.dividerLine} />
+              </View>
+
+              <View style={styles.socialRow}>
+                <SocialButton icon="logo-google" label="Google" />
+                <SocialButton icon="logo-apple" label="Apple" />
+                <SocialButton icon="logo-facebook" label="Facebook" />
+              </View>
 
               <View style={styles.notice}>
                 <Text style={styles.noticeTitle}>商用利用に関する注意事項</Text>
@@ -277,5 +326,23 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     textAlign: 'center',
     lineHeight: 16,
+  },
+  dividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: 'rgba(145,120,189,0.2)',
+  },
+  dividerText: {
+    fontSize: 11,
+    color: colors.textMuted,
+  },
+  socialRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
   },
 });
