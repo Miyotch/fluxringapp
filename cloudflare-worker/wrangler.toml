@@ -1,0 +1,18 @@
+name = "fluxring-r2-uploader"
+main = "worker.ts"
+compatibility_date = "2025-01-01"
+
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "fluxring-sounds"  # ← rename to your actual R2 bucket
+
+[vars]
+R2_PUBLIC_BASE = "https://pub-XXXXXXXXXXXX.r2.dev"  # ← your R2 public dev URL
+ALLOWED_ORIGIN = "https://fluxringweb.vercel.app"   # ← your frontend origin
+
+# Set the following secrets via:  wrangler secret put NAME
+#   ADMIN_TOKEN          - shared secret used by frontend
+#   R2_ACCESS_KEY_ID     - R2 API token Access Key ID
+#   R2_SECRET_ACCESS_KEY - R2 API token Secret
+#   R2_ACCOUNT_ID        - your Cloudflare account ID
+#   R2_BUCKET_NAME       - same as bucket_name above

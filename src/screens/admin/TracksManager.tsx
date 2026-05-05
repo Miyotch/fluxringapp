@@ -21,6 +21,7 @@ import {
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { colors } from '../../theme/colors';
 import { formatDuration } from '../../types/track';
+import { uploadToR2, isR2Configured } from '../../services/r2Upload';
 
 interface TrackDoc {
   id: string;
@@ -167,6 +168,8 @@ function TrackEditor({ track, onDone }: { track: TrackDoc | null; onDone: () => 
   const [previewFile, setPreviewFile] = useState<File | null>(null);
   const [artworkPreview, setArtworkPreview] = useState(track?.artworkUrl ?? '');
   const [busy, setBusy] = useState(false);
+  const [audioProgress, setAudioProgress] = useState(0);
+  const [currentR2Url, setCurrentR2Url] = useState(track?.audioUrl ?? '');
   const audioRef = useRef<HTMLInputElement>(null);
   const artworkRef = useRef<HTMLInputElement>(null);
   const previewRef = useRef<HTMLInputElement>(null);
@@ -220,9 +223,12 @@ function TrackEditor({ track, onDone }: { track: TrackDoc | null; onDone: () => 
 
       if (docId) {
         if (audioFile) {
-          const ext = audioFile.name.split('.').pop() ?? 'mp3';
-          const url = await uploadFile(audioFile, `sounds/${docId}/audio.${ext}`);
-          await updateDoc(doc(db, COLLECTION, docId), { sound: url });
+          if (!isR2Configured()) {
+            throw new Error('R2 upload is not configured. Set VITE_R2_UPLOAD_ENDPOINT and VITE_R2_ADMIN_TOKEN in .env');
+          }
+          const { publicUrl } = await uploadToR2(audioFile, docId, 'audio', setAudioProgress);
+          await updateDoc(doc(db, COLLECTION, docId), { r2_url: publicUrl });
+          setCurrentR2Url(publicUrl);
         }
         if (artworkFile) {
           const ext = artworkFile.name.split('.').pop() ?? 'jpg';
@@ -271,7 +277,28 @@ function TrackEditor({ track, onDone }: { track: TrackDoc | null; onDone: () => 
 
       {/* Files */}
       <fieldset style={fieldsetStyle}><legend style={legendStyle}>ファイル</legend>
-        <FileRow label="音源ファイル" accept="audio/*" fileRef={audioRef} file={audioFile} currentUrl={track?.audioUrl} onFile={setAudioFile} />
+        <div style={fieldRowStyle}>
+          <span style={fieldLblStyle}>音源ファイル (R2)</span>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <button type="button" onClick={() => audioRef.current?.click()} style={filePickBtnStyle}>
+                <IoCloudUploadOutline size={14} /> {audioFile ? audioFile.name : 'ファイルを選択'}
+              </button>
+              {!audioFile && currentR2Url && <span style={{ fontSize: 10, color: '#5a9e6e' }}>R2に設定済み</span>}
+              <input ref={audioRef} type="file" accept="audio/*" style={{ display: 'none' }} onChange={(e) => {
+                const f = e.target.files?.[0]; if (f) setAudioFile(f);
+              }} />
+            </div>
+            {audioProgress > 0 && audioProgress < 1 && (
+              <div style={progressBarStyle}><div style={{ ...progressFillStyle, width: `${audioProgress * 100}%` }} /></div>
+            )}
+            {!isR2Configured() && (
+              <span style={{ fontSize: 10, color: '#c25a65' }}>
+                ⚠ R2 アップロード未設定 (.env に VITE_R2_UPLOAD_ENDPOINT / VITE_R2_ADMIN_TOKEN を設定)
+              </span>
+            )}
+          </div>
+        </div>
         <FileRow label="プレビュー音源" accept="audio/*" fileRef={previewRef} file={previewFile} currentUrl={track?.previewUrl} onFile={setPreviewFile} />
         <div style={fieldRowStyle}>
           <span style={fieldLblStyle}>サムネイル画像</span>
@@ -420,6 +447,16 @@ const filePickBtnStyle: React.CSSProperties = {
 const saveBtnStyle: React.CSSProperties = {
   padding: '12px 0', borderRadius: 10, border: 'none', cursor: 'pointer',
   background: `linear-gradient(135deg, #a388c8, ${colors.primary})`, color: '#fff', fontSize: 14, fontWeight: 600,
+};
+
+const progressBarStyle: React.CSSProperties = {
+  width: '100%', height: 4, borderRadius: 2,
+  background: 'rgba(200,190,220,0.3)', overflow: 'hidden',
+};
+const progressFillStyle: React.CSSProperties = {
+  height: '100%',
+  background: `linear-gradient(90deg, #a388c8, ${colors.primary})`,
+  transition: 'width 0.2s',
 };
 
 const levelRadioGroupStyle: React.CSSProperties = {
