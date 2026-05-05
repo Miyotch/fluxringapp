@@ -261,11 +261,16 @@ function drawWarpedRing(
     );
   }
 
-  // Visibility cap (port of lines 222-224, 238)
+  // Visibility cap (port of lines 222-224, 238). Alpha is constrained to the
+  // DESIGN.md spec range 0.03..0.13; the legacy `levelVis`/`alphaCap` factors
+  // are folded into a normalized [0..1] fade that maps onto the tightened
+  // alpha window below.
   const levelVis = 0.18 + (level - 1) * (level >= 4 ? 0.09 : 0.14);
-  const alphaCap = level >= 4 ? 0.35 : 0.45;
   const baseHue = isInner ? 270 : 262;
   const baseAlpha = (1 - t * 0.35) * levelVis;
+  // Spec alpha range for the main ring strokes.
+  const ALPHA_MIN = 0.03;
+  const ALPHA_MAX = 0.13;
   const widthScale = 0.5 + (level - 1) * 0.13;
   const baseWidth = 1 - t * 0.4;
 
@@ -296,12 +301,24 @@ function drawWarpedRing(
     if (!bandStarted[b]) continue;
     const bandBright = (b + 0.5) / BANDS; // representative brightness
     const segT = 0.5; // mid-circumference tint — bands aren't contiguous
-    const hue = baseHue + segT * 30 + bandBright * 15 + t * 15;
+    // Hue drift: spec window is hsla(260..270). Inner rings sit at 270, outer
+    // at 262, so we modulate within ±5° of each center, capped to [260,270].
+    // Max contribution: segT*4 + bandBright*4 + |sin|*2 = 10° peak-to-peak.
+    const hueDrift = segT * 4 + bandBright * 4 + Math.sin(time * 0.3) * 2;
+    const hue = Math.max(260, Math.min(270, baseHue - 5 + hueDrift));
     const sat = 58 + level * 4 + bandBright * 10 + t * 8;
     const light = 70 + Math.min(level, 3) * 2 + bandBright * 4;
-    const alpha = Math.min(
-      alphaCap,
-      baseAlpha * (0.45 + bandBright * 0.45),
+    // Alpha drift: spec window is 0.03..0.13. baseAlpha (0..~0.54) is
+    // normalized to a [0..1] fade and mapped onto the spec range; brightness
+    // bands modulate within that window so dim segments hit the floor and
+    // bright crests hit the ceiling.
+    const alphaFade = Math.min(1, baseAlpha / 0.54);
+    const alpha = Math.max(
+      ALPHA_MIN,
+      Math.min(
+        ALPHA_MAX,
+        ALPHA_MIN + bandBright * alphaFade * (ALPHA_MAX - ALPHA_MIN),
+      ),
     );
     const lineWidth =
       (0.6 + baseWidth * 0.8 + bandBright * 0.6) * widthScale;
@@ -322,10 +339,13 @@ function drawWarpedRing(
     highlightPath.lineTo(xs[s], ys[s] - 1);
   }
   highlightPath.close();
-  const hlAlpha = Math.min(
-    level >= 4 ? 0.16 : 0.22,
-    (1 - t * 0.35) * levelVis * 0.25,
-  );
+  // Highlight alpha: spec window 0.06..0.08, interpolated with the same
+  // baseAlpha-derived fade as the main strokes.
+  const hlAlphaFade = Math.min(1, baseAlpha / 0.54);
+  const hlAlpha = Math.max(0.06, Math.min(0.08, 0.06 + hlAlphaFade * 0.02));
+  // Highlight hue: clamp to [260,270] using a small downward drift so the
+  // highlight tracks the ring without escaping the spec window.
+  const hlHue = Math.max(260, Math.min(270, baseHue - t * 4));
   const hlPaint = Skia.Paint();
   hlPaint.setStyle(1);
   hlPaint.setAntiAlias(true);
@@ -335,7 +355,7 @@ function drawWarpedRing(
   hlPaint.setColor(
     Skia.Color(
       hslaStr(
-        baseHue + t * 20,
+        hlHue,
         55 + level * 4,
         80 + Math.min(level, 3),
         hlAlpha,
@@ -352,7 +372,11 @@ function drawWarpedRing(
     shadowPath.lineTo(xs[s], ys[s] + 1);
   }
   shadowPath.close();
-  const shAlpha = Math.min(0.18, (1 - t * 0.35) * levelVis * 0.22);
+  // Shadow alpha: spec window 0.04..0.06.
+  const shAlphaFade = Math.min(1, baseAlpha / 0.54);
+  const shAlpha = Math.max(0.04, Math.min(0.06, 0.04 + shAlphaFade * 0.02));
+  // Shadow hue: clamp to [260,270] with a small downward bias from baseHue.
+  const shHue = Math.max(260, Math.min(270, baseHue - 5 - t * 2));
   const shPaint = Skia.Paint();
   shPaint.setStyle(1);
   shPaint.setAntiAlias(true);
@@ -362,7 +386,7 @@ function drawWarpedRing(
   shPaint.setColor(
     Skia.Color(
       hslaStr(
-        baseHue + t * 20 - 5,
+        shHue,
         55 + level * 3,
         70 + level * 2,
         shAlpha,
