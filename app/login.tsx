@@ -12,6 +12,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import * as Google from 'expo-auth-session/providers/google';
 import {
@@ -21,6 +22,7 @@ import {
   readableAuthError,
 } from '@/services/auth';
 import { GOOGLE_WEB_CLIENT_ID } from '@/services/firebase';
+import { useAuth } from '@/hooks/useAuth';
 import { OrbSphere } from '@/components/ui/OrbSphere';
 import { GradientBackground } from '@/components/ui/GradientBackground';
 import { colors } from '@/theme/colors';
@@ -95,11 +97,19 @@ const socialStyles = StyleSheet.create({
 });
 
 export default function LoginScreen() {
+  const router = useRouter();
+  const { user, loading: authLoading } = useAuth();
   const [mode, setMode] = useState<Mode>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!authLoading && user) {
+      router.replace('/');
+    }
+  }, [authLoading, user, router]);
 
   const [, googleResponse, promptGoogleAsync] = Google.useIdTokenAuthRequest({
     clientId: GOOGLE_WEB_CLIENT_ID,
