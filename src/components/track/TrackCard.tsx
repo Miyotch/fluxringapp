@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Image,
   Pressable,
@@ -7,6 +7,16 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import Animated, {
+  Easing,
+  interpolate,
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withRepeat,
+  withTiming,
+} from 'react-native-reanimated';
 import type { Track } from '../../types/track';
 import { formatDuration } from '../../types/track';
 import { colors } from '../../theme/colors';
@@ -18,13 +28,37 @@ interface TrackCardProps {
   /** Synthesized 0..1 amplitude from the audio player. */
   level: number;
   locked?: boolean;
+  /** True when the track is in the user's favorites — drives heart icon fill. */
+  favorited?: boolean;
   onPlay: () => void;
   onPreview: () => void;
+  /** Legacy "+ to favorites" handler (kept for backwards compat with existing screens). */
   onAdd: () => void;
+  /** Heart toggle — falls back to `onAdd` when not provided so old call sites still work. */
+  onToggleFavorite?: () => void;
+  /** Plus button — opens the playlist picker. Falls back to `onAdd` when not provided. */
+  onAddToPlaylist?: () => void;
   onLockTap?: () => void;
 }
 
 const DOT_COUNT = 8;
+const ARTWORK_SIZE = 76;          // Spec: clamp(56px, 12vw, 96px) — iPad-tuned to 76.
+const ARTWORK_RADIUS = ARTWORK_SIZE / 2;
+const GLOW_SIZE = 96;             // Slightly larger than artwork for the breathing glow halo.
+const GLOW_RADIUS = GLOW_SIZE / 2;
+const PLAY_BTN_SIZE = 34;
+const ICON_BTN_SIZE = 30;
+
+/**
+ * Deterministic 32-bit string hash. Used to give every track its own
+ * breathing-glow period and phase so a list of tracks doesn't pulse in
+ * lockstep.
+ */
+function hashSeed(id: string): number {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
 
 function WaveformDots({ level }: { level: number }) {
   const [levels, setLevels] = useState<number[]>(() => new Array(DOT_COUNT).fill(0));
@@ -69,9 +103,12 @@ export function TrackCard({
   isPlaying,
   level,
   locked = false,
+  favorited = false,
   onPlay,
   onPreview,
   onAdd,
+  onToggleFavorite,
+  onAddToPlaylist,
   onLockTap,
 }: TrackCardProps) {
   const handlePress = () => {
@@ -82,6 +119,75 @@ export function TrackCard({
     onPlay();
   };
 
+  // ─── Breathing glow behind artwork (8000–9000ms period, hash-randomized) ───
+  const seed = useMemo(() => hashSeed(track.id), [track.id]);
+  const breathPeriod = 8000 + (seed % 1000);
+  const breathPhase = seed % 1000;
+  const breath = useSharedValue(0);
+
+  // ─── Icon glow on heart + plus (6500–7500ms, separately phased) ───
+  const heartIconPeriod = 6500 + (seed % 1000);
+  const heartIconPhase = (seed * 7) % 1000;
+  const plusIconPeriod = 6500 + ((seed * 13) % 1000);
+  const plusIconPhase = (seed * 17) % 1000;
+  const heartPulse = useSharedValue(0);
+  const plusPulse = useSharedValue(0);
+
+  useEffect(() => {
+    breath.value = withDelay(
+      breathPhase,
+      withRepeat(
+        withTiming(1, { duration: breathPeriod, easing: Easing.inOut(Easing.sin) }),
+        -1,
+        true,
+      ),
+    );
+    heartPulse.value = withDelay(
+      heartIconPhase,
+      withRepeat(
+        withTiming(1, { duration: heartIconPeriod, easing: Easing.inOut(Easing.sin) }),
+        -1,
+        true,
+      ),
+    );
+    plusPulse.value = withDelay(
+      plusIconPhase,
+      withRepeat(
+        withTiming(1, { duration: plusIconPeriod, easing: Easing.inOut(Easing.sin) }),
+        -1,
+        true,
+      ),
+    );
+  }, [
+    breath,
+    heartPulse,
+    plusPulse,
+    breathPeriod,
+    breathPhase,
+    heartIconPeriod,
+    heartIconPhase,
+    plusIconPeriod,
+    plusIconPhase,
+  ]);
+
+  const breathStyle = useAnimatedStyle(() => ({
+    shadowOpacity: interpolate(breath.value, [0, 1], [0.12, 0.55]),
+    shadowRadius: interpolate(breath.value, [0, 1], [6, 20]),
+  }));
+
+  const heartGlowStyle = useAnimatedStyle(() => ({
+    shadowOpacity: interpolate(heartPulse.value, [0, 1], [0.18, 0.5]),
+    shadowRadius: interpolate(heartPulse.value, [0, 1], [6, 14]),
+  }));
+
+  const plusGlowStyle = useAnimatedStyle(() => ({
+    shadowOpacity: interpolate(plusPulse.value, [0, 1], [0.18, 0.5]),
+    shadowRadius: interpolate(plusPulse.value, [0, 1], [6, 14]),
+  }));
+
+  const handleHeart = onToggleFavorite ?? onAdd;
+  const handlePlus = onAddToPlaylist ?? onAdd;
+
   return (
     <Pressable
       onPress={handlePress}
@@ -91,20 +197,40 @@ export function TrackCard({
         pressed && styles.cardPressed,
       ]}
     >
-      <View style={styles.artworkRing}>
-        {track.artworkUrl ? (
-          <Image
-            source={{ uri: track.artworkUrl }}
-            style={[styles.artwork, locked && styles.artworkLocked]}
-          />
-        ) : (
-          <View style={[styles.artwork, styles.artworkPlaceholder]} />
-        )}
-        {locked && (
-          <View style={styles.lockOverlay}>
-            <Ionicons name="lock-closed" size={22} color="#fff" />
+      {/* ── Artwork stack: breathing glow → gradient ring → inner shadow → image → lock ── */}
+      <View style={styles.artworkStack}>
+        <Animated.View
+          pointerEvents="none"
+          style={[styles.breathingGlow, breathStyle]}
+        />
+        <LinearGradient
+          // Spec: linear-gradient(135deg, #ffffff → #ece6f8) — neumorphic ring.
+          colors={['#ffffff', '#ece6f8']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.artworkRing}
+        >
+          <View style={styles.artworkInnerShadow}>
+            {track.artworkUrl ? (
+              <Image
+                source={{ uri: track.artworkUrl }}
+                style={styles.artwork}
+              />
+            ) : (
+              <View style={[styles.artwork, styles.artworkPlaceholder]} />
+            )}
+            {locked && (
+              <>
+                {/* Grayscale-ish overlay — RN can't apply a CSS grayscale
+                    filter, so we wash the artwork with a neutral gray. */}
+                <View pointerEvents="none" style={styles.artworkGrayscale} />
+                <View style={styles.lockOverlay}>
+                  <Ionicons name="lock-closed" size={22} color="#fff" />
+                </View>
+              </>
+            )}
           </View>
-        )}
+        </LinearGradient>
       </View>
 
       <View style={styles.content}>
@@ -117,20 +243,29 @@ export function TrackCard({
           </View>
 
           <View style={styles.controls}>
+            {/* ── Play / pause button ── */}
             <Pressable
               onPress={(e) => {
                 e.stopPropagation();
                 onPlay();
               }}
-              style={styles.playButton}
               hitSlop={6}
+              style={styles.playButtonShadow}
             >
-              <Ionicons
-                name={isPlaying ? 'pause' : 'play'}
-                size={14}
-                color="#fff"
-                style={isPlaying ? undefined : { marginLeft: 1 }}
-              />
+              <LinearGradient
+                // Spec: linear-gradient(145deg, #a388c8, #9178BD)
+                colors={['#a388c8', '#9178BD']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.playButton}
+              >
+                <Ionicons
+                  name={isPlaying ? 'pause' : 'play'}
+                  size={16}
+                  color="#fff"
+                  style={isPlaying ? undefined : { marginLeft: 1 }}
+                />
+              </LinearGradient>
             </Pressable>
 
             {isPlaying ? (
@@ -147,16 +282,49 @@ export function TrackCard({
               </Pressable>
             )}
 
-            <Pressable
-              onPress={(e) => {
-                e.stopPropagation();
-                onAdd();
-              }}
-              style={styles.iconButton}
-              hitSlop={6}
-            >
-              <Ionicons name="add" size={15} color={colors.primary} />
-            </Pressable>
+            {/* ── Heart button ── */}
+            <Animated.View style={[styles.iconButtonGlow, heartGlowStyle]}>
+              <Pressable
+                onPress={(e) => {
+                  e.stopPropagation();
+                  handleHeart();
+                }}
+                hitSlop={6}
+              >
+                <LinearGradient
+                  colors={['#f5f2fb', '#e6e0f2']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.iconButton}
+                >
+                  <Ionicons
+                    name={favorited ? 'heart' : 'heart-outline'}
+                    size={16}
+                    color={colors.textPrimary}
+                  />
+                </LinearGradient>
+              </Pressable>
+            </Animated.View>
+
+            {/* ── Plus button ── */}
+            <Animated.View style={[styles.iconButtonGlow, plusGlowStyle]}>
+              <Pressable
+                onPress={(e) => {
+                  e.stopPropagation();
+                  handlePlus();
+                }}
+                hitSlop={6}
+              >
+                <LinearGradient
+                  colors={['#f5f2fb', '#e6e0f2']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.iconButton}
+                >
+                  <Ionicons name="add" size={16} color={colors.textPrimary} />
+                </LinearGradient>
+              </Pressable>
+            </Animated.View>
           </View>
         </View>
 
@@ -183,28 +351,68 @@ const styles = StyleSheet.create({
   },
   cardActive: {
     backgroundColor: colors.cardActiveBackground,
+    // Neumorphic drop shadow added on the playing state.
+    shadowColor: colors.neumorphShadowDark,
+    shadowOffset: { width: 4, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 6,
   },
   cardPressed: {
     opacity: 0.85,
   },
+  // ── Artwork stack ────────────────────────────────────────────────
+  artworkStack: {
+    width: ARTWORK_SIZE,
+    height: ARTWORK_SIZE,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  breathingGlow: {
+    position: 'absolute',
+    width: GLOW_SIZE,
+    height: GLOW_SIZE,
+    borderRadius: GLOW_RADIUS,
+    // Skia/RN can't render the CSS `box-shadow` blur on a transparent View,
+    // so we paint a faint lavender disc and animate the shadow on iOS.
+    backgroundColor: 'rgba(180,140,255,0.06)',
+    shadowColor: 'rgba(180,140,255,1)',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    // Android cannot tint elevation — keep it 0 so we don't get a gray box.
+    elevation: 0,
+  },
   artworkRing: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: ARTWORK_SIZE,
+    height: ARTWORK_SIZE,
+    borderRadius: ARTWORK_RADIUS,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 2, // Thickness of the gradient ring.
+  },
+  artworkInnerShadow: {
+    width: ARTWORK_SIZE - 4,
+    height: ARTWORK_SIZE - 4,
+    borderRadius: ARTWORK_RADIUS - 2,
     overflow: 'hidden',
     backgroundColor: colors.backgroundDither,
     alignItems: 'center',
     justifyContent: 'center',
+    // Subtle inner-shadow stand-in: a faint border highlights the inner edge.
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.6)',
   },
   artwork: {
     width: '100%',
     height: '100%',
   },
-  artworkLocked: {
-    opacity: 0.6,
-  },
   artworkPlaceholder: {
     backgroundColor: colors.backgroundDither,
+  },
+  artworkGrayscale: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(180,180,180,0.55)',
   },
   lockOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -212,6 +420,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // ── Content ─────────────────────────────────────────────────────
   content: {
     flex: 1,
     minWidth: 0,
@@ -244,11 +453,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.sm,
   },
+  // ── Play button ─────────────────────────────────────────────────
+  playButtonShadow: {
+    width: PLAY_BTN_SIZE,
+    height: PLAY_BTN_SIZE,
+    borderRadius: PLAY_BTN_SIZE / 2,
+    // Neumorphic drop (purple-gray). RN limits us to one shadow; the
+    // companion white highlight from the spec is approximated by the
+    // light gradient stop on the gradient itself.
+    shadowColor: 'rgba(174,164,204,1)',
+    shadowOffset: { width: 2, height: 2 },
+    shadowOpacity: 0.28,
+    shadowRadius: 6,
+    elevation: 3,
+  },
   playButton: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: colors.buttonPlay,
+    width: PLAY_BTN_SIZE,
+    height: PLAY_BTN_SIZE,
+    borderRadius: PLAY_BTN_SIZE / 2,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -257,16 +479,26 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: colors.textSecondary,
   },
+  // ── Heart / plus icon buttons ───────────────────────────────────
+  iconButtonGlow: {
+    width: ICON_BTN_SIZE,
+    height: ICON_BTN_SIZE,
+    borderRadius: ICON_BTN_SIZE / 2,
+    // Lavender glow — animated via reanimated's shadowOpacity / radius.
+    shadowColor: 'rgba(180,140,255,1)',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
+    elevation: 4,
+  },
   iconButton: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: 'rgba(255,255,255,0.7)',
+    width: ICON_BTN_SIZE,
+    height: ICON_BTN_SIZE,
+    borderRadius: ICON_BTN_SIZE / 2,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: colors.cardBorder,
   },
+  // ── Waveform ────────────────────────────────────────────────────
   waveform: {
     flexDirection: 'row',
     alignItems: 'center',

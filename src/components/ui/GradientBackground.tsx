@@ -11,10 +11,12 @@ export function GradientBackground({ children }: GradientBackgroundProps) {
   return (
     <View style={styles.root}>
       <LinearGradient
-        colors={[colors.backgroundStart, colors.backgroundMid, colors.backgroundEnd]}
+        // Spec: linear-gradient(180deg, #E6EBF1 0%, #dde3ed 50%, #E6EBF1 100%)
+        // — light → mid → light, top to bottom.
+        colors={['#E6EBF1', '#dde3ed', '#E6EBF1']}
+        locations={[0, 0.5, 1]}
         start={{ x: 0.5, y: 0 }}
         end={{ x: 0.5, y: 1 }}
-        locations={[0, 0.5, 1]}
         style={StyleSheet.absoluteFill}
       />
       {children}

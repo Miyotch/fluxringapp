@@ -62,26 +62,43 @@ export function FloatingCapsuleTabBar({
       pointerEvents="box-none"
       style={[styles.outer, { bottom: bottomOffset }]}
     >
-      <View style={styles.shadowWrap}>
-        <View style={styles.capsule}>
-          <BlurView
-            intensity={20}
-            tint="light"
-            style={StyleSheet.absoluteFill}
-          />
-          <LinearGradient
-            colors={[
-              colors.tabBarCapsuleStart,
-              colors.tabBarCapsuleMid,
-              colors.tabBarCapsuleEnd,
-            ]}
-            locations={[0, 0.4, 1]}
-            // 165deg in CSS ≈ start near top-left, end near bottom-right.
-            start={{ x: 0.1, y: 0 }}
-            end={{ x: 0.9, y: 1 }}
-            style={StyleSheet.absoluteFill}
-          />
-          <View style={styles.row}>
+      {/*
+       * RN supports only one shadow per View. The spec calls for a layered
+       * shadow stack:
+       *   - drop:      8px 8px 24px rgba(155,141,255,0.25)
+       *   - highlight: -6px -6px 18px rgba(255,255,255,0.95)
+       *   - inset top: inset 0 1px 1px rgba(255,255,255,0.8)
+       *   - inset bot: inset 0 -1px 1px rgba(200,190,220,0.08)
+       *
+       * We render two stacked wrappers: the outer carries the white
+       * highlight shadow, the inner carries the purple drop shadow. The
+       * inset edges are emulated as 1px slivers inside the rounded clip.
+       */}
+      <View style={styles.highlightShadowWrap}>
+        <View style={styles.shadowWrap}>
+          <View style={styles.capsule}>
+            <BlurView
+              intensity={20}
+              tint="light"
+              style={StyleSheet.absoluteFill}
+            />
+            <LinearGradient
+              colors={[
+                colors.tabBarCapsuleStart,
+                colors.tabBarCapsuleMid,
+                colors.tabBarCapsuleEnd,
+              ]}
+              locations={[0, 0.4, 1]}
+              // 165deg in CSS ≈ start near top-left, end near bottom-right.
+              start={{ x: 0.1, y: 0 }}
+              end={{ x: 0.9, y: 1 }}
+              style={StyleSheet.absoluteFill}
+            />
+            {/* Inset top highlight — emulates `inset 0 1px 1px rgba(255,255,255,0.8)` */}
+            <View pointerEvents="none" style={styles.insetTop} />
+            {/* Inset bottom shade — emulates `inset 0 -1px 1px rgba(200,190,220,0.08)` */}
+            <View pointerEvents="none" style={styles.insetBottom} />
+            <View style={styles.row}>
             {state.routes.map((route, index) => {
               const { options } = descriptors[route.key];
               const isFocused = state.index === index;
@@ -140,6 +157,7 @@ export function FloatingCapsuleTabBar({
                 </Pressable>
               );
             })}
+            </View>
           </View>
         </View>
       </View>
@@ -155,11 +173,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // Outer wrapper carries the upper-left white highlight shadow
+  // (matches `-6px -6px 18px rgba(255,255,255,0.95)`).
+  // RN allows only one shadow per View, so the purple drop shadow lives
+  // on the inner `shadowWrap`.
+  highlightShadowWrap: {
+    width: '100%',
+    maxWidth: 480,
+    borderRadius: 34,
+    backgroundColor: 'transparent',
+    shadowColor: '#FFFFFF',
+    shadowOffset: { width: -6, height: -6 },
+    shadowOpacity: 0.95,
+    shadowRadius: 18,
+    // Android cannot tint elevation — fall back to the purple drop only.
+    elevation: 0,
+  },
   // Shadow must live on a non-overflow-clipping wrapper so it renders
   // outside the rounded capsule.
   shadowWrap: {
     width: '100%',
-    maxWidth: 480,
     borderRadius: 34,
     backgroundColor: 'transparent',
     // Layered drop shadow (matches `8px 8px 24px rgba(155,141,255,0.25)`).
@@ -176,6 +209,26 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: colors.tabBarCapsuleBorder,
+  },
+  // 1px sliver pinned to the top inner edge of the capsule.
+  // Emulates `inset 0 1px 1px rgba(255,255,255,0.8)`.
+  insetTop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.8)',
+  },
+  // 1px sliver pinned to the bottom inner edge of the capsule.
+  // Emulates `inset 0 -1px 1px rgba(200,190,220,0.08)`.
+  insetBottom: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 1,
+    backgroundColor: 'rgba(200,190,220,0.08)',
   },
   row: {
     flex: 1,
