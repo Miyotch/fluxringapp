@@ -67,6 +67,11 @@ export const colors = {
   buttonHeart: '#d4a0c8',
   buttonPlus: '#a898d0',
 
+  // ── Premium accents (gold) ──
+  premium: '#f4c542',
+  premiumDark: '#e09e3a',
+  premiumGlow: 'rgba(244, 197, 66, 0.4)',
+
   white: '#ffffff',
 } as const;
 
