@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useMemo } from 'react';
 import { StyleSheet, View } from 'react-native';
 import {
   Canvas,
@@ -18,12 +18,15 @@ import {
   useSharedValue,
 } from 'react-native-reanimated';
 import { Design11NoiseOdyssey } from '../../designs/Design11_NoiseOdyssey';
-import { amplitudeToLevel } from '../../designs/levelMath';
 import { colors } from '../../theme/colors';
 
 interface FluxRingDialProps {
   size: number;
-  /** Optional controlled amplitude (0.2..4.0). */
+  /**
+   * Optional advisory amplitude. Rotation is now the source of truth; this
+   * prop is retained for backwards-compatibility but is NOT synced into the
+   * dial after mount. Listeners should subscribe via `onAmplitudeChange`.
+   */
   amplitude?: number;
   /** Called whenever the user spins the dial; receives the new amplitude. */
   onAmplitudeChange?: (amp: number) => void;
@@ -34,6 +37,12 @@ function clampWorklet(v: number, min: number, max: number) {
   return Math.min(Math.max(v, min), max);
 }
 
+// Rotation bounds: 0..5 full turns (0..10π radians).
+const MAX_ROTATION = 10 * Math.PI;
+// Amplitude band the noise odyssey rings render across.
+const MIN_AMP = 0.2;
+const MAX_AMP = 4.0;
+
 /**
  * Animated ring dial. Combines the Design11 Noise Odyssey aurora ribbons (Skia
  * Picture) with a static pearl knob + level indicator + "Flux Ring" sub-label
@@ -41,17 +50,22 @@ function clampWorklet(v: number, min: number, max: number) {
  */
 export function FluxRingDial({
   size,
-  amplitude: externalAmplitude,
   onAmplitudeChange,
 }: FluxRingDialProps) {
   const cx = size / 2;
   const cy = size / 2;
   const orbR = size * 0.18;
 
-  // Shared values: amplitude in [0.2, 4.0], rotation in radians (accumulated).
-  const amp = useSharedValue(externalAmplitude ?? 1.0);
+  // Rotation is the source of truth (radians, accumulated, clamped 0..10π).
+  // Amplitude is derived from rotation below.
   const rotation = useSharedValue(0);
   const lastAngle = useSharedValue(0);
+
+  // Amplitude derived from rotation: 0..10π -> 0.2..4.0 (continuous).
+  const amp = useDerivedValue(() => {
+    const t = rotation.value / MAX_ROTATION;
+    return MIN_AMP + t * (MAX_AMP - MIN_AMP);
+  });
 
   // ── Free-running 60fps animation clock (seconds since mount) ──
   // Drives the noise / breathing pulse / per-ring rotation inside Design11
@@ -61,13 +75,6 @@ export function FluxRingDial({
     'worklet';
     clock.value += (info.timeSincePreviousFrame ?? 16) / 1000;
   }, true);
-
-  // Sync external amplitude prop into the shared value when it changes.
-  useEffect(() => {
-    if (typeof externalAmplitude === 'number') {
-      amp.value = externalAmplitude;
-    }
-  }, [externalAmplitude, amp]);
 
   // Bridge amplitude back to the JS thread via the optional callback.
   useAnimatedReaction(
@@ -80,7 +87,7 @@ export function FluxRingDial({
     [onAmplitudeChange],
   );
 
-  // ── Gesture: circular drag rotates the ring + adjusts amplitude ──
+  // ── Gesture: circular drag rotates the ring (clamped 0..10π) ──
   const pan = Gesture.Pan()
     .onBegin((e) => {
       lastAngle.value = Math.atan2(e.y - cy, e.x - cx);
@@ -91,8 +98,7 @@ export function FluxRingDial({
       if (delta > Math.PI) delta -= 2 * Math.PI;
       if (delta < -Math.PI) delta += 2 * Math.PI;
       lastAngle.value = angle;
-      rotation.value = rotation.value + delta;
-      amp.value = clampWorklet(amp.value + delta * 1.5, 0.2, 4.0);
+      rotation.value = clampWorklet(rotation.value + delta, 0, MAX_ROTATION);
     });
 
   // ── Pearl-knob indicator dot ──
@@ -126,7 +132,12 @@ export function FluxRingDial({
   );
 
   const levelText = useDerivedValue(() => {
-    const level = amplitudeToLevel(amp.value);
+    // Level is purely a function of rotation: each full turn (2π) advances
+    // by 1, clamped to 1..5. At exactly 2π we tick from "01" -> "02".
+    const level = Math.min(
+      5,
+      Math.max(1, Math.floor(rotation.value / (2 * Math.PI)) + 1),
+    );
     return level < 10 ? `0${level}` : `${level}`;
   });
 

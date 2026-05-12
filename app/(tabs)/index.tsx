@@ -10,6 +10,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { GradientBackground } from '@/components/ui/GradientBackground';
+import { AmbientOrbs } from '@/components/ui/AmbientOrbs';
 import { TrackList } from '@/components/track/TrackList';
 import { FluxRingDial } from '@/components/ring/FluxRingDial';
 import { NowPlaying } from '@/components/player/NowPlaying';
@@ -47,24 +48,17 @@ export default function HomeScreen() {
   const { planId } = useUserPlan();
   const { filters, hasActiveFilters, resetFilters } = useSearchFilters();
 
-  // Independent dial amplitude: user-set "intensity" — does NOT cross-wire
-  // into the audio level. The Lv badge below uses the audio player's level,
-  // not the dial amplitude.
-  const [amplitude, setAmplitude] = useState(1.0);
+  // Dial amplitude: user-set "intensity" driven by rotation of the FluxRing.
+  // The Lv badge reads from this (not from the audio player) since the dial
+  // is what the user is actively controlling.
+  const [amplitude, setAmplitude] = useState(0.2);
 
   // NowPlaying modal state.
   const [showNowPlaying, setShowNowPlaying] = useState(false);
   const [selectedTrack, setSelectedTrack] = useState<Track | null>(null);
 
-  // Lv badge: smooth audio level (0..1) into discrete 1..10.
-  // amplitudeToLevel returns 1..5 over a 0.2..4.0 range; remap level (0..1)
-  // into that band so a near-silent track shows Lv.1 and a peak shows Lv.10.
-  const audioLevelDisplay = useMemo(() => {
-    const remapped = 0.2 + Math.min(1, Math.max(0, level)) * 3.8;
-    const base = amplitudeToLevel(remapped); // 1..5
-    // Stretch 1..5 -> 1..10 so the badge has more granularity.
-    return Math.max(1, Math.min(10, base * 2));
-  }, [level]);
+  // Lv badge: derived from the dial amplitude (1..5).
+  const dialLevel = useMemo(() => amplitudeToLevel(amplitude), [amplitude]);
 
   // Free-tier locks all paid tracks.
   const lockedTrackIds = useMemo(() => {
@@ -136,7 +130,7 @@ export default function HomeScreen() {
           {/* ── Left column: list + badges ─────────────────────────────── */}
           <View style={styles.listColumn}>
             <View style={styles.levelBar}>
-              <Text style={styles.levelText}>Lv.{audioLevelDisplay}</Text>
+              <Text style={styles.levelText}>Lv.{dialLevel}</Text>
               <Text style={styles.levelCount}>{filteredTracks.length}曲</Text>
             </View>
 

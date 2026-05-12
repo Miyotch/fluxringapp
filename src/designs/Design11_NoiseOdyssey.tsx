@@ -30,7 +30,7 @@ import {
   Skia,
   createPicture,
 } from '@shopify/react-native-skia';
-import type { SharedValue } from 'react-native-reanimated';
+import type { DerivedValue, SharedValue } from 'react-native-reanimated';
 import { useDerivedValue } from 'react-native-reanimated';
 import {
   amplitudeToLevel,
@@ -41,10 +41,14 @@ import {
 } from './noise';
 
 export type Design11Props = {
-  /** 0.2..4.0 — drives noise displacement, ring count, brightness. */
-  amplitude: SharedValue<number>;
+  /**
+   * 0.2..4.0 — drives noise displacement, ring count, brightness.
+   * Accepts a SharedValue or DerivedValue (read-only); this component only
+   * reads `.value`.
+   */
+  amplitude: SharedValue<number> | DerivedValue<number>;
   /** Radians, accumulated user pan; rotates the entire ring assembly. */
-  rotation: SharedValue<number>;
+  rotation: SharedValue<number> | DerivedValue<number>;
   /** Free-running animation clock in seconds. Drives noise / breathing. */
   clock: SharedValue<number>;
   /** Canvas square size in px. */
