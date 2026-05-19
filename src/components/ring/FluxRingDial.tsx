@@ -1,10 +1,12 @@
 import { useMemo } from 'react';
 import { StyleSheet, View } from 'react-native';
 import {
+  BlurMask,
   Canvas,
   Circle,
   Group,
   RadialGradient,
+  Skia,
   Text as SkiaText,
   matchFont,
   vec,
@@ -153,6 +155,44 @@ export function FluxRingDial({
   // top-left light source (kept consistent with the original neumorphism).
   const pearlCenter = vec(cx - orbR * 0.18, cy - orbR * 0.22);
 
+  // ── CenterAuroraCanvas port: 4 flowing aurora blobs clipped to the
+  // pearl's circle. Drives the soft purple "moya inside the knob" the web
+  // version paints via a stacked HTML5 Canvas. Positions are derived from
+  // the free-running clock so the aurora drifts continuously. ──
+  const auroraClipPath = useMemo(() => {
+    const p = Skia.Path.Make();
+    p.addCircle(cx, cy, orbR);
+    return p;
+  }, [cx, cy, orbR]);
+
+  // Each blob has its own phase + axis-scale, mirroring CenterAuroraCanvas.
+  // The clock advances at 0.3rad/s here (vs 0.4 on web) — slight slowdown
+  // reads better at the smaller pearl scale we're rendering on iPad.
+  const auroraBlob0X = useDerivedValue(
+    () => cx + Math.cos(clock.value * 0.30 + 0) * orbR * 0.30,
+  );
+  const auroraBlob0Y = useDerivedValue(
+    () => cy + Math.sin(clock.value * 0.25 + 0) * orbR * 0.30,
+  );
+  const auroraBlob1X = useDerivedValue(
+    () => cx + Math.cos(clock.value * 0.30 + Math.PI / 2) * orbR * 0.30,
+  );
+  const auroraBlob1Y = useDerivedValue(
+    () => cy + Math.sin(clock.value * 0.25 + Math.PI / 2) * orbR * 0.30,
+  );
+  const auroraBlob2X = useDerivedValue(
+    () => cx + Math.cos(clock.value * 0.30 + Math.PI) * orbR * 0.30,
+  );
+  const auroraBlob2Y = useDerivedValue(
+    () => cy + Math.sin(clock.value * 0.25 + Math.PI) * orbR * 0.30,
+  );
+  const auroraBlob3X = useDerivedValue(
+    () => cx + Math.cos(clock.value * 0.30 + 3 * Math.PI / 2) * orbR * 0.30,
+  );
+  const auroraBlob3Y = useDerivedValue(
+    () => cy + Math.sin(clock.value * 0.25 + 3 * Math.PI / 2) * orbR * 0.30,
+  );
+
   return (
     <GestureDetector gesture={pan}>
       <View style={[styles.root, { width: size, height: size }]}>
@@ -178,18 +218,66 @@ export function FluxRingDial({
             />
           </Group>
 
-          {/* Pearl body: pure white center fading to a cool grey rim. This is
-              the key change from the previous neumorphic look — pearlier,
-              calmer, more like a smooth marble. */}
-          <Circle cx={cx} cy={cy} r={orbR} color="#ffffff" />
+          {/* Pearl base — slightly translucent (0.6 alpha on top of a white
+              fill) so the aurora layer underneath bleeds through. This base
+              is opaque-white instead of straight transparent so the dark
+              ring strokes behind the dial don't show up inside the knob. */}
+          <Circle cx={cx} cy={cy} r={orbR} color="rgba(255,255,255,0.55)" />
+
+          {/* ── Aurora blobs inside the pearl (CenterAuroraCanvas port) ──
+              4 BlurMask-feathered circles clipped to the pearl's outline.
+              They drift around the center driven by the free-running clock,
+              giving the knob a live, slightly violet inner glow instead of
+              the previous static radial gradient. */}
+          <Group clip={auroraClipPath}>
+            <Circle
+              cx={auroraBlob0X}
+              cy={auroraBlob0Y}
+              r={orbR * 0.5}
+              color="rgba(180,140,235,0.35)"
+            >
+              <BlurMask blur={24} style="normal" />
+            </Circle>
+            <Circle
+              cx={auroraBlob1X}
+              cy={auroraBlob1Y}
+              r={orbR * 0.5}
+              color="rgba(150,200,235,0.30)"
+            >
+              <BlurMask blur={24} style="normal" />
+            </Circle>
+            <Circle
+              cx={auroraBlob2X}
+              cy={auroraBlob2Y}
+              r={orbR * 0.5}
+              color="rgba(180,140,235,0.35)"
+            >
+              <BlurMask blur={24} style="normal" />
+            </Circle>
+            <Circle
+              cx={auroraBlob3X}
+              cy={auroraBlob3Y}
+              r={orbR * 0.5}
+              color="rgba(150,200,235,0.30)"
+            >
+              <BlurMask blur={24} style="normal" />
+            </Circle>
+          </Group>
+
+          {/* Pearl gradient overlay: pure white center fading to a cool grey
+              rim. Sits ABOVE the aurora so the aurora reads as a faint
+              violet glow inside the knob rather than a solid color. The
+              center is set to white@0.4 (transparent gradient) so aurora
+              shows through; the rim stays nearly opaque to keep the bezel
+              edge sharp. */}
           <Circle cx={cx} cy={cy} r={orbR}>
             <RadialGradient
               c={pearlCenter}
               r={orbR * 1.08}
               colors={[
-                '#ffffff',
-                '#f6f5fb',
-                '#e6e4ee',
+                'rgba(255,255,255,0.45)',
+                'rgba(246,245,251,0.62)',
+                'rgba(230,228,238,0.92)',
                 '#dcdce8',
               ]}
               positions={[0, 0.5, 0.85, 1]}

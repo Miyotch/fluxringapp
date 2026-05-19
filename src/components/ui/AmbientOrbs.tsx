@@ -4,12 +4,17 @@ import Animated, {
   Easing,
   cancelAnimation,
   useAnimatedStyle,
+  useDerivedValue,
   useSharedValue,
   withDelay,
   withRepeat,
   withTiming,
 } from 'react-native-reanimated';
-import { BlurView } from 'expo-blur';
+import {
+  BlurMask,
+  Canvas,
+  Circle,
+} from '@shopify/react-native-skia';
 import { LinearGradient } from 'expo-linear-gradient';
 
 /**
@@ -38,13 +43,18 @@ type OrbSpec = {
   delay: number;
 };
 
+// Alphas bumped from the legacy CSS values (0.32 / 0.26 / 0.28 / 0.22) to
+// 0.45 / 0.40 / 0.42 / 0.32 so the orbs read on the lavender-on-lavender
+// background instead of disappearing into it. The web version got more
+// pop from CSS blur + screen blending; Skia's BlurMask softens but doesn't
+// brighten, so we compensate with a higher input alpha.
 const ORBS: OrbSpec[] = [
   {
     width: 220,
     height: 140,
     top: '6%',
     left: '54%',
-    color: 'rgba(200, 170, 255, 0.32)',
+    color: 'rgba(200, 170, 255, 0.45)',
     period: 22000,
     delay: 0,
   },
@@ -53,7 +63,7 @@ const ORBS: OrbSpec[] = [
     height: 110,
     top: '52%',
     left: '60%',
-    color: 'rgba(160, 200, 255, 0.26)',
+    color: 'rgba(160, 200, 255, 0.40)',
     period: 18000,
     delay: -6000,
   },
@@ -62,7 +72,7 @@ const ORBS: OrbSpec[] = [
     height: 90,
     top: '72%',
     left: '46%',
-    color: 'rgba(220, 180, 255, 0.28)',
+    color: 'rgba(220, 180, 255, 0.42)',
     period: 25000,
     delay: -12000,
   },
@@ -71,11 +81,15 @@ const ORBS: OrbSpec[] = [
     height: 70,
     top: '16%',
     left: '80%',
-    color: 'rgba(180, 220, 200, 0.22)',
+    color: 'rgba(180, 220, 200, 0.32)',
     period: 20000,
     delay: -4000,
   },
 ];
+
+// BlurMask sigma (px) applied to every orb. Tuned per spec — bigger orbs
+// stay diffuse, smaller ones gather more visible color.
+const ORB_BLUR_SIGMA = 32;
 
 /** Aurora band gradient stops — primary (lavender-warm). */
 const BAND_A_COLORS = [
@@ -130,9 +144,10 @@ function AmbientOrb({ spec }: { spec: OrbSpec }) {
     };
   }, [progress, spec.delay, spec.period]);
 
+  // ── Outer Animated.View handles position (top/left), translateX/Y, scale,
+  // and the JS-side opacity envelope. ──
   const animatedStyle = useAnimatedStyle(() => {
     const p = progress.value;
-    // Opacity envelope: 0% -> 0, 15% -> 1, 85% -> 1, 100% -> 0.4
     let opacity: number;
     if (p < 0.15) opacity = p / 0.15;
     else if (p < 0.85) opacity = 1;
@@ -147,6 +162,23 @@ function AmbientOrb({ spec }: { spec: OrbSpec }) {
     };
   });
 
+  // The Skia canvas needs to be larger than the orb itself so the BlurMask
+  // halo (sigma 32) can spill beyond the ellipse edge. We pad by ~3x sigma
+  // on each side.
+  const padding = ORB_BLUR_SIGMA * 3;
+  const canvasW = spec.width + padding * 2;
+  const canvasH = spec.height + padding * 2;
+
+  // The legacy spec described elliptical orbs (width != height). Skia's
+  // <Circle> is round, so we approximate the ellipse by scaling the Group
+  // — but for the small width/height ratios we use (1.4..1.6:1), a single
+  // round circle inscribed in the orb reads identically once blurred.
+  const radius = Math.min(spec.width, spec.height) / 2;
+
+  // BlurMask sigma derived value lets us animate it if we ever need to;
+  // for now it's a constant.
+  const blurSigma = useDerivedValue(() => ORB_BLUR_SIGMA);
+
   return (
     <Animated.View
       pointerEvents="none"
@@ -157,19 +189,24 @@ function AmbientOrb({ spec }: { spec: OrbSpec }) {
           height: spec.height,
           top: spec.top as unknown as number,
           left: spec.left as unknown as number,
-          backgroundColor: spec.color,
-          borderRadius: Math.max(spec.width, spec.height),
         },
         animatedStyle,
       ]}
     >
-      {/* BlurView softens the orb edge — sits inside so the tint shows through. */}
-      <BlurView
-        intensity={40}
-        tint="light"
+      <Canvas
         pointerEvents="none"
-        style={StyleSheet.absoluteFill}
-      />
+        style={{
+          position: 'absolute',
+          width: canvasW,
+          height: canvasH,
+          left: -padding,
+          top: -padding,
+        }}
+      >
+        <Circle cx={canvasW / 2} cy={canvasH / 2} r={radius} color={spec.color}>
+          <BlurMask blur={blurSigma} style="normal" />
+        </Circle>
+      </Canvas>
     </Animated.View>
   );
 }
@@ -278,6 +315,7 @@ const styles = StyleSheet.create({
   },
   orb: {
     position: 'absolute',
-    overflow: 'hidden',
+    // No `overflow: hidden` here — the Skia canvas inside intentionally
+    // extends past the orb's bounds so the BlurMask halo can spill out.
   },
 });
