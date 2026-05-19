@@ -12,11 +12,17 @@ import Animated, {
   Easing,
   interpolate,
   useAnimatedStyle,
+  useDerivedValue,
   useSharedValue,
   withDelay,
   withRepeat,
   withTiming,
 } from 'react-native-reanimated';
+import {
+  BlurMask,
+  Canvas,
+  Circle,
+} from '@shopify/react-native-skia';
 import type { Track } from '../../types/track';
 import { formatDuration } from '../../types/track';
 import { colors } from '../../theme/colors';
@@ -44,8 +50,10 @@ interface TrackCardProps {
 const DOT_COUNT = 8;
 const ARTWORK_SIZE = 76;          // Spec: clamp(56px, 12vw, 96px) — iPad-tuned to 76.
 const ARTWORK_RADIUS = ARTWORK_SIZE / 2;
-const GLOW_SIZE = 96;             // Slightly larger than artwork for the breathing glow halo.
-const GLOW_RADIUS = GLOW_SIZE / 2;
+// Skia canvas sized noticeably larger than the artwork so the breathing
+// glow's BlurMask halo (blur sigma 20) can spill beyond the artwork circle.
+const GLOW_CANVAS_SIZE = 140;
+const GLOW_CANVAS_OFFSET = (ARTWORK_SIZE - GLOW_CANVAS_SIZE) / 2; // negative
 const PLAY_BTN_SIZE = 34;
 const ICON_BTN_SIZE = 30;
 
@@ -170,10 +178,20 @@ export function TrackCard({
     plusIconPhase,
   ]);
 
-  const breathStyle = useAnimatedStyle(() => ({
-    shadowOpacity: interpolate(breath.value, [0, 1], [0.12, 0.55]),
-    shadowRadius: interpolate(breath.value, [0, 1], [6, 20]),
-  }));
+  // ── Skia breathing-glow params ──
+  // The CSS source animates a multi-layered box-shadow with a spread
+  // radius, which RN's single-shadow / elevation API cannot reproduce.
+  // We paint two BlurMasked circles via Skia: an outer wide halo and an
+  // inner bright core. Both radii and opacity ride the same shared value.
+  const glowInnerR = useDerivedValue(
+    () => 32 + breath.value * 6,
+  );
+  const glowOuterR = useDerivedValue(
+    () => 44 + breath.value * 10,
+  );
+  const glowOpacity = useDerivedValue(
+    () => 0.35 + breath.value * 0.65,
+  );
 
   const heartGlowStyle = useAnimatedStyle(() => ({
     shadowOpacity: interpolate(heartPulse.value, [0, 1], [0.18, 0.5]),
@@ -199,10 +217,35 @@ export function TrackCard({
     >
       {/* ── Artwork stack: breathing glow → gradient ring → inner shadow → image → lock ── */}
       <View style={styles.artworkStack}>
-        <Animated.View
-          pointerEvents="none"
-          style={[styles.breathingGlow, breathStyle]}
-        />
+        {/* Bottom layer: Skia breathing glow.
+            Two BlurMask-feathered circles bloom outward from the artwork
+            center. Replaces the previous Animated.View shadowColor approach
+            (no spread radius on iOS, no tinted shadow on Android). The
+            Canvas is sized larger than the artwork so the blur halo can
+            spill beyond the circle's edge. */}
+        <Canvas
+          pointerEvents="box-none"
+          style={styles.breathingGlowCanvas}
+        >
+          <Circle
+            cx={GLOW_CANVAS_SIZE / 2}
+            cy={GLOW_CANVAS_SIZE / 2}
+            r={glowOuterR}
+            color="rgba(160,120,240,0.5)"
+            opacity={glowOpacity}
+          >
+            <BlurMask blur={20} style="normal" />
+          </Circle>
+          <Circle
+            cx={GLOW_CANVAS_SIZE / 2}
+            cy={GLOW_CANVAS_SIZE / 2}
+            r={glowInnerR}
+            color="rgba(180,140,255,0.6)"
+            opacity={glowOpacity}
+          >
+            <BlurMask blur={10} style="normal" />
+          </Circle>
+        </Canvas>
         <LinearGradient
           // Spec: linear-gradient(135deg, #ffffff → #ece6f8) — neumorphic ring.
           colors={['#ffffff', '#ece6f8']}
@@ -368,20 +411,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  breathingGlow: {
+  breathingGlowCanvas: {
     position: 'absolute',
-    width: GLOW_SIZE,
-    height: GLOW_SIZE,
-    borderRadius: GLOW_RADIUS,
-    // Skia/RN can't render the CSS `box-shadow` blur on a transparent View,
-    // so we paint a faint lavender disc and animate the shadow on iOS.
-    backgroundColor: 'rgba(180,140,255,0.06)',
-    shadowColor: 'rgba(180,140,255,1)',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.12,
-    shadowRadius: 6,
-    // Android cannot tint elevation — keep it 0 so we don't get a gray box.
-    elevation: 0,
+    width: GLOW_CANVAS_SIZE,
+    height: GLOW_CANVAS_SIZE,
+    // Center the oversized canvas on the artwork frame.
+    left: GLOW_CANVAS_OFFSET,
+    top: GLOW_CANVAS_OFFSET,
   },
   artworkRing: {
     width: ARTWORK_SIZE,

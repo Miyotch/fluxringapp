@@ -24,8 +24,10 @@
  */
 import { useMemo } from 'react';
 import {
+  Blur,
   Canvas,
   Group,
+  Paint,
   Picture,
   Skia,
   createPicture,
@@ -95,41 +97,35 @@ export function Design11NoiseOdyssey({
     [cx, cy, maxR, orbR, innerMaxR, outerMinR, outerMaxR],
   );
 
-  const picture = useDerivedValue(() => {
+  // ── Background glow picture (bottom layer, no blur) ──
+  const bgPicture = useDerivedValue(() => {
+    return createPicture((canvas) => {
+      drawBackgroundGlow(canvas, size);
+    });
+  }, [size]);
+
+  // ── Inner ring picture (clockwise warped noise). Rendered into an
+  // offscreen layer with a Gaussian Blur applied via the parent Group's
+  // `layer` Paint, so the many low-alpha strokes bloom into the soft purple
+  // "moya moya" cloud the web Canvas2D gets for free via global composite. ──
+  const innerRingsPicture = useDerivedValue(() => {
     const amp = amplitude.value;
     const rot = rotation.value;
-    // Free-running clock drives noise + rotation so the dial animates even
-    // when the user is idle. The user's pan rotates the whole assembly via
-    // `rot` below.
     const time = clock.value;
     const level = amplitudeToLevel(amp);
-
-    // Global breathing pulse — applied to every ring's radius.
     const breath = 1 + Math.sin(time * 0.8) * 0.015 * level;
-
-    // Ring counts — formulas ported from the original web file (lines 106-107).
-    // levelMath returns 1..5; with these multipliers we hit 5→17 / 6→22 at peak.
     const innerCount = Math.floor(5 + (level - 1) * 3);
-    const outerCount = Math.floor(6 + (level - 1) * 4);
 
     return createPicture((canvas) => {
-      // ── Background vertical purple glow (bottom-most layer) ──
-      drawBackgroundGlow(canvas, size);
-
-      // Apply user pan rotation to the whole ring assembly. Free-running
-      // animation lives inside the per-ring rotation below; this is purely the
-      // user-driven offset.
       canvas.save();
       canvas.translate(dims.cx, dims.cy);
       canvas.rotate((rot * 180) / Math.PI, 0, 0);
       canvas.translate(-dims.cx, -dims.cy);
 
-      // ── Inner ring group (clockwise, warped noise) ──
       for (let i = 0; i < innerCount; i++) {
         const t = innerCount > 1 ? i / (innerCount - 1) : 0;
         const baseR = (orbR + 18 + t * (dims.innerMaxR - orbR - 18)) * breath;
 
-        // Inner spin: clockwise. Speed grows quadratically with level.
         const rotSpeed = 0.1 + level * level * 0.04;
         const ringRot = time * rotSpeed + i * 0.15;
 
@@ -139,8 +135,28 @@ export function Design11NoiseOdyssey({
         drawWarpedRing(canvas, baseR, time, i, amp, level, t, true);
         canvas.restore();
       }
+      canvas.restore();
+    });
+  }, [size]);
 
-      // ── Outer ring group (counter-clockwise, ridged + warped noise mix) ──
+  // ── Outer ring picture (counter-clockwise, ridged + warped) ──
+  // Same blur strategy as the inner picture but applied with a wider blur
+  // sigma so the outer rings read as a more diffuse outer halo.
+  const outerRingsPicture = useDerivedValue(() => {
+    const amp = amplitude.value;
+    const rot = rotation.value;
+    const time = clock.value;
+    const level = amplitudeToLevel(amp);
+    const breath = 1 + Math.sin(time * 0.8) * 0.015 * level;
+    const innerCount = Math.floor(5 + (level - 1) * 3);
+    const outerCount = Math.floor(6 + (level - 1) * 4);
+
+    return createPicture((canvas) => {
+      canvas.save();
+      canvas.translate(dims.cx, dims.cy);
+      canvas.rotate((rot * 180) / Math.PI, 0, 0);
+      canvas.translate(-dims.cx, -dims.cy);
+
       for (let i = 0; i < outerCount; i++) {
         const t = outerCount > 1 ? i / (outerCount - 1) : 0;
         const baseR = (dims.outerMinR + t * (dims.outerMaxR - dims.outerMinR)) * breath;
@@ -154,10 +170,18 @@ export function Design11NoiseOdyssey({
         drawWarpedRing(canvas, baseR, time, i + innerCount, amp, level, t, false);
         canvas.restore();
       }
-
       canvas.restore();
+    });
+  }, [size]);
 
-      // ── Floating luminous particles (above rings) ──
+  // ── Particles + howahowa overlay (top layer, no blur — keep sparkles
+  // crisp). ──
+  const overlayPicture = useDerivedValue(() => {
+    const amp = amplitude.value;
+    const time = clock.value;
+    const level = amplitudeToLevel(amp);
+
+    return createPicture((canvas) => {
       drawParticles(
         canvas,
         dims.cx,
@@ -167,16 +191,46 @@ export function Design11NoiseOdyssey({
         time,
         level,
       );
-
-      // ── Soft pearl-lavender radial overlay ──
       drawHowahowa(canvas, dims.cx, dims.cy, size, time, Math.min(amp, 1.8));
     });
   }, [size]);
 
   return (
     <Canvas style={{ width: size, height: size }}>
+      {/* Background glow — no blur. */}
       <Group>
-        <Picture picture={picture} />
+        <Picture picture={bgPicture} />
+      </Group>
+
+      {/* Inner ring group: forced offscreen via `layer` Paint with a
+          Gaussian Blur ImageFilter. Without `layer`, the blur cannot apply
+          to a composited group of strokes — Skia would only blur each path
+          individually. blur=6 keeps the inner band readable while smearing
+          the many low-alpha strokes into the purple moya cloud. */}
+      <Group
+        layer={
+          <Paint>
+            <Blur blur={6} mode="decal" />
+          </Paint>
+        }
+      >
+        <Picture picture={innerRingsPicture} />
+      </Group>
+
+      {/* Outer ring group — wider blur so it reads as a softer outer halo. */}
+      <Group
+        layer={
+          <Paint>
+            <Blur blur={10} mode="decal" />
+          </Paint>
+        }
+      >
+        <Picture picture={outerRingsPicture} />
+      </Group>
+
+      {/* Particles + radial overlay — crisp on top of the blurred cloud. */}
+      <Group>
+        <Picture picture={overlayPicture} />
       </Group>
     </Canvas>
   );
@@ -272,9 +326,12 @@ function drawWarpedRing(
   const levelVis = 0.18 + (level - 1) * (level >= 4 ? 0.09 : 0.14);
   const baseHue = isInner ? 270 : 262;
   const baseAlpha = (1 - t * 0.35) * levelVis;
-  // Spec alpha range for the main ring strokes.
-  const ALPHA_MIN = 0.03;
-  const ALPHA_MAX = 0.13;
+  // Spec alpha range for the main ring strokes — bumped 1.5x from the
+  // DESIGN.md raw 0.03..0.13 because the parent Group blur (sigma 6/10)
+  // averages the strokes down. Without the bump the cloud reads as
+  // near-transparent in the iPad screenshot.
+  const ALPHA_MIN = 0.045;
+  const ALPHA_MAX = 0.2;
   const widthScale = 0.5 + (level - 1) * 0.13;
   const baseWidth = 1 - t * 0.4;
 
@@ -343,10 +400,11 @@ function drawWarpedRing(
     highlightPath.lineTo(xs[s], ys[s] - 1);
   }
   highlightPath.close();
-  // Highlight alpha: spec window 0.06..0.08, interpolated with the same
-  // baseAlpha-derived fade as the main strokes.
+  // Highlight alpha: spec window 0.06..0.08, bumped 1.5x to compensate for
+  // the parent Group blur, interpolated with the same baseAlpha-derived fade
+  // as the main strokes.
   const hlAlphaFade = Math.min(1, baseAlpha / 0.54);
-  const hlAlpha = Math.max(0.06, Math.min(0.08, 0.06 + hlAlphaFade * 0.02));
+  const hlAlpha = Math.max(0.09, Math.min(0.12, 0.09 + hlAlphaFade * 0.03));
   // Highlight hue: clamp to [260,270] using a small downward drift so the
   // highlight tracks the ring without escaping the spec window.
   const hlHue = Math.max(260, Math.min(270, baseHue - t * 4));
@@ -376,9 +434,10 @@ function drawWarpedRing(
     shadowPath.lineTo(xs[s], ys[s] + 1);
   }
   shadowPath.close();
-  // Shadow alpha: spec window 0.04..0.06.
+  // Shadow alpha: spec window 0.04..0.06, bumped 1.5x to survive the
+  // parent Group blur.
   const shAlphaFade = Math.min(1, baseAlpha / 0.54);
-  const shAlpha = Math.max(0.04, Math.min(0.06, 0.04 + shAlphaFade * 0.02));
+  const shAlpha = Math.max(0.06, Math.min(0.09, 0.06 + shAlphaFade * 0.03));
   // Shadow hue: clamp to [260,270] with a small downward bias from baseHue.
   const shHue = Math.max(260, Math.min(270, baseHue - 5 - t * 2));
   const shPaint = Skia.Paint();
