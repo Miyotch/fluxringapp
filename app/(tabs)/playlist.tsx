@@ -4,6 +4,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -49,6 +50,8 @@ export default function PlaylistScreen() {
   const [editModal, setEditModal] = useState<EditModalState>(null);
   const [detailPlaylistId, setDetailPlaylistId] = useState<string | null>(null);
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const contentWidth = Math.min(width * 0.7, 960);
 
   // Resolve detail playlist live so it stays fresh as the user edits / removes.
   const detailPlaylist = useMemo(
@@ -127,7 +130,9 @@ export default function PlaylistScreen() {
   return (
     <GradientBackground>
       <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
+        <View style={styles.centerWrap}>
         <ScrollView
+          style={{ width: contentWidth }}
           contentContainerStyle={{
             padding: spacing.lg,
             gap: spacing.md,
@@ -280,6 +285,7 @@ export default function PlaylistScreen() {
             </View>
           </Section>
         </ScrollView>
+        </View>
       </SafeAreaView>
 
       {/* Modals */}
@@ -327,6 +333,11 @@ function Section({ title, children }: SectionProps) {
 
 const styles = StyleSheet.create({
   safe: { flex: 1 },
+  centerWrap: {
+    flex: 1,
+    alignItems: 'center',
+    width: '100%',
+  },
   heading: {
     fontSize: 22,
     fontWeight: '700',

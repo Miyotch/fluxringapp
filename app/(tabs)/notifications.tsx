@@ -4,6 +4,7 @@ import {
   Pressable,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -68,6 +69,8 @@ const ICON_BY_KIND: Record<NotificationKind, keyof typeof Ionicons.glyphMap> = {
 export default function NotificationsScreen() {
   const [items, setItems] = useState<Notification[]>(SAMPLE_NOTIFICATIONS);
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const contentWidth = Math.min(width * 0.7, 960);
 
   const toggleRead = (id: string) => {
     setItems((prev) =>
@@ -127,37 +130,41 @@ export default function NotificationsScreen() {
   return (
     <GradientBackground>
       <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
-        <View style={styles.headerRow}>
-          <View style={styles.headerText}>
-            <Text style={styles.title}>お知らせ</Text>
-            <Text style={styles.subtitle}>最新のアップデートとお知らせ</Text>
-          </View>
-          <Pressable
-            onPress={markAllRead}
-            style={({ pressed }) => [
-              styles.markAllBtn,
-              pressed && styles.cardPressed,
-            ]}
-          >
-            <Ionicons
-              name="checkmark-circle"
-              size={14}
-              color={colors.primary}
-            />
-            <Text style={styles.markAllText}>すべて既読にする</Text>
-          </Pressable>
-        </View>
+        <View style={styles.centerWrap}>
+          <View style={[styles.contentColumn, { width: contentWidth }]}>
+            <View style={styles.headerRow}>
+              <View style={styles.headerText}>
+                <Text style={styles.title}>お知らせ</Text>
+                <Text style={styles.subtitle}>最新のアップデートとお知らせ</Text>
+              </View>
+              <Pressable
+                onPress={markAllRead}
+                style={({ pressed }) => [
+                  styles.markAllBtn,
+                  pressed && styles.cardPressed,
+                ]}
+              >
+                <Ionicons
+                  name="checkmark-circle"
+                  size={14}
+                  color={colors.primary}
+                />
+                <Text style={styles.markAllText}>すべて既読にする</Text>
+              </Pressable>
+            </View>
 
-        <FlatList
-          data={items}
-          keyExtractor={(n) => n.id}
-          contentContainerStyle={[
-            styles.content,
-            { paddingBottom: contentPadBottom },
-          ]}
-          renderItem={renderItem}
-          ItemSeparatorComponent={() => <View style={styles.separator} />}
-        />
+            <FlatList
+              data={items}
+              keyExtractor={(n) => n.id}
+              contentContainerStyle={[
+                styles.content,
+                { paddingBottom: contentPadBottom },
+              ]}
+              renderItem={renderItem}
+              ItemSeparatorComponent={() => <View style={styles.separator} />}
+            />
+          </View>
+        </View>
       </SafeAreaView>
     </GradientBackground>
   );
@@ -165,6 +172,14 @@ export default function NotificationsScreen() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1 },
+  centerWrap: {
+    flex: 1,
+    alignItems: 'center',
+    width: '100%',
+  },
+  contentColumn: {
+    flex: 1,
+  },
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',

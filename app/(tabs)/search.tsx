@@ -6,6 +6,7 @@ import {
   Switch,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -44,6 +45,8 @@ const BRAINWAVE_OPTIONS: readonly string[] = [
 export default function SearchScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const contentWidth = Math.min(width * 0.7, 960);
   const { filters, setFilters } = useSearchFilters();
   const [advancedOpen, setAdvancedOpen] = useState<boolean>(false);
 
@@ -81,6 +84,8 @@ export default function SearchScreen() {
   return (
     <GradientBackground>
       <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
+        <View style={styles.centerWrap}>
+          <View style={[styles.contentColumn, { width: contentWidth }]}>
         <View style={styles.headerRow}>
           <Text style={styles.headerTitle}>サーチ</Text>
           <Pressable
@@ -391,6 +396,8 @@ export default function SearchScreen() {
             <ConfirmButton onPress={handleClose} />
           </View>
         </ScrollView>
+          </View>
+        </View>
       </SafeAreaView>
     </GradientBackground>
   );
@@ -574,6 +581,14 @@ function SingleSliderRow({
 
 const styles = StyleSheet.create({
   safe: { flex: 1 },
+  centerWrap: {
+    flex: 1,
+    alignItems: 'center',
+    width: '100%',
+  },
+  contentColumn: {
+    flex: 1,
+  },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
