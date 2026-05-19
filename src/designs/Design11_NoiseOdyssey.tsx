@@ -24,12 +24,10 @@
  */
 import { useMemo } from 'react';
 import {
-  Blur,
   Canvas,
-  Group,
-  Paint,
   Picture,
   Skia,
+  TileMode,
   createPicture,
 } from '@shopify/react-native-skia';
 import type { DerivedValue, SharedValue } from 'react-native-reanimated';
@@ -104,10 +102,16 @@ export function Design11NoiseOdyssey({
     });
   }, [size]);
 
-  // ── Inner ring picture (clockwise warped noise). Rendered into an
-  // offscreen layer with a Gaussian Blur applied via the parent Group's
-  // `layer` Paint, so the many low-alpha strokes bloom into the soft purple
-  // "moya moya" cloud the web Canvas2D gets for free via global composite. ──
+  // ── Inner ring picture (clockwise warped noise). The many low-alpha
+  // strokes need a Gaussian blur applied to the *composited* group of
+  // strokes to bloom into the soft purple "moya moya" cloud the web
+  // Canvas2D gets for free via global composite. In Skia 2.2.12 the React
+  // JSX pattern `<Group layer={<Paint><Blur/></Paint>}><Picture/></Group>`
+  // does not composite Picture children — the offscreen layer swallows
+  // them. Instead we apply the blur INSIDE the createPicture worklet via
+  // `canvas.saveLayer(paint)` + `canvas.restore()`, where `paint` carries
+  // a MakeBlur ImageFilter. This is the C++ canvas API's supported pattern
+  // for blurring a group of imperative draws. ──
   const innerRingsPicture = useDerivedValue(() => {
     const amp = amplitude.value;
     const rot = rotation.value;
@@ -117,6 +121,11 @@ export function Design11NoiseOdyssey({
     const innerCount = Math.floor(5 + (level - 1) * 3);
 
     return createPicture((canvas) => {
+      const blurFilter = Skia.ImageFilter.MakeBlur(6, 6, TileMode.Decal, null);
+      const layerPaint = Skia.Paint();
+      layerPaint.setImageFilter(blurFilter);
+      canvas.saveLayer(layerPaint);
+
       canvas.save();
       canvas.translate(dims.cx, dims.cy);
       canvas.rotate((rot * 180) / Math.PI, 0, 0);
@@ -136,12 +145,15 @@ export function Design11NoiseOdyssey({
         canvas.restore();
       }
       canvas.restore();
+
+      canvas.restore(); // matches saveLayer
     });
   }, [size]);
 
   // ── Outer ring picture (counter-clockwise, ridged + warped) ──
-  // Same blur strategy as the inner picture but applied with a wider blur
-  // sigma so the outer rings read as a more diffuse outer halo.
+  // Same saveLayer/restore blur strategy as the inner picture but with a
+  // wider blur sigma (10) so the outer rings read as a more diffuse outer
+  // halo.
   const outerRingsPicture = useDerivedValue(() => {
     const amp = amplitude.value;
     const rot = rotation.value;
@@ -152,6 +164,11 @@ export function Design11NoiseOdyssey({
     const outerCount = Math.floor(6 + (level - 1) * 4);
 
     return createPicture((canvas) => {
+      const blurFilter = Skia.ImageFilter.MakeBlur(10, 10, TileMode.Decal, null);
+      const layerPaint = Skia.Paint();
+      layerPaint.setImageFilter(blurFilter);
+      canvas.saveLayer(layerPaint);
+
       canvas.save();
       canvas.translate(dims.cx, dims.cy);
       canvas.rotate((rot * 180) / Math.PI, 0, 0);
@@ -171,6 +188,8 @@ export function Design11NoiseOdyssey({
         canvas.restore();
       }
       canvas.restore();
+
+      canvas.restore(); // matches saveLayer
     });
   }, [size]);
 
@@ -198,40 +217,14 @@ export function Design11NoiseOdyssey({
   return (
     <Canvas style={{ width: size, height: size }}>
       {/* Background glow — no blur. */}
-      <Group>
-        <Picture picture={bgPicture} />
-      </Group>
-
-      {/* Inner ring group: forced offscreen via `layer` Paint with a
-          Gaussian Blur ImageFilter. Without `layer`, the blur cannot apply
-          to a composited group of strokes — Skia would only blur each path
-          individually. blur=6 keeps the inner band readable while smearing
-          the many low-alpha strokes into the purple moya cloud. */}
-      <Group
-        layer={
-          <Paint>
-            <Blur blur={6} mode="decal" />
-          </Paint>
-        }
-      >
-        <Picture picture={innerRingsPicture} />
-      </Group>
-
-      {/* Outer ring group — wider blur so it reads as a softer outer halo. */}
-      <Group
-        layer={
-          <Paint>
-            <Blur blur={10} mode="decal" />
-          </Paint>
-        }
-      >
-        <Picture picture={outerRingsPicture} />
-      </Group>
-
+      <Picture picture={bgPicture} />
+      {/* Inner rings — blur applied via saveLayer/restore INSIDE the
+          createPicture worklet (see innerRingsPicture). */}
+      <Picture picture={innerRingsPicture} />
+      {/* Outer rings — same saveLayer blur pattern with sigma=10. */}
+      <Picture picture={outerRingsPicture} />
       {/* Particles + radial overlay — crisp on top of the blurred cloud. */}
-      <Group>
-        <Picture picture={overlayPicture} />
-      </Group>
+      <Picture picture={overlayPicture} />
     </Canvas>
   );
 }

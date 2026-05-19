@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import {
   BlurMask,
@@ -133,22 +133,38 @@ export function FluxRingDial({
     [subFontSize],
   );
 
-  const levelText = useDerivedValue(() => {
-    // Level is purely a function of rotation: each full turn (2π) advances
-    // by 1, clamped to 1..5. At exactly 2π we tick from "01" -> "02".
-    const level = Math.min(
-      5,
-      Math.max(1, Math.floor(rotation.value / (2 * Math.PI)) + 1),
-    );
-    return level < 10 ? `0${level}` : `${level}`;
-  });
+  // Level text is rendered as a plain JS string passed to SkiaText.
+  //
+  // PRE-FIX BUG: We previously used `useDerivedValue<string>` so the value
+  // updated on the UI thread. In Skia 2.2.12 the `<Text text={derivedValue}>`
+  // path silently fails to render reactively when the text is a worklet
+  // derived value — the level number and "Flux Ring" sub-label both
+  // disappeared. The fix is to drive the JS-side string with
+  // `useAnimatedReaction` + `runOnJS`, then hand a plain `string` to
+  // SkiaText. This is the supported pattern for animated text in Skia.
+  const [levelText, setLevelText] = useState('01');
+  useAnimatedReaction(
+    () => {
+      const level = Math.min(
+        5,
+        Math.max(1, Math.floor(rotation.value / (2 * Math.PI)) + 1),
+      );
+      return level < 10 ? `0${level}` : `${level}`;
+    },
+    (next, prev) => {
+      if (next !== prev) {
+        runOnJS(setLevelText)(next);
+      }
+    },
+  );
 
   const subText = 'Flux Ring';
 
   // Approximate text-centering using empirical advance ratios for the system
   // font. matchFont gives metrics on native but reading them from a derived
   // value is awkward; these factors land within a pixel of true center.
-  const levelX = useDerivedValue(() => cx - levelText.value.length * levelFontSize * 0.3);
+  // Since `levelText` is always 2 chars ("01".."05") we use a fixed offset.
+  const levelX = cx - levelFontSize * 0.55;
   const subX = cx - subText.length * subFontSize * 0.27;
 
   // Pearl gradient center — slight offset so the highlight reads as a soft
@@ -218,11 +234,11 @@ export function FluxRingDial({
             />
           </Group>
 
-          {/* Pearl base — slightly translucent (0.6 alpha on top of a white
-              fill) so the aurora layer underneath bleeds through. This base
-              is opaque-white instead of straight transparent so the dark
-              ring strokes behind the dial don't show up inside the knob. */}
-          <Circle cx={cx} cy={cy} r={orbR} color="rgba(255,255,255,0.55)" />
+          {/* Pearl base — solid opaque white so dark ring strokes behind the
+              dial can't bleed into the knob. The aurora layer drawn on top
+              shows through the gradient overlay further below (whose center
+              is transparent). */}
+          <Circle cx={cx} cy={cy} r={orbR} color="#ffffff" />
 
           {/* ── Aurora blobs inside the pearl (CenterAuroraCanvas port) ──
               4 BlurMask-feathered circles clipped to the pearl's outline.
@@ -230,52 +246,55 @@ export function FluxRingDial({
               giving the knob a live, slightly violet inner glow instead of
               the previous static radial gradient. */}
           <Group clip={auroraClipPath}>
-            <Circle
-              cx={auroraBlob0X}
-              cy={auroraBlob0Y}
-              r={orbR * 0.5}
-              color="rgba(180,140,235,0.35)"
-            >
-              <BlurMask blur={24} style="normal" />
-            </Circle>
-            <Circle
-              cx={auroraBlob1X}
-              cy={auroraBlob1Y}
-              r={orbR * 0.5}
-              color="rgba(150,200,235,0.30)"
-            >
-              <BlurMask blur={24} style="normal" />
-            </Circle>
-            <Circle
-              cx={auroraBlob2X}
-              cy={auroraBlob2Y}
-              r={orbR * 0.5}
-              color="rgba(180,140,235,0.35)"
-            >
-              <BlurMask blur={24} style="normal" />
-            </Circle>
-            <Circle
-              cx={auroraBlob3X}
-              cy={auroraBlob3Y}
-              r={orbR * 0.5}
-              color="rgba(150,200,235,0.30)"
-            >
-              <BlurMask blur={24} style="normal" />
-            </Circle>
+            {/* Wrap blobs in an inner Group so BlurMask doesn't leak into
+                the pearl gradient overlay's canvas state. */}
+            <Group>
+              <Circle
+                cx={auroraBlob0X}
+                cy={auroraBlob0Y}
+                r={orbR * 0.5}
+                color="rgba(180,140,235,0.6)"
+              >
+                <BlurMask blur={24} style="normal" />
+              </Circle>
+              <Circle
+                cx={auroraBlob1X}
+                cy={auroraBlob1Y}
+                r={orbR * 0.5}
+                color="rgba(150,200,235,0.5)"
+              >
+                <BlurMask blur={24} style="normal" />
+              </Circle>
+              <Circle
+                cx={auroraBlob2X}
+                cy={auroraBlob2Y}
+                r={orbR * 0.5}
+                color="rgba(180,140,235,0.6)"
+              >
+                <BlurMask blur={24} style="normal" />
+              </Circle>
+              <Circle
+                cx={auroraBlob3X}
+                cy={auroraBlob3Y}
+                r={orbR * 0.5}
+                color="rgba(150,200,235,0.5)"
+              >
+                <BlurMask blur={24} style="normal" />
+              </Circle>
+            </Group>
           </Group>
 
-          {/* Pearl gradient overlay: pure white center fading to a cool grey
-              rim. Sits ABOVE the aurora so the aurora reads as a faint
-              violet glow inside the knob rather than a solid color. The
-              center is set to white@0.4 (transparent gradient) so aurora
-              shows through; the rim stays nearly opaque to keep the bezel
-              edge sharp. */}
+          {/* Pearl gradient overlay: nearly-transparent center fading to an
+              opaque cool grey rim. Sits ABOVE the aurora so the aurora
+              reads as a faint violet glow inside the knob, while the rim
+              stays nearly opaque to keep the bezel edge sharp. Center
+              opacity 0.3 so the aurora blobs underneath bleed through. */}
           <Circle cx={cx} cy={cy} r={orbR}>
             <RadialGradient
               c={pearlCenter}
               r={orbR * 1.08}
               colors={[
-                'rgba(255,255,255,0.45)',
+                'rgba(255,255,255,0.3)',
                 'rgba(246,245,251,0.62)',
                 'rgba(230,228,238,0.92)',
                 '#dcdce8',
