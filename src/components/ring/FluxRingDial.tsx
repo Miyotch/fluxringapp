@@ -124,12 +124,15 @@ export function FluxRingDial({
   const levelFontSize = Math.round(orbR * 0.95); // big "02" — ~64px on a 350px orb
   const subFontSize = Math.round(orbR * 0.18);
 
+  // Font weight '300' (Light) is widely available on iOS / Android; the
+  // previous '200' (Ultralight) silently fell back to a missing typeface on
+  // Skia 2.2.12 and caused the level number + sub-label to disappear.
   const levelFont = useMemo(
-    () => matchFont({ fontFamily: 'System', fontSize: levelFontSize, fontWeight: '200' }),
+    () => matchFont({ fontFamily: 'System', fontSize: levelFontSize, fontWeight: '300' }),
     [levelFontSize],
   );
   const subFont = useMemo(
-    () => matchFont({ fontFamily: 'System', fontSize: subFontSize, fontWeight: '300' }),
+    () => matchFont({ fontFamily: 'System', fontSize: subFontSize, fontWeight: '400' }),
     [subFontSize],
   );
 
