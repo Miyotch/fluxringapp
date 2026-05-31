@@ -252,7 +252,7 @@ export function Design11NoiseOdyssey({
   });
 
   return (
-    <Canvas style={{ width: size, height: size }}>
+    <Canvas style={{ width: size, height: size, backgroundColor: 'transparent' }}>
       {/* Background vertical purple wash — bottom layer. */}
       <Path
         path={backgroundPath}
@@ -260,17 +260,31 @@ export function Design11NoiseOdyssey({
         blendMode="screen"
       />
 
-      {/* Inner ring group (clockwise warped noise). One stroked Path with a
-          BlurMask for the soft purple cloud. */}
+      {/* Inner ring group (clockwise warped noise).
+          Two stacked stroked Paths simulate the legacy web bloom:
+            • Wide, softer halo layer — gives the diffuse purple cloud.
+            • Tight, brighter core layer — keeps the ring shape readable.
+          Both reference the same animated SkPath so they stay in lockstep. */}
       <Group transform={ringTransform}>
+        {/* Wide halo */}
         <Path
           path={innerRingsPath}
           style="stroke"
-          strokeWidth={1.4}
-          color="rgba(195, 165, 240, 0.32)"
+          strokeWidth={2.0}
+          color="rgba(170, 130, 235, 0.55)"
           blendMode="screen"
         >
-          <BlurMask blur={3} style="normal" />
+          <BlurMask blur={4} style="normal" />
+        </Path>
+        {/* Tight bright core */}
+        <Path
+          path={innerRingsPath}
+          style="stroke"
+          strokeWidth={1.0}
+          color="rgba(180, 140, 240, 0.7)"
+          blendMode="screen"
+        >
+          <BlurMask blur={2} style="normal" />
         </Path>
       </Group>
 
@@ -280,18 +294,18 @@ export function Design11NoiseOdyssey({
         <Path
           path={outerRingsPath}
           style="stroke"
-          strokeWidth={1.1}
-          color="rgba(170, 195, 235, 0.22)"
+          strokeWidth={1.6}
+          color="rgba(155, 180, 235, 0.40)"
           blendMode="screen"
         >
-          <BlurMask blur={5} style="normal" />
+          <BlurMask blur={6} style="normal" />
         </Path>
       </Group>
 
       {/* Floating particles — crisp, no blur, screen-blended. */}
       <Path
         path={particlesPath}
-        color="rgba(220, 200, 245, 0.5)"
+        color="rgba(220, 200, 255, 0.7)"
         blendMode="screen"
       />
     </Canvas>
