@@ -7,6 +7,7 @@ import * as ScreenOrientation from 'expo-screen-orientation';
 import * as SplashScreen from 'expo-splash-screen';
 import { initFirebase } from '@/services/firebase';
 import { SearchFiltersProvider } from '@/hooks/useSearchFilters';
+import { AudioPlayerProvider } from '@/components/player/AudioPlayerContext';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -21,12 +22,14 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <SearchFiltersProvider>
-          <StatusBar style="dark" hidden />
-          <Stack screenOptions={{ headerShown: false, animation: 'fade' }}>
-            <Stack.Screen name="(tabs)" />
-            <Stack.Screen name="login" />
-            <Stack.Screen name="setup-username" />
-          </Stack>
+          <AudioPlayerProvider>
+            <StatusBar style="dark" hidden />
+            <Stack screenOptions={{ headerShown: false, animation: 'fade' }}>
+              <Stack.Screen name="(tabs)" />
+              <Stack.Screen name="login" />
+              <Stack.Screen name="setup-username" />
+            </Stack>
+          </AudioPlayerProvider>
         </SearchFiltersProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

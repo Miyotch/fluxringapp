@@ -18,7 +18,7 @@ import { PlaylistDetailModal } from '@/components/playlist/PlaylistDetailModal';
 import { useTracks } from '@/hooks/useTracks';
 import { usePlaylists, type Playlist } from '@/hooks/usePlaylists';
 import { useUserPlan } from '@/hooks/useUserPlan';
-import { useAudioPlayer } from '@/components/player/useAudioPlayer';
+import { useAudioPlayerContext } from '@/components/player/AudioPlayerContext';
 import type { Track } from '@/types/track';
 import { colors } from '@/theme/colors';
 import { spacing, borderRadius } from '@/theme/spacing';
@@ -45,7 +45,7 @@ export default function PlaylistScreen() {
     level,
     playTrack,
     togglePlayPause,
-  } = useAudioPlayer();
+  } = useAudioPlayerContext();
 
   const [editModal, setEditModal] = useState<EditModalState>(null);
   const [detailPlaylistId, setDetailPlaylistId] = useState<string | null>(null);
