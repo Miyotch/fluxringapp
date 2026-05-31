@@ -14,7 +14,7 @@ import { AmbientOrbs } from '@/components/ui/AmbientOrbs';
 import { TrackList } from '@/components/track/TrackList';
 import { FluxRingDial } from '@/components/ring/FluxRingDial';
 import { NowPlaying } from '@/components/player/NowPlaying';
-import { useAudioPlayer } from '@/components/player/useAudioPlayer';
+import { useAudioPlayerContext } from '@/components/player/AudioPlayerContext';
 import { useTracks, filterTracks } from '@/hooks/useTracks';
 import { useSearchFilters } from '@/hooks/useSearchFilters';
 import { useUserPlan } from '@/hooks/useUserPlan';
@@ -44,7 +44,7 @@ export default function HomeScreen() {
     isPlaying,
     level,
     playTrack,
-  } = useAudioPlayer();
+  } = useAudioPlayerContext();
   const { planId } = useUserPlan();
   const { filters, hasActiveFilters, resetFilters } = useSearchFilters();
 

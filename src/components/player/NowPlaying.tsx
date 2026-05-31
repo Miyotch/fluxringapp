@@ -19,7 +19,7 @@ import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 
-import { useAudioPlayer } from './useAudioPlayer';
+import { useAudioPlayerContext } from './AudioPlayerContext';
 import { useAuth } from '../../hooks/useAuth';
 import { toggleFavorite } from '../../services/firestore';
 import type { Track } from '../../types/track';
@@ -56,7 +56,7 @@ export function NowPlaying({
     togglePlayPause,
     seekTo,
     toggleRepeat,
-  } = useAudioPlayer();
+  } = useAudioPlayerContext();
   const { user } = useAuth();
 
   const [premiumOpen, setPremiumOpen] = useState(false);
