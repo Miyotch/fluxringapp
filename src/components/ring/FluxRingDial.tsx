@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import {
   BlurMask,
   Canvas,
@@ -7,8 +7,6 @@ import {
   Group,
   RadialGradient,
   Skia,
-  Text as SkiaText,
-  matchFont,
   vec,
 } from '@shopify/react-native-skia';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -120,31 +118,15 @@ export function FluxRingDial({
     return cy + Math.sin(a) * indicatorOrbit;
   });
 
-  // ── Level number text + font ──
+  // ── Level number text sizing ──
   const levelFontSize = Math.round(orbR * 0.95); // big "02" — ~64px on a 350px orb
   const subFontSize = Math.round(orbR * 0.18);
 
-  // Font weight '300' (Light) is widely available on iOS / Android; the
-  // previous '200' (Ultralight) silently fell back to a missing typeface on
-  // Skia 2.2.12 and caused the level number + sub-label to disappear.
-  const levelFont = useMemo(
-    () => matchFont({ fontFamily: 'System', fontSize: levelFontSize, fontWeight: '300' }),
-    [levelFontSize],
-  );
-  const subFont = useMemo(
-    () => matchFont({ fontFamily: 'System', fontSize: subFontSize, fontWeight: '400' }),
-    [subFontSize],
-  );
-
-  // Level text is rendered as a plain JS string passed to SkiaText.
-  //
-  // PRE-FIX BUG: We previously used `useDerivedValue<string>` so the value
-  // updated on the UI thread. In Skia 2.2.12 the `<Text text={derivedValue}>`
-  // path silently fails to render reactively when the text is a worklet
-  // derived value — the level number and "Flux Ring" sub-label both
-  // disappeared. The fix is to drive the JS-side string with
-  // `useAnimatedReaction` + `runOnJS`, then hand a plain `string` to
-  // SkiaText. This is the supported pattern for animated text in Skia.
+  // Level text is rendered with a plain React Native `<Text>` overlaid on the
+  // Skia canvas (see JSX below). This bypasses Skia's font / matchFont path
+  // entirely, which has been flaky in Skia 2.2.12 on iPad (the level number
+  // + sub-label silently failed to render via <SkiaText>). RN's native text
+  // rendering is rock-solid; flexbox centers it perfectly inside the pearl.
   const [levelText, setLevelText] = useState('01');
   useAnimatedReaction(
     () => {
@@ -162,13 +144,6 @@ export function FluxRingDial({
   );
 
   const subText = 'Flux Ring';
-
-  // Approximate text-centering using empirical advance ratios for the system
-  // font. matchFont gives metrics on native but reading them from a derived
-  // value is awkward; these factors land within a pixel of true center.
-  // Since `levelText` is always 2 chars ("01".."05") we use a fixed offset.
-  const levelX = cx - levelFontSize * 0.55;
-  const subX = cx - subText.length * subFontSize * 0.27;
 
   // Pearl gradient center — slight offset so the highlight reads as a soft
   // top-left light source (kept consistent with the original neumorphism).
@@ -216,7 +191,7 @@ export function FluxRingDial({
     <GestureDetector gesture={pan}>
       <View style={[styles.root, { width: size, height: size }]}>
         {/* Concentric noise rings + particles + howahowa overlay (Design11) */}
-        <View style={StyleSheet.absoluteFill} pointerEvents="none">
+        <View style={[StyleSheet.absoluteFill, styles.transparent]} pointerEvents="none">
           <Design11NoiseOdyssey
             amplitude={amp}
             rotation={rotation}
@@ -225,8 +200,14 @@ export function FluxRingDial({
           />
         </View>
 
-        {/* Pearl knob + level text overlay */}
-        <Canvas style={[StyleSheet.absoluteFill, { width: size, height: size }]}>
+        {/* Pearl knob graphics — Skia canvas (transparent background so the
+            page gradient + ring rings behind show through). */}
+        <Canvas
+          style={[
+            StyleSheet.absoluteFill,
+            { width: size, height: size, backgroundColor: 'transparent' },
+          ]}
+        >
           {/* Drop shadow under the sphere */}
           <Group opacity={0.22}>
             <Circle
@@ -316,24 +297,6 @@ export function FluxRingDial({
             strokeWidth={0.8}
           />
 
-          {/* ── Level number "0X" centered in the knob ── */}
-          <SkiaText
-            x={levelX}
-            y={cy + orbR * 0.12}
-            text={levelText}
-            font={levelFont}
-            color={colors.textPrimary}
-          />
-
-          {/* Sub-label "Flux Ring" below the number */}
-          <SkiaText
-            x={subX}
-            y={cy + orbR * 0.55}
-            text={subText}
-            font={subFont}
-            color={colors.textSecondary}
-          />
-
           {/* ── Indicator dot on the sphere rim ── */}
           <Circle
             cx={dotX}
@@ -342,6 +305,45 @@ export function FluxRingDial({
             color={colors.primary}
           />
         </Canvas>
+
+        {/* ── Level number + "Flux Ring" sub-label ──
+            Rendered as plain React Native <Text> overlaid on the Skia canvas
+            and centered with flexbox. We previously tried Skia <SkiaText> +
+            matchFont but the system font silently failed to resolve on
+            Skia 2.2.12, leaving the pearl empty. RN's native text renderer is
+            always available. pointerEvents="none" so the underlying gesture
+            detector still receives drags. */}
+        <View
+          pointerEvents="none"
+          style={[
+            StyleSheet.absoluteFill,
+            styles.textOverlay,
+          ]}
+        >
+          <Text
+            style={[
+              styles.levelText,
+              {
+                fontSize: levelFontSize,
+                lineHeight: levelFontSize,
+                color: colors.textPrimary,
+              },
+            ]}
+          >
+            {levelText}
+          </Text>
+          <Text
+            style={[
+              styles.subText,
+              {
+                fontSize: subFontSize,
+                color: colors.textSecondary,
+              },
+            ]}
+          >
+            {subText}
+          </Text>
+        </View>
       </View>
     </GestureDetector>
   );
@@ -351,5 +353,25 @@ const styles = StyleSheet.create({
   root: {
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: 'transparent',
+  },
+  transparent: {
+    backgroundColor: 'transparent',
+  },
+  textOverlay: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
+  },
+  levelText: {
+    fontWeight: '300',
+    textAlign: 'center',
+    includeFontPadding: false,
+  },
+  subText: {
+    fontWeight: '400',
+    textAlign: 'center',
+    marginTop: 4,
+    includeFontPadding: false,
   },
 });
