@@ -18,11 +18,17 @@
         ],
         "UIRequiresFullScreen": true,
         "ITSAppUsesNonExemptEncryption": false,
-        "UIBackgroundModes": ["audio"]
+        "UIBackgroundModes": [
+          "audio"
+        ]
       }
     },
     "android": {
-      "package": "com.fluxring.app"
+      "package": "com.fluxring.app",
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
+      ]
     },
     "web": {
       "bundler": "metro"
@@ -39,6 +45,13 @@
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "d94a1082-9da2-459a-88b4-cd593c16eed3"
+      }
+    },
+    "owner": "numero8"
   }
 }
