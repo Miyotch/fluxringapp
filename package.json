@@ -9,6 +9,7 @@
     "ipad": "expo start --ios -- --simulator='iPad Pro (12.9-inch) (6th generation)'",
     "android": "expo start --android",
     "web": "expo start --web",
+    "postinstall": "patch-package",
     "prebuild": "expo prebuild",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit"
@@ -56,6 +57,7 @@
     "babel-preset-expo": "~54.0.10",
     "eslint": "^9.18.0",
     "eslint-config-expo": "~10.0.0",
+    "patch-package": "^8.0.1",
     "typescript": "~5.9.2"
   }
 }
