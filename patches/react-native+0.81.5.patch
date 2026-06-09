@@ -1,0 +1,29 @@
+diff --git a/node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios/ReactCommon/RCTTurboModule.mm b/node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios/ReactCommon/RCTTurboModule.mm
+index 2a67797..fbb7d55 100644
+--- a/node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios/ReactCommon/RCTTurboModule.mm
++++ b/node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios/ReactCommon/RCTTurboModule.mm
+@@ -435,7 +435,23 @@ void ObjCTurboModule::performVoidMethodInvocation(
+     @try {
+       [inv invokeWithTarget:strongModule];
+     } @catch (NSException *exception) {
+-      throw convertNSExceptionToJSError(runtime, exception, std::string{moduleName}, methodNameStr);
++      if (shouldVoidMethodsExecuteSync_) {
++        // We can only convert NSException to JSError in sync method calls.
++        // See https://github.com/reactwg/react-native-new-architecture/discussions/276#discussioncomment-12567155
++        throw convertNSExceptionToJSError(runtime, exception, std::string{moduleName}, methodNameStr);
++      } else {
++        // Async void methods run on the module's method queue, not the JS
++        // thread; touching the JS runtime here races the Hermes GC and
++        // corrupts the heap (startup SIGSEGV). Rethrowing would abort the
++        // process instead. Log the exception and drop it.
++        // See https://github.com/facebook/react-native/issues/54859
++        NSLog(
++            @"Exception '%@' thrown while invoking %s on module %s: %@",
++            exception.name,
++            methodNameStr.c_str(),
++            moduleName,
++            exception.reason);
++      }
+     } @finally {
+       [retainedObjectsForInvocation removeAllObjects];
+     }
