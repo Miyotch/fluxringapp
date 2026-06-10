@@ -6,7 +6,7 @@ import {
   getReactNativePersistence,
   type Auth,
 } from 'firebase/auth';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { safeAuthStorage } from './safeAsyncStorage';
 
 const firebaseConfig = {
   apiKey: 'AIzaSyDmSs-dEkmUkeSNZxF6u6fU_ifDhSZKkVI',
@@ -38,7 +38,7 @@ export function getRNAuth(): Auth {
   const app = initFirebase();
   try {
     cachedAuth = initializeAuth(app, {
-      persistence: getReactNativePersistence(AsyncStorage),
+      persistence: getReactNativePersistence(safeAuthStorage),
     });
   } catch {
     cachedAuth = getAuth(app);
