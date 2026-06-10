@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "Flux Ring",
-    "slug": "fluxring",
+    "name": "Flux Ring Tsubasa",
+    "slug": "fluxring-tsubasa",
     "scheme": "fluxring",
     "version": "0.1.0",
     "orientation": "landscape",
@@ -11,7 +11,7 @@
     "ios": {
       "supportsTablet": true,
       "requireFullScreen": true,
-      "bundleIdentifier": "com.fluxring.app",
+      "bundleIdentifier": "com.fluxring.tsubasa",
       "infoPlist": {
         "UISupportedInterfaceOrientations~ipad": [
           "UIInterfaceOrientationLandscapeLeft",
@@ -25,7 +25,7 @@
       }
     },
     "android": {
-      "package": "com.fluxring.app",
+      "package": "com.fluxring.tsubasa",
       "permissions": [
         "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS"
@@ -58,9 +58,9 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "d94a1082-9da2-459a-88b4-cd593c16eed3"
+        "projectId": "184fdedf-1bc7-4872-97df-89bd4a3d918c"
       }
     },
-    "owner": "numero8"
+    "owner": "tsubasa.miyazaki"
   }
 }
