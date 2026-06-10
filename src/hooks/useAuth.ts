@@ -13,7 +13,15 @@ export function useAuth(): AuthState {
   const syncedUidRef = useRef<string | null>(null);
 
   useEffect(() => {
+    // Watchdog: if Firebase Auth never emits (e.g. the native persistence
+    // layer hangs at launch), fall through to the login screen instead of
+    // leaving the splash gate stuck forever.
+    const watchdog = setTimeout(() => {
+      setState((prev) => (prev.loading ? { user: null, loading: false } : prev));
+    }, 8000);
+
     const unsubscribe = onAuthStateChanged((user) => {
+      clearTimeout(watchdog);
       setState({ user, loading: false });
       if (user && user.uid !== syncedUidRef.current) {
         syncedUidRef.current = user.uid;
@@ -23,7 +31,10 @@ export function useAuth(): AuthState {
       }
       if (!user) syncedUidRef.current = null;
     });
-    return unsubscribe;
+    return () => {
+      clearTimeout(watchdog);
+      unsubscribe();
+    };
   }, []);
 
   return state;
