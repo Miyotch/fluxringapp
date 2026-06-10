@@ -37,6 +37,14 @@
       "expo-router",
       "expo-av",
       [
+        "expo-build-properties",
+        {
+          "ios": {
+            "buildReactNativeFromSource": true
+          }
+        }
+      ],
+      [
         "expo-screen-orientation",
         {
           "initialOrientation": "LANDSCAPE"
