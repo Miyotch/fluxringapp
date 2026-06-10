@@ -8,14 +8,25 @@ import * as SplashScreen from 'expo-splash-screen';
 import { initFirebase } from '@/services/firebase';
 import { SearchFiltersProvider } from '@/hooks/useSearchFilters';
 import { AudioPlayerProvider } from '@/components/player/AudioPlayerContext';
+import { DiagnosticsOverlay, diagLog } from '@/components/diagnostics/DiagnosticsOverlay';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
 export default function RootLayout() {
   useEffect(() => {
-    initFirebase();
-    ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE).catch(() => {});
-    SplashScreen.hideAsync().catch(() => {});
+    diagLog('root layout mounted');
+    try {
+      initFirebase();
+      diagLog('firebase initialized');
+    } catch (err) {
+      diagLog(`firebase init failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE)
+      .then(() => diagLog('orientation locked'))
+      .catch((err) => diagLog(`orientation lock failed: ${err instanceof Error ? err.message : String(err)}`));
+    SplashScreen.hideAsync()
+      .then(() => diagLog('splash hidden'))
+      .catch((err) => diagLog(`splash hide failed: ${err instanceof Error ? err.message : String(err)}`));
   }, []);
 
   return (
@@ -29,6 +40,7 @@ export default function RootLayout() {
               <Stack.Screen name="login" />
               <Stack.Screen name="setup-username" />
             </Stack>
+            <DiagnosticsOverlay />
           </AudioPlayerProvider>
         </SearchFiltersProvider>
       </SafeAreaProvider>
