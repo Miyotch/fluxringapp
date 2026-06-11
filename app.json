@@ -5,6 +5,7 @@
     "scheme": "fluxring",
     "version": "0.1.0",
     "orientation": "landscape",
+    "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "backgroundColor": "#9178BD",
     "newArchEnabled": true,

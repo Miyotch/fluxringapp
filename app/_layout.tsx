@@ -10,6 +10,7 @@ import { initFirebase } from '@/services/firebase';
 import { SearchFiltersProvider } from '@/hooks/useSearchFilters';
 import { AudioPlayerProvider } from '@/components/player/AudioPlayerContext';
 import { DiagnosticsOverlay, diagLog } from '@/components/diagnostics/DiagnosticsOverlay';
+import { ErrorBoundary } from '@/components/diagnostics/ErrorBoundary';
 
 export default function RootLayout() {
   useEffect(() => {
@@ -50,19 +51,25 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <SafeAreaProvider>
-        <SearchFiltersProvider>
-          <AudioPlayerProvider>
-            <StatusBar style="dark" hidden />
-            <Stack screenOptions={{ headerShown: false, animation: 'fade' }}>
-              <Stack.Screen name="(tabs)" />
-              <Stack.Screen name="login" />
-              <Stack.Screen name="setup-username" />
-            </Stack>
-            <DiagnosticsOverlay />
-          </AudioPlayerProvider>
-        </SearchFiltersProvider>
-      </SafeAreaProvider>
+      {/* ErrorBoundary wraps the whole provider tree so a first-render crash in
+          any provider is painted on-screen instead of leaving a blank window.
+          DiagnosticsOverlay is a sibling *outside* the boundary so it keeps
+          rendering even when the boundary trips. */}
+      <ErrorBoundary>
+        <SafeAreaProvider>
+          <SearchFiltersProvider>
+            <AudioPlayerProvider>
+              <StatusBar style="dark" hidden />
+              <Stack screenOptions={{ headerShown: false, animation: 'fade' }}>
+                <Stack.Screen name="(tabs)" />
+                <Stack.Screen name="login" />
+                <Stack.Screen name="setup-username" />
+              </Stack>
+            </AudioPlayerProvider>
+          </SearchFiltersProvider>
+        </SafeAreaProvider>
+      </ErrorBoundary>
+      <DiagnosticsOverlay />
     </GestureHandlerRootView>
   );
 }
