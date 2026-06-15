@@ -2,7 +2,6 @@ import { useEffect, useState, useRef } from 'react';
 import type { User } from 'firebase/auth';
 import { onAuthStateChanged } from '../services/auth';
 import { syncUserProfile } from '../services/firestore';
-import { diagLog } from '../components/diagnostics/DiagnosticsOverlay';
 
 export interface AuthState {
   user: User | null;
@@ -18,12 +17,10 @@ export function useAuth(): AuthState {
     // layer hangs at launch), fall through to the login screen instead of
     // leaving the splash gate stuck forever.
     const watchdog = setTimeout(() => {
-      diagLog('auth watchdog fired (no auth event in 8s)');
       setState((prev) => (prev.loading ? { user: null, loading: false } : prev));
     }, 8000);
 
     const unsubscribe = onAuthStateChanged((user) => {
-      diagLog(`auth event: ${user ? `uid=${user.uid.slice(0, 8)}…` : 'signed out'}`);
       clearTimeout(watchdog);
       setState({ user, loading: false });
       if (user && user.uid !== syncedUidRef.current) {
