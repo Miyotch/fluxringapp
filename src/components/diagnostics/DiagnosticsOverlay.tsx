@@ -15,7 +15,7 @@ import { StyleSheet, Text, View } from 'react-native';
  * Flip DIAGNOSTICS_ENABLED to false (or remove the component) once the
  * launch issue is resolved.
  */
-export const DIAGNOSTICS_ENABLED = true;
+export const DIAGNOSTICS_ENABLED = false;
 
 const MAX_LINES = 8;
 
