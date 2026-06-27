@@ -190,7 +190,6 @@ export const ArtworkCard: React.FC<ArtworkCardProps> = ({
           strokeWidth={1}
           color="rgba(96,206,224,0.5)"
         />
-      </Group>
 
         {/* ⑤ ヒーロー発光（最前面・hero.enabled のときのみ）。
             画像領域(imgX,imgY,imgW,imgH)に screen 合成で重ねる。グリッドでは hero を渡さない。 */}

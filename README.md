@@ -53,14 +53,16 @@ npx expo run:android  # Android
 
 ```
 fluxring-skia-starter/
+├─ index.js             エントリポイント（registerRootComponent）
 ├─ App.tsx              デモ（4部品をタブ切替）
-├─ app.json            Expo設定（newArchEnabled: true）
+├─ app.json            Expo設定（newArchEnabled: true / SDK 56）
 ├─ babel.config.js     reanimated/worklets プラグイン
 ├─ metro.config.js     既定のまま
 ├─ package.json        依存（expo install で揃え直し推奨）
 ├─ tsconfig.json
 └─ components/
    ├─ ArtworkCard.tsx       カード構造の土台（hero でヒーロー統合）
+   ├─ GlassFilter.tsx       クリア/グレイン/マット/ヴィネット
    ├─ HeroGlow.tsx          蛍の明滅
    ├─ StarBurst.tsx         星の一斉点火
    └─ PurchaseTransition.tsx 起点可変の拡大＋演出統括
