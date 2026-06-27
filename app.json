@@ -14,7 +14,10 @@
     "assetBundlePatterns": ["**/*"],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.sparklevision.fluxring.skiastarter"
+      "bundleIdentifier": "com.sparklevision.fluxring.skiastarter",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "com.sparklevision.fluxring.skiastarter",
