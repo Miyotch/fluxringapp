@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "FluxRing Skia Starter",
-    "slug": "fluxring-skia-starter",
+    "slug": "fluxring",
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
