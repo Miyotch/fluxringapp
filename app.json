@@ -1,0 +1,24 @@
+{
+  "expo": {
+    "name": "FluxRing Skia Starter",
+    "slug": "fluxring-skia-starter",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0E0C20",
+    "newArchEnabled": true,
+    "splash": {
+      "backgroundColor": "#0E0C20",
+      "resizeMode": "contain"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.sparklevision.fluxring.skiastarter"
+    },
+    "android": {
+      "package": "com.sparklevision.fluxring.skiastarter",
+      "edgeToEdgeEnabled": true
+    }
+  }
+}
