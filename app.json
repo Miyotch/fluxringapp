@@ -19,6 +19,11 @@
     "android": {
       "package": "com.sparklevision.fluxring.skiastarter",
       "edgeToEdgeEnabled": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "d94a1082-9da2-459a-88b4-cd593c16eed3"
+      }
     }
   }
 }
