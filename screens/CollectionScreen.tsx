@@ -68,14 +68,21 @@ export const CollectionScreen: React.FC<Props> = ({
       style={[styles.cell, { width: colW }]}
       onPress={() => onOpenTrack(item.id)}
     >
-      <ArtworkCard
-        width={colW}
-        imageUri={item.artworkUrl}
-        glow={item.glowColor}
-        glow2={item.glowColor2}
-        inset={5}
-        subdued
-      />
+      {/*
+       * ArtworkCard の Canvas はオーラ余白(PAD)分だけ実寸より大きい。
+       * 実寸サイズ(colW × colW*1.5)のコンテナで中央寄せし、Canvas の
+       * はみ出しを左右対称にすることで、画像とタイトルの中心を揃える。
+       */}
+      <View style={{ width: colW, height: colW * 1.5, alignItems: 'center', justifyContent: 'center' }}>
+        <ArtworkCard
+          width={colW}
+          imageUri={item.artworkUrl}
+          glow={item.glowColor}
+          glow2={item.glowColor2}
+          inset={5}
+          subdued
+        />
+      </View>
       <View style={styles.cellMeta}>
         <Text style={styles.cellTitle} numberOfLines={1}>{item.title}</Text>
         {seg === 'mine' ? (

@@ -1,5 +1,10 @@
 import { initializeApp, getApps, getApp } from 'firebase/app'
-import { initializeAuth, getReactNativePersistence } from 'firebase/auth'
+import { initializeAuth } from 'firebase/auth'
+// getReactNativePersistence は firebase/auth の React Native ビルドにのみ存在し、
+// 型定義（node/browser）には現れない既知の問題。Metro は RN ビルドを解決するため
+// 実機では動作する。tsc の型エラーのみ抑制する。
+// @ts-ignore
+import { getReactNativePersistence } from 'firebase/auth'
 import { getFirestore } from 'firebase/firestore'
 import { getStorage } from 'firebase/storage'
 import AsyncStorage from '@react-native-async-storage/async-storage'

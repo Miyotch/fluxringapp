@@ -3,6 +3,7 @@
     "name": "FluxRing Skia Starter",
     "slug": "fluxring",
     "version": "0.1.0",
+    "scheme": "fluxring",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "backgroundColor": "#0E0C20",
@@ -13,9 +14,11 @@
       "resizeMode": "contain"
     },
     "assetBundlePatterns": ["**/*"],
+    "plugins": ["expo-apple-authentication"],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.fluxring.app",
+      "usesAppleSignIn": true,
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -31,6 +34,11 @@
     "extra": {
       "eas": {
         "projectId": "d94a1082-9da2-459a-88b4-cd593c16eed3"
+      },
+      "googleAuth": {
+        "webClientId": "",
+        "iosClientId": "",
+        "androidClientId": ""
       }
     }
   }
