@@ -595,7 +595,7 @@ export const DiscoverScreen: React.FC = () => {
       {/* ──── 購入トランジションオーバーレイ ──── */}
       {showPurchase && purchaseTrack && (
         <View
-          style={StyleSheet.absoluteFillObject}
+          style={StyleSheet.absoluteFill}
           pointerEvents="box-none"
         >
           {/*

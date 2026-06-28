@@ -100,6 +100,29 @@
 
 ---
 
+## 画面構成（`screens/`）
+
+ワイヤーフレーム V4 / 各画面モックに基づくスケルトン実装。`App.tsx` が state ベースで結線。
+
+| ファイル | 画面 | 役割 |
+|----------|------|------|
+| `OnboardingScreen.tsx` | P0 | 情景3枚の横スワイプ → サインアップ/ログイン |
+| `AuthScreen.tsx` | — | サインアップ / ログイン（メール・Google・Apple） |
+| `DiscoverScreen.tsx` | P2 | ハブ。縦スワイプ曲切替・試聴・購入トランジション |
+| `StoryScreen.tsx` | P2.1 | サムネ→Story→調律素材→Artist（フロスト分離・固定位置） |
+| `PlayerScreen.tsx` | — | 再生画面。共有カード＋フロストのトランスポート |
+| `CollectionScreen.tsx` | P3 | 2列グリッド。マイコレ/ウィッシュ切替・空状態 |
+| `MediaScreen.tsx` | — | SNS常設＋記事一覧（入れた要素だけ表示） |
+| `NotificationsScreen.tsx` | — | ベルから。時系列降順・未読は赤点のみ |
+| `SettingsScreen.tsx` | P5 | 静かなリスト（確定8項目）・サインアウト・バージョン |
+| `ArtistScreen.tsx` | — | 三階層: 作家一覧→プロフィール→楽曲一覧 |
+| `VipScreen.tsx` | P4 | ロック / 解放（カード表↔裏フリップ）/ コード入力 |
+| `ComponentGallery.tsx` | — | 旧 App.tsx の部品デモ（実機目視確認用） |
+
+共有部品: `components/Footer.tsx`（5タブ）、スタブデータ: `constants/stubData.ts`、トークン: `constants/design-tokens.ts`。
+
+---
+
 ## デザイントンマナ
 
 - **背景色**: `#0E0C20`（深紺）
