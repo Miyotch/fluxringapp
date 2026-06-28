@@ -7,6 +7,7 @@
     "userInterfaceStyle": "dark",
     "backgroundColor": "#0E0C20",
     "newArchEnabled": true,
+    "icon": "./icon.png",
     "splash": {
       "backgroundColor": "#0E0C20",
       "resizeMode": "contain"
@@ -21,7 +22,11 @@
     },
     "android": {
       "package": "com.fluxring.app",
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "adaptiveIcon": {
+        "foregroundImage": "./icon.png",
+        "backgroundColor": "#0E0C20"
+      }
     },
     "extra": {
       "eas": {
