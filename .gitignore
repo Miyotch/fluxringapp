@@ -21,3 +21,13 @@ expo-env.d.ts
 # Misc
 .DS_Store
 *.log
+
+# Firebase / secrets
+*.json.key
+service-account.json
+*-service-account.json
+google-services.json
+GoogleService-Info.plist
+.env
+.env.local
+.env.*

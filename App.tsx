@@ -1,161 +1,210 @@
 /**
- * App.tsx — FLUX RING Skia 参照実装デモ
- * 4つの部品（ArtworkCard / Hero / StarBurst / PurchaseTransition）を
- * 上部タブで切り替えて、実機で目視確認するためのデモ画面。
+ * App.tsx — FLUX RING ナビゲーションシェル
+ * ------------------------------------------------------------------
+ * CLAUDE.md の画面遷移図に沿った軽量な state ベースナビゲーション。
+ * （react-navigation を入れずに最小構成で全画面を結線。実装が固まったら
+ *   react-navigation / expo-router に移行する。）
  *
- * 注意: これは確認用デモ。実運用では各部品を本アプリの画面に組み込む。
- *       DEMO_IMG は確認用のサンプル画像。実際は CloudFlare 配信の作品画像に差し替える。
+ * 遷移:
+ *   onboarding → auth → [タブ群: discover/collection/vip/media/settings]
+ *   discover → story / player / 購入トランジション
+ *   settings → artist（三階層）/ notifications
+ *
+ * フッターは player / story / onboarding / auth では非表示。
+ *
+ * 旧・部品デモは screens/ComponentGallery.tsx に退避（__DEV_GALLERY__ で切替可）。
  */
 
-import React, { useRef, useState } from 'react';
-import {
-  View,
-  Text,
-  Pressable,
-  useWindowDimensions,
-  StyleSheet,
-} from 'react-native';
-import { ArtworkCard } from './components/ArtworkCard';
-import { StarBurst, StarBurstHandle } from './components/StarBurst';
-import {
-  PurchaseTransition,
-  PurchaseTransitionHandle,
-} from './components/PurchaseTransition';
+import React, { useState, useCallback } from 'react';
+import { View, StyleSheet } from 'react-native';
 
-// 確認用サンプル画像（2:3）。実運用では作品画像URLに差し替える。
-const DEMO_IMG = 'https://picsum.photos/600/900';
+import { Footer, TabKey } from './components/Footer';
+import { OnboardingScreen } from './screens/OnboardingScreen';
+import { AuthScreen } from './screens/AuthScreen';
+import { DiscoverScreen } from './screens/DiscoverScreen';
+import { CollectionScreen } from './screens/CollectionScreen';
+import { MediaScreen } from './screens/MediaScreen';
+import { SettingsScreen } from './screens/SettingsScreen';
+import { NotificationsScreen } from './screens/NotificationsScreen';
+import { ArtistScreen } from './screens/ArtistScreen';
+import { StoryScreen } from './screens/StoryScreen';
+import { PlayerScreen, PlayerTrack } from './screens/PlayerScreen';
+import { VipScreen } from './screens/VipScreen';
+// import { ComponentGallery } from './screens/ComponentGallery'; // 部品デモを見るとき有効化
 
-type Tab = 'card' | 'hero' | 'stars' | 'purchase';
+import {
+  STUB_OWNED,
+  STUB_WISHLIST,
+  STUB_NOTICES,
+  STUB_ARTISTS,
+  STUB_ARTIST_TRACKS,
+  STUB_STORY,
+  STUB_VIP_CARDS,
+} from './constants/stubData';
+
+const COLOR_BG = '#171430';
+
+// アプリのフェーズ
+type Phase = 'onboarding' | 'auth' | 'app';
+// フッタータブから開く主要画面
+type TabScreen = TabKey;
+// タブの上に重ねるモーダル的画面
+type Overlay = 'story' | 'player' | 'notifications' | 'artist' | null;
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>('card');
-  const { width, height } = useWindowDimensions();
-  const starRef = useRef<StarBurstHandle>(null);
-  const txRef = useRef<PurchaseTransitionHandle>(null);
+  const [phase, setPhase] = useState<Phase>('onboarding');
+  const [authMode, setAuthMode] = useState<'signup' | 'login'>('signup');
+  const [tab, setTab] = useState<TabScreen>('home');
+  const [overlay, setOverlay] = useState<Overlay>(null);
+  const [vipUnlocked, setVipUnlocked] = useState(false);
 
-  const cardW = 200;
+  // 再生対象（player へ渡す）
+  const [playerTrack, setPlayerTrack] = useState<PlayerTrack | null>(null);
 
+  const goApp = useCallback(() => setPhase('app'), []);
+
+  // ── フェーズ: オンボーディング ──
+  if (phase === 'onboarding') {
+    return (
+      <OnboardingScreen
+        onSignUp={() => {
+          setAuthMode('signup');
+          setPhase('auth');
+        }}
+        onLogin={() => {
+          setAuthMode('login');
+          setPhase('auth');
+        }}
+      />
+    );
+  }
+
+  // ── フェーズ: 認証 ──
+  if (phase === 'auth') {
+    return (
+      <AuthScreen
+        mode={authMode}
+        onSwitchMode={setAuthMode}
+        onAuthenticated={goApp}
+      />
+    );
+  }
+
+  // ── オーバーレイ（フッター非表示） ──
+  if (overlay === 'player' && playerTrack) {
+    return (
+      <PlayerScreen
+        track={playerTrack}
+        onBackHome={() => {
+          setOverlay(null);
+          setTab('home');
+        }}
+        onOpenStory={() => setOverlay('story')}
+      />
+    );
+  }
+
+  if (overlay === 'story') {
+    return (
+      <StoryScreen
+        data={STUB_STORY}
+        onBack={() => setOverlay(null)}
+        onOpenArtist={() => setOverlay('artist')}
+      />
+    );
+  }
+
+  if (overlay === 'notifications') {
+    return (
+      <NotificationsScreen
+        notices={STUB_NOTICES}
+        onBack={() => setOverlay(null)}
+        onOpen={() => {
+          /* TODO: 通知本文へ */
+        }}
+      />
+    );
+  }
+
+  if (overlay === 'artist') {
+    return (
+      <ArtistScreen
+        artists={STUB_ARTISTS}
+        tracksByArtist={STUB_ARTIST_TRACKS}
+        onBackToSettings={() => {
+          setOverlay(null);
+          setTab('settings');
+        }}
+        onOpenStory={() => setOverlay('story')}
+      />
+    );
+  }
+
+  // ── タブ群（フッター表示） ──
   return (
     <View style={styles.root}>
-      {/* タブ */}
-      <View style={styles.tabs}>
-        {(['card', 'hero', 'stars', 'purchase'] as Tab[]).map((t) => (
-          <Pressable
-            key={t}
-            onPress={() => setTab(t)}
-            style={[styles.tab, tab === t && styles.tabOn]}
-          >
-            <Text style={[styles.tabText, tab === t && styles.tabTextOn]}>
-              {labelOf(t)}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
+      <View style={styles.body}>
+        {tab === 'home' && <DiscoverScreen />}
 
-      {/* デモ領域 */}
-      <View style={styles.stage}>
-        {tab === 'card' && (
-          <ArtworkCard width={cardW} imageUri={DEMO_IMG} />
+        {tab === 'collection' && (
+          <CollectionScreen
+            owned={STUB_OWNED}
+            wishlist={STUB_WISHLIST}
+            onOpenTrack={(id) => {
+              // 所有曲タップ → 再生画面（ワイヤーフレーム P3）
+              const item = STUB_OWNED.find((o) => o.id === id);
+              if (item) {
+                setPlayerTrack({
+                  id: item.id,
+                  title: item.title,
+                  artworkUrl: item.artworkUrl,
+                  durationSec: 220,
+                  glowColor: item.glowColor,
+                  glowColor2: item.glowColor2,
+                });
+                setOverlay('player');
+              } else {
+                setOverlay('story');
+              }
+            }}
+            onBuy={() => {
+              /* TODO: 購入トランジション → player */
+            }}
+            onDiscover={() => setTab('home')}
+          />
         )}
 
-        {tab === 'hero' && (
-          <ArtworkCard width={cardW} imageUri={DEMO_IMG} hero={{ enabled: true }} />
+        {tab === 'vip' && (
+          <VipScreen
+            locked={!vipUnlocked}
+            cards={STUB_VIP_CARDS}
+            onSubmitCode={() => setVipUnlocked(true)}
+          />
         )}
 
-        {tab === 'stars' && (
-          <>
-            <StarBurst
-              ref={starRef}
-              width={width}
-              height={height}
-              originX={width / 2}
-              originY={height * 0.42}
-              edgeRadius={cardW / 2}
-            />
-            <Pressable
-              style={styles.btn}
-              onPress={() => starRef.current?.trigger()}
-            >
-              <Text style={styles.btnText}>点火</Text>
-            </Pressable>
-          </>
-        )}
+        {tab === 'media' && <MediaScreen />}
 
-        {tab === 'purchase' && (
-          <>
-            <PurchaseTransition
-              ref={txRef}
-              deviceW={width}
-              deviceH={height}
-              from={{ x: width / 2 - 40, y: height * 0.62, w: 80 }}
-              to={{ x: (width - 224) / 2, y: height * 0.42 - 224 * 0.75, w: 224 }}
-              imageUri={DEMO_IMG}
-            >
-              <View style={styles.transport}>
-                <Text style={styles.transportText}>トランスポート（差し込み）</Text>
-              </View>
-            </PurchaseTransition>
-            <Pressable style={styles.btn} onPress={() => txRef.current?.start()}>
-              <Text style={styles.btnText}>購入する</Text>
-            </Pressable>
-          </>
+        {tab === 'settings' && (
+          <SettingsScreen
+            onSelect={(key) => {
+              if (key === 'artist') setOverlay('artist');
+              /* TODO: その他の設定項目の画面遷移 */
+            }}
+            onSignOut={() => {
+              setPhase('onboarding');
+              setTab('home');
+            }}
+          />
         )}
       </View>
+
+      {/* フッター（タブ群でのみ表示） */}
+      <Footer active={tab} onChange={setTab} vipLocked={!vipUnlocked} />
     </View>
   );
 }
 
-function labelOf(t: Tab) {
-  switch (t) {
-    case 'card':
-      return 'カード';
-    case 'hero':
-      return 'ヒーロー';
-    case 'stars':
-      return '星点火';
-    case 'purchase':
-      return '購入';
-  }
-}
-
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#0E0C20' },
-  tabs: {
-    flexDirection: 'row',
-    paddingTop: 56,
-    paddingHorizontal: 12,
-    gap: 8,
-  },
-  tab: {
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#3A3D72',
-  },
-  tabOn: { backgroundColor: 'rgba(96,206,224,0.12)', borderColor: '#60CEE0' },
-  tabText: { color: '#9498BE', fontSize: 13 },
-  tabTextOn: { color: '#ECEEF7' },
-  stage: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  btn: {
-    position: 'absolute',
-    bottom: 60,
-    alignSelf: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 28,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#60CEE0',
-    backgroundColor: 'rgba(96,206,224,0.10)',
-  },
-  btnText: { color: '#ECEEF7', fontSize: 14, letterSpacing: 1 },
-  transport: {
-    paddingVertical: 16,
-    borderRadius: 16,
-    alignItems: 'center',
-    backgroundColor: 'rgba(150,160,230,0.10)',
-    borderWidth: 1,
-    borderColor: 'rgba(96,206,224,0.16)',
-  },
-  transportText: { color: '#9498BE', fontSize: 12 },
+  root: { flex: 1, backgroundColor: COLOR_BG },
+  body: { flex: 1 },
 });
