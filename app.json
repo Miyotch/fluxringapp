@@ -14,11 +14,9 @@
       "resizeMode": "contain"
     },
     "assetBundlePatterns": ["**/*"],
-    "plugins": ["expo-apple-authentication"],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.fluxring.app",
-      "usesAppleSignIn": true,
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }

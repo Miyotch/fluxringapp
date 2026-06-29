@@ -34,3 +34,18 @@ export const GOOGLE_ANDROID_CLIENT_ID = extra.androidClientId ?? ''
 export const isGoogleConfigured = Boolean(
   GOOGLE_WEB_CLIENT_ID || GOOGLE_IOS_CLIENT_ID,
 )
+
+/**
+ * Apple サインインの有効化フラグ。
+ * ------------------------------------------------------------------
+ * Apple サインインは provisioning profile に「Sign In with Apple」機能の
+ * 登録が必要。未登録のままだと iOS ビルド（署名）が失敗するため、現在は無効。
+ *
+ * 【有効化手順】
+ *   1. ローカルで `eas build --platform ios`（または `eas credentials`）を一度実行し、
+ *      EAS に Sign In with Apple 機能を同期＋プロファイルを再生成させる
+ *   2. app.json の ios に `"usesAppleSignIn": true` と
+ *      `"plugins": ["expo-apple-authentication"]` を戻す
+ *   3. このフラグを true にする
+ */
+export const APPLE_SIGNIN_ENABLED = false
