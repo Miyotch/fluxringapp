@@ -36,6 +36,7 @@ import {
   GOOGLE_IOS_CLIENT_ID,
   GOOGLE_ANDROID_CLIENT_ID,
   isGoogleConfigured,
+  APPLE_SIGNIN_ENABLED,
 } from '../constants/authConfig';
 import {
   signUp,
@@ -62,9 +63,10 @@ export const AuthScreen: React.FC<Props> = ({ mode, onSwitchMode, onAuthenticate
 
   const isSignup = mode === 'signup';
 
-  // ── Apple サインインの可用性（iOS かつ対応端末のみ） ──
+  // ── Apple サインインの可用性（iOS・対応端末・プロファイル登録済みのみ） ──
+  // APPLE_SIGNIN_ENABLED が false の間はボタンを出さない（provisioning 未対応のため）。
   useEffect(() => {
-    if (Platform.OS === 'ios') {
+    if (Platform.OS === 'ios' && APPLE_SIGNIN_ENABLED) {
       AppleAuthentication.isAvailableAsync().then(setAppleAvailable).catch(() => {});
     }
   }, []);
