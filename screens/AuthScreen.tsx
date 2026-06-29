@@ -14,7 +14,7 @@
  *   - Apple:  app.json で ios.usesAppleSignIn=true ＋ expo-apple-authentication プラグイン
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -25,8 +25,6 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
-import * as AppleAuthentication from 'expo-apple-authentication';
-import * as Crypto from 'expo-crypto';
 import * as Google from 'expo-auth-session/providers/google';
 import * as WebBrowser from 'expo-web-browser';
 
@@ -36,14 +34,8 @@ import {
   GOOGLE_IOS_CLIENT_ID,
   GOOGLE_ANDROID_CLIENT_ID,
   isGoogleConfigured,
-  APPLE_SIGNIN_ENABLED,
 } from '../constants/authConfig';
-import {
-  signUp,
-  signIn,
-  signInWithGoogleToken,
-  signInWithAppleToken,
-} from '../lib/firebaseAuth';
+import { signUp, signIn, signInWithGoogleToken } from '../lib/firebaseAuth';
 
 // OAuth リダイレクト後にブラウザセッションを閉じる（expo-auth-session 必須）
 WebBrowser.maybeCompleteAuthSession();
@@ -59,17 +51,12 @@ export const AuthScreen: React.FC<Props> = ({ mode, onSwitchMode, onAuthenticate
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [appleAvailable, setAppleAvailable] = useState(false);
 
   const isSignup = mode === 'signup';
 
-  // ── Apple サインインの可用性（iOS・対応端末・プロファイル登録済みのみ） ──
-  // APPLE_SIGNIN_ENABLED が false の間はボタンを出さない（provisioning 未対応のため）。
-  useEffect(() => {
-    if (Platform.OS === 'ios' && APPLE_SIGNIN_ENABLED) {
-      AppleAuthentication.isAvailableAsync().then(setAppleAvailable).catch(() => {});
-    }
-  }, []);
+  // NOTE: Apple サインインは provisioning profile が「Sign In with Apple」機能
+  // 未対応のため一時的に無効化（expo-apple-authentication を依存から除外）。
+  // 再有効化手順は constants/authConfig.ts のコメント参照。
 
   // ── Google（expo-auth-session） ──
   const [, googleResponse, promptGoogle] = Google.useIdTokenAuthRequest({
@@ -108,40 +95,6 @@ export const AuthScreen: React.FC<Props> = ({ mode, onSwitchMode, onAuthenticate
       setBusy(false);
     }
   };
-
-  // ── Apple ──
-  const handleApple = useCallback(async () => {
-    setError(null);
-    try {
-      // リプレイ攻撃対策の nonce（raw を Firebase に、SHA256 を Apple に渡す）
-      const rawNonce = Crypto.randomUUID();
-      const hashedNonce = await Crypto.digestStringAsync(
-        Crypto.CryptoDigestAlgorithm.SHA256,
-        rawNonce,
-      );
-
-      const credential = await AppleAuthentication.signInAsync({
-        requestedScopes: [
-          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
-          AppleAuthentication.AppleAuthenticationScope.EMAIL,
-        ],
-        nonce: hashedNonce,
-      });
-
-      if (!credential.identityToken) {
-        setError('Apple の認証情報を取得できませんでした');
-        return;
-      }
-      setBusy(true);
-      await signInWithAppleToken(credential.identityToken, rawNonce);
-      onAuthenticated();
-    } catch (e: any) {
-      if (e?.code === 'ERR_REQUEST_CANCELED') return; // ユーザーキャンセルは無視
-      setError(e?.message ?? 'Apple サインインに失敗しました');
-    } finally {
-      setBusy(false);
-    }
-  }, [onAuthenticated]);
 
   // ── Google ボタン押下 ──
   const handleGoogle = async () => {
@@ -207,12 +160,7 @@ export const AuthScreen: React.FC<Props> = ({ mode, onSwitchMode, onAuthenticate
           <Text style={styles.socialLabel}>Google で続ける</Text>
         </Pressable>
 
-        {/* Apple は iOS の対応端末のみ表示 */}
-        {appleAvailable && (
-          <Pressable style={styles.socialBtn} onPress={handleApple} disabled={busy}>
-            <Text style={styles.socialLabel}>Apple で続ける</Text>
-          </Pressable>
-        )}
+        {/* Apple サインインは provisioning 対応後に復帰（authConfig.ts 参照） */}
       </View>
 
       {/* モード切替 */}
