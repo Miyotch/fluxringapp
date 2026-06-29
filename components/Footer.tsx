@@ -20,11 +20,11 @@ type TabDef = { key: TabKey; label: string; glyph: string };
 
 // グリフは仮（実装時に Skia アイコン or アイコンフォントに差し替え）
 const TABS: TabDef[] = [
-  { key: 'home',       label: 'ホーム',     glyph: '⌂' },
-  { key: 'collection', label: 'コレ',       glyph: '▦' },
-  { key: 'vip',        label: 'VIP',        glyph: '✦' },
-  { key: 'media',      label: 'メディア',   glyph: '◉' },
-  { key: 'settings',   label: '設定',       glyph: '⚙' },
+  { key: 'home',       label: 'ホーム',       glyph: '⌂' },
+  { key: 'collection', label: 'コレクション', glyph: '▦' },
+  { key: 'vip',        label: 'VIP',          glyph: '✦' },
+  { key: 'media',      label: 'メディア',     glyph: '◉' },
+  { key: 'settings',   label: '設定',         glyph: '⚙' },
 ];
 
 type FooterProps = {
@@ -63,7 +63,13 @@ export const Footer: React.FC<FooterProps> = ({ active, onChange, vipLocked = tr
                 <Text style={styles.lock} accessibilityLabel="ロック">🔒</Text>
               )}
             </View>
-            <Text style={[styles.label, { color: tint }]}>{tab.label}</Text>
+            <Text
+              style={[styles.label, { color: tint }]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+            >
+              {tab.label}
+            </Text>
           </Pressable>
         );
       })}
@@ -105,8 +111,8 @@ const styles = StyleSheet.create({
     fontSize: 9,
   },
   label: {
-    fontSize: 10,
-    letterSpacing: 0.3,
+    fontSize: 9.5,
+    letterSpacing: 0.2,
   },
 });
 

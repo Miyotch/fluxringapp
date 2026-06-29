@@ -16,7 +16,12 @@
     "react-native-reanimated": "4.3.1",
     "react-native-worklets": "0.8.3",
     "firebase": "^11.0.0",
-    "@react-native-async-storage/async-storage": "2.2.0"
+    "@react-native-async-storage/async-storage": "2.2.0",
+    "expo-apple-authentication": "~56.0.4",
+    "expo-auth-session": "~56.0.14",
+    "expo-crypto": "~56.0.4",
+    "expo-web-browser": "~56.0.5",
+    "expo-constants": "~56.0.18"
   },
   "devDependencies": {
     "@babel/core": "^7.25.0",

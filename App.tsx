@@ -24,7 +24,14 @@ import { AuthScreen } from './screens/AuthScreen';
 import { DiscoverScreen } from './screens/DiscoverScreen';
 import { CollectionScreen } from './screens/CollectionScreen';
 import { MediaScreen } from './screens/MediaScreen';
-import { SettingsScreen } from './screens/SettingsScreen';
+import { SettingsScreen, SettingsKey } from './screens/SettingsScreen';
+import {
+  AccountScreen,
+  RestoreScreen,
+  LanguageScreen,
+  SupportScreen,
+  DocumentScreen,
+} from './screens/SettingsDetailScreens';
 import { NotificationsScreen } from './screens/NotificationsScreen';
 import { ArtistScreen } from './screens/ArtistScreen';
 import { StoryScreen } from './screens/StoryScreen';
@@ -57,6 +64,8 @@ export default function App() {
   const [tab, setTab] = useState<TabScreen>('home');
   const [overlay, setOverlay] = useState<Overlay>(null);
   const [vipUnlocked, setVipUnlocked] = useState(false);
+  // 設定の末端画面（account/restore/language/support/thanks/terms/privacy/tokushoho）
+  const [settingsDetail, setSettingsDetail] = useState<SettingsKey | null>(null);
 
   // 再生対象（player へ渡す）
   const [playerTrack, setPlayerTrack] = useState<PlayerTrack | null>(null);
@@ -140,6 +149,38 @@ export default function App() {
     );
   }
 
+  // ── 設定の末端画面（フッター非表示） ──
+  if (settingsDetail) {
+    const back = () => setSettingsDetail(null);
+    switch (settingsDetail) {
+      case 'account':
+        return (
+          <AccountScreen
+            onBack={back}
+            onSignOut={() => {
+              setSettingsDetail(null);
+              setPhase('onboarding');
+              setTab('home');
+            }}
+          />
+        );
+      case 'restore':
+        return <RestoreScreen onBack={back} />;
+      case 'language':
+        return <LanguageScreen onBack={back} />;
+      case 'support':
+        return <SupportScreen onBack={back} />;
+      case 'thanks':
+        return <DocumentScreen kind="thanks" onBack={back} />;
+      case 'terms':
+        return <DocumentScreen kind="terms" onBack={back} />;
+      case 'privacy':
+        return <DocumentScreen kind="privacy" onBack={back} />;
+      case 'tokushoho':
+        return <DocumentScreen kind="tokushoho" onBack={back} />;
+    }
+  }
+
   // ── タブ群（フッター表示） ──
   return (
     <View style={styles.root}>
@@ -188,7 +229,7 @@ export default function App() {
           <SettingsScreen
             onSelect={(key) => {
               if (key === 'artist') setOverlay('artist');
-              /* TODO: その他の設定項目の画面遷移 */
+              else setSettingsDetail(key);
             }}
             onSignOut={() => {
               setPhase('onboarding');

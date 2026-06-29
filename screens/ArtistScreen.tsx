@@ -149,14 +149,17 @@ export const ArtistScreen: React.FC<Props> = ({
               style={[styles.gridCell, { width: colW, opacity: t.owned ? 1 : 0.4 }]}
               onPress={() => onOpenStory(t.id)}
             >
-              <ArtworkCard
-                width={colW}
-                imageUri={t.artworkUrl}
-                glow={t.glowColor}
-                glow2={t.glowColor2}
-                inset={5}
-                subdued
-              />
+              {/* オーラ余白(PAD)を吸収して画像とテキストの中心を揃える */}
+              <View style={{ width: colW, height: colW * 1.5, alignItems: 'center', justifyContent: 'center' }}>
+                <ArtworkCard
+                  width={colW}
+                  imageUri={t.artworkUrl}
+                  glow={t.glowColor}
+                  glow2={t.glowColor2}
+                  inset={5}
+                  subdued
+                />
+              </View>
               <Text style={styles.gridTitle} numberOfLines={1}>
                 {t.owned ? t.title : '？？？'}
               </Text>
