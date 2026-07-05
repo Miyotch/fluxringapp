@@ -2,50 +2,65 @@
  * StarField.tsx — ホーム背景の星空（宇宙）
  * ------------------------------------------------------------------
  * 上部に紫のグロー（radial）を敷き、白い小さな星を散らす。
- * 星は3レイヤーに分け、レイヤーごとに位相をずらした明滅で「またたき」を出す
- * （星ごとにフックを持たず、Group の opacity を SharedValue で駆動＝軽量）。
+ * 星は1つずつ独立して明滅する（星ごとに異なる速さ・位相・強弱をランダムに持ち、
+ * 共有クロックから sin で opacity を導出＝ランダムなまたたき）。
  */
 
-import React, { useMemo, useEffect } from 'react';
+import React, { useMemo } from 'react';
 import { useWindowDimensions } from 'react-native';
-import { Canvas, Fill, Group, Circle, RadialGradient, vec } from '@shopify/react-native-skia';
 import {
-  useSharedValue,
-  withRepeat,
-  withTiming,
-  withDelay,
-  Easing,
-} from 'react-native-reanimated';
+  Canvas,
+  Fill,
+  Circle,
+  RadialGradient,
+  vec,
+  useClock,
+} from '@shopify/react-native-skia';
+import { useDerivedValue, SharedValue } from 'react-native-reanimated';
 
-type Star = { x: number; y: number; r: number };
+type Star = {
+  x: number;
+  y: number;
+  r: number;
+  base: number;   // 最低の明るさ
+  amp: number;    // 明滅の振れ幅
+  speed: number;  // 明滅の速さ（rad/s）
+  phase: number;  // 位相（0..2π）
+};
 
 function makeStars(n: number, w: number, h: number): Star[] {
   const arr: Star[] = [];
   for (let i = 0; i < n; i++) {
-    arr.push({ x: Math.random() * w, y: Math.random() * h, r: 0.4 + Math.random() * 1.3 });
+    arr.push({
+      x: Math.random() * w,
+      y: Math.random() * h,
+      r: 0.4 + Math.random() * 1.3,
+      base: 0.12 + Math.random() * 0.3,      // 0.12〜0.42
+      amp: 0.35 + Math.random() * 0.5,       // 0.35〜0.85
+      speed: 0.5 + Math.random() * 1.9,      // ゆっくり〜やや速い（星ごとにバラバラ）
+      phase: Math.random() * Math.PI * 2,
+    });
   }
   return arr;
 }
 
+// 1つの星（共有クロックから自分だけの明滅を導出）
+const TwinkleStar: React.FC<{ star: Star; clock: SharedValue<number> }> = ({ star, clock }) => {
+  const opacity = useDerivedValue(() => {
+    const t = clock.value / 1000; // 秒
+    const o = star.base + star.amp * (0.5 + 0.5 * Math.sin(t * star.speed + star.phase));
+    return Math.min(1, o);
+  }, [clock]);
+
+  return <Circle cx={star.x} cy={star.y} r={star.r} color="rgba(238,243,255,1)" opacity={opacity} />;
+};
+
 export const StarField: React.FC = () => {
   const { width, height } = useWindowDimensions();
+  const clock = useClock();
 
-  // 星の位置は一度だけ生成（再レンダーで動かさない）
-  const layers = useMemo(
-    () => [makeStars(36, width, height), makeStars(30, width, height), makeStars(26, width, height)],
-    [width, height],
-  );
-
-  // 3レイヤーの明滅（位相ずらし）
-  const o0 = useSharedValue(0.7);
-  const o1 = useSharedValue(0.5);
-  const o2 = useSharedValue(0.9);
-  useEffect(() => {
-    o0.value = withRepeat(withTiming(1, { duration: 2200, easing: Easing.inOut(Easing.sin) }), -1, true);
-    o1.value = withDelay(600, withRepeat(withTiming(1, { duration: 2800, easing: Easing.inOut(Easing.sin) }), -1, true));
-    o2.value = withDelay(1200, withRepeat(withTiming(0.5, { duration: 2500, easing: Easing.inOut(Easing.sin) }), -1, true));
-  }, [o0, o1, o2]);
-  const opacities = [o0, o1, o2];
+  // 星の位置・明滅パラメータは一度だけ生成（再レンダーで動かさない）
+  const stars = useMemo(() => makeStars(84, width, height), [width, height]);
 
   return (
     <Canvas style={{ position: 'absolute', width, height }} pointerEvents="none">
@@ -67,13 +82,9 @@ export const StarField: React.FC = () => {
         />
       </Circle>
 
-      {/* 星（3レイヤー・またたき） */}
-      {layers.map((stars, li) => (
-        <Group key={li} opacity={opacities[li]}>
-          {stars.map((s, i) => (
-            <Circle key={i} cx={s.x} cy={s.y} r={s.r} color="rgba(238,243,255,0.92)" />
-          ))}
-        </Group>
+      {/* 星（1つずつランダムに明滅） */}
+      {stars.map((s, i) => (
+        <TwinkleStar key={i} star={s} clock={clock} />
       ))}
     </Canvas>
   );
