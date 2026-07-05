@@ -30,6 +30,7 @@ export type CollectionItem = {
   title: string;
   artworkUrl: string;
   owned: boolean;
+  audioKey?: string;         // R2 音源キー（再生画面へ）
   priceLabel?: string;       // ウィッシュ用
   glowColor?: string;
   glowColor2?: string;

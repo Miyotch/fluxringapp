@@ -18,7 +18,8 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.fluxring.app",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "UIBackgroundModes": ["audio"]
       }
     },
     "android": {
@@ -37,6 +38,10 @@
         "webClientId": "",
         "iosClientId": "",
         "androidClientId": ""
+      },
+      "r2": {
+        "previewBaseUrl": "",
+        "workerUrl": ""
       }
     }
   }

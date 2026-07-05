@@ -32,6 +32,8 @@ import Animated, {
   withTiming,
   Easing,
 } from 'react-native-reanimated';
+import { useAudioPlayer } from 'expo-audio';
+import { previewUrl } from '../lib/r2';
 import { ArtworkCard } from '../components/ArtworkCard';
 import { BuyButton } from '../components/BuyButton';
 import { WishlistStar } from '../components/WishlistStar';
@@ -55,6 +57,7 @@ export type Track = {
   subtitle?: string;        // 情景の言葉（効能は語らない）
   artistName: string;
   artworkUrl: string;
+  audioKey: string;         // R2 音源キー（試聴は公開・フルは署名付き）
   previewUrl: string | null;
   priceLabel: string;
   owned?: boolean;
@@ -74,7 +77,7 @@ const FALLBACK: Track[] = [
   {
     id: 't1', title: '冬明け', subtitle: '夜明け前、まだ青い部屋に最初の光がにじむ',
     artistName: '岡ナオキ', artworkUrl: 'https://picsum.photos/seed/fuyuake/640/960',
-    previewUrl: null, priceLabel: '¥2,500',
+    audioKey: 'blue', previewUrl: null, priceLabel: '¥2,500',
     glowColor: 'rgba(96,206,224,0.42)', glowColor2: 'rgba(70,132,224,0.16)',
   },
 ];
@@ -127,23 +130,39 @@ export const DiscoverScreen: React.FC<Props> = ({
   const active = tracks[activeIndex] ?? tracks[0];
   const cardW = 180;
 
+  // 試聴プレイヤー（30秒・公開URL）
+  const preview = useAudioPlayer();
+
   const onRootLayout = (e: LayoutChangeEvent) => setSlideH(e.nativeEvent.layout.height);
 
   const onViewableItemsChanged = useRef(
     ({ viewableItems }: { viewableItems: Array<{ index: number | null }> }) => {
       if (viewableItems.length > 0 && viewableItems[0].index != null) {
         setActiveIndex(viewableItems[0].index);
-        setPlayingId(null); // 曲切替で試聴停止
       }
     },
   ).current;
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 60 }).current;
 
+  // 曲切替で試聴を止める
+  useEffect(() => {
+    preview.pause();
+    setPlayingId(null);
+  }, [activeIndex, preview]);
+
   const togglePreview = useCallback(() => {
     if (!active) return;
-    // TODO: expo-av で active.previewUrl を再生/停止
-    setPlayingId((cur) => (cur === active.id ? null : active.id));
-  }, [active]);
+    if (playingId === active.id) {
+      preview.pause();
+      setPlayingId(null);
+      return;
+    }
+    const url = active.previewUrl ?? previewUrl(active.audioKey);
+    if (!url) return; // 試聴未設定（R2 未設定）
+    preview.replace({ uri: url });
+    preview.play();
+    setPlayingId(active.id);
+  }, [active, playingId, preview]);
 
   const toggleWishlist = useCallback((id: string) => {
     setWishlist((prev) => {
