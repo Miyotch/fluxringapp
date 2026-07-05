@@ -40,7 +40,9 @@ export const CardBack: React.FC<Props> = ({ width, data }) => {
       <View style={styles.body}>
         <Text style={styles.title} numberOfLines={1}>{data.title}</Text>
 
-        {data.story && <Text style={styles.story}>{data.story}</Text>}
+        {data.story && (
+          <Text style={styles.story} numberOfLines={6}>{data.story}</Text>
+        )}
 
         <View style={styles.rule} />
 
@@ -78,7 +80,7 @@ const styles = StyleSheet.create({
   topRow: { flexDirection: 'row', justifyContent: 'space-between' },
   no: { fontSize: 9, letterSpacing: 2, color: 'rgba(66,80,112,0.7)' },
   tap: { fontSize: 9, letterSpacing: 1.5, color: 'rgba(66,80,112,0.9)' },
-  body: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, paddingHorizontal: 4 },
+  body: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, paddingHorizontal: 4 },
   title: { fontSize: 22, letterSpacing: 2, color: '#2C3856' },
   story: {
     fontSize: 12.5,

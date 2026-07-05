@@ -44,8 +44,8 @@ export const FlipCard: React.FC<Props> = ({ front, back, active }) => {
     transform: [
       { perspective: 1200 },
       { rotateY: `${flip.value * 180}deg` },
-      { scale: 1 + flip.value * 0.06 },
-      { translateY: -flip.value * 20 },
+      { scale: 1 + flip.value * 0.08 },
+      { translateY: -flip.value * 24 },
     ],
   }));
 
@@ -54,8 +54,8 @@ export const FlipCard: React.FC<Props> = ({ front, back, active }) => {
     transform: [
       { perspective: 1200 },
       { rotateY: `${180 + flip.value * 180}deg` },
-      { scale: 1 + flip.value * 0.06 },
-      { translateY: -flip.value * 20 },
+      { scale: 1 + flip.value * 0.08 },
+      { translateY: -flip.value * 24 },
     ],
   }));
 
