@@ -40,7 +40,7 @@
         "androidClientId": ""
       },
       "r2": {
-        "previewBaseUrl": "",
+        "previewBaseUrl": "https://pub-cf88142f89d0432db9d3077919d59dd0.r2.dev",
         "workerUrl": ""
       }
     }
