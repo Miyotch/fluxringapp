@@ -35,6 +35,9 @@ import Animated, {
 import { useAudioPlayer } from 'expo-audio';
 import { previewUrl } from '../lib/r2';
 import { ArtworkCard } from '../components/ArtworkCard';
+import { StarField } from '../components/StarField';
+import { FlipCard } from '../components/FlipCard';
+import { CardBack } from '../components/CardBack';
 import { BuyButton } from '../components/BuyButton';
 import { WishlistStar } from '../components/WishlistStar';
 import { BellIcon, PreviewIcon } from '../components/icons';
@@ -63,6 +66,14 @@ export type Track = {
   owned?: boolean;
   glowColor?: string;
   glowColor2?: string;
+  // 裏面（タップで表示する説明）
+  back?: {
+    serial?: string;         // 'No. 001'
+    story?: string;          // 情景の言葉（裏面の本文）
+    materials?: string[];    // 原材料（例: ['純正律']）
+    frequencies?: string[];  // 例: ['432 Hz', '7.83 Hz']
+    artist?: string;         // 'NAOKI OKA'
+  };
 };
 
 type Props = {
@@ -79,6 +90,13 @@ const FALLBACK: Track[] = [
     artistName: '岡ナオキ', artworkUrl: 'https://picsum.photos/seed/fuyuake/640/960',
     audioKey: 'blue', previewUrl: null, priceLabel: '¥2,500',
     glowColor: 'rgba(96,206,224,0.42)', glowColor2: 'rgba(70,132,224,0.16)',
+    back: {
+      serial: 'No. 001',
+      story: '夜明け前、まだ青い部屋に最初の光がにじむ。音は何も足さず、ただ部屋の温度をわずかに上げていく。',
+      materials: ['純正律'],
+      frequencies: ['432 Hz', '7.83 Hz'],
+      artist: 'NAOKI OKA',
+    },
   },
 ];
 
@@ -188,6 +206,9 @@ export const DiscoverScreen: React.FC<Props> = ({
     <View style={styles.root} onLayout={onRootLayout}>
       <StatusBar barStyle="light-content" backgroundColor={C.page} />
 
+      {/* 宇宙の背景（紫グロー＋またたく星） */}
+      <StarField />
+
       {/* 縦スワイプのカードページャ（カードのみ） */}
       {slideH > 0 && (
         <FlatList
@@ -201,12 +222,31 @@ export const DiscoverScreen: React.FC<Props> = ({
           maxToRenderPerBatch={2}
           renderItem={({ item, index }) => (
             <View style={[styles.slide, { height: slideH }]}>
-              <ArtworkCard
-                width={cardW}
-                imageUri={item.artworkUrl}
-                glow={item.glowColor}
-                glow2={item.glowColor2}
-                hero={{ enabled: index === activeIndex }}
+              {/* タップで裏返し（説明面） */}
+              <FlipCard
+                active={index === activeIndex}
+                front={
+                  <ArtworkCard
+                    width={cardW}
+                    imageUri={item.artworkUrl}
+                    glow={item.glowColor}
+                    glow2={item.glowColor2}
+                    hero={{ enabled: index === activeIndex }}
+                  />
+                }
+                back={
+                  <CardBack
+                    width={cardW}
+                    data={{
+                      title: item.title,
+                      serial: item.back?.serial,
+                      story: item.back?.story ?? item.subtitle,
+                      materials: item.back?.materials,
+                      frequencies: item.back?.frequencies,
+                      artist: item.back?.artist,
+                    }}
+                  />
+                }
               />
             </View>
           )}
