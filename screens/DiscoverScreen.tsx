@@ -23,6 +23,7 @@ import {
   StyleSheet,
   StatusBar,
   LayoutChangeEvent,
+  useWindowDimensions,
 } from 'react-native';
 import Animated, {
   useSharedValue,
@@ -145,8 +146,11 @@ export const DiscoverScreen: React.FC<Props> = ({
   const [purchaseTrack, setPurchaseTrack] = useState<Track | null>(null);
   const [showPurchase, setShowPurchase] = useState(false);
 
+  const { width: screenW } = useWindowDimensions();
   const active = tracks[activeIndex] ?? tracks[0];
   const cardW = 180;
+  // 裏返し時のカード（説明面）は少し大きく＝文字が収まるように
+  const backW = Math.round(cardW * 1.35);
 
   // 試聴プレイヤー（30秒・公開URL）
   const preview = useAudioPlayer();
@@ -236,7 +240,7 @@ export const DiscoverScreen: React.FC<Props> = ({
                 }
                 back={
                   <CardBack
-                    width={cardW}
+                    width={backW}
                     data={{
                       title: item.title,
                       serial: item.back?.serial,
@@ -300,10 +304,10 @@ export const DiscoverScreen: React.FC<Props> = ({
         <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
           <PurchaseTransition
             ref={purchaseRef}
-            deviceW={400}
+            deviceW={screenW}
             deviceH={slideH}
-            from={{ x: 200 - 40, y: slideH * 0.7, w: 80 }}
-            to={{ x: (400 - cardW) / 2, y: slideH * 0.12, w: cardW }}
+            from={{ x: screenW / 2 - 40, y: slideH * 0.7, w: 80 }}
+            to={{ x: (screenW - cardW) / 2, y: slideH * 0.16, w: cardW }}
             imageUri={purchaseTrack.artworkUrl}
             expandMs={620}
             revealDelay={720}
