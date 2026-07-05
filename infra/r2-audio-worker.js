@@ -18,6 +18,7 @@
  *       bucket_name = "fluxring-audio"
  *     [vars]
  *       FIREBASE_PROJECT_ID = "sound-curtain-5unwwh"
+ *       DEV_ALLOW_ALL = "true"     # ⚠️ 購入実装前のテスト用。本番では "false" or 削除
  *
  *   $ wrangler deploy
  *   → app.json の extra.r2.workerUrl にこの Worker の URL を設定。
@@ -108,46 +109,63 @@ function parseRange(h) {
   return null;
 }
 
-// 所有権確認（要実装）: 購入レコードの有無を返す。
+/**
+ * 所有権確認: uid が audioKey を購入済みかを返す。
+ * - env.DEV_ALLOW_ALL === "true" のときは常に許可（購入実装前のテスト用・本番では外す）。
+ * - 本番は Firestore の購入レコード users/{uid}/purchases/{audioKey} の存在で判定。
+ *   ・セキュリティルールで本人読み取り可にしておくか、SA トークンで REST を叩く。
+ */
 async function checkOwnership(env, uid, audioKey) {
-  // TODO: Firestore / D1 / KV で uid の購入済みに audioKey が含まれるか確認。
-  //   暫定: 未実装のため false（全て 403）。運用前に必ず実装すること。
+  if (env.DEV_ALLOW_ALL === 'true') return true; // ⚠️ テスト用バイパス（本番で必ず無効化）
+
+  // 例: Firestore REST（要 SA アクセストークン env.FIRESTORE_TOKEN、または公開ルール）
+  // const pid = env.FIREBASE_PROJECT_ID;
+  // const url = `https://firestore.googleapis.com/v1/projects/${pid}/databases/(default)/documents/users/${uid}/purchases/${audioKey}`;
+  // const r = await fetch(url, { headers: { Authorization: `Bearer ${env.FIRESTORE_TOKEN}` } });
+  // return r.ok;
+
+  // TODO: 購入データ構造が確定したら上記を有効化する。暫定は未所有扱い。
   return false;
 }
 
-// Firebase ID トークン（RS256）を Google 公開鍵で検証。
+// Google securetoken の JWK（WebCrypto で直接 import できる）。短時間キャッシュ推奨。
+let JWKS_CACHE = { at: 0, keys: null };
+async function getSecureTokenKeys() {
+  const now = Date.now();
+  if (JWKS_CACHE.keys && now - JWKS_CACHE.at < 60 * 60 * 1000) return JWKS_CACHE.keys;
+  const res = await fetch(
+    'https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com',
+  );
+  const data = await res.json();
+  JWKS_CACHE = { at: now, keys: data.keys };
+  return data.keys;
+}
+
+// Firebase ID トークン（RS256）を Google JWK で検証。
 async function verifyFirebaseToken(jwt, projectId) {
-  const [h, p, s] = jwt.split('.');
+  const [h, p, s] = (jwt || '').split('.');
   if (!h || !p || !s) throw new Error('malformed token');
-  const header = JSON.parse(atob(h.replace(/-/g, '+').replace(/_/g, '/')));
-  const payload = JSON.parse(atob(p.replace(/-/g, '+').replace(/_/g, '/')));
+  const b64u = (x) => atob(x.replace(/-/g, '+').replace(/_/g, '/'));
+  const header = JSON.parse(b64u(h));
+  const payload = JSON.parse(b64u(p));
 
   const now = Math.floor(Date.now() / 1000);
   if (payload.aud !== projectId) throw new Error('bad aud');
   if (payload.iss !== `https://securetoken.google.com/${projectId}`) throw new Error('bad iss');
   if (payload.exp < now) throw new Error('expired');
+  if (payload.auth_time > now + 60) throw new Error('bad auth_time');
 
-  // Google の公開証明書（securetoken）から header.kid に一致する鍵で検証
-  const certs = await (await fetch(
-    'https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com',
-  )).json();
-  const pem = certs[header.kid];
-  if (!pem) throw new Error('unknown kid');
+  const jwk = (await getSecureTokenKeys()).find((k) => k.kid === header.kid);
+  if (!jwk) throw new Error('unknown kid');
 
-  const key = await importX509(pem);
+  const key = await crypto.subtle.importKey(
+    'jwk', jwk,
+    { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+    false, ['verify'],
+  );
   const data = new TextEncoder().encode(`${h}.${p}`);
-  const sig = Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
+  const sig = Uint8Array.from(b64u(s), (c) => c.charCodeAt(0));
   const ok = await crypto.subtle.verify('RSASSA-PKCS1-v1_5', key, sig, data);
   if (!ok) throw new Error('bad signature');
   return payload;
-}
-
-async function importX509(pem) {
-  const b64 = pem.replace(/-----(BEGIN|END) CERTIFICATE-----/g, '').replace(/\s+/g, '');
-  const der = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
-  // X.509 証明書から SPKI を取り出すのは煩雑なため、実運用では
-  // jose ライブラリ（importX509）や PUBLIC KEY(JWK) エンドポイントの利用を推奨。
-  // ここでは JWK 版のエンドポイントを使う実装に差し替えるのが簡単:
-  //   https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com
-  throw new Error('importX509 は jose 等で実装してください（コメント参照）');
 }
