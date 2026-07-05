@@ -1,0 +1,22 @@
+# wrangler.toml — フル音源配信 Worker のデプロイ設定
+# ------------------------------------------------------------------
+# デプロイ:
+#   cd infra
+#   wrangler login    # 初回のみ
+#   wrangler deploy
+#
+# デプロイ後に表示される https://fluxring-audio.<sub>.workers.dev を
+# app.json の extra.r2.workerUrl に設定する。
+
+name = "fluxring-audio"
+main = "r2-audio-worker.js"
+compatibility_date = "2024-11-01"
+
+[[r2_buckets]]
+binding = "AUDIO"
+bucket_name = "music-app-storage"
+
+[vars]
+FIREBASE_PROJECT_ID = "sound-curtain-5unwwh"
+# ⚠️ 購入実装前のテスト用バイパス。本番投入前に "false" にするか削除する。
+DEV_ALLOW_ALL = "true"

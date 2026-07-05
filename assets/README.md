@@ -35,3 +35,15 @@
 ```
 
 **制約**: 色は必ず **藍紫〜シアン範囲**に収める（暖色・金は憲法上禁止）。
+
+## 音源ファイル（Cloudflare R2）
+
+画像とは別に、音源は R2 バケット（`music-app-storage`）に配置する。**形式は MP3**。
+
+| パス | 公開範囲 | 用途 |
+|---|---|---|
+| `preview/{key}.mp3` | 公開（r2.dev） | 試聴30秒。誰でも取得可 |
+| `full/{key}.mp3` | 非公開 | フル音源。`infra/r2-audio-worker.js` 経由のみ |
+
+`key` は `blue` / `white` / `red`（`constants/stubData.ts` の `audioKey` と一致させる）。
+詳細は `lib/r2.ts` / `infra/r2-audio-worker.js` を参照。

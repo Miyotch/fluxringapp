@@ -15,8 +15,10 @@
  * 旧・部品デモは screens/ComponentGallery.tsx に退避（__DEV_GALLERY__ で切替可）。
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { View, StyleSheet } from 'react-native';
+
+import { configureAudioMode } from './lib/audio';
 
 import { Footer, TabKey } from './components/Footer';
 import { OnboardingScreen } from './screens/OnboardingScreen';
@@ -72,6 +74,9 @@ export default function App() {
   const [playerTrack, setPlayerTrack] = useState<PlayerTrack | null>(null);
 
   const goApp = useCallback(() => setPhase('app'), []);
+
+  // 起動時に一度だけ音声モードを設定（サイレント時再生・バックグラウンド再生）
+  useEffect(() => { configureAudioMode(); }, []);
 
   // ── フェーズ: オンボーディング ──
   if (phase === 'onboarding') {
@@ -206,6 +211,7 @@ export default function App() {
                   id: item.id,
                   title: item.title,
                   artworkUrl: item.artworkUrl,
+                  audioKey: item.audioKey ?? item.id,
                   durationSec: 220,
                   glowColor: item.glowColor,
                   glowColor2: item.glowColor2,

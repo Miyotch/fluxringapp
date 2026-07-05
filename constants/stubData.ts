@@ -18,26 +18,26 @@ const img = (seed: string) => `https://picsum.photos/seed/${seed}/600/900`;
 export const STUB_TRACKS: Track[] = [
   {
     id: 't1', title: '冬明け', subtitle: '夜明け前、まだ青い部屋に最初の光がにじむ',
-    artistName: '岡ナオキ', artworkUrl: img('fuyuake'), previewUrl: null, priceLabel: '¥2,500',
+    artistName: '岡ナオキ', artworkUrl: img('fuyuake'), audioKey: 'blue', previewUrl: null, priceLabel: '¥2,500',
     glowColor: 'rgba(96,206,224,0.42)', glowColor2: 'rgba(70,132,224,0.16)',
   },
   {
     id: 't2', title: '薄明', subtitle: '眠りと覚醒のあわい、輪郭の生まれる時間',
-    artistName: '岡ナオキ', artworkUrl: img('hakumei'), previewUrl: null, priceLabel: '¥2,500',
+    artistName: '岡ナオキ', artworkUrl: img('hakumei'), audioKey: 'white', previewUrl: null, priceLabel: '¥2,500',
     glowColor: 'rgba(179,199,235,0.42)', glowColor2: 'rgba(120,150,220,0.16)',
   },
   {
     id: 't3', title: '遠い灯', subtitle: '暗がりの向こう、ひとつだけ灯る温度',
-    artistName: '岡ナオキ', artworkUrl: img('toihi'), previewUrl: null, priceLabel: '¥2,500',
+    artistName: '岡ナオキ', artworkUrl: img('toihi'), audioKey: 'red', previewUrl: null, priceLabel: '¥2,500',
     glowColor: 'rgba(219,120,150,0.42)', glowColor2: 'rgba(180,90,140,0.16)',
   },
 ];
 
 export const STUB_OWNED: CollectionItem[] = [
-  { id: 't1', title: '冬明け', artworkUrl: img('fuyuake'), owned: true, glowColor: 'rgba(96,206,224,0.40)' },
-  { id: 't2', title: '星の生まれる夜', artworkUrl: img('hoshi'), owned: true, glowColor: 'rgba(124,98,214,0.40)' },
-  { id: 't3', title: '薄明', artworkUrl: img('hakumei'), owned: true, glowColor: 'rgba(70,132,224,0.40)' },
-  { id: 't4', title: '遠い汽笛', artworkUrl: img('kiteki'), owned: true, glowColor: 'rgba(96,206,224,0.40)' },
+  { id: 't1', title: '冬明け', artworkUrl: img('fuyuake'), owned: true, audioKey: 'blue', glowColor: 'rgba(96,206,224,0.40)' },
+  { id: 't2', title: '星の生まれる夜', artworkUrl: img('hoshi'), owned: true, audioKey: 'hoshi', glowColor: 'rgba(124,98,214,0.40)' },
+  { id: 't3', title: '薄明', artworkUrl: img('hakumei'), owned: true, audioKey: 'white', glowColor: 'rgba(70,132,224,0.40)' },
+  { id: 't4', title: '遠い汽笛', artworkUrl: img('kiteki'), owned: true, audioKey: 'kiteki', glowColor: 'rgba(96,206,224,0.40)' },
 ];
 
 export const STUB_WISHLIST: CollectionItem[] = [
