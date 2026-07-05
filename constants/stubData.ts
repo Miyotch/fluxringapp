@@ -20,16 +20,37 @@ export const STUB_TRACKS: Track[] = [
     id: 't1', title: '冬明け', subtitle: '夜明け前、まだ青い部屋に最初の光がにじむ',
     artistName: '岡ナオキ', artworkUrl: img('fuyuake'), audioKey: 'blue', previewUrl: null, priceLabel: '¥2,500',
     glowColor: 'rgba(96,206,224,0.42)', glowColor2: 'rgba(70,132,224,0.16)',
+    back: {
+      serial: 'No. 001',
+      story: '夜明け前、まだ青い部屋に最初の光がにじむ。音は何も足さず、ただ部屋の温度をわずかに上げていく。',
+      materials: ['純正律'],
+      frequencies: ['432 Hz', '7.83 Hz'],
+      artist: 'NAOKI OKA',
+    },
   },
   {
     id: 't2', title: '薄明', subtitle: '眠りと覚醒のあわい、輪郭の生まれる時間',
     artistName: '岡ナオキ', artworkUrl: img('hakumei'), audioKey: 'white', previewUrl: null, priceLabel: '¥2,500',
     glowColor: 'rgba(179,199,235,0.42)', glowColor2: 'rgba(120,150,220,0.16)',
+    back: {
+      serial: 'No. 002',
+      story: '眠りと覚醒のあわい。輪郭がまだやわらかいうちに、音は静かに世界の縁をなぞる。',
+      materials: ['平均律'],
+      frequencies: ['440 Hz', '8.0 Hz'],
+      artist: 'NAOKI OKA',
+    },
   },
   {
     id: 't3', title: '遠い灯', subtitle: '暗がりの向こう、ひとつだけ灯る温度',
     artistName: '岡ナオキ', artworkUrl: img('toihi'), audioKey: 'red', previewUrl: null, priceLabel: '¥2,500',
     glowColor: 'rgba(219,120,150,0.42)', glowColor2: 'rgba(180,90,140,0.16)',
+    back: {
+      serial: 'No. 003',
+      story: '暗がりの向こうに、ひとつだけ灯る温度。近づきすぎず、消えもせず、ただそこに在る。',
+      materials: ['純正律'],
+      frequencies: ['432 Hz', '6.0 Hz'],
+      artist: 'NAOKI OKA',
+    },
   },
 ];
 
