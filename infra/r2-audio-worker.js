@@ -5,7 +5,7 @@
  *   1) Firebase ID トークンを検証（本人確認）
  *   2) 所有権を確認（購入済みか）
  *   3) Range 対応でストリーミング（シーク可能）
- * して返す。試聴（preview/*.m4a）は公開バケット/カスタムドメインで別配信。
+ * して返す。試聴（preview/*.mp3）は公開バケット/カスタムドメインで別配信。
  *
  * ------------------------------------------------------------------
  * デプロイ:
@@ -24,8 +24,8 @@
  *   → app.json の extra.r2.workerUrl にこの Worker の URL を設定。
  *
  * バケット構成（例）:
- *   full/{audioKey}.m4a     ← フル音源（このWorker経由のみ）
- *   （試聴は別の公開バケット: preview/{audioKey}.m4a）
+ *   full/{audioKey}.mp3     ← フル音源（このWorker経由のみ）
+ *   （試聴は別の公開バケット: preview/{audioKey}.mp3）
  * ------------------------------------------------------------------
  */
 
@@ -65,7 +65,7 @@ export default {
     // 3) R2 から Range 対応でストリーミング（アプリはこの Worker URL を直接再生してもよい）
     //    ※ アプリの lib/r2.ts は { url } を期待するので、署名URL方式にする場合は
     //      ここで presigned URL を作って json({ url }) を返す実装に差し替える。
-    const objectKey = `full/${audioKey}.m4a`;
+    const objectKey = `full/${audioKey}.mp3`;
     const range = parseRange(request.headers.get('Range'));
     const obj = await env.AUDIO.get(objectKey, range ? { range } : undefined);
     if (!obj) return json({ error: 'object not found', objectKey }, 404);
@@ -74,7 +74,7 @@ export default {
     obj.writeHttpMetadata(headers);
     headers.set('Accept-Ranges', 'bytes');
     headers.set('Cache-Control', 'private, no-store');
-    headers.set('Content-Type', obj.httpMetadata?.contentType || 'audio/mp4');
+    headers.set('Content-Type', obj.httpMetadata?.contentType || 'audio/mpeg');
 
     if (range && obj.range) {
       const start = obj.range.offset ?? 0;

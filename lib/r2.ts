@@ -15,10 +15,11 @@ import { auth } from './firebase'
 /**
  * 試聴（30秒）URL。公開バケット/カスタムドメインから直接取得。
  * 未設定なら null（試聴不可）。
+ * 音源形式は MP3（R2 にアップロード済みのファイル形式に合わせる）。
  */
 export function previewUrl(audioKey: string): string | null {
   if (!isPreviewConfigured || !audioKey) return null
-  return `${R2_PREVIEW_BASE}/preview/${encodeURIComponent(audioKey)}.m4a`
+  return `${R2_PREVIEW_BASE}/preview/${encodeURIComponent(audioKey)}.mp3`
 }
 
 /**
