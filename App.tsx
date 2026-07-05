@@ -17,6 +17,7 @@
 
 import React, { useState, useCallback, useEffect } from 'react';
 import { View, StyleSheet } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { configureAudioMode } from './lib/audio';
 
@@ -61,7 +62,7 @@ type TabScreen = TabKey;
 // タブの上に重ねるモーダル的画面
 type Overlay = 'story' | 'player' | 'notifications' | 'artist' | null;
 
-export default function App() {
+function AppInner() {
   const [phase, setPhase] = useState<Phase>('onboarding');
   const [authMode, setAuthMode] = useState<'signup' | 'login'>('signup');
   const [tab, setTab] = useState<TabScreen>('home');
@@ -255,6 +256,14 @@ export default function App() {
       {/* フッター（タブ群でのみ表示） */}
       <Footer active={tab} onChange={setTab} vipLocked={!vipUnlocked} />
     </View>
+  );
+}
+
+export default function App() {
+  return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <AppInner />
+    </GestureHandlerRootView>
   );
 }
 

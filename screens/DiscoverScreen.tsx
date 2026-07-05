@@ -42,10 +42,7 @@ import { CardBack } from '../components/CardBack';
 import { BuyButton } from '../components/BuyButton';
 import { WishlistStar } from '../components/WishlistStar';
 import { BellIcon, PreviewIcon } from '../components/icons';
-import {
-  PurchaseTransition,
-  PurchaseTransitionHandle,
-} from '../components/PurchaseTransition';
+import { RisingBubbles } from '../components/RisingBubbles';
 
 const C = {
   page: '#0E0C20',
@@ -140,11 +137,10 @@ export const DiscoverScreen: React.FC<Props> = ({
   const [activeIndex, setActiveIndex] = useState(0);
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [wishlist, setWishlist] = useState<Set<string>>(new Set());
+  const [ownedIds, setOwnedIds] = useState<Set<string>>(new Set());
 
-  // 購入トランジション
-  const purchaseRef = useRef<PurchaseTransitionHandle>(null);
-  const [purchaseTrack, setPurchaseTrack] = useState<Track | null>(null);
-  const [showPurchase, setShowPurchase] = useState(false);
+  // 購入の泡演出（元のカード位置で下から立ち上る）
+  const [showBubbles, setShowBubbles] = useState(false);
 
   const { width: screenW } = useWindowDimensions();
   const active = tracks[activeIndex] ?? tracks[0];
@@ -196,13 +192,18 @@ export const DiscoverScreen: React.FC<Props> = ({
 
   const handleBuy = useCallback(() => {
     if (!active) return;
+    const owned = active.owned || ownedIds.has(active.id);
+    if (owned) {
+      // TODO: 所有済みは再生画面へ。暫定は何もしない（泡の再発を防ぐ）
+      return;
+    }
     setPlayingId(null);
-    if (onBuy) { onBuy(active); return; }
-    // ローカルで購入演出を再生
-    setPurchaseTrack(active);
-    setShowPurchase(true);
-    setTimeout(() => purchaseRef.current?.start(), 16);
-  }, [active, onBuy]);
+    onBuy?.(active);
+    // 新しいカードは出さず、元のカードの位置で泡を立ち上げて購入完了を表現。
+    // 所有済みにして購入ボタンを「再生」へ。
+    setOwnedIds((prev) => new Set(prev).add(active.id));
+    setShowBubbles(true);
+  }, [active, ownedIds, onBuy]);
 
   const isPreviewing = playingId != null && playingId === active?.id;
 
@@ -286,44 +287,33 @@ export const DiscoverScreen: React.FC<Props> = ({
 
         {/* 下部: 購入ボタン ＋ ウィッシュ星 */}
         <View style={styles.bottom} pointerEvents="box-none">
-          <BuyButton owned={active?.owned} onPress={handleBuy} />
-          {/* 所有済みでは星を非表示 */}
-          {!active?.owned && (
-            <View style={styles.starSlot}>
-              <WishlistStar
-                inWishlist={active ? wishlist.has(active.id) : false}
-                onToggle={() => active && toggleWishlist(active.id)}
-              />
-            </View>
-          )}
+          {(() => {
+            const owned = active ? active.owned || ownedIds.has(active.id) : false;
+            return (
+              <>
+                <BuyButton owned={owned} onPress={handleBuy} />
+                {/* 所有済みでは星を非表示 */}
+                {!owned && (
+                  <View style={styles.starSlot}>
+                    <WishlistStar
+                      inWishlist={active ? wishlist.has(active.id) : false}
+                      onToggle={() => active && toggleWishlist(active.id)}
+                    />
+                  </View>
+                )}
+              </>
+            );
+          })()}
         </View>
       </View>
 
-      {/* 購入トランジション */}
-      {showPurchase && purchaseTrack && slideH > 0 && (
-        <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-          <PurchaseTransition
-            ref={purchaseRef}
-            deviceW={screenW}
-            deviceH={slideH}
-            from={{ x: screenW / 2 - 40, y: slideH * 0.7, w: 80 }}
-            to={{ x: (screenW - cardW) / 2, y: slideH * 0.16, w: cardW }}
-            imageUri={purchaseTrack.artworkUrl}
-            expandMs={620}
-            revealDelay={720}
-          >
-            <View style={styles.transport}>
-              <Text style={styles.transportText}>{purchaseTrack.title} — 再生中</Text>
-            </View>
-          </PurchaseTransition>
-          <Pressable
-            style={styles.dismiss}
-            onPress={() => { setShowPurchase(false); setPurchaseTrack(null); }}
-            accessibilityLabel="閉じる"
-          >
-            <Text style={styles.dismissText}>✕</Text>
-          </Pressable>
-        </View>
+      {/* 購入の泡（元のカード位置で下から立ち上る・複製カードは出さない） */}
+      {showBubbles && slideH > 0 && (
+        <RisingBubbles
+          width={screenW}
+          height={slideH}
+          onDone={() => setShowBubbles(false)}
+        />
       )}
     </View>
   );
