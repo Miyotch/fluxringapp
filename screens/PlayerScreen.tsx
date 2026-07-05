@@ -23,6 +23,8 @@ import {
 } from 'react-native';
 import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import { ArtworkCard } from '../components/ArtworkCard';
+import { Card3D } from '../components/Card3D';
+import { CardBack } from '../components/CardBack';
 import { PlayMark, LoopIcon } from '../components/icons';
 import { COLOR, SPACE, TRANSPORT } from '../constants/design-tokens';
 import { formatTime } from '../lib/audio';
@@ -108,14 +110,26 @@ export const PlayerScreen: React.FC<Props> = ({ track, onBackHome, onOpenStory }
         </Pressable>
       </View>
 
-      {/* 共有カード（サムネ・カード構造） */}
+      {/* 共有カード（指でなぞって360°回転・厚みつき） */}
       <View style={styles.cardArea}>
-        <ArtworkCard
+        <Card3D
           width={cardW}
-          imageUri={track.artworkUrl}
-          glow={track.glowColor}
-          glow2={track.glowColor2}
-          hero={{ enabled: true }}
+          height={cardW * 1.5}
+          front={
+            <ArtworkCard
+              width={cardW}
+              imageUri={track.artworkUrl}
+              glow={track.glowColor}
+              glow2={track.glowColor2}
+              hero={{ enabled: true }}
+            />
+          }
+          back={
+            <CardBack
+              width={Math.round(cardW * 1.2)}
+              data={{ title: track.title, story: track.subtitle, artist: 'NAOKI OKA' }}
+            />
+          }
         />
       </View>
 
