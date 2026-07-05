@@ -10,11 +10,27 @@ import type { VipCard } from '../screens/VipScreen';
 
 const img = (seed: string) => `https://picsum.photos/seed/${seed}/600/900`;
 
+// 作品カードに差し込む3作品（ASSETS.md / component_catalog v50 準拠）。
+// artworkSource に実 jpg（require('../assets/art_blue.jpg') 等）を差し替える。
+// 現状はモック確認用のリモート画像で代替。
+// オーラ色は component_catalog の「曲別オーラ」確定値:
+//   冬明け blue  rgb(96,206,224) / 薄明 white rgb(179,199,235) / 遠い灯 red rgb(219,120,150)
 export const STUB_TRACKS: Track[] = [
-  { id: 't1', title: '冬明け', artistName: '岡ナオキ', artworkUrl: img('fuyuake'), previewUrl: null, priceLabel: '¥2,500', glowColor: 'rgba(96,206,224,0.40)', glowColor2: 'rgba(70,132,224,0.16)' },
-  { id: 't2', title: '星の生まれる夜', artistName: '岡ナオキ', artworkUrl: img('hoshi'), previewUrl: null, priceLabel: '¥2,500', glowColor: 'rgba(124,98,214,0.40)', glowColor2: 'rgba(124,98,214,0.16)' },
-  { id: 't3', title: '薄明', artistName: '岡ナオキ', artworkUrl: img('hakumei'), previewUrl: null, priceLabel: '¥2,500', glowColor: 'rgba(70,132,224,0.40)', glowColor2: 'rgba(70,132,224,0.16)' },
-  { id: 't4', title: '遠い汽笛', artistName: '岡ナオキ', artworkUrl: img('kiteki'), previewUrl: null, priceLabel: '¥2,500', glowColor: 'rgba(96,206,224,0.40)', glowColor2: 'rgba(70,132,224,0.16)' },
+  {
+    id: 't1', title: '冬明け', subtitle: '夜明け前、まだ青い部屋に最初の光がにじむ',
+    artistName: '岡ナオキ', artworkUrl: img('fuyuake'), previewUrl: null, priceLabel: '¥2,500',
+    glowColor: 'rgba(96,206,224,0.42)', glowColor2: 'rgba(70,132,224,0.16)',
+  },
+  {
+    id: 't2', title: '薄明', subtitle: '眠りと覚醒のあわい、輪郭の生まれる時間',
+    artistName: '岡ナオキ', artworkUrl: img('hakumei'), previewUrl: null, priceLabel: '¥2,500',
+    glowColor: 'rgba(179,199,235,0.42)', glowColor2: 'rgba(120,150,220,0.16)',
+  },
+  {
+    id: 't3', title: '遠い灯', subtitle: '暗がりの向こう、ひとつだけ灯る温度',
+    artistName: '岡ナオキ', artworkUrl: img('toihi'), previewUrl: null, priceLabel: '¥2,500',
+    glowColor: 'rgba(219,120,150,0.42)', glowColor2: 'rgba(180,90,140,0.16)',
+  },
 ];
 
 export const STUB_OWNED: CollectionItem[] = [

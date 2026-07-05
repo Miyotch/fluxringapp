@@ -46,6 +46,54 @@ type Props = {
   onAuthenticated: () => void;
 };
 
+/**
+ * GoogleButton — Google サインインのフックを内包する子コンポーネント。
+ * useIdTokenAuthRequest はクライアントID未設定だとマウント時にクラッシュしうるため、
+ * 親は isGoogleConfigured が true のときだけこのコンポーネントをマウントする。
+ */
+const GoogleButton: React.FC<{
+  busy: boolean;
+  onBusy: (b: boolean) => void;
+  onError: (m: string | null) => void;
+  onAuthenticated: () => void;
+}> = ({ busy, onBusy, onError, onAuthenticated }) => {
+  const [, response, promptAsync] = Google.useIdTokenAuthRequest({
+    webClientId: GOOGLE_WEB_CLIENT_ID || undefined,
+    iosClientId: GOOGLE_IOS_CLIENT_ID || undefined,
+    androidClientId: GOOGLE_ANDROID_CLIENT_ID || undefined,
+  });
+
+  useEffect(() => {
+    if (response?.type === 'success') {
+      const idToken = response.params?.id_token;
+      if (idToken) {
+        onBusy(true);
+        signInWithGoogleToken(idToken)
+          .then(onAuthenticated)
+          .catch((e) => onError(e?.message ?? 'Google サインインに失敗しました'))
+          .finally(() => onBusy(false));
+      }
+    } else if (response?.type === 'error') {
+      onError('Google サインインに失敗しました');
+    }
+    // response の変化のみで発火させる
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [response]);
+
+  return (
+    <Pressable
+      style={styles.socialBtn}
+      onPress={() => {
+        onError(null);
+        promptAsync();
+      }}
+      disabled={busy}
+    >
+      <Text style={styles.socialLabel}>Google で続ける</Text>
+    </Pressable>
+  );
+};
+
 export const AuthScreen: React.FC<Props> = ({ mode, onSwitchMode, onAuthenticated }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -57,29 +105,10 @@ export const AuthScreen: React.FC<Props> = ({ mode, onSwitchMode, onAuthenticate
   // NOTE: Apple サインインは provisioning profile が「Sign In with Apple」機能
   // 未対応のため一時的に無効化（expo-apple-authentication を依存から除外）。
   // 再有効化手順は constants/authConfig.ts のコメント参照。
-
-  // ── Google（expo-auth-session） ──
-  const [, googleResponse, promptGoogle] = Google.useIdTokenAuthRequest({
-    webClientId: GOOGLE_WEB_CLIENT_ID || undefined,
-    iosClientId: GOOGLE_IOS_CLIENT_ID || undefined,
-    androidClientId: GOOGLE_ANDROID_CLIENT_ID || undefined,
-  });
-
-  // Google の認可レスポンスを受けて Firebase にサインイン
-  useEffect(() => {
-    if (googleResponse?.type === 'success') {
-      const idToken = googleResponse.params?.id_token;
-      if (idToken) {
-        setBusy(true);
-        signInWithGoogleToken(idToken)
-          .then(onAuthenticated)
-          .catch((e) => setError(e?.message ?? 'Google サインインに失敗しました'))
-          .finally(() => setBusy(false));
-      }
-    } else if (googleResponse?.type === 'error') {
-      setError('Google サインインがキャンセルされました');
-    }
-  }, [googleResponse, onAuthenticated]);
+  //
+  // NOTE: Google の expo-auth-session フックは、クライアントID未設定だと
+  // マウント時にクラッシュしうるため <GoogleButton> 子コンポーネントに分離し、
+  // isGoogleConfigured が true のときだけマウントする（下部の JSX 参照）。
 
   // ── メール / パスワード ──
   const handleSubmit = async () => {
@@ -94,16 +123,6 @@ export const AuthScreen: React.FC<Props> = ({ mode, onSwitchMode, onAuthenticate
     } finally {
       setBusy(false);
     }
-  };
-
-  // ── Google ボタン押下 ──
-  const handleGoogle = async () => {
-    setError(null);
-    if (!isGoogleConfigured) {
-      setError('Google クライアントIDが未設定です（app.json の extra.googleAuth）');
-      return;
-    }
-    await promptGoogle();
   };
 
   return (
@@ -156,9 +175,24 @@ export const AuthScreen: React.FC<Props> = ({ mode, onSwitchMode, onAuthenticate
           <View style={styles.line} />
         </View>
 
-        <Pressable style={styles.socialBtn} onPress={handleGoogle} disabled={busy}>
-          <Text style={styles.socialLabel}>Google で続ける</Text>
-        </Pressable>
+        {/* Google: 設定済みのときだけフック付きボタンをマウント（未設定時のクラッシュ回避） */}
+        {isGoogleConfigured ? (
+          <GoogleButton
+            busy={busy}
+            onBusy={setBusy}
+            onError={setError}
+            onAuthenticated={onAuthenticated}
+          />
+        ) : (
+          <Pressable
+            style={[styles.socialBtn, { opacity: 0.5 }]}
+            onPress={() =>
+              setError('Google クライアントIDが未設定です（app.json の extra.googleAuth）')
+            }
+          >
+            <Text style={styles.socialLabel}>Google で続ける</Text>
+          </Pressable>
+        )}
 
         {/* Apple サインインは provisioning 対応後に復帰（authConfig.ts 参照） */}
       </View>

@@ -40,6 +40,7 @@ import { VipScreen } from './screens/VipScreen';
 // import { ComponentGallery } from './screens/ComponentGallery'; // 部品デモを見るとき有効化
 
 import {
+  STUB_TRACKS,
   STUB_OWNED,
   STUB_WISHLIST,
   STUB_NOTICES,
@@ -185,7 +186,13 @@ export default function App() {
   return (
     <View style={styles.root}>
       <View style={styles.body}>
-        {tab === 'home' && <DiscoverScreen />}
+        {tab === 'home' && (
+          <DiscoverScreen
+            tracks={STUB_TRACKS}
+            hasUnread
+            onOpenNotifications={() => setOverlay('notifications')}
+          />
+        )}
 
         {tab === 'collection' && (
           <CollectionScreen
