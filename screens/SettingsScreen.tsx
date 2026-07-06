@@ -35,6 +35,8 @@ import {
   StatusBar,
 } from 'react-native';
 import { COLOR, SPACE, RADIUS } from '../constants/design-tokens';
+import { useT } from '../lib/i18n';
+import { useAuthUser } from '../lib/useAuthUser';
 
 const APP_VERSION = '1.0.0';
 
@@ -50,8 +52,6 @@ export type SettingsKey =
   | 'tokushoho';
 
 type Props = {
-  email?: string;
-  language?: string;
   onSelect: (key: SettingsKey) => void;
   onSignOut: () => void;
 };
@@ -59,40 +59,39 @@ type Props = {
 type Row = { key: SettingsKey; label: string; sub?: string; value?: string };
 type Section = { title: string; rows: Row[] };
 
-export const SettingsScreen: React.FC<Props> = ({
-  email = 'naoki@example.com',
-  language = '日本語',
-  onSelect,
-  onSignOut,
-}) => {
+export const SettingsScreen: React.FC<Props> = ({ onSelect, onSignOut }) => {
+  const t = useT();
+  const user = useAuthUser();
+  const email = user?.email ?? t('settings.notLoggedIn');
+
   const sections: Section[] = [
     {
-      title: 'アカウント',
+      title: t('settings.sec.account'),
       rows: [
-        { key: 'account', label: 'アカウント', sub: email },
-        { key: 'restore', label: '購入の復元', sub: '買い切り作品を引き継ぐ' },
+        { key: 'account', label: t('settings.account'), sub: email },
+        { key: 'restore', label: t('settings.restore'), sub: t('settings.restore.sub') },
       ],
     },
     {
-      title: 'CREATOR',
+      title: t('settings.sec.creator'),
       rows: [
-        { key: 'artist', label: 'Artist のご紹介', sub: '作家一覧 → 作家 → 楽曲一覧' },
+        { key: 'artist', label: t('settings.artist'), sub: t('settings.artist.sub') },
       ],
     },
     {
-      title: '一般',
+      title: t('settings.sec.general'),
       rows: [
-        { key: 'language', label: '言語', value: language },
-        { key: 'support', label: 'サポート', sub: 'お問い合わせ' },
+        { key: 'language', label: t('settings.language'), value: t('settings.langName') },
+        { key: 'support', label: t('settings.support'), sub: t('settings.support.sub') },
       ],
     },
     {
-      title: '情報',
+      title: t('settings.sec.info'),
       rows: [
-        { key: 'thanks', label: 'Special Thanks', sub: 'スタッフクレジット・協力者' },
-        { key: 'terms', label: '利用規約' },
-        { key: 'privacy', label: 'プライバシーポリシー' },
-        { key: 'tokushoho', label: '特定商取引法に基づく表記' },
+        { key: 'thanks', label: t('settings.thanks'), sub: t('settings.thanks.sub') },
+        { key: 'terms', label: t('settings.terms') },
+        { key: 'privacy', label: t('settings.privacy') },
+        { key: 'tokushoho', label: t('settings.tokushoho') },
       ],
     },
   ];
@@ -105,7 +104,7 @@ export const SettingsScreen: React.FC<Props> = ({
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.h1}>設定</Text>
+        <Text style={styles.h1}>{t('settings.title')}</Text>
 
         {sections.map((sec) => (
           <View key={sec.title} style={styles.section}>
@@ -134,11 +133,11 @@ export const SettingsScreen: React.FC<Props> = ({
           style={({ pressed }) => [styles.signOut, pressed && { opacity: 0.7 }]}
           onPress={onSignOut}
         >
-          <Text style={styles.signOutText}>サインアウト</Text>
+          <Text style={styles.signOutText}>{t('settings.signout')}</Text>
         </Pressable>
 
         {/* アプリ情報 */}
-        <Text style={styles.version}>FLUX RING　バージョン {APP_VERSION}</Text>
+        <Text style={styles.version}>{t('settings.version', { v: APP_VERSION })}</Text>
       </ScrollView>
     </View>
   );

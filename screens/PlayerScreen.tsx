@@ -28,7 +28,7 @@ import { CardBack } from '../components/CardBack';
 import { PlayMark, LoopIcon } from '../components/icons';
 import { COLOR, SPACE, TRANSPORT } from '../constants/design-tokens';
 import { formatTime } from '../lib/audio';
-import { fullAudioUrl } from '../lib/r2';
+import { fullAudioUrl, previewUrl } from '../lib/r2';
 
 export type PlayerTrack = {
   id: string;
@@ -59,18 +59,30 @@ export const PlayerScreen: React.FC<Props> = ({ track, onBackHome, onOpenStory }
   const player = useAudioPlayer();
   const status = useAudioPlayerStatus(player);
 
-  // フル音源の署名付きURLを取得（所有権は Worker 側で確認）
+  // 音源の取得。フル音源（Worker・所有権確認）→ 失敗時は試聴音源で暫定再生。
   useEffect(() => {
     let alive = true;
     setError(null);
     (async () => {
+      // まずフル音源（署名付き）を試す
       try {
         const url = await fullAudioUrl(track.audioKey);
         if (!alive) return;
         player.replace({ uri: url });
         player.play();
-      } catch (e: any) {
-        if (alive) setError(e?.message ?? '音源を取得できませんでした');
+        return;
+      } catch (fullErr: any) {
+        // Worker 未設定・未ログイン・未所有 等 → 試聴音源にフォールバック（暫定）
+        const pv = previewUrl(track.audioKey);
+        if (pv) {
+          if (!alive) return;
+          player.replace({ uri: pv });
+          player.play();
+          // フル音源が使えない旨は静かに表示（試聴は流れる）
+          setError('※ フル音源が未設定のため試聴音源を再生中');
+          return;
+        }
+        if (alive) setError(fullErr?.message ?? '音源を取得できませんでした');
       }
     })();
     return () => { alive = false; };
@@ -115,6 +127,7 @@ export const PlayerScreen: React.FC<Props> = ({ track, onBackHome, onOpenStory }
         <Card3D
           width={cardW}
           height={cardW * 1.5}
+          thickness={22}
           front={
             <ArtworkCard
               width={cardW}

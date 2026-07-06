@@ -23,69 +23,75 @@ import {
   Linking,
 } from 'react-native';
 import { COLOR, SPACE, RADIUS } from '../constants/design-tokens';
+import { useT, useI18n, Lang } from '../lib/i18n';
+import { useAuthUser } from '../lib/useAuthUser';
 
 // ─────────────────────────────────────────────
 // 共通サブヘッダー（戻る＋タイトル）
 // ─────────────────────────────────────────────
 
-const SubHeader: React.FC<{ title: string; backLabel?: string; onBack: () => void }> = ({
-  title,
-  backLabel = '設定',
-  onBack,
-}) => (
-  <View style={s.header}>
-    <Pressable onPress={onBack} hitSlop={12}>
-      <Text style={s.back}>‹ {backLabel}</Text>
-    </Pressable>
-    <Text style={s.h1}>{title}</Text>
-    <View style={{ width: 60 }} />
-  </View>
-);
+const SubHeader: React.FC<{ title: string; onBack: () => void }> = ({ title, onBack }) => {
+  const t = useT();
+  return (
+    <View style={s.header}>
+      <Pressable onPress={onBack} hitSlop={12}>
+        <Text style={s.back}>‹ {t('settings.title')}</Text>
+      </Pressable>
+      <Text style={s.h1}>{title}</Text>
+      <View style={{ width: 60 }} />
+    </View>
+  );
+};
 
 // ─────────────────────────────────────────────
 // アカウント
 // ─────────────────────────────────────────────
 
 export const AccountScreen: React.FC<{
-  email?: string;
   onBack: () => void;
   onSignOut: () => void;
-}> = ({ email = 'naoki@example.com', onBack, onSignOut }) => (
-  <View style={s.root}>
-    <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
-    <SubHeader title="アカウント" onBack={onBack} />
-    <ScrollView contentContainerStyle={s.body} showsVerticalScrollIndicator={false}>
-      <View style={s.card}>
-        <Text style={s.fieldLabel}>メールアドレス</Text>
-        <Text style={s.fieldValue}>{email}</Text>
-      </View>
+}> = ({ onBack, onSignOut }) => {
+  const t = useT();
+  const user = useAuthUser();
+  const email = user?.email ?? t('settings.notLoggedIn');
+  return (
+    <View style={s.root}>
+      <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
+      <SubHeader title={t('account.title')} onBack={onBack} />
+      <ScrollView contentContainerStyle={s.body} showsVerticalScrollIndicator={false}>
+        <View style={s.card}>
+          <Text style={s.fieldLabel}>{t('account.emailLabel')}</Text>
+          <Text style={s.fieldValue}>{email}</Text>
+        </View>
 
-      {/* TODO: パスワード変更・メール変更（Firebase Auth） */}
-      <Pressable style={s.row} onPress={() => {}}>
-        <Text style={s.rowLabel}>パスワードを変更</Text>
-        <Text style={s.chevron}>›</Text>
-      </Pressable>
+        {/* TODO: パスワード変更・メール変更（Firebase Auth） */}
+        <Pressable style={s.row} onPress={() => {}}>
+          <Text style={s.rowLabel}>{t('account.changePassword')}</Text>
+          <Text style={s.chevron}>›</Text>
+        </Pressable>
 
-      <Pressable
-        style={({ pressed }) => [s.outlineBtn, pressed && { opacity: 0.7 }]}
-        onPress={onSignOut}
-      >
-        <Text style={s.outlineLabel}>サインアウト</Text>
-      </Pressable>
+        <Pressable
+          style={({ pressed }) => [s.outlineBtn, pressed && { opacity: 0.7 }]}
+          onPress={onSignOut}
+        >
+          <Text style={s.outlineLabel}>{t('settings.signout')}</Text>
+        </Pressable>
 
-      {/* TODO: アカウント削除フロー（確認ダイアログ + Firebase 退会処理） */}
-      <Pressable style={s.dangerRow} onPress={() => {}}>
-        <Text style={s.dangerLabel}>アカウントを削除</Text>
-      </Pressable>
-    </ScrollView>
-  </View>
-);
+        {/* TODO: アカウント削除フロー（確認ダイアログ + Firebase 退会処理） */}
+        <Pressable style={s.dangerRow} onPress={() => {}}>
+          <Text style={s.dangerLabel}>{t('account.delete')}</Text>
+        </Pressable>
+      </ScrollView>
+    </View>
+  );
+};
 
 // ─────────────────────────────────────────────
 // 購入の復元
 // ─────────────────────────────────────────────
 
 export const RestoreScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
+  const t = useT();
   const [status, setStatus] = useState<'idle' | 'busy' | 'done'>('idle');
 
   const restore = async () => {
@@ -98,12 +104,9 @@ export const RestoreScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   return (
     <View style={s.root}>
       <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
-      <SubHeader title="購入の復元" onBack={onBack} />
+      <SubHeader title={t('restore.title')} onBack={onBack} />
       <ScrollView contentContainerStyle={s.body} showsVerticalScrollIndicator={false}>
-        <Text style={s.paragraph}>
-          機種変更や再インストールのあとでも、買い切りで手に入れた作品はここから引き継げます。
-          ストアのアカウントに紐づいた購入履歴を確認して、コレクションへ復元します。
-        </Text>
+        <Text style={s.paragraph}>{t('restore.body')}</Text>
 
         <Pressable
           style={({ pressed }) => [s.primaryBtn, (pressed || status === 'busy') && { opacity: 0.7 }]}
@@ -111,13 +114,11 @@ export const RestoreScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           disabled={status === 'busy'}
         >
           <Text style={s.primaryLabel}>
-            {status === 'busy' ? '復元中…' : status === 'done' ? '復元しました' : '購入を復元する'}
+            {status === 'busy' ? t('restore.busy') : status === 'done' ? t('restore.done') : t('restore.button')}
           </Text>
         </Pressable>
 
-        {status === 'done' && (
-          <Text style={s.note}>所有作品をコレクションに反映しました。</Text>
-        )}
+        {status === 'done' && <Text style={s.note}>{t('restore.doneNote')}</Text>}
       </ScrollView>
     </View>
   );
@@ -127,34 +128,23 @@ export const RestoreScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
 // 言語
 // ─────────────────────────────────────────────
 
-const LANGUAGES = [
+const LANGUAGES: { code: Lang; label: string }[] = [
   { code: 'ja', label: '日本語' },
   { code: 'en', label: 'English' },
 ];
 
-export const LanguageScreen: React.FC<{
-  current?: string;
-  onBack: () => void;
-  onSelect?: (code: string) => void;
-}> = ({ current = 'ja', onBack, onSelect }) => {
-  const [sel, setSel] = useState(current);
+export const LanguageScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
+  const t = useT();
+  const { lang, setLang } = useI18n();
   return (
     <View style={s.root}>
       <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
-      <SubHeader title="言語" onBack={onBack} />
+      <SubHeader title={t('language.title')} onBack={onBack} />
       <ScrollView contentContainerStyle={s.body} showsVerticalScrollIndicator={false}>
         {LANGUAGES.map((l) => (
-          <Pressable
-            key={l.code}
-            style={s.row}
-            onPress={() => {
-              setSel(l.code);
-              onSelect?.(l.code);
-              // TODO: i18n（expo-localization + i18n-js）のロケールを切替・永続化
-            }}
-          >
+          <Pressable key={l.code} style={s.row} onPress={() => setLang(l.code)}>
             <Text style={s.rowLabel}>{l.label}</Text>
-            {sel === l.code && <Text style={s.check}>✓</Text>}
+            {lang === l.code && <Text style={s.check}>✓</Text>}
           </Pressable>
         ))}
       </ScrollView>
@@ -166,38 +156,38 @@ export const LanguageScreen: React.FC<{
 // サポート
 // ─────────────────────────────────────────────
 
-export const SupportScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => (
-  <View style={s.root}>
-    <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
-    <SubHeader title="サポート" onBack={onBack} />
-    <ScrollView contentContainerStyle={s.body} showsVerticalScrollIndicator={false}>
-      <Text style={s.paragraph}>
-        ご不明な点や不具合のご報告は、下記よりお問い合わせください。個別ケース（コードの紛失・
-        端末トラブル等）も承ります。
-      </Text>
+export const SupportScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
+  const t = useT();
+  return (
+    <View style={s.root}>
+      <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
+      <SubHeader title={t('support.title')} onBack={onBack} />
+      <ScrollView contentContainerStyle={s.body} showsVerticalScrollIndicator={false}>
+        <Text style={s.paragraph}>{t('support.body')}</Text>
 
-      {/* TODO: 実際の問い合わせ先メール / フォーム URL に差し替え */}
-      <Pressable
-        style={s.row}
-        onPress={() => Linking.openURL('mailto:support@fluxring.app').catch(() => {})}
-      >
-        <View style={s.rowText}>
-          <Text style={s.rowLabel}>メールで問い合わせ</Text>
-          <Text style={s.rowSub}>support@fluxring.app</Text>
-        </View>
-        <Text style={s.chevron}>›</Text>
-      </Pressable>
+        {/* TODO: 実際の問い合わせ先メール / フォーム URL に差し替え */}
+        <Pressable
+          style={s.row}
+          onPress={() => Linking.openURL('mailto:support@fluxring.app').catch(() => {})}
+        >
+          <View style={s.rowText}>
+            <Text style={s.rowLabel}>{t('support.mail')}</Text>
+            <Text style={s.rowSub}>support@fluxring.app</Text>
+          </View>
+          <Text style={s.chevron}>›</Text>
+        </Pressable>
 
-      <Pressable
-        style={s.row}
-        onPress={() => Linking.openURL('https://fluxring.app/faq').catch(() => {})}
-      >
-        <Text style={s.rowLabel}>よくある質問</Text>
-        <Text style={s.chevron}>›</Text>
-      </Pressable>
-    </ScrollView>
-  </View>
-);
+        <Pressable
+          style={s.row}
+          onPress={() => Linking.openURL('https://fluxring.app/faq').catch(() => {})}
+        >
+          <Text style={s.rowLabel}>{t('support.faq')}</Text>
+          <Text style={s.chevron}>›</Text>
+        </Pressable>
+      </ScrollView>
+    </View>
+  );
+};
 
 // ─────────────────────────────────────────────
 // 読み物（Special Thanks / 利用規約 / プライバシー / 特商法）
@@ -252,11 +242,13 @@ export const DocumentScreen: React.FC<{ kind: DocKind; onBack: () => void }> = (
   kind,
   onBack,
 }) => {
+  const t = useT();
   const doc = DOCS[kind];
+  // タイトルは i18n。本文（法務・クレジット）は現状 日本語のまま（別途英訳予定）。
   return (
     <View style={s.root}>
       <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
-      <SubHeader title={doc.title} onBack={onBack} />
+      <SubHeader title={t(`doc.${kind}`)} onBack={onBack} />
       <ScrollView contentContainerStyle={s.body} showsVerticalScrollIndicator={false}>
         <Text style={s.docBody}>{doc.body}</Text>
       </ScrollView>
