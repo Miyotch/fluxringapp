@@ -24,6 +24,7 @@ import {
 } from 'react-native';
 import Animated, { FadeInUp } from 'react-native-reanimated';
 import { ArtworkCard } from '../components/ArtworkCard';
+import { ShuffleIcon } from '../components/icons';
 import { COLOR, SPACE, RADIUS } from '../constants/design-tokens';
 import { useT } from '../lib/i18n';
 
@@ -67,6 +68,13 @@ export const CollectionScreen: React.FC<Props> = ({
   const colW = (screenW - SIDE_PAD * 2 - GRID_GAP * (NUM_COLUMNS - 1)) / NUM_COLUMNS;
 
   const data = seg === 'mine' ? owned : wishlist;
+
+  // 所有曲からランダムに1曲を再生（シャッフル）
+  const handleShuffle = () => {
+    if (owned.length === 0) return;
+    const idx = Math.floor(Math.random() * owned.length);
+    onOpenTrack(owned[idx].id);
+  };
 
   const renderItem = ({ item, index }: { item: CollectionItem; index: number }) => (
     // カードは段階的にふわっと浮き出る（reanimated entering）
@@ -146,6 +154,21 @@ export const CollectionScreen: React.FC<Props> = ({
         </Pressable>
       </View>
 
+      {/* シャッフル（マイコレ・所有2曲以上のときだけ表示。グレーアウトでなく消える） */}
+      {seg === 'mine' && owned.length >= 2 && (
+        <View style={styles.shuffleRow}>
+          <Pressable
+            style={({ pressed }) => [styles.shuffleBtn, pressed && { opacity: 0.7 }]}
+            onPress={handleShuffle}
+            accessibilityRole="button"
+            accessibilityLabel={t('collection.shuffle')}
+          >
+            <ShuffleIcon size={12} color={COLOR.textSecondary} />
+            <Text style={styles.shuffleLabel}>{t('collection.shuffle')}</Text>
+          </Pressable>
+        </View>
+      )}
+
       {/* グリッド or 空状態 */}
       {data.length === 0 ? (
         <View style={styles.empty}>
@@ -201,6 +224,19 @@ const styles = StyleSheet.create({
   segBtnActive: { backgroundColor: 'rgba(96,206,224,0.12)' },
   segText: { color: COLOR.textSecondary, fontSize: 13, letterSpacing: 0.3 },
   segTextActive: { color: COLOR.textPrimary, fontWeight: '600' },
+  shuffleRow: { alignItems: 'flex-end', marginHorizontal: SIDE_PAD, marginBottom: SPACE.sm },
+  shuffleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    paddingVertical: 7,
+    paddingHorizontal: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: COLOR.border,
+    backgroundColor: 'rgba(34,36,69,0.30)',
+  },
+  shuffleLabel: { color: COLOR.textSecondary, fontSize: 10.5, letterSpacing: 1 },
   grid: { paddingHorizontal: SIDE_PAD, paddingBottom: 40, gap: GRID_GAP },
   cell: { marginBottom: GRID_GAP },
   cellMeta: { marginTop: 6, gap: 4 },

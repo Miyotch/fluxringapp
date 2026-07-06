@@ -60,6 +60,7 @@ const JA: Dict = {
   'collection.emptyTitle': 'まだ、ひとつも。',
   'collection.emptyBody': '出会った作品が、ここに静かに集まります。',
   'collection.discover': '作品と出会う',
+  'collection.shuffle': 'シャッフル',
   // 設定
   'settings.title': '設定',
   'settings.sec.account': 'アカウント',
@@ -137,6 +138,7 @@ const EN: Dict = {
   'collection.emptyTitle': 'Nothing yet.',
   'collection.emptyBody': 'Works you meet will quietly gather here.',
   'collection.discover': 'Discover works',
+  'collection.shuffle': 'Shuffle',
   'settings.title': 'Settings',
   'settings.sec.account': 'ACCOUNT',
   'settings.sec.creator': 'CREATOR',
