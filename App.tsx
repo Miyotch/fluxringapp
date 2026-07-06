@@ -77,6 +77,14 @@ function AppInner() {
 
   const goApp = useCallback(() => setPhase('app'), []);
 
+  // タブ切替時は必ずオーバーレイ／設定末端を閉じる
+  // （複数パネルが重なって見える不具合の防止 = v86 対策）
+  const changeTab = useCallback((next: TabScreen) => {
+    setOverlay(null);
+    setSettingsDetail(null);
+    setTab(next);
+  }, []);
+
   // 起動時に一度だけ音声モードを設定（サイレント時再生・バックグラウンド再生）
   useEffect(() => { configureAudioMode(); }, []);
 
@@ -255,7 +263,7 @@ function AppInner() {
       </View>
 
       {/* フッター（タブ群でのみ表示） */}
-      <Footer active={tab} onChange={setTab} vipLocked={!vipUnlocked} />
+      <Footer active={tab} onChange={changeTab} vipLocked={!vipUnlocked} />
     </View>
   );
 }
