@@ -54,11 +54,12 @@ export const STUB_TRACKS: Track[] = [
   },
 ];
 
+// audioKey は R2 の音源キー（preview/{key}.mp3 / full/{key}.mp3）。
+// モックの音源は blue/white/red の3つ想定なので所有曲もこれに揃える。
 export const STUB_OWNED: CollectionItem[] = [
   { id: 't1', title: '冬明け', artworkUrl: img('fuyuake'), owned: true, audioKey: 'blue', glowColor: 'rgba(96,206,224,0.40)' },
-  { id: 't2', title: '星の生まれる夜', artworkUrl: img('hoshi'), owned: true, audioKey: 'hoshi', glowColor: 'rgba(124,98,214,0.40)' },
-  { id: 't3', title: '薄明', artworkUrl: img('hakumei'), owned: true, audioKey: 'white', glowColor: 'rgba(70,132,224,0.40)' },
-  { id: 't4', title: '遠い汽笛', artworkUrl: img('kiteki'), owned: true, audioKey: 'kiteki', glowColor: 'rgba(96,206,224,0.40)' },
+  { id: 't2', title: '薄明', artworkUrl: img('hakumei'), owned: true, audioKey: 'white', glowColor: 'rgba(70,132,224,0.40)' },
+  { id: 't3', title: '遠い灯', artworkUrl: img('toihi'), owned: true, audioKey: 'red', glowColor: 'rgba(219,120,150,0.40)' },
 ];
 
 export const STUB_WISHLIST: CollectionItem[] = [

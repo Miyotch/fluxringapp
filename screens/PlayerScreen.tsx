@@ -10,7 +10,7 @@
  *   ・上部の戻り導線「ホームへ戻る」／右に「ストーリー」
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -51,42 +51,48 @@ export const PlayerScreen: React.FC<Props> = ({ track, onBackHome, onOpenStory }
   const { width: screenW } = useWindowDimensions();
   const cardW = Math.min(screenW - 96, 240);
 
+  const [sourceUri, setSourceUri] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loop, setLoop] = useState(false);
   const [seekW, setSeekW] = useState(1);
+  const autoplayedFor = useRef<string | null>(null);
 
-  // expo-audio プレイヤー（ソースは解決後に replace で流し込む）
-  const player = useAudioPlayer();
+  // expo-audio プレイヤー（ソースをフックに渡して確実に読み込ませる）
+  const player = useAudioPlayer(sourceUri ?? undefined);
   const status = useAudioPlayerStatus(player);
 
-  // 音源の取得。フル音源（Worker・所有権確認）→ 失敗時は試聴音源で暫定再生。
+  // 音源URLを解決：フル音源（Worker・所有権）→ 失敗時は試聴音源にフォールバック
   useEffect(() => {
     let alive = true;
     setError(null);
+    setSourceUri(null);
+    autoplayedFor.current = null;
     (async () => {
-      // まずフル音源（署名付き）を試す
       try {
         const url = await fullAudioUrl(track.audioKey);
-        if (!alive) return;
-        player.replace({ uri: url });
-        player.play();
-        return;
-      } catch (fullErr: any) {
-        // Worker 未設定・未ログイン・未所有 等 → 試聴音源にフォールバック（暫定）
+        if (alive) setSourceUri(url);
+      } catch {
         const pv = previewUrl(track.audioKey);
         if (pv) {
-          if (!alive) return;
-          player.replace({ uri: pv });
-          player.play();
-          // フル音源が使えない旨は静かに表示（試聴は流れる）
-          setError('※ フル音源が未設定のため試聴音源を再生中');
-          return;
+          if (alive) {
+            setSourceUri(pv);
+            setError('※ フル音源が未設定のため試聴音源を再生中');
+          }
+        } else if (alive) {
+          setError('音源が未設定です（app.json の extra.r2 / R2 に音源を配置）');
         }
-        if (alive) setError(fullErr?.message ?? '音源を取得できませんでした');
       }
     })();
     return () => { alive = false; };
-  }, [track.audioKey, player]);
+  }, [track.audioKey]);
+
+  // 読み込めたら一度だけ自動再生
+  useEffect(() => {
+    if (sourceUri && status.isLoaded && autoplayedFor.current !== sourceUri) {
+      autoplayedFor.current = sourceUri;
+      player.play();
+    }
+  }, [sourceUri, status.isLoaded, player]);
 
   // ループ反映
   useEffect(() => { player.loop = loop; }, [loop, player]);
@@ -95,6 +101,7 @@ export const PlayerScreen: React.FC<Props> = ({ track, onBackHome, onOpenStory }
   const position = status.currentTime || 0;
   const playing = status.playing;
   const progress = duration > 0 ? Math.min(1, position / duration) : 0;
+  const loading = !!sourceUri && !status.isLoaded && !error;
 
   const togglePlay = useCallback(() => {
     if (playing) player.pause();
@@ -150,6 +157,7 @@ export const PlayerScreen: React.FC<Props> = ({ track, onBackHome, onOpenStory }
       <View style={styles.meta}>
         <Text style={styles.title} numberOfLines={1}>{track.title}</Text>
         {track.subtitle && <Text style={styles.subtitle} numberOfLines={1}>{track.subtitle}</Text>}
+        {loading && <Text style={styles.subtitle}>読み込み中…</Text>}
         {error && <Text style={styles.err}>{error}</Text>}
       </View>
 
