@@ -36,9 +36,9 @@ function makeBubbles(n: number, w: number): Bubble[] {
   const arr: Bubble[] = [];
   for (let i = 0; i < n; i++) {
     arr.push({
-      x: w * (0.28 + Math.random() * 0.44), // 中央寄りから湧く
-      r: 1 + Math.random() * 3,
-      speed: 0.35 + Math.random() * 0.5,
+      x: w * (0.16 + Math.random() * 0.68), // 中央〜広めに湧く
+      r: 1 + Math.random() * 3.2,
+      speed: 0.32 + Math.random() * 0.55,
       phase: Math.random(),
       wobA: 6 + Math.random() * 16,
       wobS: 1 + Math.random() * 2.2,
@@ -61,7 +61,7 @@ const Bub: React.FC<{
   const cx = useDerivedValue(
     () => b.x + Math.sin((clock.value / 1000) * b.wobS + b.phase * 6.28) * b.wobA,
   );
-  const opacity = useDerivedValue(() => op.value * Math.sin(frac.value * Math.PI) * 0.9);
+  const opacity = useDerivedValue(() => op.value * Math.sin(frac.value * Math.PI) * 0.98);
 
   return (
     <Circle
@@ -83,7 +83,7 @@ type Props = {
 export const RisingBubbles: React.FC<Props> = ({ width, height, onDone }) => {
   const clock = useClock();
   const op = useSharedValue(0);
-  const bubbles = useMemo(() => makeBubbles(42, width), [width]);
+  const bubbles = useMemo(() => makeBubbles(130, width), [width]);
 
   useEffect(() => {
     // 立ち上がり → 維持 → フェードアウト → onDone
