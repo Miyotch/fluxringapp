@@ -17,6 +17,7 @@ import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withSpring,
+  SharedValue,
 } from 'react-native-reanimated';
 import Svg, { Defs, LinearGradient, Stop, Rect } from 'react-native-svg';
 
@@ -30,6 +31,9 @@ type Props = {
   height: number;
   /** 厚み（側面の幅）。既定 14 */
   thickness?: number;
+  /** 背面レイヤー追従用に、回転角・ドラッグ量を外部の SharedValue へ出力（任意） */
+  rotationOut?: SharedValue<number>;
+  dragXOut?: SharedValue<number>;
 };
 
 // 側面（厚み）— ベゼルの縦グラデーション
@@ -48,22 +52,38 @@ const Edge: React.FC<{ thickness: number; height: number }> = ({ thickness, heig
   </Svg>
 );
 
-export const Card3D: React.FC<Props> = ({ front, back, width, height, thickness = 14 }) => {
+export const Card3D: React.FC<Props> = ({
+  front,
+  back,
+  width,
+  height,
+  thickness = 14,
+  rotationOut,
+  dragXOut,
+}) => {
   const rot = useSharedValue(0); // 回転角（度・連続）
   const base = useSharedValue(0);
+  const lifted = useSharedValue(false); // ドロップ後の古いフレーム副作用ガード
 
   const pan = Gesture.Pan()
     .onBegin(() => {
+      lifted.value = false;
       base.value = rot.value;
     })
     .onUpdate((e) => {
+      if (lifted.value) return; // 指を離した後の遅延フレームは無視
       rot.value = base.value + e.translationX * SENS;
+      if (rotationOut) rotationOut.value = rot.value;
+      if (dragXOut) dragXOut.value = e.translationX;
     })
     .onEnd((e) => {
+      lifted.value = true;
       // 慣性を少し足して最寄りの面（180°の倍数）へスナップ
       const projected = rot.value + e.velocityX * SENS * 0.06;
       const snapped = Math.round(projected / 180) * 180;
       rot.value = withSpring(snapped, { damping: 15, stiffness: 90, mass: 0.6 });
+      if (rotationOut) rotationOut.value = withSpring(snapped, { damping: 15, stiffness: 90, mass: 0.6 });
+      if (dragXOut) dragXOut.value = withSpring(0, { damping: 16, stiffness: 120 });
     });
 
   // 各面：rotateY(rot+offset)。カメラを向く（cos>0）ときだけ表示。

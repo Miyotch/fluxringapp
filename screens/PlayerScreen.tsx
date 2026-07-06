@@ -22,9 +22,12 @@ import {
   GestureResponderEvent,
 } from 'react-native';
 import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
+import { useSharedValue, useDerivedValue } from 'react-native-reanimated';
 import { ArtworkCard } from '../components/ArtworkCard';
 import { Card3D } from '../components/Card3D';
 import { CardBack } from '../components/CardBack';
+import { StarSeal } from '../components/StarSeal';
+import { CardBackdrop } from '../components/CardBackdrop';
 import { PlayMark, LoopIcon } from '../components/icons';
 import { COLOR, SPACE, TRANSPORT } from '../constants/design-tokens';
 import { formatTime } from '../lib/audio';
@@ -56,6 +59,23 @@ export const PlayerScreen: React.FC<Props> = ({ track, onBackHome, onOpenStory }
   const [loop, setLoop] = useState(false);
   const [seekW, setSeekW] = useState(1);
   const autoplayedFor = useRef<string | null>(null);
+
+  // 背面レイヤー（StarSeal / CardBackdrop）用
+  const [cardArea, setCardArea] = useState({ w: 0, h: 0 });
+  const cardH = Math.round(cardW * 1.5);
+  // Card3D の回転角（度）・ドラッグ量を購読して背面を追従させる
+  const rotationSV = useSharedValue(0);
+  const dragXSV = useSharedValue(0);
+  const slideFadeSV = useSharedValue(1);
+  // 裏返り進捗（0=表, 1=裏）・表面度（1=表, 0=裏）を回転角から導出
+  const aProgSV = useDerivedValue(
+    () => (1 - Math.cos((rotationSV.value * Math.PI) / 180)) / 2,
+    [rotationSV],
+  );
+  const foreSV = useDerivedValue(
+    () => (Math.cos((rotationSV.value * Math.PI) / 180) + 1) / 2,
+    [rotationSV],
+  );
 
   // expo-audio プレイヤー（ソースをフックに渡して確実に読み込ませる）
   const player = useAudioPlayer(sourceUri ?? undefined);
@@ -130,11 +150,46 @@ export const PlayerScreen: React.FC<Props> = ({ track, onBackHome, onOpenStory }
       </View>
 
       {/* 共有カード（指でなぞって360°回転・厚みつき） */}
-      <View style={styles.cardArea}>
+      <View
+        style={styles.cardArea}
+        onLayout={(ev: LayoutChangeEvent) =>
+          setCardArea({ w: ev.nativeEvent.layout.width, h: ev.nativeEvent.layout.height })
+        }
+      >
+        {/* 背景：調律陣（カード中心に配置） */}
+        {cardArea.w > 0 && (
+          <StarSeal
+            width={cardArea.w}
+            height={cardArea.h}
+            centerX={cardArea.w / 2}
+            centerY={cardArea.h / 2}
+            style={styles.backLayer}
+          />
+        )}
+        {/* カード直下：発光・影レイヤー（ドラッグ追従） */}
+        {cardArea.w > 0 && (
+          <CardBackdrop
+            width={cardArea.w}
+            height={cardArea.h}
+            centerX={cardArea.w / 2}
+            centerY={cardArea.h / 2}
+            cardW={cardW}
+            cardH={cardH}
+            auraA={track.glowColor}
+            auraB={track.glowColor2}
+            dragX={dragXSV}
+            slideFade={slideFadeSV}
+            aProg={aProgSV}
+            fore={foreSV}
+            style={styles.backLayer}
+          />
+        )}
         <Card3D
           width={cardW}
-          height={cardW * 1.5}
+          height={cardH}
           thickness={22}
+          rotationOut={rotationSV}
+          dragXOut={dragXSV}
           front={
             <ArtworkCard
               width={cardW}
@@ -222,6 +277,7 @@ const styles = StyleSheet.create({
   },
   navText: { color: COLOR.textSecondary, fontSize: 13, letterSpacing: 0.4 },
   cardArea: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  backLayer: { position: 'absolute', top: 0, left: 0 },
   meta: { alignItems: 'center', paddingHorizontal: SPACE.xl, gap: 4, marginBottom: SPACE.lg },
   title: { color: COLOR.textPrimary, fontSize: 20, fontWeight: '700', letterSpacing: 0.5 },
   subtitle: { color: COLOR.textSecondary, fontSize: 13, letterSpacing: 0.3 },
