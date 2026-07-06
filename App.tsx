@@ -20,6 +20,7 @@ import { View, StyleSheet } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { configureAudioMode } from './lib/audio';
+import { LanguageProvider } from './lib/i18n';
 
 import { Footer, TabKey } from './components/Footer';
 import { OnboardingScreen } from './screens/OnboardingScreen';
@@ -262,7 +263,9 @@ function AppInner() {
 export default function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <AppInner />
+      <LanguageProvider>
+        <AppInner />
+      </LanguageProvider>
     </GestureHandlerRootView>
   );
 }

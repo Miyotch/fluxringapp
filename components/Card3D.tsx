@@ -81,20 +81,20 @@ export const Card3D: React.FC<Props> = ({ front, back, width, height, thickness 
       transform: [{ perspective: 1000 }, { rotateY: `${a}deg` }],
     };
   });
-  // 側面A：rot≈270 で正面（裏が横向きの瞬間）
+  // 側面A：rot≈270 で正面（裏が横向きの瞬間）。面に向くにつれ滑らかに現れる。
   const edgeA = useAnimatedStyle(() => {
-    const a = rot.value + 90;
+    const c = Math.cos(((rot.value + 90) * Math.PI) / 180);
     return {
-      opacity: Math.cos((a * Math.PI) / 180) > 0.04 ? 1 : 0,
-      transform: [{ perspective: 1000 }, { rotateY: `${a}deg` }],
+      opacity: Math.max(0, Math.min(1, c * 2.4)),
+      transform: [{ perspective: 1000 }, { rotateY: `${rot.value + 90}deg` }],
     };
   });
   // 側面B：rot≈90 で正面（表が横向きの瞬間）
   const edgeB = useAnimatedStyle(() => {
-    const a = rot.value + 270;
+    const c = Math.cos(((rot.value + 270) * Math.PI) / 180);
     return {
-      opacity: Math.cos((a * Math.PI) / 180) > 0.04 ? 1 : 0,
-      transform: [{ perspective: 1000 }, { rotateY: `${a}deg` }],
+      opacity: Math.max(0, Math.min(1, c * 2.4)),
+      transform: [{ perspective: 1000 }, { rotateY: `${rot.value + 270}deg` }],
     };
   });
 

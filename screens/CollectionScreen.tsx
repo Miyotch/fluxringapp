@@ -22,8 +22,10 @@ import {
   StatusBar,
   useWindowDimensions,
 } from 'react-native';
+import Animated, { FadeInUp } from 'react-native-reanimated';
 import { ArtworkCard } from '../components/ArtworkCard';
 import { COLOR, SPACE, RADIUS } from '../constants/design-tokens';
+import { useT } from '../lib/i18n';
 
 export type CollectionItem = {
   id: string;
@@ -56,6 +58,7 @@ export const CollectionScreen: React.FC<Props> = ({
   onBuy,
   onDiscover,
 }) => {
+  const t = useT();
   const { width: screenW } = useWindowDimensions();
   const [seg, setSeg] = useState<Segment>('mine');
 
@@ -64,44 +67,50 @@ export const CollectionScreen: React.FC<Props> = ({
 
   const data = seg === 'mine' ? owned : wishlist;
 
-  const renderItem = ({ item }: { item: CollectionItem }) => (
-    <Pressable
+  const renderItem = ({ item, index }: { item: CollectionItem; index: number }) => (
+    // カードは段階的にふわっと浮き出る（reanimated entering）
+    <Animated.View
+      // seg を key に混ぜて、タブ切替のたびに再アニメーションさせる
+      key={`${seg}-${item.id}`}
+      entering={FadeInUp.duration(420).delay((index % 8) * 55)}
       style={[styles.cell, { width: colW }]}
-      onPress={() => onOpenTrack(item.id)}
     >
-      {/*
-       * ArtworkCard の Canvas はオーラ余白(PAD)分だけ実寸より大きい。
-       * 実寸サイズ(colW × colW*1.5)のコンテナで中央寄せし、Canvas の
-       * はみ出しを左右対称にすることで、画像とタイトルの中心を揃える。
-       */}
-      <View style={{ width: colW, height: colW * 1.5, alignItems: 'center', justifyContent: 'center' }}>
-        <ArtworkCard
-          width={colW}
-          imageUri={item.artworkUrl}
-          glow={item.glowColor}
-          glow2={item.glowColor2}
-          inset={5}
-          subdued
-        />
-      </View>
-      <View style={styles.cellMeta}>
-        <Text style={styles.cellTitle} numberOfLines={1}>{item.title}</Text>
-        {seg === 'mine' ? (
-          <View style={styles.ownedRow}>
-            <View style={styles.ownedDot} />
-            <Text style={styles.ownedText}>所有済み</Text>
-          </View>
-        ) : (
-          // ウィッシュ: 購入ボタン明示（金額タップ購入は審査NG＝ボタンから起動）
-          <Pressable
-            style={({ pressed }) => [styles.buyBtn, pressed && { opacity: 0.85 }]}
-            onPress={() => onBuy(item)}
-          >
-            <Text style={styles.buyLabel}>購入する {item.priceLabel ?? '¥2,500'}</Text>
-          </Pressable>
-        )}
-      </View>
-    </Pressable>
+      <Pressable onPress={() => onOpenTrack(item.id)}>
+        {/*
+         * ArtworkCard の Canvas はオーラ余白(PAD)分だけ実寸より大きい。
+         * 実寸サイズ(colW × colW*1.5)のコンテナで中央寄せし、画像とタイトルの中心を揃える。
+         */}
+        <View style={{ width: colW, height: colW * 1.5, alignItems: 'center', justifyContent: 'center' }}>
+          <ArtworkCard
+            width={colW}
+            imageUri={item.artworkUrl}
+            glow={item.glowColor}
+            glow2={item.glowColor2}
+            inset={5}
+            subdued
+          />
+        </View>
+        <View style={styles.cellMeta}>
+          <Text style={styles.cellTitle} numberOfLines={1}>{item.title}</Text>
+          {seg === 'mine' ? (
+            <View style={styles.ownedRow}>
+              <View style={styles.ownedDot} />
+              <Text style={styles.ownedText}>{t('collection.ownedTag')}</Text>
+            </View>
+          ) : (
+            // ウィッシュ: 購入ボタン明示（金額タップ購入は審査NG＝ボタンから起動）
+            <Pressable
+              style={({ pressed }) => [styles.buyBtn, pressed && { opacity: 0.85 }]}
+              onPress={() => onBuy(item)}
+            >
+              <Text style={styles.buyLabel}>
+                {t('collection.buy', { price: item.priceLabel ?? '¥2,500' })}
+              </Text>
+            </Pressable>
+          )}
+        </View>
+      </Pressable>
+    </Animated.View>
   );
 
   return (
@@ -110,9 +119,9 @@ export const CollectionScreen: React.FC<Props> = ({
 
       {/* ヘッダー（所有数は事実のみ・競わせない） */}
       <View style={styles.header}>
-        <Text style={styles.h1}>コレクション</Text>
+        <Text style={styles.h1}>{t('collection.title')}</Text>
         {seg === 'mine' && (
-          <Text style={styles.count}>{owned.length} の作品を所有</Text>
+          <Text style={styles.count}>{t('collection.ownedCount', { n: owned.length })}</Text>
         )}
       </View>
 
@@ -123,7 +132,7 @@ export const CollectionScreen: React.FC<Props> = ({
           onPress={() => setSeg('mine')}
         >
           <Text style={[styles.segText, seg === 'mine' && styles.segTextActive]}>
-            マイコレクション
+            {t('collection.owned')}
           </Text>
         </Pressable>
         <Pressable
@@ -131,7 +140,7 @@ export const CollectionScreen: React.FC<Props> = ({
           onPress={() => setSeg('wish')}
         >
           <Text style={[styles.segText, seg === 'wish' && styles.segTextActive]}>
-            ウィッシュリスト
+            {t('collection.wishlist')}
           </Text>
         </Pressable>
       </View>
@@ -140,18 +149,20 @@ export const CollectionScreen: React.FC<Props> = ({
       {data.length === 0 ? (
         <View style={styles.empty}>
           <View style={styles.emptyOrb} />
-          <Text style={styles.emptyTitle}>まだ、ひとつも。</Text>
-          <Text style={styles.emptyBody}>出会った作品が、ここに静かに集まります。</Text>
+          <Text style={styles.emptyTitle}>{t('collection.emptyTitle')}</Text>
+          <Text style={styles.emptyBody}>{t('collection.emptyBody')}</Text>
           <Pressable
             style={({ pressed }) => [styles.discoverBtn, pressed && { opacity: 0.8 }]}
             onPress={onDiscover}
           >
-            <Text style={styles.discoverLabel}>作品と出会う</Text>
+            <Text style={styles.discoverLabel}>{t('collection.discover')}</Text>
           </Pressable>
         </View>
       ) : (
         <FlatList
           data={data}
+          // seg を key に含め、タブ切替でリストを作り直して再アニメーション
+          key={seg}
           keyExtractor={(i) => i.id}
           renderItem={renderItem}
           numColumns={2}

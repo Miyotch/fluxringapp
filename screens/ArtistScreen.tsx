@@ -22,6 +22,7 @@ import {
   StatusBar,
   useWindowDimensions,
 } from 'react-native';
+import Animated, { FadeInUp } from 'react-native-reanimated';
 import { ArtworkCard } from '../components/ArtworkCard';
 import { COLOR, SPACE, RADIUS } from '../constants/design-tokens';
 
@@ -143,28 +144,31 @@ export const ArtistScreen: React.FC<Props> = ({
       </View>
       <ScrollView contentContainerStyle={styles.tracksGrid} showsVerticalScrollIndicator={false}>
         <View style={styles.gridRow}>
-          {tracks.map((t) => (
-            <Pressable
+          {tracks.map((t, index) => (
+            // カードは段階的にふわっと浮き出る
+            <Animated.View
               key={t.id}
+              entering={FadeInUp.duration(420).delay((index % 8) * 55)}
               style={[styles.gridCell, { width: colW, opacity: t.owned ? 1 : 0.4 }]}
-              onPress={() => onOpenStory(t.id)}
             >
-              {/* オーラ余白(PAD)を吸収して画像とテキストの中心を揃える */}
-              <View style={{ width: colW, height: colW * 1.5, alignItems: 'center', justifyContent: 'center' }}>
-                <ArtworkCard
-                  width={colW}
-                  imageUri={t.artworkUrl}
-                  glow={t.glowColor}
-                  glow2={t.glowColor2}
-                  inset={5}
-                  subdued
-                />
-              </View>
-              <Text style={styles.gridTitle} numberOfLines={1}>
-                {t.owned ? t.title : '？？？'}
-              </Text>
-              <Text style={styles.gridState}>{t.owned ? '所有=明' : '未所有=影'}</Text>
-            </Pressable>
+              <Pressable onPress={() => onOpenStory(t.id)}>
+                {/* オーラ余白(PAD)を吸収して画像とテキストの中心を揃える */}
+                <View style={{ width: colW, height: colW * 1.5, alignItems: 'center', justifyContent: 'center' }}>
+                  <ArtworkCard
+                    width={colW}
+                    imageUri={t.artworkUrl}
+                    glow={t.glowColor}
+                    glow2={t.glowColor2}
+                    inset={5}
+                    subdued
+                  />
+                </View>
+                <Text style={styles.gridTitle} numberOfLines={1}>
+                  {t.owned ? t.title : '？？？'}
+                </Text>
+                <Text style={styles.gridState}>{t.owned ? '所有=明' : '未所有=影'}</Text>
+              </Pressable>
+            </Animated.View>
           ))}
         </View>
       </ScrollView>

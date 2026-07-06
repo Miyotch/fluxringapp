@@ -14,6 +14,7 @@ import React from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { PlayMark } from './icons';
 import { formatPrice, TRACK_PRICE_JPY } from '../constants/pricing';
+import { useT } from '../lib/i18n';
 
 type Props = {
   owned?: boolean;
@@ -22,12 +23,13 @@ type Props = {
 };
 
 export const BuyButton: React.FC<Props> = ({ owned = false, priceJpy = TRACK_PRICE_JPY, onPress }) => {
+  const t = useT();
   return (
     <Pressable
       onPress={onPress}
       hitSlop={8}
       accessibilityRole="button"
-      accessibilityLabel={owned ? '再生' : `購入する ${formatPrice(priceJpy)}`}
+      accessibilityLabel={owned ? t('buy.play') : `${t('buy.label')} ${formatPrice(priceJpy)}`}
       style={({ pressed }) => [styles.btn, pressed && styles.pressed]}
     >
       {/* 背後の薄いシアン発光（3層グローの近似） */}
@@ -37,7 +39,7 @@ export const BuyButton: React.FC<Props> = ({ owned = false, priceJpy = TRACK_PRI
         <PlayMark size={19} />
       ) : (
         <View style={styles.labelRow}>
-          <Text style={styles.label}>購入する</Text>
+          <Text style={styles.label}>{t('buy.label')}</Text>
           <Text style={styles.price}>{formatPrice(priceJpy)}</Text>
         </View>
       )}

@@ -13,18 +13,19 @@
 import React from 'react';
 import { View, Text, Pressable, StyleSheet, Platform } from 'react-native';
 import { COLOR } from '../constants/design-tokens';
+import { useT } from '../lib/i18n';
 
 export type TabKey = 'home' | 'collection' | 'vip' | 'media' | 'settings';
 
-type TabDef = { key: TabKey; label: string; glyph: string };
+type TabDef = { key: TabKey; labelKey: string; glyph: string };
 
 // グリフは仮（実装時に Skia アイコン or アイコンフォントに差し替え）
 const TABS: TabDef[] = [
-  { key: 'home',       label: 'ホーム',       glyph: '⌂' },
-  { key: 'collection', label: 'コレクション', glyph: '▦' },
-  { key: 'vip',        label: 'VIP',          glyph: '✦' },
-  { key: 'media',      label: 'メディア',     glyph: '◉' },
-  { key: 'settings',   label: '設定',         glyph: '⚙' },
+  { key: 'home',       labelKey: 'tab.home',       glyph: '⌂' },
+  { key: 'collection', labelKey: 'tab.collection', glyph: '▦' },
+  { key: 'vip',        labelKey: 'tab.vip',        glyph: '✦' },
+  { key: 'media',      labelKey: 'tab.media',      glyph: '◉' },
+  { key: 'settings',   labelKey: 'tab.settings',   glyph: '⚙' },
 ];
 
 type FooterProps = {
@@ -35,6 +36,7 @@ type FooterProps = {
 };
 
 export const Footer: React.FC<FooterProps> = ({ active, onChange, vipLocked = true }) => {
+  const t = useT();
   return (
     <View style={styles.bar}>
       {TABS.map((tab) => {
@@ -55,7 +57,7 @@ export const Footer: React.FC<FooterProps> = ({ active, onChange, vipLocked = tr
             hitSlop={8}
             accessibilityRole="tab"
             accessibilityState={{ selected: isActive }}
-            accessibilityLabel={tab.label}
+            accessibilityLabel={t(tab.labelKey)}
           >
             <View style={styles.glyphWrap}>
               <Text style={[styles.glyph, { color: tint }]}>{tab.glyph}</Text>
@@ -68,7 +70,7 @@ export const Footer: React.FC<FooterProps> = ({ active, onChange, vipLocked = tr
               numberOfLines={1}
               adjustsFontSizeToFit
             >
-              {tab.label}
+              {t(tab.labelKey)}
             </Text>
           </Pressable>
         );
