@@ -48,8 +48,9 @@ type Props = {
   onDiscover: () => void;                // 「作品と出会う」→ ディスカバー
 };
 
-const GRID_GAP = 18;
-const SIDE_PAD = 38;
+const NUM_COLUMNS = 3;
+const GRID_GAP = 12;
+const SIDE_PAD = 20;
 
 export const CollectionScreen: React.FC<Props> = ({
   owned,
@@ -62,8 +63,8 @@ export const CollectionScreen: React.FC<Props> = ({
   const { width: screenW } = useWindowDimensions();
   const [seg, setSeg] = useState<Segment>('mine');
 
-  // 2列・列幅 = (画面幅 - 左右padding - 中央gap) / 2
-  const colW = (screenW - SIDE_PAD * 2 - GRID_GAP) / 2;
+  // 3列・列幅 = (画面幅 - 左右padding - 列間gap×(列数-1)) / 列数
+  const colW = (screenW - SIDE_PAD * 2 - GRID_GAP * (NUM_COLUMNS - 1)) / NUM_COLUMNS;
 
   const data = seg === 'mine' ? owned : wishlist;
 
@@ -103,7 +104,7 @@ export const CollectionScreen: React.FC<Props> = ({
               style={({ pressed }) => [styles.buyBtn, pressed && { opacity: 0.85 }]}
               onPress={() => onBuy(item)}
             >
-              <Text style={styles.buyLabel}>
+              <Text style={styles.buyLabel} numberOfLines={1} adjustsFontSizeToFit>
                 {t('collection.buy', { price: item.priceLabel ?? '¥2,500' })}
               </Text>
             </Pressable>
@@ -165,7 +166,7 @@ export const CollectionScreen: React.FC<Props> = ({
           key={seg}
           keyExtractor={(i) => i.id}
           renderItem={renderItem}
-          numColumns={2}
+          numColumns={NUM_COLUMNS}
           columnWrapperStyle={{ gap: GRID_GAP }}
           contentContainerStyle={styles.grid}
           showsVerticalScrollIndicator={false}
@@ -202,20 +203,21 @@ const styles = StyleSheet.create({
   segTextActive: { color: COLOR.textPrimary, fontWeight: '600' },
   grid: { paddingHorizontal: SIDE_PAD, paddingBottom: 40, gap: GRID_GAP },
   cell: { marginBottom: GRID_GAP },
-  cellMeta: { marginTop: SPACE.sm, gap: 6 },
-  cellTitle: { color: COLOR.textPrimary, fontSize: 14, letterSpacing: 0.3 },
-  ownedRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  ownedDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: COLOR.auraCyan },
-  ownedText: { color: COLOR.textSecondary, fontSize: 12 },
+  cellMeta: { marginTop: 6, gap: 4 },
+  // 3列でカードが小さいので文字も小さめ
+  cellTitle: { color: COLOR.textPrimary, fontSize: 11, letterSpacing: 0.2 },
+  ownedRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  ownedDot: { width: 5, height: 5, borderRadius: 2.5, backgroundColor: COLOR.auraCyan },
+  ownedText: { color: COLOR.textSecondary, fontSize: 10 },
   buyBtn: {
-    paddingVertical: 8,
+    paddingVertical: 6,
     borderRadius: RADIUS.sm,
     borderWidth: 1,
     borderColor: COLOR.auraCyan,
     backgroundColor: 'rgba(96,206,224,0.08)',
     alignItems: 'center',
   },
-  buyLabel: { color: COLOR.auraCyan, fontSize: 12, fontWeight: '600', letterSpacing: 0.3 },
+  buyLabel: { color: COLOR.auraCyan, fontSize: 9.5, fontWeight: '600', letterSpacing: 0.2 },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: SPACE.xl, gap: SPACE.md },
   emptyOrb: {
     width: 80,
