@@ -3,13 +3,13 @@
  * ------------------------------------------------------------------
  * 参考: fr_discover_v50.html + component_catalog v50（HTMLは移植せず RN 化）。
  *
- * レイアウト（固定クローム＋縦スワイプのカードページャ）:
+ * レイアウト（固定クローム＋横スワイプのカードページャ）:
  *   ・ブランド「Flux Ring」左上
  *   ・右上: 試聴中の EQ / 通知ベル(未読赤点) / 試聴スピーカー
  *   ・タイトル＋情景の言葉 左上
  *   ・中央: ArtworkCard（hero 明滅・作品オーラ）
  *   ・下部: 発光する購入ボタン ＋ ウィッシュリスト星（所有時は再生＝星非表示）
- *   ・縦スワイプで曲切替（上=次 / 下=前）
+ *   ・横スワイプで曲切替（左=次 / 右=前）
  *
  * フッターは App.tsx が描画（この画面は body 内・フッターの上に収まる）。
  */
@@ -214,19 +214,21 @@ export const DiscoverScreen: React.FC<Props> = ({
       {/* 宇宙の背景（紫グロー＋またたく星） */}
       <StarField />
 
-      {/* 縦スワイプのカードページャ（カードのみ） */}
+      {/* 横スワイプのカードページャ（カードのみ） */}
       {slideH > 0 && (
         <FlatList
           data={tracks}
           keyExtractor={(t) => t.id}
+          horizontal
           pagingEnabled
-          showsVerticalScrollIndicator={false}
+          showsHorizontalScrollIndicator={false}
           onViewableItemsChanged={onViewableItemsChanged}
           viewabilityConfig={viewabilityConfig}
           windowSize={3}
           maxToRenderPerBatch={2}
+          getItemLayout={(_, index) => ({ length: screenW, offset: screenW * index, index })}
           renderItem={({ item, index }) => (
-            <View style={[styles.slide, { height: slideH }]}>
+            <View style={[styles.slide, { width: screenW, height: slideH }]}>
               {/* タップで裏返し（説明面） */}
               <FlipCard
                 active={index === activeIndex}

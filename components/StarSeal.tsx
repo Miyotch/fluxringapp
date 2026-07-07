@@ -5,7 +5,8 @@
  * 単一 Skia <Canvas> を 3層（Group）で構成:
  *   ① ink : 静的な骨格線画（細い白線）
  *   ② glow: ノード/線のグロー（screen 合成 + Blur）
- *   ③ sig : 幾何上を走る通電スパーク（最大36・動的）
+ *   ③ sig : 幾何の線上を走る光点（最大36・シムシティの車のように、
+ *           六芒星の辺・同心円・シューマン線からランダムに道を選んで移動）
  *
  * 幾何はすべて中心 (CX,CY) を原点に極座標で算出（useMemo・中心変化時のみ再計算）。
  * アニメは useClock（breath とスパーク）。paused / reduce-motion で停止（静的表示）。
@@ -48,7 +49,9 @@ type Geometry = {
   circles: { r: number; opacity: number }[];
   schu: number[]; // [x1,y1,x2,y2]
   nodes: Node[];
-  sparkPts: number[]; // flat [x0,y0,x1,y1,...]
+  // 光点が走る「道」: 線分（六芒星の辺＋シューマン線）と円（同心円）
+  roadSegs: number[];  // flat [x1,y1,x2,y2, ...]
+  roadCircs: number[]; // flat [cx,cy,r, ...]
 };
 
 function buildGeometry(cx: number, cy: number): Geometry {
@@ -128,10 +131,14 @@ function buildGeometry(cx: number, cy: number): Geometry {
     { r: 435, opacity: 0.15 },
   ];
 
-  const sparkPts: number[] = [];
-  nodes.forEach((nd) => sparkPts.push(nd.x, nd.y));
+  // 光点の「道」: 六芒星の6辺 ＋ シューマン線（線分）と、同心円3本（円弧）
+  const roadSegs: number[] = [];
+  hexEdges.forEach((e) => roadSegs.push(e[0], e[1], e[2], e[3]));
+  roadSegs.push(schu[0], schu[1], schu[2], schu[3]);
+  const roadCircs: number[] = [];
+  circles.forEach((c) => roadCircs.push(cx, cy, c.r));
 
-  return { hexEdges, circles, schu, nodes, sparkPts };
+  return { hexEdges, circles, schu, nodes, roadSegs, roadCircs };
 }
 
 // 決定論的ハッシュ（0..1）
@@ -143,50 +150,74 @@ function hash(x: number): number {
 
 type SparkParam = { i: number; speed: number; phase: number; color: string };
 
-// ── 1つのスパーク（共有クロックから自分の点滅を導出） ──
+/**
+ * 道上の光点の位置（x/y 共通の計算・worklet）。
+ * 1サイクル = 1本の道（線分 or 円弧）を端から端まで走る。
+ * サイクルごとに hash で「どの道か・向き・（円は）開始角と弧の長さ」を決める
+ * ＝シムシティの車のように、毎回ちがう道をランダムに巡回する。
+ */
+function roadPos(
+  i: number,
+  u: number,
+  segs: number[],
+  circ: number[],
+  axis: 0 | 1, // 0=x, 1=y
+): number {
+  'worklet';
+  const nSeg = segs.length / 4;
+  const nCirc = circ.length / 3;
+  const total = nSeg + nCirc;
+  if (total === 0) return -1000;
+  const cyc = Math.floor(u);
+  const frac = u - cyc;
+  const ri = Math.floor(hash(i * 7.13 + cyc * 3.7) * total) % total;
+  if (ri < nSeg) {
+    // 線分: 向きは半々でランダム
+    const t = hash(i * 1.7 + cyc * 2.3) < 0.5 ? frac : 1 - frac;
+    const o = ri * 4 + axis;
+    return segs[o] + (segs[o + 2] - segs[o]) * t;
+  }
+  // 円弧: 開始角・回転方向・弧の長さ（周の 22〜48%）をランダムに
+  const ci = (ri - nSeg) * 3;
+  const a0 = hash(i * 4.1 + cyc * 5.9) * Math.PI * 2;
+  const dir = hash(i * 3.3 + cyc * 1.9) < 0.5 ? 1 : -1;
+  const arc = (0.22 + hash(i * 6.7 + cyc * 4.3) * 0.26) * Math.PI * 2;
+  const a = a0 + dir * frac * arc;
+  return axis === 0 ? circ[ci] + circ[ci + 2] * Math.cos(a) : circ[ci + 1] + circ[ci + 2] * Math.sin(a);
+}
+
+// ── 1つの光点（共有クロックから自分の走行位置を導出） ──
 const Spark: React.FC<{
   p: SparkParam;
   clock: SharedValue<number>;
-  ptsSV: SharedValue<number[]>;
+  segsSV: SharedValue<number[]>;
+  circsSV: SharedValue<number[]>;
   stopSV: SharedValue<boolean>;
-}> = ({ p, clock, ptsSV, stopSV }) => {
+}> = ({ p, clock, segsSV, circsSV, stopSV }) => {
   const { i, speed, phase } = p;
 
   const cx = useDerivedValue(() => {
     if (stopSV.value) return -1000;
-    const pts = ptsSV.value;
-    const N = pts.length / 2;
-    if (N === 0) return -1000;
     const u = (clock.value / 1000) * speed + phase;
-    const cyc = Math.floor(u);
-    const ni = Math.floor(hash(i * 7.13 + cyc * 3.7) * N) % N;
-    const ox = (hash(i * 1.7 + cyc * 2.3) - 0.5) * 10;
-    return pts[ni * 2] + ox;
+    return roadPos(i, u, segsSV.value, circsSV.value, 0);
   }, [clock]);
 
   const cy = useDerivedValue(() => {
     if (stopSV.value) return -1000;
-    const pts = ptsSV.value;
-    const N = pts.length / 2;
-    if (N === 0) return -1000;
     const u = (clock.value / 1000) * speed + phase;
-    const cyc = Math.floor(u);
-    const ni = Math.floor(hash(i * 7.13 + cyc * 3.7) * N) % N;
-    const oy = (hash(i * 4.1 + cyc * 5.9) - 0.5) * 10;
-    return pts[ni * 2 + 1] + oy;
+    return roadPos(i, u, segsSV.value, circsSV.value, 1);
   }, [clock]);
 
   const opacity = useDerivedValue(() => {
     if (stopSV.value) return 0;
     const u = (clock.value / 1000) * speed + phase;
     const frac = u - Math.floor(u);
-    // 出現→減衰
-    const env = frac < 0.2 ? frac / 0.2 : 1 - (frac - 0.2) / 0.8;
-    // 輝度 基準比 -30%
-    return Math.max(0, env) * 0.7;
+    // 走り始め/終わりでフェード（道の乗り換えを目立たせない）
+    const env = Math.min(frac / 0.12, 1, (1 - frac) / 0.12);
+    return Math.max(0, env) * 0.85;
   }, [clock]);
 
-  return <Circle cx={cx} cy={cy} r={1.6} color={p.color} opacity={opacity} />;
+  return <Circle cx={cx} cy={cy} r={1.8} color={p.color} opacity={opacity} />;
 };
 
 // ─────────────────────────────────────────────
@@ -233,13 +264,15 @@ export const StarSeal: React.FC<StarSealProps> = ({
 
   const clock = useClock();
   const stopSV = useSharedValue<boolean>(paused || reduced);
-  const ptsSV = useSharedValue<number[]>(geo.sparkPts);
+  const segsSV = useSharedValue<number[]>(geo.roadSegs);
+  const circsSV = useSharedValue<number[]>(geo.roadCircs);
   useEffect(() => {
     stopSV.value = paused || reduced;
   }, [paused, reduced, stopSV]);
   useEffect(() => {
-    ptsSV.value = geo.sparkPts;
-  }, [geo.sparkPts, ptsSV]);
+    segsSV.value = geo.roadSegs;
+    circsSV.value = geo.roadCircs;
+  }, [geo.roadSegs, geo.roadCircs, segsSV, circsSV]);
 
   // breath → グロー層の全体明度に br を掛ける
   const glowOpacity = useDerivedValue(() => {
@@ -249,12 +282,12 @@ export const StarSeal: React.FC<StarSealProps> = ({
     return 0.86 + 0.14 * breath;
   }, [clock]);
 
-  // スパークのパラメータ（36個・速度は基準比 -30%）
+  // 光点のパラメータ（36個）。speed はサイクル/秒（1本の道を 3〜8 秒で走る）
   const sparks = useMemo<SparkParam[]>(() => {
     const colors = [CYAN, BLUE, PURPLE];
     return Array.from({ length: SPARK_COUNT }, (_, i) => ({
       i,
-      speed: (0.45 + hash(i * 2.3) * 0.7) * 0.7,
+      speed: 0.12 + hash(i * 2.3) * 0.18,
       phase: hash(i * 9.1),
       color: colors[i % 3],
     }));
@@ -313,7 +346,7 @@ export const StarSeal: React.FC<StarSealProps> = ({
         ))}
       </Group>
 
-      {/* ③ sig：通電スパーク（screen 合成 + Blur） */}
+      {/* ③ sig：幾何の線上を走る光点（screen 合成 + Blur） */}
       <Group
         layer={
           <Paint blendMode="screen">
@@ -322,7 +355,7 @@ export const StarSeal: React.FC<StarSealProps> = ({
         }
       >
         {sparks.map((p) => (
-          <Spark key={p.i} p={p} clock={clock} ptsSV={ptsSV} stopSV={stopSV} />
+          <Spark key={p.i} p={p} clock={clock} segsSV={segsSV} circsSV={circsSV} stopSV={stopSV} />
         ))}
       </Group>
     </Canvas>

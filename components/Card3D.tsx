@@ -5,14 +5,21 @@
  * 一周（360°）できる。指を離すと最寄りの面（表/裏）にスナップ。
  * 表・裏の2面に加え、側面（厚み）を出して「薄い紙」に見えないようにする。
  *
+ * 入力: RN 標準の PanResponder（純JS・追加ネイティブモジュール不要）。
+ *   以前は react-native-gesture-handler の GestureDetector を使っていたが、
+ *   ビルドによってジェスチャーが発火せず回転できない事例があったため、
+ *   どのビルドでも確実に動く PanResponder へ移行した。
+ * 描画: Reanimated の transform（perspective + rotateY）。RN の transform は
+ *   GPU（iOS=Metal / Android=OpenGL）で合成されるため、回転の描画自体は
+ *   常にハードウェアアクセラレーションされる。
+ *
  * RN は CSS の preserve-3d を持たないため、各面/側面に個別の rotateY を与え、
  * カメラを向いている面だけ opacity=1 にする擬似3D。側面は上白→シアンの
  * ベゼルグラデーション（component_catalog の「ガラスの縁」語彙）。
  */
 
-import React from 'react';
-import { View, StyleSheet } from 'react-native';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import React, { useMemo, useRef } from 'react';
+import { View, StyleSheet, PanResponder } from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -62,29 +69,48 @@ export const Card3D: React.FC<Props> = ({
   dragXOut,
 }) => {
   const rot = useSharedValue(0); // 回転角（度・連続）
-  const base = useSharedValue(0);
-  const lifted = useSharedValue(false); // ドロップ後の古いフレーム副作用ガード
+  const base = useRef(0); // ドラッグ開始時の回転角
+  const lifted = useRef(false); // ドロップ後の古いイベント副作用ガード
 
-  const pan = Gesture.Pan()
-    .onBegin(() => {
-      lifted.value = false;
-      base.value = rot.value;
-    })
-    .onUpdate((e) => {
-      if (lifted.value) return; // 指を離した後の遅延フレームは無視
-      rot.value = base.value + e.translationX * SENS;
-      if (rotationOut) rotationOut.value = rot.value;
-      if (dragXOut) dragXOut.value = e.translationX;
-    })
-    .onEnd((e) => {
-      lifted.value = true;
-      // 慣性を少し足して最寄りの面（180°の倍数）へスナップ
-      const projected = rot.value + e.velocityX * SENS * 0.06;
-      const snapped = Math.round(projected / 180) * 180;
-      rot.value = withSpring(snapped, { damping: 15, stiffness: 90, mass: 0.6 });
-      if (rotationOut) rotationOut.value = withSpring(snapped, { damping: 15, stiffness: 90, mass: 0.6 });
-      if (dragXOut) dragXOut.value = withSpring(0, { damping: 16, stiffness: 120 });
-    });
+  const pan = useMemo(
+    () =>
+      PanResponder.create({
+        // カード上のタッチは即座に掴む（カード内部にボタン類はない）
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dx) > 2,
+        onPanResponderTerminationRequest: () => false,
+        onPanResponderGrant: () => {
+          lifted.current = false;
+          base.current = rot.value; // スナップ中でも現在角から続きを回せる
+        },
+        onPanResponderMove: (_e, g) => {
+          if (lifted.current) return; // 指を離した後の遅延イベントは無視
+          const next = base.current + g.dx * SENS;
+          rot.value = next;
+          if (rotationOut) rotationOut.value = next;
+          if (dragXOut) dragXOut.value = g.dx;
+        },
+        onPanResponderRelease: (_e, g) => {
+          lifted.current = true;
+          // 慣性を少し足して最寄りの面（180°の倍数）へスナップ
+          // ※ g.vx は px/ms（gesture-handler の velocityX=px/s と単位が違う）
+          const projected = rot.value + g.vx * 1000 * SENS * 0.06;
+          const snapped = Math.round(projected / 180) * 180;
+          rot.value = withSpring(snapped, { damping: 15, stiffness: 90, mass: 0.6 });
+          if (rotationOut) rotationOut.value = withSpring(snapped, { damping: 15, stiffness: 90, mass: 0.6 });
+          if (dragXOut) dragXOut.value = withSpring(0, { damping: 16, stiffness: 120 });
+        },
+        onPanResponderTerminate: () => {
+          lifted.current = true;
+          const snapped = Math.round(rot.value / 180) * 180;
+          rot.value = withSpring(snapped, { damping: 15, stiffness: 90, mass: 0.6 });
+          if (rotationOut) rotationOut.value = withSpring(snapped, { damping: 15, stiffness: 90, mass: 0.6 });
+          if (dragXOut) dragXOut.value = withSpring(0, { damping: 16, stiffness: 120 });
+        },
+      }),
+    // rot は SharedValue（参照は不変）なので deps は出力先のみ
+    [rotationOut, dragXOut],
+  );
 
   // 各面：rotateY(rot+offset)。カメラを向く（cos>0）ときだけ表示。
   const faceFront = useAnimatedStyle(() => {
@@ -119,21 +145,19 @@ export const Card3D: React.FC<Props> = ({
   });
 
   return (
-    <GestureDetector gesture={pan}>
-      <View style={styles.stage}>
-        {/* 表（front がコンテナサイズを決める） */}
-        <Animated.View style={[styles.face, faceFront]}>{front}</Animated.View>
-        {/* 裏 */}
-        <Animated.View style={[styles.centered, faceBack]}>{back}</Animated.View>
-        {/* 側面（厚み） */}
-        <Animated.View style={[styles.centered, edgeA]}>
-          <Edge thickness={thickness} height={height} />
-        </Animated.View>
-        <Animated.View style={[styles.centered, edgeB]}>
-          <Edge thickness={thickness} height={height} />
-        </Animated.View>
-      </View>
-    </GestureDetector>
+    <View style={styles.stage} {...pan.panHandlers}>
+      {/* 表（front がコンテナサイズを決める） */}
+      <Animated.View style={[styles.face, faceFront]}>{front}</Animated.View>
+      {/* 裏（タッチは外側の stage で受けるため素通し） */}
+      <Animated.View style={[styles.centered, faceBack]} pointerEvents="none">{back}</Animated.View>
+      {/* 側面（厚み） */}
+      <Animated.View style={[styles.centered, edgeA]} pointerEvents="none">
+        <Edge thickness={thickness} height={height} />
+      </Animated.View>
+      <Animated.View style={[styles.centered, edgeB]} pointerEvents="none">
+        <Edge thickness={thickness} height={height} />
+      </Animated.View>
+    </View>
   );
 };
 
