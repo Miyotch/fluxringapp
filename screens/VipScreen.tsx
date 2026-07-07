@@ -92,13 +92,14 @@ const VipUnlocked: React.FC<{ cards: VipCard[]; onSubmitCode?: (code: string) =>
   // フリップ（0=表 / 1=裏）。スワイプでゆっくり裏返る想定 → ボタンで代用
   const flip = useSharedValue(0);
 
+  // 2D 変換のみ（scaleX=|cos| の横圧縮）。rotateY 3D は iPad で描画不具合を起こすため不使用
   const frontStyle = useAnimatedStyle(() => ({
     opacity: interpolate(flip.value, [0, 0.5, 1], [1, 0, 0]),
-    transform: [{ rotateY: `${interpolate(flip.value, [0, 1], [0, 180])}deg` }],
+    transform: [{ scaleX: Math.max(Math.abs(Math.cos(flip.value * Math.PI)), 0.001) }],
   }));
   const backStyle = useAnimatedStyle(() => ({
     opacity: interpolate(flip.value, [0, 0.5, 1], [0, 0, 1]),
-    transform: [{ rotateY: `${interpolate(flip.value, [0, 1], [180, 360])}deg` }],
+    transform: [{ scaleX: Math.max(Math.abs(Math.cos(flip.value * Math.PI)), 0.001) }],
   }));
 
   const toggleFlip = () => {
@@ -210,7 +211,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACE.lg,
   },
   cardStage: { alignItems: 'center', justifyContent: 'center', marginTop: SPACE.lg },
-  cardFace: { backfaceVisibility: 'hidden', alignItems: 'center', justifyContent: 'center' },
+  cardFace: { alignItems: 'center', justifyContent: 'center' },
   cardBack: {
     position: 'absolute',
     borderRadius: RADIUS.card,

@@ -4,20 +4,19 @@
  * 再生画面（プレイヤー）専用。横方向のドラッグで Y 軸まわりに回転し、
  * 何周でも回せる。指を離すと慣性つきで最寄りの面（表/裏）にスナップ。
  *
- * 入力方式（v3・スクロール駆動）:
- *   gesture-handler（v1）→ PanResponder（v2）のどちらもビルドによって
- *   ドラッグが拾えない事例があったため、透明な横スクロール ScrollView を
- *   カードに重ね、そのスクロール量から回転角を導出する方式へ変更。
- *   スクロールはリストと同じ OS ネイティブのタッチ処理なので、
- *   どのビルドでも必ず反応する。snapToInterval=半回転で、離すと
- *   ネイティブの減速→表/裏スナップが自動で得られる。
+ * 入力（スクロール駆動）:
+ *   透明な横スクロール ScrollView をカードに重ね、スクロール量から回転角を
+ *   導出する。リストと同じ OS ネイティブのタッチ処理なので必ず反応する。
+ *   snapToInterval=半回転で、離すとネイティブの減速→表/裏スナップ。
  *
- * 描画: Reanimated の transform（perspective + rotateY）。RN の transform
- *   は GPU（iOS=Metal / Android=OpenGL）で合成される。
- *
- * RN は CSS の preserve-3d を持たないため、各面/側面に個別の rotateY を与え、
- * カメラを向いている面だけ opacity=1 にする擬似3D。側面は上白→シアンの
- * ベゼルグラデーション（component_catalog の「ガラスの縁」語彙）。
+ * 描画（v4・2D変換のみ）:
+ *   以前は perspective + rotateY + backfaceVisibility の擬似3Dだったが、
+ *   iPad（New Architecture）で 0° 以外の角度になると画面の半分が
+ *   描画されなくなる致命的な不具合を起こした（iOS の 3D 透視変換の
+ *   レイヤー合成バグ）。そのため 3D 変換を全廃し、横方向の圧縮
+ *   scaleX = |cos θ| で回転を表現する古典的カードフリップに変更。
+ *   2D 変換のみなのでどの環境でも安全に描画される。
+ *   90°/270° 付近では側面（厚みのベゼル）が現れ、立体感を補う。
  */
 
 import React, { useRef, useCallback } from 'react';
@@ -34,7 +33,7 @@ import Svg, { Defs, LinearGradient, Stop, Rect } from 'react-native-svg';
 
 const SENS = 0.7; // 1px ドラッグあたりの回転角（度）
 const HALF_TURN_PX = 180 / SENS; // 半回転（表↔裏）に必要なスクロール量 ≈ 257px
-const TURNS = 20; // 中央から左右に取れる半回転の数（偶数にする: 初期位置=表）
+const TURNS = 4; // 中央から左右に取れる半回転の数（偶数にする: 初期位置=表）
 
 type Props = {
   front: React.ReactNode;
@@ -112,37 +111,30 @@ export const Card3D: React.FC<Props> = ({
     },
   });
 
-  // 各面：rotateY(rot+offset)。カメラを向く（cos>0）ときだけ表示。
+  // 表: cos>0 の間だけ表示。横圧縮 |cos| で回転を表現（2D のみ）
   const faceFront = useAnimatedStyle(() => {
-    const a = (initialX - scrollX.value) * SENS;
+    const a = ((initialX - scrollX.value) * SENS * Math.PI) / 180;
+    const c = Math.cos(a);
     return {
-      opacity: Math.cos((a * Math.PI) / 180) > 0.04 ? 1 : 0,
-      transform: [{ perspective: 1000 }, { rotateY: `${a}deg` }],
+      opacity: c > 0.02 ? 1 : 0,
+      transform: [{ scaleX: Math.max(Math.abs(c), 0.001) }],
     };
   });
+  // 裏: cos<0 の間だけ表示
   const faceBack = useAnimatedStyle(() => {
-    const a = (initialX - scrollX.value) * SENS + 180;
+    const a = ((initialX - scrollX.value) * SENS * Math.PI) / 180;
+    const c = Math.cos(a);
     return {
-      opacity: Math.cos((a * Math.PI) / 180) > 0.04 ? 1 : 0,
-      transform: [{ perspective: 1000 }, { rotateY: `${a}deg` }],
+      opacity: c < -0.02 ? 1 : 0,
+      transform: [{ scaleX: Math.max(Math.abs(c), 0.001) }],
     };
   });
-  // 側面A：rot≈270 で正面（裏が横向きの瞬間）。面に向くにつれ滑らかに現れる。
-  const edgeA = useAnimatedStyle(() => {
-    const rot = (initialX - scrollX.value) * SENS;
-    const c = Math.cos(((rot + 90) * Math.PI) / 180);
+  // 側面（厚み）: 90°/270° 付近（面がほぼ潰れた時）にだけ現れる
+  const edgeStyle = useAnimatedStyle(() => {
+    const a = ((initialX - scrollX.value) * SENS * Math.PI) / 180;
+    const c = Math.abs(Math.cos(a));
     return {
-      opacity: Math.max(0, Math.min(1, c * 2.4)),
-      transform: [{ perspective: 1000 }, { rotateY: `${rot + 90}deg` }],
-    };
-  });
-  // 側面B：rot≈90 で正面（表が横向きの瞬間）
-  const edgeB = useAnimatedStyle(() => {
-    const rot = (initialX - scrollX.value) * SENS;
-    const c = Math.cos(((rot + 270) * Math.PI) / 180);
-    return {
-      opacity: Math.max(0, Math.min(1, c * 2.4)),
-      transform: [{ perspective: 1000 }, { rotateY: `${rot + 270}deg` }],
+      opacity: Math.max(0, Math.min(1, (0.28 - c) * 6)),
     };
   });
 
@@ -153,10 +145,7 @@ export const Card3D: React.FC<Props> = ({
       {/* 裏 */}
       <Animated.View style={[styles.centered, faceBack]} pointerEvents="none">{back}</Animated.View>
       {/* 側面（厚み） */}
-      <Animated.View style={[styles.centered, edgeA]} pointerEvents="none">
-        <Edge thickness={thickness} height={height} />
-      </Animated.View>
-      <Animated.View style={[styles.centered, edgeB]} pointerEvents="none">
+      <Animated.View style={[styles.centered, edgeStyle]} pointerEvents="none">
         <Edge thickness={thickness} height={height} />
       </Animated.View>
 
@@ -192,7 +181,6 @@ const styles = StyleSheet.create({
     bottom: 0,
     alignItems: 'center',
     justifyContent: 'center',
-    backfaceVisibility: 'hidden',
   },
   handle: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
 });
