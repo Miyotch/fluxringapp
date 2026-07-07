@@ -85,6 +85,17 @@ export const SkipIcon: React.FC<IconProps> = ({ size = 16, color = '#BFE8F1' }) 
   </Svg>
 );
 
+// シャッフル
+export const ShuffleIcon: React.FC<IconProps> = ({ size = 14, color = COLOR.textSecondary }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+    <Path d="M16 3h5v5" stroke={color} strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" />
+    <Path d="M4 20L21 3" stroke={color} strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" />
+    <Path d="M21 16v5h-5" stroke={color} strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" />
+    <Path d="M15 15l6 6" stroke={color} strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" />
+    <Path d="M4 4l5 5" stroke={color} strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" />
+  </Svg>
+);
+
 // ウィッシュリスト星。on で塗り。
 export const StarIcon: React.FC<IconProps & { filled?: boolean }> = ({
   size = 19,

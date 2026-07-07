@@ -24,6 +24,7 @@ import {
 } from 'react-native';
 import Animated, { FadeInUp } from 'react-native-reanimated';
 import { ArtworkCard } from '../components/ArtworkCard';
+import { ShuffleIcon } from '../components/icons';
 import { COLOR, SPACE, RADIUS } from '../constants/design-tokens';
 import { useT } from '../lib/i18n';
 
@@ -48,8 +49,9 @@ type Props = {
   onDiscover: () => void;                // 「作品と出会う」→ ディスカバー
 };
 
-const GRID_GAP = 18;
-const SIDE_PAD = 38;
+const NUM_COLUMNS = 3;
+const GRID_GAP = 12;
+const SIDE_PAD = 20;
 
 export const CollectionScreen: React.FC<Props> = ({
   owned,
@@ -62,10 +64,17 @@ export const CollectionScreen: React.FC<Props> = ({
   const { width: screenW } = useWindowDimensions();
   const [seg, setSeg] = useState<Segment>('mine');
 
-  // 2列・列幅 = (画面幅 - 左右padding - 中央gap) / 2
-  const colW = (screenW - SIDE_PAD * 2 - GRID_GAP) / 2;
+  // 3列・列幅 = (画面幅 - 左右padding - 列間gap×(列数-1)) / 列数
+  const colW = (screenW - SIDE_PAD * 2 - GRID_GAP * (NUM_COLUMNS - 1)) / NUM_COLUMNS;
 
   const data = seg === 'mine' ? owned : wishlist;
+
+  // 所有曲からランダムに1曲を再生（シャッフル）
+  const handleShuffle = () => {
+    if (owned.length === 0) return;
+    const idx = Math.floor(Math.random() * owned.length);
+    onOpenTrack(owned[idx].id);
+  };
 
   const renderItem = ({ item, index }: { item: CollectionItem; index: number }) => (
     // カードは段階的にふわっと浮き出る（reanimated entering）
@@ -103,7 +112,7 @@ export const CollectionScreen: React.FC<Props> = ({
               style={({ pressed }) => [styles.buyBtn, pressed && { opacity: 0.85 }]}
               onPress={() => onBuy(item)}
             >
-              <Text style={styles.buyLabel}>
+              <Text style={styles.buyLabel} numberOfLines={1} adjustsFontSizeToFit>
                 {t('collection.buy', { price: item.priceLabel ?? '¥2,500' })}
               </Text>
             </Pressable>
@@ -145,6 +154,21 @@ export const CollectionScreen: React.FC<Props> = ({
         </Pressable>
       </View>
 
+      {/* シャッフル（マイコレ・所有2曲以上のときだけ表示。グレーアウトでなく消える） */}
+      {seg === 'mine' && owned.length >= 2 && (
+        <View style={styles.shuffleRow}>
+          <Pressable
+            style={({ pressed }) => [styles.shuffleBtn, pressed && { opacity: 0.7 }]}
+            onPress={handleShuffle}
+            accessibilityRole="button"
+            accessibilityLabel={t('collection.shuffle')}
+          >
+            <ShuffleIcon size={12} color={COLOR.textSecondary} />
+            <Text style={styles.shuffleLabel}>{t('collection.shuffle')}</Text>
+          </Pressable>
+        </View>
+      )}
+
       {/* グリッド or 空状態 */}
       {data.length === 0 ? (
         <View style={styles.empty}>
@@ -165,7 +189,7 @@ export const CollectionScreen: React.FC<Props> = ({
           key={seg}
           keyExtractor={(i) => i.id}
           renderItem={renderItem}
-          numColumns={2}
+          numColumns={NUM_COLUMNS}
           columnWrapperStyle={{ gap: GRID_GAP }}
           contentContainerStyle={styles.grid}
           showsVerticalScrollIndicator={false}
@@ -200,22 +224,36 @@ const styles = StyleSheet.create({
   segBtnActive: { backgroundColor: 'rgba(96,206,224,0.12)' },
   segText: { color: COLOR.textSecondary, fontSize: 13, letterSpacing: 0.3 },
   segTextActive: { color: COLOR.textPrimary, fontWeight: '600' },
+  shuffleRow: { alignItems: 'flex-end', marginHorizontal: SIDE_PAD, marginBottom: SPACE.sm },
+  shuffleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    paddingVertical: 7,
+    paddingHorizontal: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: COLOR.border,
+    backgroundColor: 'rgba(34,36,69,0.30)',
+  },
+  shuffleLabel: { color: COLOR.textSecondary, fontSize: 10.5, letterSpacing: 1 },
   grid: { paddingHorizontal: SIDE_PAD, paddingBottom: 40, gap: GRID_GAP },
   cell: { marginBottom: GRID_GAP },
-  cellMeta: { marginTop: SPACE.sm, gap: 6 },
-  cellTitle: { color: COLOR.textPrimary, fontSize: 14, letterSpacing: 0.3 },
-  ownedRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  ownedDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: COLOR.auraCyan },
-  ownedText: { color: COLOR.textSecondary, fontSize: 12 },
+  cellMeta: { marginTop: 6, gap: 4 },
+  // 3列でカードが小さいので文字も小さめ
+  cellTitle: { color: COLOR.textPrimary, fontSize: 11, letterSpacing: 0.2 },
+  ownedRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  ownedDot: { width: 5, height: 5, borderRadius: 2.5, backgroundColor: COLOR.auraCyan },
+  ownedText: { color: COLOR.textSecondary, fontSize: 10 },
   buyBtn: {
-    paddingVertical: 8,
+    paddingVertical: 6,
     borderRadius: RADIUS.sm,
     borderWidth: 1,
     borderColor: COLOR.auraCyan,
     backgroundColor: 'rgba(96,206,224,0.08)',
     alignItems: 'center',
   },
-  buyLabel: { color: COLOR.auraCyan, fontSize: 12, fontWeight: '600', letterSpacing: 0.3 },
+  buyLabel: { color: COLOR.auraCyan, fontSize: 9.5, fontWeight: '600', letterSpacing: 0.2 },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: SPACE.xl, gap: SPACE.md },
   emptyOrb: {
     width: 80,
