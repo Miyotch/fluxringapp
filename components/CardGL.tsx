@@ -20,17 +20,20 @@
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, StyleSheet, PanResponder, StyleProp, ViewStyle } from 'react-native';
+import { View, PanResponder, StyleProp, ViewStyle } from 'react-native';
 import { Canvas, useFrame } from '@react-three/fiber/native';
 import * as THREE from 'three';
 import { TextureLoader } from 'expo-three';
 import { Asset } from 'expo-asset';
 import { withSpring, SharedValue } from 'react-native-reanimated';
+import { renderCardBackPixels } from '../lib/cardBackTexture';
+import type { CardBackData } from './CardBack';
 
 // カードの見かけ比率は 2:3。ワールド単位で W×H×D（D=厚み）。
 const W = 1.3;
 const H = W * 1.5;
-const DEPTH_RATIO = 0.045; // 幅に対する厚み（2〜3mm 相当・実機調整ポイント）
+// 実カード幅を 63mm とし、厚み 1mm 想定 → 1/63 ≈ 0.016（実機調整ポイント）
+const DEPTH_RATIO = 0.016;
 const SENS = 0.55; // 1px ドラッグあたりの回転角（度）
 const DECAY = 3.0; // 慣性の指数減衰（大きいほど早く止まる・実機調整ポイント）
 const STOP_DEG_PER_SEC = 2; // これ未満の角速度で停止
@@ -88,11 +91,33 @@ function makeBrushedTexture(): THREE.DataTexture {
 const CardMesh: React.FC<{
   spin: React.MutableRefObject<SpinState>;
   frontUri: string;
+  backData?: CardBackData;
   rotationOut?: SharedValue<number>;
-}> = ({ spin, frontUri, rotationOut }) => {
+}> = ({ spin, frontUri, backData, rotationOut }) => {
   const meshRef = useRef<THREE.Mesh>(null);
   const [frontTex, setFrontTex] = useState<THREE.Texture | null>(null);
   const brushed = useMemo(makeBrushedTexture, []);
+
+  // 裏面: ホームの CardBack と同デザインを Skia で焼き込み → DataTexture
+  const backTex = useMemo(() => {
+    if (!backData) return null;
+    try {
+      const res = renderCardBackPixels(backData, 512, 768);
+      if (!res) return null;
+      // three は v=0 が下端 → Skia（上端origin）の行順を反転
+      const { pixels, width: tw, height: th } = res;
+      const flipped = new Uint8Array(pixels.length);
+      const row = tw * 4;
+      for (let y = 0; y < th; y++) {
+        flipped.set(pixels.subarray((th - 1 - y) * row, (th - y) * row), y * row);
+      }
+      const t = new THREE.DataTexture(flipped, tw, th, THREE.RGBAFormat);
+      t.needsUpdate = true;
+      return t;
+    } catch {
+      return null;
+    }
+  }, [backData]);
 
   // 作品画像テクスチャの読み込み（remote → ローカルへ落としてから）
   useEffect(() => {
@@ -150,8 +175,13 @@ const CardMesh: React.FC<{
       <meshStandardMaterial attach="material-3" color="#5E7C8A" metalness={0.9} roughness={0.32} />
       {/* 表: 作品画像（ライト非依存で鮮明に） */}
       <meshBasicMaterial attach="material-4" map={frontTex ?? undefined} color={frontTex ? '#ffffff' : '#222338'} />
-      {/* 裏: ブラッシュドアルミ（縦ヘアライン・金属） */}
-      <meshStandardMaterial attach="material-5" map={brushed} metalness={0.72} roughness={0.4} color="#c9ced6" />
+      {/* 裏: アルミ縦磨き＋刻印（ホームの CardBack と同デザインの焼き込み）。
+          文字の判読性を優先しライト非依存。生成失敗時は素のヘアラインへ */}
+      {backTex ? (
+        <meshBasicMaterial attach="material-5" map={backTex} />
+      ) : (
+        <meshStandardMaterial attach="material-5" map={brushed} metalness={0.72} roughness={0.4} color="#c9ced6" />
+      )}
     </mesh>
   );
 };
@@ -162,6 +192,8 @@ export type CardGLProps = {
   /** レイアウト上の表示サイズ(px) */
   width: number;
   height: number;
+  /** 裏面の刻印内容（ホームの CardBack と同デザイン） */
+  backData?: CardBackData;
   /** 背面レイヤー追従用（任意・度 / px） */
   rotationOut?: SharedValue<number>;
   dragXOut?: SharedValue<number>;
@@ -172,6 +204,7 @@ export const CardGL: React.FC<CardGLProps> = ({
   frontUri,
   width,
   height,
+  backData,
   rotationOut,
   dragXOut,
   style,
@@ -222,25 +255,35 @@ export const CardGL: React.FC<CardGLProps> = ({
     [dragXOut],
   );
 
+  // 描画キャンバスはカードの対角線サイズの正方形にし、レイアウト枠から
+  // はみ出して重ねる。横長の向き（90°回転など）でもカードの長辺が
+  // 収まり、端で切れない。カメラ距離を D/height 倍して見かけの
+  // カードサイズは従来と同一に保つ。
+  const D = Math.ceil(Math.hypot(width, height)) + 8;
+  const camZ = (3.4 * D) / height;
+
   return (
     <View style={[{ width, height }, style]} {...pan.panHandlers}>
       <Canvas
-        style={styles.canvas}
-        camera={{ position: [0, 0, 3.4], fov: 40 }}
+        style={{
+          position: 'absolute',
+          left: (width - D) / 2,
+          top: (height - D) / 2,
+          width: D,
+          height: D,
+          backgroundColor: 'transparent',
+        }}
+        camera={{ position: [0, 0, camZ], fov: 40 }}
         gl={{ alpha: true }}
       >
         {/* 透明背景（Skia のオーラ/調律陣を透過させる） */}
         <ambientLight intensity={0.65} />
         <directionalLight position={[2.5, 3, 4]} intensity={1.25} />
         <pointLight position={[-3, 1.5, 3]} intensity={0.8} color="#7fdcf0" />
-        <CardMesh spin={spin} frontUri={frontUri} rotationOut={rotationOut} />
+        <CardMesh spin={spin} frontUri={frontUri} backData={backData} rotationOut={rotationOut} />
       </Canvas>
     </View>
   );
 };
-
-const styles = StyleSheet.create({
-  canvas: { flex: 1, backgroundColor: 'transparent' },
-});
 
 export default CardGL;

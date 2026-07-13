@@ -49,7 +49,7 @@ type Props = {
 };
 
 export const PlayerScreen: React.FC<Props> = ({ track, onBackHome, onOpenStory }) => {
-  const { width: screenW } = useWindowDimensions();
+  const { width: screenW, height: screenH } = useWindowDimensions();
   const cardW = Math.min(screenW - 96, 240);
 
   const [sourceUri, setSourceUri] = useState<string | null>(null);
@@ -58,8 +58,8 @@ export const PlayerScreen: React.FC<Props> = ({ track, onBackHome, onOpenStory }
   const [seekW, setSeekW] = useState(1);
   const autoplayedFor = useRef<string | null>(null);
 
-  // 背面レイヤー（StarSeal / CardBackdrop）用
-  const [cardArea, setCardArea] = useState({ w: 0, h: 0 });
+  // 背面レイヤー（StarSeal / CardBackdrop）用。x/y は root 内でのカード領域位置
+  const [cardArea, setCardArea] = useState({ x: 0, y: 0, w: 0, h: 0 });
   const cardH = Math.round(cardW * 1.5);
   // CardGL の回転角（度）・ドラッグ量を購読して背面を追従させる
   const rotationSV = useSharedValue(0);
@@ -137,6 +137,18 @@ export const PlayerScreen: React.FC<Props> = ({ track, onBackHome, onOpenStory }
     <View style={styles.root}>
       <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
 
+      {/* 背景：調律陣（全画面・中心=カード中心。参照実装と同じく画面全体に広がる） */}
+      {cardArea.w > 0 && (
+        <StarSeal
+          width={screenW}
+          height={screenH}
+          centerX={cardArea.x + cardArea.w / 2}
+          centerY={cardArea.y + cardArea.h / 2}
+          cardWidth={cardW}
+          style={styles.sealLayer}
+        />
+      )}
+
       {/* 上部導線: ホームへ戻る / ストーリー */}
       <View style={styles.topNav}>
         <Pressable onPress={onBackHome} hitSlop={10}>
@@ -147,23 +159,18 @@ export const PlayerScreen: React.FC<Props> = ({ track, onBackHome, onOpenStory }
         </Pressable>
       </View>
 
-      {/* 共有カード（指でなぞって360°回転・厚みつき） */}
+      {/* 共有カード（指でなぞって全方向360°回転・厚みつき） */}
       <View
         style={styles.cardArea}
         onLayout={(ev: LayoutChangeEvent) =>
-          setCardArea({ w: ev.nativeEvent.layout.width, h: ev.nativeEvent.layout.height })
+          setCardArea({
+            x: ev.nativeEvent.layout.x,
+            y: ev.nativeEvent.layout.y,
+            w: ev.nativeEvent.layout.width,
+            h: ev.nativeEvent.layout.height,
+          })
         }
       >
-        {/* 背景：調律陣（カード中心に配置） */}
-        {cardArea.w > 0 && (
-          <StarSeal
-            width={cardArea.w}
-            height={cardArea.h}
-            centerX={cardArea.w / 2}
-            centerY={cardArea.h / 2}
-            style={styles.backLayer}
-          />
-        )}
         {/* カード直下：発光・影レイヤー（ドラッグ追従） */}
         {cardArea.w > 0 && (
           <CardBackdrop
@@ -182,11 +189,18 @@ export const PlayerScreen: React.FC<Props> = ({ track, onBackHome, onOpenStory }
             style={styles.backLayer}
           />
         )}
-        {/* 実3D（WebGL）カード: 指ドラッグで360°回転・厚みつき */}
+        {/* 実3D（WebGL）カード: 指ドラッグで全方向360°回転・厚み1mm */}
         <CardGL
           frontUri={track.artworkUrl}
           width={cardW}
           height={cardH}
+          backData={{
+            title: track.title,
+            story: track.subtitle,
+            materials: ['純正律'],
+            frequencies: ['432 Hz', '7.83 Hz'],
+            artist: 'NAOKI OKA',
+          }}
           rotationOut={rotationSV}
           dragXOut={dragXSV}
         />
@@ -262,6 +276,7 @@ const styles = StyleSheet.create({
   navText: { color: COLOR.textSecondary, fontSize: 13, letterSpacing: 0.4 },
   cardArea: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   backLayer: { position: 'absolute', top: 0, left: 0 },
+  sealLayer: { position: 'absolute', top: 0, left: 0 },
   meta: { alignItems: 'center', paddingHorizontal: SPACE.xl, gap: 4, marginBottom: SPACE.lg },
   title: { color: COLOR.textPrimary, fontSize: 20, fontWeight: '700', letterSpacing: 0.5 },
   subtitle: { color: COLOR.textSecondary, fontSize: 13, letterSpacing: 0.3 },
