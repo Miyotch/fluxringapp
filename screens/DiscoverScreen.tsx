@@ -36,9 +36,8 @@ import Animated, {
 import { useAudioPlayer } from 'expo-audio';
 import { previewUrl } from '../lib/r2';
 import { ArtworkCard } from '../components/ArtworkCard';
-import { NebulaBand } from '../components/NebulaBand';
-import { FlipCard } from '../components/FlipCard';
-import { CardBack } from '../components/CardBack';
+import { StarSeal } from '../components/StarSeal';
+import { CardGL } from '../components/CardGL';
 import { BuyButton } from '../components/BuyButton';
 import { WishlistStar } from '../components/WishlistStar';
 import { BellIcon, PreviewIcon } from '../components/icons';
@@ -145,8 +144,7 @@ export const DiscoverScreen: React.FC<Props> = ({
   const { width: screenW } = useWindowDimensions();
   const active = tracks[activeIndex] ?? tracks[0];
   const cardW = 180;
-  // 裏返し時のカード（説明面）は少し大きく＝文字が収まるように
-  const backW = Math.round(cardW * 1.35);
+  const cardH = Math.round(cardW * 1.5);
 
   // 試聴プレイヤー（30秒・公開URL）
   const preview = useAudioPlayer();
@@ -211,10 +209,19 @@ export const DiscoverScreen: React.FC<Props> = ({
     <View style={styles.root} onLayout={onRootLayout}>
       <StatusBar barStyle="light-content" backgroundColor={C.page} />
 
-      {/* 天の川バンド背景（青紫の雲＋帯に密集した星・v97準拠） */}
-      <NebulaBand />
+      {/* 調律陣の背景（プレイヤーと同一・カード中心に配置） */}
+      {slideH > 0 && (
+        <StarSeal
+          width={screenW}
+          height={slideH}
+          centerX={screenW / 2}
+          centerY={slideH / 2}
+          cardWidth={cardW}
+          style={styles.sealLayer}
+        />
+      )}
 
-      {/* 横スワイプのカードページャ（カードのみ） */}
+      {/* 横スワイプのカードページャ（横=曲切替 / 縦・斜め=カード360°回転） */}
       {slideH > 0 && (
         <FlatList
           data={tracks}
@@ -229,32 +236,32 @@ export const DiscoverScreen: React.FC<Props> = ({
           getItemLayout={(_, index) => ({ length: screenW, offset: screenW * index, index })}
           renderItem={({ item, index }) => (
             <View style={[styles.slide, { width: screenW, height: slideH }]}>
-              {/* タップで裏返し（説明面） */}
-              <FlipCard
-                active={index === activeIndex}
-                front={
-                  <ArtworkCard
-                    width={cardW}
-                    imageUri={item.artworkUrl}
-                    glow={item.glowColor}
-                    glow2={item.glowColor2}
-                    hero={{ enabled: index === activeIndex }}
-                  />
-                }
-                back={
-                  <CardBack
-                    width={backW}
-                    data={{
-                      title: item.title,
-                      serial: item.back?.serial,
-                      story: item.back?.story ?? item.subtitle,
-                      materials: item.back?.materials,
-                      frequencies: item.back?.frequencies,
-                      artist: item.back?.artist,
-                    }}
-                  />
-                }
-              />
+              {index === activeIndex ? (
+                // アクティブ面のみ実3D（縦・斜めドラッグで360°回転）
+                <CardGL
+                  frontUri={item.artworkUrl}
+                  width={cardW}
+                  height={cardH}
+                  deferHorizontal
+                  backData={{
+                    title: item.title,
+                    serial: item.back?.serial,
+                    story: item.back?.story ?? item.subtitle,
+                    materials: item.back?.materials,
+                    frequencies: item.back?.frequencies,
+                    artist: item.back?.artist,
+                  }}
+                />
+              ) : (
+                // 非アクティブは軽量な静止カード（スワイプ中の隣接面）
+                <ArtworkCard
+                  width={cardW}
+                  imageUri={item.artworkUrl}
+                  glow={item.glowColor}
+                  glow2={item.glowColor2}
+                  hero={{ enabled: false }}
+                />
+              )}
             </View>
           )}
         />
@@ -324,6 +331,7 @@ export const DiscoverScreen: React.FC<Props> = ({
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.page },
   slide: { alignItems: 'center', justifyContent: 'center' },
+  sealLayer: { position: 'absolute', top: 0, left: 0 },
 
   chrome: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
   brand: {
