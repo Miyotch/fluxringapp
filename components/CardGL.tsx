@@ -1,20 +1,22 @@
 /**
- * CardGL.tsx — 実3D（WebGL）で厚みつきカードを360°回転
+ * CardGL.tsx — 実3D（WebGL）で厚みつきカードを全方向に360°回転
  * ------------------------------------------------------------------
  * react-three-fiber（/native = expo-gl バックエンド）で、薄い直方体の
  * カードを描く。表面 = 作品画像テクスチャ、裏面 = 縦ヘアラインの
  * ブラッシュドアルミ、側面（厚み 2〜3mm 相当）= 金属ベゼル。
- * 指ドラッグで Y 軸回転。指を離すと Reanimated の withDecay で
- * 慣性が効き、なめらかに回り続けて減速する。
+ *
+ * 回転（トラックボール方式）:
+ *   指の移動ベクトル (ddx, ddy) から回転軸 (ddy, ddx, 0) を毎フレーム求め、
+ *   クォータニオンを世界座標系で前乗算（premultiply）する。
+ *   → 横なぞり=左右回転 / 縦なぞり=上下回転 / 斜め=斜め回転、と
+ *     指の向きどおりに全方向へ 360° 回せる（Web の OrbitControls と同じ感覚）。
+ *   指を離すとその時の速度で慣性回転し、指数減衰でなめらかに止まる。
  *
  * 入力: RN 標準 PanResponder（どのビルドでも確実に発火）。
- *   ドラッグ量 → Reanimated shared value(rot 度) に反映。
- * 描画: useFrame（JSスレッド）で shared value を読み、mesh.rotation.y へ。
- *   3D 変換は WebGL 内で完結するので、以前 iPad で起きた RN の
- *   perspective 合成不具合とは無関係。
+ * 描画: useFrame（JSスレッド）で quaternion を mesh に反映。
+ *   3D 変換は WebGL 内で完結するので、RN の perspective 合成不具合とは無関係。
  *
- * 注意: これらは追加ネイティブ依存（expo-gl / three）を含むため、
- *   反映には EAS 再ビルドが必要（Metro リロードでは不可）。
+ * 注意: expo-gl / three はネイティブ依存。反映には EAS 再ビルドが必要。
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -23,19 +25,36 @@ import { Canvas, useFrame } from '@react-three/fiber/native';
 import * as THREE from 'three';
 import { TextureLoader } from 'expo-three';
 import { Asset } from 'expo-asset';
-import {
-  useSharedValue,
-  useDerivedValue,
-  withDecay,
-  cancelAnimation,
-  SharedValue,
-} from 'react-native-reanimated';
+import { withSpring, SharedValue } from 'react-native-reanimated';
 
 // カードの見かけ比率は 2:3。ワールド単位で W×H×D（D=厚み）。
 const W = 1.3;
 const H = W * 1.5;
 const DEPTH_RATIO = 0.045; // 幅に対する厚み（2〜3mm 相当・実機調整ポイント）
-const SENS = 0.6; // 1px ドラッグあたりの回転角（度）
+const SENS = 0.55; // 1px ドラッグあたりの回転角（度）
+const DECAY = 3.0; // 慣性の指数減衰（大きいほど早く止まる・実機調整ポイント）
+const STOP_DEG_PER_SEC = 2; // これ未満の角速度で停止
+
+// ── トラックボール回転の状態（JS スレッドで共有する ref） ──
+export type SpinState = {
+  q: THREE.Quaternion;   // 現在の姿勢
+  vx: number;            // X軸まわり角速度（度/秒・縦なぞり由来）
+  vy: number;            // Y軸まわり角速度（度/秒・横なぞり由来）
+  dragging: boolean;
+};
+
+const TMP_Q = new THREE.Quaternion();
+const TMP_AXIS = new THREE.Vector3();
+const TMP_FRONT = new THREE.Vector3();
+
+/** 世界座標系で (degX, degY) ぶん回転を加える（軸 = 指の移動と直交） */
+function applySpin(q: THREE.Quaternion, degX: number, degY: number) {
+  const mag = Math.hypot(degX, degY);
+  if (mag < 1e-4) return;
+  TMP_AXIS.set(degX / mag, degY / mag, 0);
+  TMP_Q.setFromAxisAngle(TMP_AXIS, (mag * Math.PI) / 180);
+  q.premultiply(TMP_Q);
+}
 
 // 決定論ハッシュ（0..1）
 function hash(x: number): number {
@@ -66,7 +85,11 @@ function makeBrushedTexture(): THREE.DataTexture {
   return tex;
 }
 
-const CardMesh: React.FC<{ rot: SharedValue<number>; frontUri: string }> = ({ rot, frontUri }) => {
+const CardMesh: React.FC<{
+  spin: React.MutableRefObject<SpinState>;
+  frontUri: string;
+  rotationOut?: SharedValue<number>;
+}> = ({ spin, frontUri, rotationOut }) => {
   const meshRef = useRef<THREE.Mesh>(null);
   const [frontTex, setFrontTex] = useState<THREE.Texture | null>(null);
   const brushed = useMemo(makeBrushedTexture, []);
@@ -89,9 +112,29 @@ const CardMesh: React.FC<{ rot: SharedValue<number>; frontUri: string }> = ({ ro
     return () => { alive = false; };
   }, [frontUri]);
 
-  // shared value(度) → ラジアンへ。JS スレッドの useFrame で読む。
-  useFrame(() => {
-    if (meshRef.current) meshRef.current.rotation.y = (rot.value * Math.PI) / 180;
+  // 毎フレーム: 慣性を進める → 姿勢を mesh へ → 表面の向きを外部へ通知
+  useFrame((_, dt) => {
+    const s = spin.current;
+    if (!s.dragging) {
+      const speed = Math.hypot(s.vx, s.vy);
+      if (speed > STOP_DEG_PER_SEC) {
+        applySpin(s.q, s.vx * dt, s.vy * dt);
+        const f = Math.exp(-DECAY * dt);
+        s.vx *= f;
+        s.vy *= f;
+      } else {
+        s.vx = 0;
+        s.vy = 0;
+      }
+    }
+    if (meshRef.current) meshRef.current.quaternion.copy(s.q);
+    if (rotationOut) {
+      // 表面法線と視線のなす角（度）。cos(rotationOut)=表面度 になり
+      // 既存の aProg / fore の導出式がそのまま使える。
+      TMP_FRONT.set(0, 0, 1).applyQuaternion(s.q);
+      const z = Math.max(-1, Math.min(1, TMP_FRONT.z));
+      rotationOut.value = (Math.acos(z) * 180) / Math.PI;
+    }
   });
 
   const D = W * DEPTH_RATIO;
@@ -133,34 +176,50 @@ export const CardGL: React.FC<CardGLProps> = ({
   dragXOut,
   style,
 }) => {
-  const rot = useSharedValue(0); // 回転角（度・連続）
-  const base = useRef(0);
-
-  // rotationOut/dragXOut へ橋渡し
-  useDerivedValue(() => {
-    if (rotationOut) rotationOut.value = rot.value;
-  }, [rot]);
+  const spin = useRef<SpinState>({
+    q: new THREE.Quaternion(),
+    vx: 0,
+    vy: 0,
+    dragging: false,
+  });
+  const last = useRef({ x: 0, y: 0 });
 
   const pan = useMemo(
     () =>
       PanResponder.create({
         onStartShouldSetPanResponder: () => true,
-        onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dx) > 2,
+        // 縦・横・斜め、どの方向の動きでも掴む
+        onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dx) + Math.abs(g.dy) > 2,
+        onPanResponderTerminationRequest: () => false,
         onPanResponderGrant: () => {
-          cancelAnimation(rot);
-          base.current = rot.value;
+          const s = spin.current;
+          s.dragging = true;
+          s.vx = 0;
+          s.vy = 0;
+          last.current = { x: 0, y: 0 };
         },
         onPanResponderMove: (_e, g) => {
-          rot.value = base.current + g.dx * SENS;
+          const ddx = g.dx - last.current.x;
+          const ddy = g.dy - last.current.y;
+          last.current = { x: g.dx, y: g.dy };
+          // 指の移動ベクトルどおりに回す（横=Y軸 / 縦=X軸 / 斜め=合成軸）
+          applySpin(spin.current.q, ddy * SENS, ddx * SENS);
           if (dragXOut) dragXOut.value = g.dx;
         },
         onPanResponderRelease: (_e, g) => {
-          // 慣性で回り続けて減速（度/秒）。vx は px/ms。
-          rot.value = withDecay({ velocity: g.vx * 1000 * SENS, deceleration: 0.997 });
-          if (dragXOut) dragXOut.value = withDecay({ velocity: 0, deceleration: 0.9 });
+          const s = spin.current;
+          s.dragging = false;
+          // 離した瞬間の速度（px/ms → 度/秒）で慣性回転
+          s.vx = g.vy * 1000 * SENS;
+          s.vy = g.vx * 1000 * SENS;
+          if (dragXOut) dragXOut.value = withSpring(0, { damping: 16, stiffness: 120 });
+        },
+        onPanResponderTerminate: () => {
+          spin.current.dragging = false;
+          if (dragXOut) dragXOut.value = withSpring(0, { damping: 16, stiffness: 120 });
         },
       }),
-    [rot, dragXOut],
+    [dragXOut],
   );
 
   return (
@@ -174,7 +233,7 @@ export const CardGL: React.FC<CardGLProps> = ({
         <ambientLight intensity={0.65} />
         <directionalLight position={[2.5, 3, 4]} intensity={1.25} />
         <pointLight position={[-3, 1.5, 3]} intensity={0.8} color="#7fdcf0" />
-        <CardMesh rot={rot} frontUri={frontUri} />
+        <CardMesh spin={spin} frontUri={frontUri} rotationOut={rotationOut} />
       </Canvas>
     </View>
   );
