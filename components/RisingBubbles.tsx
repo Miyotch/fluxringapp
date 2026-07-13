@@ -39,28 +39,28 @@ type Bubble = {
   grow: number;    // 上昇に伴う膨張率
 };
 
-// シャンパンの泡＝底の数点から細い列で湧く。列ごとに密度を変える。
+// シャンパンの泡＝底の多数点から細い列で湧く。列ごとに密度を変える。
 function makeBubbles(n: number, w: number): Bubble[] {
-  const streams = 11;
+  const streams = 18; // 湧き出し列を増やして密度アップ
   const streamX = Array.from({ length: streams }, (_, i) =>
-    w * (0.18 + (0.64 * (i + 0.5)) / streams) + (Math.random() - 0.5) * 10,
+    w * (0.15 + (0.7 * (i + 0.5)) / streams) + (Math.random() - 0.5) * 8,
   );
   const arr: Bubble[] = [];
   for (let i = 0; i < n; i++) {
     const sx = streamX[Math.floor(Math.random() * streams)];
-    // 半径は二乗バイアスで「ほとんど極小・稀に少し大きい」分布
+    // 半径は三乗バイアスで「大半が極微小・ごく稀に少し大きい」分布（さらに細粒度）
     const t = Math.random();
-    const r = 0.35 + t * t * 1.7;
+    const r = 0.2 + t * t * t * 1.25;
     arr.push({
-      x0: sx + (Math.random() - 0.5) * 5, // 列内の細かな散り
+      x0: sx + (Math.random() - 0.5) * 4, // 列内の細かな散り
       r,
-      speed: 0.5 + Math.random() * 0.7,   // 速め（シュワッと）
+      speed: 0.5 + Math.random() * 0.75,  // 速め（シュワッと）
       phase: Math.random(),
-      wobA: 1.5 + Math.random() * 4.5,    // 揺れは控えめ
-      wobS: 2.4 + Math.random() * 3.4,    // 速い小刻みな揺れ
-      drift: (Math.random() - 0.5) * 10,
+      wobA: 1.2 + Math.random() * 4.0,    // 揺れは控えめ
+      wobS: 2.6 + Math.random() * 3.6,    // 速い小刻みな揺れ
+      drift: (Math.random() - 0.5) * 9,
       white: Math.random() < 0.5,
-      grow: 0.35 + Math.random() * 0.5,   // 上でやや膨らむ
+      grow: 0.3 + Math.random() * 0.45,   // 上でやや膨らむ
     });
   }
   return arr;
@@ -106,8 +106,8 @@ type Props = {
 export const RisingBubbles: React.FC<Props> = ({ width, height, onDone }) => {
   const clock = useClock();
   const op = useSharedValue(0);
-  // 粒度を細かく＝数を増やし半径を小さく（シャンパンの泡）
-  const bubbles = useMemo(() => makeBubbles(280, width), [width]);
+  // 粒度をさらに細かく＝数を大きく増やし半径を小さく（濃密なシャンパンの泡）
+  const bubbles = useMemo(() => makeBubbles(560, width), [width]);
 
   useEffect(() => {
     // 立ち上がり → 維持 → フェードアウト → onDone
@@ -125,8 +125,8 @@ export const RisingBubbles: React.FC<Props> = ({ width, height, onDone }) => {
 
   return (
     <Canvas style={{ position: 'absolute', width, height }} pointerEvents="none">
-      {/* 微細な泡はにじみを与えると発泡感が出る（screen 合成＋弱ブラー） */}
-      <Group layer={<Paint><Blur blur={0.5} /></Paint>}>
+      {/* 微細な泡はにじみを与えると発泡感が出る（極微小が埋もれないよう弱め） */}
+      <Group layer={<Paint><Blur blur={0.3} /></Paint>}>
         {bubbles.map((b, i) => (
           <Bub key={i} b={b} clock={clock} op={op} height={height} />
         ))}
