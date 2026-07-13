@@ -23,9 +23,7 @@ import {
 } from 'react-native';
 import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import { useSharedValue, useDerivedValue } from 'react-native-reanimated';
-import { ArtworkCard } from '../components/ArtworkCard';
-import { Card3D } from '../components/Card3D';
-import { CardBack } from '../components/CardBack';
+import { CardGL } from '../components/CardGL';
 import { StarSeal } from '../components/StarSeal';
 import { CardBackdrop } from '../components/CardBackdrop';
 import { PlayMark, LoopIcon } from '../components/icons';
@@ -63,7 +61,7 @@ export const PlayerScreen: React.FC<Props> = ({ track, onBackHome, onOpenStory }
   // 背面レイヤー（StarSeal / CardBackdrop）用
   const [cardArea, setCardArea] = useState({ w: 0, h: 0 });
   const cardH = Math.round(cardW * 1.5);
-  // Card3D の回転角（度）・ドラッグ量を購読して背面を追従させる
+  // CardGL の回転角（度）・ドラッグ量を購読して背面を追従させる
   const rotationSV = useSharedValue(0);
   const dragXSV = useSharedValue(0);
   const slideFadeSV = useSharedValue(1);
@@ -184,27 +182,13 @@ export const PlayerScreen: React.FC<Props> = ({ track, onBackHome, onOpenStory }
             style={styles.backLayer}
           />
         )}
-        <Card3D
+        {/* 実3D（WebGL）カード: 指ドラッグで360°回転・厚みつき */}
+        <CardGL
+          frontUri={track.artworkUrl}
           width={cardW}
           height={cardH}
-          thickness={22}
           rotationOut={rotationSV}
           dragXOut={dragXSV}
-          front={
-            <ArtworkCard
-              width={cardW}
-              imageUri={track.artworkUrl}
-              glow={track.glowColor}
-              glow2={track.glowColor2}
-              hero={{ enabled: true }}
-            />
-          }
-          back={
-            <CardBack
-              width={Math.round(cardW * 1.2)}
-              data={{ title: track.title, story: track.subtitle, artist: 'NAOKI OKA' }}
-            />
-          }
         />
       </View>
 
