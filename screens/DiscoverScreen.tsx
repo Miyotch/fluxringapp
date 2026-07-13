@@ -134,6 +134,7 @@ export const DiscoverScreen: React.FC<Props> = ({
 }) => {
   const [slideH, setSlideH] = useState(0);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [flipped, setFlipped] = useState(false); // アクティブカードが裏面か
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [wishlist, setWishlist] = useState<Set<string>>(new Set());
   const [ownedIds, setOwnedIds] = useState<Set<string>>(new Set());
@@ -155,6 +156,7 @@ export const DiscoverScreen: React.FC<Props> = ({
     ({ viewableItems }: { viewableItems: Array<{ index: number | null }> }) => {
       if (viewableItems.length > 0 && viewableItems[0].index != null) {
         setActiveIndex(viewableItems[0].index);
+        setFlipped(false); // 曲が変わったら必ず表面に戻す
       }
     },
   ).current;
@@ -221,13 +223,15 @@ export const DiscoverScreen: React.FC<Props> = ({
         />
       )}
 
-      {/* 横スワイプのカードページャ（横=曲切替 / 縦・斜め=カード360°回転） */}
+      {/* カードページャ。表面=横スワイプで曲切替＋タップで裏返し、
+          裏面=全方向360°回転（横スワイプは無効） */}
       {slideH > 0 && (
         <FlatList
           data={tracks}
           keyExtractor={(t) => t.id}
           horizontal
           pagingEnabled
+          scrollEnabled={!flipped}
           showsHorizontalScrollIndicator={false}
           onViewableItemsChanged={onViewableItemsChanged}
           viewabilityConfig={viewabilityConfig}
@@ -237,12 +241,14 @@ export const DiscoverScreen: React.FC<Props> = ({
           renderItem={({ item, index }) => (
             <View style={[styles.slide, { width: screenW, height: slideH }]}>
               {index === activeIndex ? (
-                // アクティブ面のみ実3D（縦・斜めドラッグで360°回転）
+                // アクティブ面のみ実3D。表面=タップで裏返し / 裏面=360°回転
                 <CardGL
                   frontUri={item.artworkUrl}
                   width={cardW}
                   height={cardH}
-                  deferHorizontal
+                  flipped={flipped}
+                  rotationEnabled={flipped}
+                  onToggleFlip={() => setFlipped((f) => !f)}
                   backData={{
                     title: item.title,
                     serial: item.back?.serial,

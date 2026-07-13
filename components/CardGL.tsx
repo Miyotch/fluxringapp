@@ -3,16 +3,20 @@
  * ------------------------------------------------------------------
  * react-three-fiber（/native = expo-gl バックエンド）で、薄い直方体の
  * カードを描く。表面 = 作品画像テクスチャ、裏面 = 縦ヘアラインの
- * ブラッシュドアルミ、側面（厚み 2〜3mm 相当）= 金属ベゼル。
+ * ブラッシュドアルミ＋刻印、側面（厚み 1mm 相当）= 金属ベゼル。
  *
  * 回転（トラックボール方式）:
  *   指の移動ベクトル (ddx, ddy) から回転軸 (ddy, ddx, 0) を毎フレーム求め、
  *   クォータニオンを世界座標系で前乗算（premultiply）する。
- *   → 横なぞり=左右回転 / 縦なぞり=上下回転 / 斜め=斜め回転、と
- *     指の向きどおりに全方向へ 360° 回せる（Web の OrbitControls と同じ感覚）。
+ *   → 横なぞり=左右回転 / 縦なぞり=上下回転 / 斜め=斜め回転。
  *   指を離すとその時の速度で慣性回転し、指数減衰でなめらかに止まる。
  *
- * 入力: RN 標準 PanResponder（どのビルドでも確実に発火）。
+ * 2つの使い方:
+ *   ・プレイヤー: 常時回転可（rotationEnabled 既定 true・flip なし）
+ *   ・ホーム    : flipped/onToggleFlip を渡す。表面ではタップで裏返し（回転不可）、
+ *                 裏面では全方向回転可。フリップは quaternion のスラープで演出。
+ *
+ * 入力: RN 標準（回転可のとき PanResponder / 表面は Pressable でタップのみ）。
  * 描画: useFrame（JSスレッド）で quaternion を mesh に反映。
  *   3D 変換は WebGL 内で完結するので、RN の perspective 合成不具合とは無関係。
  *
@@ -20,7 +24,7 @@
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, PanResponder, StyleProp, ViewStyle } from 'react-native';
+import { View, Pressable, PanResponder, StyleSheet, StyleProp, ViewStyle } from 'react-native';
 import { Canvas, useFrame } from '@react-three/fiber/native';
 import * as THREE from 'three';
 import { TextureLoader } from 'expo-three';
@@ -44,11 +48,17 @@ export type SpinState = {
   vx: number;            // X軸まわり角速度（度/秒・縦なぞり由来）
   vy: number;            // Y軸まわり角速度（度/秒・横なぞり由来）
   dragging: boolean;
+  target: THREE.Quaternion | null; // フリップ等のスラープ目標（null=なし）
+  animating: boolean;    // フリップ演出中（この間ドラッグ無効）
 };
 
 const TMP_Q = new THREE.Quaternion();
 const TMP_AXIS = new THREE.Vector3();
 const TMP_FRONT = new THREE.Vector3();
+
+// 表面（正面）と裏面（Y軸まわり180°）の姿勢
+const Q_FRONT = new THREE.Quaternion();
+const Q_BACK = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI);
 
 /** 世界座標系で (degX, degY) ぶん回転を加える（軸 = 指の移動と直交） */
 function applySpin(q: THREE.Quaternion, degX: number, degY: number) {
@@ -92,8 +102,9 @@ const CardMesh: React.FC<{
   spin: React.MutableRefObject<SpinState>;
   frontUri: string;
   backData?: CardBackData;
+  rotationEnabled: boolean;
   rotationOut?: SharedValue<number>;
-}> = ({ spin, frontUri, backData, rotationOut }) => {
+}> = ({ spin, frontUri, backData, rotationEnabled, rotationOut }) => {
   const meshRef = useRef<THREE.Mesh>(null);
   const [frontTex, setFrontTex] = useState<THREE.Texture | null>(null);
   const brushed = useMemo(makeBrushedTexture, []);
@@ -137,10 +148,21 @@ const CardMesh: React.FC<{
     return () => { alive = false; };
   }, [frontUri]);
 
-  // 毎フレーム: 慣性を進める → 姿勢を mesh へ → 表面の向きを外部へ通知
+  // 毎フレーム: フリップ演出 → 慣性 → 姿勢を mesh へ → 表面の向きを外部へ通知
   useFrame((_, dt) => {
     const s = spin.current;
-    if (!s.dragging) {
+    if (s.animating && s.target) {
+      // 目標姿勢へスラープ（フリップの回り込み演出）。近づいたら確定。
+      const k = Math.min(1, dt * 9);
+      s.q.slerp(s.target, k);
+      s.vx = 0;
+      s.vy = 0;
+      if (s.q.angleTo(s.target) < 0.02) {
+        s.q.copy(s.target);
+        s.animating = false;
+        s.target = null;
+      }
+    } else if (!s.dragging && rotationEnabled) {
       const speed = Math.hypot(s.vx, s.vy);
       if (speed > STOP_DEG_PER_SEC) {
         applySpin(s.q, s.vx * dt, s.vy * dt);
@@ -194,15 +216,21 @@ export type CardGLProps = {
   height: number;
   /** 裏面の刻印内容（ホームの CardBack と同デザイン） */
   backData?: CardBackData;
+  /**
+   * true=裏面（フリップ済み）/ false=表面。指定すると「表面ではタップで裏返し・
+   * 回転不可、裏面では全方向回転可」のホーム挙動になる。未指定はプレイヤー挙動。
+   */
+  flipped?: boolean;
+  /** タップされたとき（表↔裏の切替を親が行う） */
+  onToggleFlip?: () => void;
+  /**
+   * ドラッグ回転を許可するか。未指定はプレイヤー用に true。
+   * ホームでは裏面のときだけ true（＝flipped）を渡す。
+   */
+  rotationEnabled?: boolean;
   /** 背面レイヤー追従用（任意・度 / px） */
   rotationOut?: SharedValue<number>;
   dragXOut?: SharedValue<number>;
-  /**
-   * true のとき、横方向が優勢なドラッグは掴まず親（横スワイプの
-   * カードページャ等）へ委ねる。縦・斜め（縦優勢）のドラッグのみ回転に使う。
-   * ホーム画面で「横=曲切替 / 縦・斜め=回転」を両立させるため。
-   */
-  deferHorizontal?: boolean;
   style?: StyleProp<ViewStyle>;
 };
 
@@ -211,9 +239,11 @@ export const CardGL: React.FC<CardGLProps> = ({
   width,
   height,
   backData,
+  flipped,
+  onToggleFlip,
+  rotationEnabled = true,
   rotationOut,
   dragXOut,
-  deferHorizontal = false,
   style,
 }) => {
   const spin = useRef<SpinState>({
@@ -221,21 +251,30 @@ export const CardGL: React.FC<CardGLProps> = ({
     vx: 0,
     vy: 0,
     dragging: false,
+    target: null,
+    animating: false,
   });
   const last = useRef({ x: 0, y: 0 });
+  const moved = useRef(false);
+
+  // flipped の変化でフリップ演出を仕込む（表=正面 / 裏=Y180°へスラープ）
+  useEffect(() => {
+    if (flipped === undefined) return;
+    const s = spin.current;
+    s.target = (flipped ? Q_BACK : Q_FRONT).clone();
+    s.animating = true;
+    s.dragging = false;
+    s.vx = 0;
+    s.vy = 0;
+  }, [flipped]);
+
+  const canRotate = rotationEnabled;
 
   const pan = useMemo(
     () =>
       PanResponder.create({
-        // deferHorizontal 時は開始では掴まず、方向が判明する move で判定する
-        onStartShouldSetPanResponder: () => !deferHorizontal,
-        onMoveShouldSetPanResponder: (_e, g) => {
-          if (deferHorizontal) {
-            // 縦優勢のドラッグだけ掴む（横優勢は親の曲切替スワイプへ委譲）
-            return Math.abs(g.dy) > Math.abs(g.dx) && Math.abs(g.dy) > 6;
-          }
-          return Math.abs(g.dx) + Math.abs(g.dy) > 2;
-        },
+        onStartShouldSetPanResponder: () => canRotate,
+        onMoveShouldSetPanResponder: (_e, g) => canRotate && Math.abs(g.dx) + Math.abs(g.dy) > 2,
         onPanResponderTerminationRequest: () => false,
         onPanResponderGrant: () => {
           const s = spin.current;
@@ -243,8 +282,10 @@ export const CardGL: React.FC<CardGLProps> = ({
           s.vx = 0;
           s.vy = 0;
           last.current = { x: 0, y: 0 };
+          moved.current = false;
         },
         onPanResponderMove: (_e, g) => {
+          if (Math.abs(g.dx) + Math.abs(g.dy) > 4) moved.current = true;
           const ddx = g.dx - last.current.x;
           const ddy = g.dy - last.current.y;
           last.current = { x: g.dx, y: g.dy };
@@ -255,9 +296,14 @@ export const CardGL: React.FC<CardGLProps> = ({
         onPanResponderRelease: (_e, g) => {
           const s = spin.current;
           s.dragging = false;
-          // 離した瞬間の速度（px/ms → 度/秒）で慣性回転
-          s.vx = g.vy * 1000 * SENS;
-          s.vy = g.vx * 1000 * SENS;
+          if (!moved.current) {
+            // ほぼ動いていない＝タップ → 表へ戻す（親に通知）
+            onToggleFlip?.();
+          } else {
+            // 離した瞬間の速度（px/ms → 度/秒）で慣性回転
+            s.vx = g.vy * 1000 * SENS;
+            s.vy = g.vx * 1000 * SENS;
+          }
           if (dragXOut) dragXOut.value = withSpring(0, { damping: 16, stiffness: 120 });
         },
         onPanResponderTerminate: () => {
@@ -265,7 +311,7 @@ export const CardGL: React.FC<CardGLProps> = ({
           if (dragXOut) dragXOut.value = withSpring(0, { damping: 16, stiffness: 120 });
         },
       }),
-    [dragXOut],
+    [canRotate, dragXOut, onToggleFlip],
   );
 
   // 描画キャンバスはカードの対角線サイズの正方形にし、レイアウト枠から
@@ -275,8 +321,15 @@ export const CardGL: React.FC<CardGLProps> = ({
   const D = Math.ceil(Math.hypot(width, height)) + 8;
   const camZ = (3.4 * D) / height;
 
+  // ラッパは常に同じ View（要素型を変えると Canvas が再マウントされ
+  //   GL 再初期化のちらつきが出るため）。
+  // 回転可（プレイヤー / ホーム裏面）＝ View に PanResponder（回転＋タップ）。
+  // 回転不可（ホーム表面）＝ 透明 Pressable を重ねてタップのみ受け、
+  //   ドラッグは親の横スワイプ（曲切替）へ通す。
+  const handlers = canRotate ? pan.panHandlers : {};
+
   return (
-    <View style={[{ width, height }, style]} {...pan.panHandlers}>
+    <View style={[{ width, height }, style]} {...handlers}>
       <Canvas
         style={{
           position: 'absolute',
@@ -293,8 +346,12 @@ export const CardGL: React.FC<CardGLProps> = ({
         <ambientLight intensity={0.65} />
         <directionalLight position={[2.5, 3, 4]} intensity={1.25} />
         <pointLight position={[-3, 1.5, 3]} intensity={0.8} color="#7fdcf0" />
-        <CardMesh spin={spin} frontUri={frontUri} backData={backData} rotationOut={rotationOut} />
+        <CardMesh spin={spin} frontUri={frontUri} backData={backData} rotationEnabled={canRotate} rotationOut={rotationOut} />
       </Canvas>
+
+      {!canRotate && onToggleFlip && (
+        <Pressable style={StyleSheet.absoluteFill} onPress={onToggleFlip} />
+      )}
     </View>
   );
 };
