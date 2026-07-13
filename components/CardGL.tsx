@@ -197,6 +197,12 @@ export type CardGLProps = {
   /** 背面レイヤー追従用（任意・度 / px） */
   rotationOut?: SharedValue<number>;
   dragXOut?: SharedValue<number>;
+  /**
+   * true のとき、横方向が優勢なドラッグは掴まず親（横スワイプの
+   * カードページャ等）へ委ねる。縦・斜め（縦優勢）のドラッグのみ回転に使う。
+   * ホーム画面で「横=曲切替 / 縦・斜め=回転」を両立させるため。
+   */
+  deferHorizontal?: boolean;
   style?: StyleProp<ViewStyle>;
 };
 
@@ -207,6 +213,7 @@ export const CardGL: React.FC<CardGLProps> = ({
   backData,
   rotationOut,
   dragXOut,
+  deferHorizontal = false,
   style,
 }) => {
   const spin = useRef<SpinState>({
@@ -220,9 +227,15 @@ export const CardGL: React.FC<CardGLProps> = ({
   const pan = useMemo(
     () =>
       PanResponder.create({
-        onStartShouldSetPanResponder: () => true,
-        // 縦・横・斜め、どの方向の動きでも掴む
-        onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dx) + Math.abs(g.dy) > 2,
+        // deferHorizontal 時は開始では掴まず、方向が判明する move で判定する
+        onStartShouldSetPanResponder: () => !deferHorizontal,
+        onMoveShouldSetPanResponder: (_e, g) => {
+          if (deferHorizontal) {
+            // 縦優勢のドラッグだけ掴む（横優勢は親の曲切替スワイプへ委譲）
+            return Math.abs(g.dy) > Math.abs(g.dx) && Math.abs(g.dy) > 6;
+          }
+          return Math.abs(g.dx) + Math.abs(g.dy) > 2;
+        },
         onPanResponderTerminationRequest: () => false,
         onPanResponderGrant: () => {
           const s = spin.current;
