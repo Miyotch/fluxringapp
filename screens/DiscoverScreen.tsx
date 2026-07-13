@@ -36,7 +36,7 @@ import Animated, {
 import { useAudioPlayer } from 'expo-audio';
 import { previewUrl } from '../lib/r2';
 import { ArtworkCard } from '../components/ArtworkCard';
-import { StarField } from '../components/StarField';
+import { NebulaBand } from '../components/NebulaBand';
 import { FlipCard } from '../components/FlipCard';
 import { CardBack } from '../components/CardBack';
 import { BuyButton } from '../components/BuyButton';
@@ -211,8 +211,8 @@ export const DiscoverScreen: React.FC<Props> = ({
     <View style={styles.root} onLayout={onRootLayout}>
       <StatusBar barStyle="light-content" backgroundColor={C.page} />
 
-      {/* 宇宙の背景（紫グロー＋またたく星） */}
-      <StarField />
+      {/* 天の川バンド背景（青紫の雲＋帯に密集した星・v97準拠） */}
+      <NebulaBand />
 
       {/* 横スワイプのカードページャ（カードのみ） */}
       {slideH > 0 && (
