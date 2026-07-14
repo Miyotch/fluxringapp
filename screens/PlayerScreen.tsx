@@ -1,35 +1,52 @@
 /**
- * PlayerScreen.tsx — 再生画面（プレイヤー）
+ * PlayerScreen.tsx — 再生画面（コレクションから開く）
  * ------------------------------------------------------------------
- * ワイヤーフレーム 02 / PLAYER:
- *   ・所有曲の本再生。ディスカバーと同じ背景・アニメーション
- *   ・上部中央に共有カード（サムネ・カード構造）、下にフロストのトランスポート
- *   ・トランスポート最小セット: シーク(ノブ付き)・現在/総時間・再生/停止・ループ
- *   ・EQ・曲送りなし。曲間は無音。バックグラウンド再生対応
- *   ・フッターは出さない。縦画面固定。総時間は音源から自動算出
- *   ・上部の戻り導線「ホームへ戻る」／右に「ストーリー」
+ * コレクションのカードをタップして開く再生画面。2フェーズ構成:
+ *   ・ベール(veil): いきなり再生せず、コレクションをぼかしたような暗い背景に
+ *                   カードと大きな再生ボタンだけを出す（魔法陣は出さない）
+ *   ・再生(playing): 再生ボタンで開始。背景は星雲（NebulaGL）に切替、
+ *                    下部にフロストのトランスポート（シーク・時間・再生/停止・ループ）
+ *   ・上部左「コレクションへ戻る」／右に共有（旧ストーリー導線は廃止）
+ *   ・EQ・曲送りなし。フッター非表示・縦画面固定。総時間は音源から自動算出
+ *   ・ホーム(ディスカバー)側は従来のまま。この画面のみの挙動
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
+  Image,
   Pressable,
   StyleSheet,
   StatusBar,
+  Share,
   useWindowDimensions,
   LayoutChangeEvent,
   GestureResponderEvent,
 } from 'react-native';
+import Svg, { Path } from 'react-native-svg';
 import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import { useSharedValue, useDerivedValue } from 'react-native-reanimated';
 import { CardGL } from '../components/CardGL';
-import { StarSeal } from '../components/StarSeal';
+import { NebulaGL } from '../components/NebulaGL';
 import { CardBackdrop } from '../components/CardBackdrop';
 import { PlayMark, LoopIcon } from '../components/icons';
 import { COLOR, SPACE, TRANSPORT } from '../constants/design-tokens';
 import { formatTime } from '../lib/audio';
 import { fullAudioUrl, previewUrl } from '../lib/r2';
+
+// 共有アイコン（右上・ストーリー導線の置き換え）
+const ShareIcon: React.FC = () => (
+  <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+    <Path
+      d="M12 3v13M12 3l-4 4M12 3l4 4M5 12v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"
+      stroke={COLOR.textSecondary}
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </Svg>
+);
 
 export type PlayerTrack = {
   id: string;
@@ -44,19 +61,21 @@ export type PlayerTrack = {
 
 type Props = {
   track: PlayerTrack;
-  onBackHome: () => void;
-  onOpenStory: () => void;
+  onBackHome: () => void; // コレクションへ戻る
+  onOpenStory?: () => void; // 未使用（ストーリー導線は廃止）
 };
 
-export const PlayerScreen: React.FC<Props> = ({ track, onBackHome, onOpenStory }) => {
+export const PlayerScreen: React.FC<Props> = ({ track, onBackHome }) => {
   const { width: screenW, height: screenH } = useWindowDimensions();
   const cardW = Math.min(screenW - 96, 240);
 
+  // ベール（再生前）→ 再生 の2フェーズ。初回はいきなり再生しない。
+  const [phase, setPhase] = useState<'veil' | 'playing'>('veil');
   const [sourceUri, setSourceUri] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loop, setLoop] = useState(false);
   const [seekW, setSeekW] = useState(1);
-  const autoplayedFor = useRef<string | null>(null);
+  const startedFor = useRef<string | null>(null);
 
   // 背面レイヤー（StarSeal / CardBackdrop）用。x/y は root 内でのカード領域位置
   const [cardArea, setCardArea] = useState({ x: 0, y: 0, w: 0, h: 0 });
@@ -84,7 +103,7 @@ export const PlayerScreen: React.FC<Props> = ({ track, onBackHome, onOpenStory }
     let alive = true;
     setError(null);
     setSourceUri(null);
-    autoplayedFor.current = null;
+    startedFor.current = null;
     (async () => {
       try {
         const url = await fullAudioUrl(track.audioKey);
@@ -104,13 +123,14 @@ export const PlayerScreen: React.FC<Props> = ({ track, onBackHome, onOpenStory }
     return () => { alive = false; };
   }, [track.audioKey]);
 
-  // 読み込めたら一度だけ自動再生
+  // 「再生」フェーズに入り、読み込めたら一度だけ再生開始
+  // （ベール中は自動再生しない）
   useEffect(() => {
-    if (sourceUri && status.isLoaded && autoplayedFor.current !== sourceUri) {
-      autoplayedFor.current = sourceUri;
+    if (phase === 'playing' && sourceUri && status.isLoaded && startedFor.current !== sourceUri) {
+      startedFor.current = sourceUri;
       player.play();
     }
-  }, [sourceUri, status.isLoaded, player]);
+  }, [phase, sourceUri, status.isLoaded, player]);
 
   // ループ反映
   useEffect(() => { player.loop = loop; }, [loop, player]);
@@ -126,6 +146,15 @@ export const PlayerScreen: React.FC<Props> = ({ track, onBackHome, onOpenStory }
     else player.play();
   }, [playing, player]);
 
+  // ベールの再生ボタン → 再生フェーズへ（読み込み後に上の effect が play する）
+  const startPlayback = useCallback(() => {
+    setPhase('playing');
+  }, []);
+
+  const onShare = useCallback(() => {
+    Share.share({ message: `FLUX RING — ${track.title}` }).catch(() => {});
+  }, [track.title]);
+
   // タップ位置でシーク
   const onSeekPress = useCallback((e: GestureResponderEvent) => {
     if (duration <= 0) return;
@@ -137,25 +166,29 @@ export const PlayerScreen: React.FC<Props> = ({ track, onBackHome, onOpenStory }
     <View style={styles.root}>
       <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
 
-      {/* 背景：調律陣（全画面・中心=カード中心。参照実装と同じく画面全体に広がる） */}
-      {cardArea.w > 0 && (
-        <StarSeal
-          width={screenW}
-          height={screenH}
-          centerX={cardArea.x + cardArea.w / 2}
-          centerY={cardArea.y + cardArea.h / 2}
-          cardWidth={cardW}
-          style={styles.sealLayer}
-        />
+      {/* 背景（コレクション再生画面・魔法陣は出さない）:
+          ・ベール中 = コレクションをぼかしたような暗い背景（作品画像を強ブラー）
+          ・再生中   = 星雲（NebulaGL） */}
+      {phase === 'veil' ? (
+        <>
+          <Image
+            source={{ uri: track.artworkUrl }}
+            style={styles.veilImage}
+            blurRadius={40}
+          />
+          <View style={styles.veilScrim} />
+        </>
+      ) : (
+        <NebulaGL />
       )}
 
-      {/* 上部導線: ホームへ戻る / ストーリー */}
+      {/* 上部導線: コレクションへ戻る / 共有（ストーリー導線は廃止） */}
       <View style={styles.topNav}>
         <Pressable onPress={onBackHome} hitSlop={10}>
-          <Text style={styles.navText}>‹ ホームへ戻る</Text>
+          <Text style={styles.navText}>‹ コレクションへ戻る</Text>
         </Pressable>
-        <Pressable onPress={onOpenStory} hitSlop={10}>
-          <Text style={styles.navText}>ストーリー ›</Text>
+        <Pressable onPress={onShare} hitSlop={10} accessibilityLabel="共有">
+          <ShareIcon />
         </Pressable>
       </View>
 
@@ -211,11 +244,27 @@ export const PlayerScreen: React.FC<Props> = ({ track, onBackHome, onOpenStory }
       <View style={styles.meta}>
         <Text style={styles.title} numberOfLines={1}>{track.title}</Text>
         {track.subtitle && <Text style={styles.subtitle} numberOfLines={1}>{track.subtitle}</Text>}
-        {loading && <Text style={styles.subtitle}>読み込み中…</Text>}
+        {phase === 'playing' && loading && <Text style={styles.subtitle}>読み込み中…</Text>}
         {error && <Text style={styles.err}>{error}</Text>}
       </View>
 
-      {/* フロストのトランスポート */}
+      {/* ベール（再生前）: 再生ボタンだけを大きく置く */}
+      {phase === 'veil' && (
+        <View style={styles.veilControls}>
+          <Pressable
+            style={({ pressed }) => [styles.veilPlay, pressed && { opacity: 0.8 }]}
+            onPress={startPlayback}
+            hitSlop={12}
+            accessibilityLabel="再生"
+          >
+            <View style={styles.veilPlayGlow} />
+            <PlayMark size={26} />
+          </Pressable>
+        </View>
+      )}
+
+      {/* フロストのトランスポート（再生フェーズのみ） */}
+      {phase === 'playing' && (
       <View style={styles.transport}>
         {/* シークバー（上下拡張の当たり領域でタップシーク） */}
         <Pressable
@@ -261,6 +310,7 @@ export const PlayerScreen: React.FC<Props> = ({ track, onBackHome, onOpenStory }
           </Pressable>
         </View>
       </View>
+      )}
     </View>
   );
 };
@@ -277,7 +327,32 @@ const styles = StyleSheet.create({
   navText: { color: COLOR.textSecondary, fontSize: 13, letterSpacing: 0.4 },
   cardArea: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   backLayer: { position: 'absolute', top: 0, left: 0 },
-  sealLayer: { position: 'absolute', top: 0, left: 0 },
+  // ベール背景（コレクションをぼかしたような暗い面）
+  veilImage: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, opacity: 0.32 },
+  veilScrim: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: 'rgba(8,7,20,0.78)',
+  },
+  // ベールの再生ボタン（大きめ・シアングロー）
+  veilControls: { alignItems: 'center', justifyContent: 'center', marginBottom: 72 },
+  veilPlay: {
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    borderWidth: 1,
+    borderColor: 'rgba(120,220,240,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingLeft: 4,
+  },
+  veilPlayGlow: {
+    position: 'absolute',
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    backgroundColor: 'rgba(96,206,224,0.14)',
+  },
   meta: { alignItems: 'center', paddingHorizontal: SPACE.xl, gap: 4, marginBottom: SPACE.lg },
   title: { color: COLOR.textPrimary, fontSize: 20, fontWeight: '700', letterSpacing: 0.5 },
   subtitle: { color: COLOR.textSecondary, fontSize: 13, letterSpacing: 0.3 },
