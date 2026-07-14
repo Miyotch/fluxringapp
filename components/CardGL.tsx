@@ -157,10 +157,16 @@ const CardMesh: React.FC<{
       s.q.slerp(s.target, k);
       s.vx = 0;
       s.vy = 0;
+      // 従来のフリップにあった「少し浮く」感じ＝回転の中腹でわずかに拡大
+      if (meshRef.current) {
+        const ang = s.q.angleTo(s.target); // π→0 と減っていく
+        meshRef.current.scale.setScalar(1 + 0.09 * Math.sin(Math.min(Math.PI, ang)));
+      }
       if (s.q.angleTo(s.target) < 0.02) {
         s.q.copy(s.target);
         s.animating = false;
         s.target = null;
+        if (meshRef.current) meshRef.current.scale.setScalar(1);
       }
     } else if (!s.dragging && rotationEnabled) {
       const speed = Math.hypot(s.vx, s.vy);
@@ -214,20 +220,20 @@ export type CardGLProps = {
   /** レイアウト上の表示サイズ(px) */
   width: number;
   height: number;
-  /** 裏面の刻印内容（ホームの CardBack と同デザイン） */
+  /** 裏面の刻印内容（コレクションの裏面と同デザイン） */
   backData?: CardBackData;
   /**
-   * true=裏面（フリップ済み）/ false=表面。指定すると「表面ではタップで裏返し・
-   * 回転不可、裏面では全方向回転可」のホーム挙動になる。未指定はプレイヤー挙動。
+   * 'spin' = プレイヤー用（常時360°回転・フリップなし・既定）
+   * 'flip' = ホーム用（表面=タップで裏返し／裏面=360°回転・再タップで表面へ）
    */
-  flipped?: boolean;
-  /** タップされたとき（表↔裏の切替を親が行う） */
-  onToggleFlip?: () => void;
+  mode?: 'spin' | 'flip';
   /**
-   * ドラッグ回転を許可するか。未指定はプレイヤー用に true。
-   * ホームでは裏面のときだけ true（＝flipped）を渡す。
+   * flip モードで表面のあいだ上に重ねる従来デザインの表面
+   * （ArtworkCard 等）。タップ判定もこのオーバーレイで受ける。
    */
-  rotationEnabled?: boolean;
+  frontOverlay?: React.ReactNode;
+  /** flip モードで表↔裏が切り替わったとき（親が横スクロール可否を切替える用） */
+  onFlipChange?: (flipped: boolean) => void;
   /** 背面レイヤー追従用（任意・度 / px） */
   rotationOut?: SharedValue<number>;
   dragXOut?: SharedValue<number>;
@@ -239,9 +245,9 @@ export const CardGL: React.FC<CardGLProps> = ({
   width,
   height,
   backData,
-  flipped,
-  onToggleFlip,
-  rotationEnabled = true,
+  mode = 'spin',
+  frontOverlay,
+  onFlipChange,
   rotationOut,
   dragXOut,
   style,
@@ -257,18 +263,43 @@ export const CardGL: React.FC<CardGLProps> = ({
   const last = useRef({ x: 0, y: 0 });
   const moved = useRef(false);
 
-  // flipped の変化でフリップ演出を仕込む（表=正面 / 裏=Y180°へスラープ）
+  // ── フリップ状態は CardGL 内部で完結させる ──
+  // 親（FlatList のセル）経由で状態を渡すと、リストのセル再レンダー最適化に
+  // 阻まれて反映されないことがあるため、この中で setState → 即座に自分が
+  // 再レンダー → スラープ開始、という閉じた経路にする。
+  const isFlip = mode === 'flip';
+  const [flipped, setFlipped] = useState(false);
+  const [overlayVisible, setOverlayVisible] = useState(isFlip);
+  const overlayTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (overlayTimer.current) clearTimeout(overlayTimer.current); }, []);
+
+  const flipToBack = () => {
+    if (overlayTimer.current) { clearTimeout(overlayTimer.current); overlayTimer.current = null; }
+    setOverlayVisible(false); // 従来の表面を外して GL のフリップを見せる
+    setFlipped(true);
+    onFlipChange?.(true);
+  };
+  const flipToFront = () => {
+    setFlipped(false);
+    onFlipChange?.(false);
+    // 表向きへ戻るスラープ（約0.5秒）を見せてから従来の表面へ差し替え
+    if (overlayTimer.current) clearTimeout(overlayTimer.current);
+    overlayTimer.current = setTimeout(() => setOverlayVisible(true), 550);
+  };
+
+  // flipped の変化でフリップ演出を仕込む（表=正面 / 裏=Y軸180°へスラープ）
   useEffect(() => {
-    if (flipped === undefined) return;
+    if (!isFlip) return;
     const s = spin.current;
     s.target = (flipped ? Q_BACK : Q_FRONT).clone();
     s.animating = true;
     s.dragging = false;
     s.vx = 0;
     s.vy = 0;
-  }, [flipped]);
+  }, [flipped, isFlip]);
 
-  const canRotate = rotationEnabled;
+  // spin モード=常時回転可 / flip モード=裏面のときだけ回転可
+  const canRotate = isFlip ? flipped : true;
 
   const pan = useMemo(
     () =>
@@ -296,10 +327,10 @@ export const CardGL: React.FC<CardGLProps> = ({
         onPanResponderRelease: (_e, g) => {
           const s = spin.current;
           s.dragging = false;
-          if (!moved.current) {
-            // ほぼ動いていない＝タップ → 表へ戻す（親に通知）
-            onToggleFlip?.();
-          } else {
+          if (!moved.current && isFlip) {
+            // ほぼ動いていない＝タップ → 表へ戻す
+            flipToFront();
+          } else if (moved.current) {
             // 離した瞬間の速度（px/ms → 度/秒）で慣性回転
             s.vx = g.vy * 1000 * SENS;
             s.vy = g.vx * 1000 * SENS;
@@ -311,7 +342,8 @@ export const CardGL: React.FC<CardGLProps> = ({
           if (dragXOut) dragXOut.value = withSpring(0, { damping: 16, stiffness: 120 });
         },
       }),
-    [canRotate, dragXOut, onToggleFlip],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [canRotate, dragXOut, isFlip],
   );
 
   // 描画キャンバスはカードの対角線サイズの正方形にし、レイアウト枠から
@@ -324,8 +356,8 @@ export const CardGL: React.FC<CardGLProps> = ({
   // ラッパは常に同じ View（要素型を変えると Canvas が再マウントされ
   //   GL 再初期化のちらつきが出るため）。
   // 回転可（プレイヤー / ホーム裏面）＝ View に PanResponder（回転＋タップ）。
-  // 回転不可（ホーム表面）＝ 透明 Pressable を重ねてタップのみ受け、
-  //   ドラッグは親の横スワイプ（曲切替）へ通す。
+  // 回転不可（ホーム表面）＝ 従来デザインのオーバーレイ（Pressable）が
+  //   タップのみ受け、ドラッグは親の横スワイプ（曲切替）へ通す。
   const handlers = canRotate ? pan.panHandlers : {};
 
   return (
@@ -349,11 +381,26 @@ export const CardGL: React.FC<CardGLProps> = ({
         <CardMesh spin={spin} frontUri={frontUri} backData={backData} rotationEnabled={canRotate} rotationOut={rotationOut} />
       </Canvas>
 
-      {!canRotate && onToggleFlip && (
-        <Pressable style={StyleSheet.absoluteFill} onPress={onToggleFlip} />
+      {/* flip モードの表面: 従来デザイン（ArtworkCard 等）をタップ受けと兼ねて重ねる */}
+      {isFlip && overlayVisible && (
+        <Pressable style={styles.frontOverlay} onPress={flipToBack}>
+          {frontOverlay}
+        </Pressable>
       )}
     </View>
   );
 };
+
+const styles = StyleSheet.create({
+  frontOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+});
 
 export default CardGL;
