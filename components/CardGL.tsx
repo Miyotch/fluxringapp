@@ -1,25 +1,27 @@
 /**
- * CardGL.tsx — 実3D（WebGL）で厚みつきカードを全方向に360°回転
+ * CardGL.tsx — 実3D（WebGL）カード（card_parts v98 準拠）
  * ------------------------------------------------------------------
- * react-three-fiber（/native = expo-gl バックエンド）で、薄い直方体の
- * カードを描く。表面 = 作品画像テクスチャ、裏面 = 縦ヘアラインの
- * ブラッシュドアルミ＋刻印、側面（厚み 1mm 相当）= 金属ベゼル。
+ * react-three-fiber（/native = expo-gl）で角丸（0.085w）の薄いカードを描く。
+ *   ・表面: 作品画像そのまま（v93: ガラス効果なし・アート原色）
+ *   ・側面: 明色スチール（edgeLayer #D8E2F1→#9AA8BE 系）・厚み 6.5/188.6
+ *   ・裏面: backStyle='story' = フロストのストーリー面（v98。作品画像を
+ *           左右反転＋blurで敷き、紺の刻印・金属フレーム・反射帯・フレネル光）
+ *           backStyle='aluminum' = アルミ縦磨き＋刻印（プレイヤー用）
+ *   ・オーラ: aura 指定時に card-aura（2層グロー＋落影）を Skia で重ねる
+ * ジオメトリは 角丸Shape の表裏プレート＋ExtrudeGeometry の側面リング。
  *
  * 回転（トラックボール方式）:
  *   指の移動ベクトル (ddx, ddy) から回転軸 (ddy, ddx, 0) を毎フレーム求め、
- *   クォータニオンを世界座標系で前乗算（premultiply）する。
- *   → 横なぞり=左右回転 / 縦なぞり=上下回転 / 斜め=斜め回転。
- *   指を離すとその時の速度で慣性回転し、指数減衰でなめらかに止まる。
+ *   クォータニオンを世界座標系で前乗算。離すと慣性回転→指数減衰。
  *
  * 2つの使い方:
- *   ・プレイヤー: 常時回転可（rotationEnabled 既定 true・flip なし）
- *   ・ホーム    : flipped/onToggleFlip を渡す。表面ではタップで裏返し（回転不可）、
- *                 裏面では全方向回転可。フリップは quaternion のスラープで演出。
+ *   ・プレイヤー: mode='spin'（常時回転・フリップなし・既定）
+ *   ・ホーム    : mode='flip'。表面=タップで裏返し（回転不可・横ドラッグは
+ *                 親の曲切替へ）、裏面=全方向回転可・再タップで表面へ。
+ *                 フリップは quaternion のスラープ＋「少し浮く」スケール演出。
+ *                 状態は内部完結（FlatList のセル再レンダーに依存しない）。
  *
- * 入力: RN 標準（回転可のとき PanResponder / 表面は Pressable でタップのみ）。
- * 描画: useFrame（JSスレッド）で quaternion を mesh に反映。
- *   3D 変換は WebGL 内で完結するので、RN の perspective 合成不具合とは無関係。
- *
+ * 入力: RN 標準（回転可のとき PanResponder / 表面は透明 Pressable でタップのみ）。
  * 注意: expo-gl / three はネイティブ依存。反映には EAS 再ビルドが必要。
  */
 
@@ -30,14 +32,17 @@ import * as THREE from 'three';
 import { TextureLoader } from 'expo-three';
 import { Asset } from 'expo-asset';
 import { withSpring, SharedValue } from 'react-native-reanimated';
-import { renderCardBackPixels } from '../lib/cardBackTexture';
+import { renderCardBackPixels, renderStoryBackPixels, BackPixels } from '../lib/cardBackTexture';
+import { CardAura } from './CardAura';
 import type { CardBackData } from './CardBack';
 
 // カードの見かけ比率は 2:3。ワールド単位で W×H×D（D=厚み）。
 const W = 1.3;
 const H = W * 1.5;
-// 実カード幅を 63mm とし、厚み 1mm 想定 → 1/63 ≈ 0.016（実機調整ポイント）
-const DEPTH_RATIO = 0.016;
+// 厚み: card_parts v98 の確定値 thk=6.5 / カード幅188.6 ≈ 0.0345
+const DEPTH_RATIO = 6.5 / 188.6;
+// 角丸: --cr = 0.085 × カード幅（v98・全レイヤー共通）
+const CORNER_RATIO = 0.085;
 const SENS = 0.55; // 1px ドラッグあたりの回転角（度）
 const DECAY = 3.0; // 慣性の指数減衰（大きいほど早く止まる・実機調整ポイント）
 const STOP_DEG_PER_SEC = 2; // これ未満の角速度で停止
@@ -98,37 +103,100 @@ function makeBrushedTexture(): THREE.DataTexture {
   return tex;
 }
 
+// 角丸長方形の THREE.Shape（中心原点）
+function roundedRectShape(w: number, h: number, r: number): THREE.Shape {
+  const s = new THREE.Shape();
+  const x = -w / 2;
+  const y = -h / 2;
+  s.moveTo(x + r, y);
+  s.lineTo(x + w - r, y);
+  s.absarc(x + w - r, y + r, r, -Math.PI / 2, 0, false);
+  s.lineTo(x + w, y + h - r);
+  s.absarc(x + w - r, y + h - r, r, 0, Math.PI / 2, false);
+  s.lineTo(x + r, y + h);
+  s.absarc(x + r, y + h - r, r, Math.PI / 2, Math.PI, false);
+  s.lineTo(x, y + r);
+  s.absarc(x + r, y + r, r, Math.PI, Math.PI * 1.5, false);
+  return s;
+}
+
+// ShapeGeometry の UV を 0..1 に正規化（頂点座標→カード全面マッピング）
+function remapUV(geo: THREE.BufferGeometry, w: number, h: number) {
+  const pos = geo.getAttribute('position');
+  const uv = geo.getAttribute('uv');
+  for (let i = 0; i < pos.count; i++) {
+    uv.setXY(i, pos.getX(i) / w + 0.5, pos.getY(i) / h + 0.5);
+  }
+  uv.needsUpdate = true;
+}
+
+// Skia の RGBA ピクセル → three の DataTexture（行順を反転）
+function pixelsToTexture(res: BackPixels): THREE.DataTexture {
+  const { pixels, width: tw, height: th } = res;
+  const flipped = new Uint8Array(pixels.length);
+  const row = tw * 4;
+  for (let y = 0; y < th; y++) {
+    flipped.set(pixels.subarray((th - 1 - y) * row, (th - y) * row), y * row);
+  }
+  const t = new THREE.DataTexture(flipped, tw, th, THREE.RGBAFormat);
+  t.needsUpdate = true;
+  return t;
+}
+
 const CardMesh: React.FC<{
   spin: React.MutableRefObject<SpinState>;
   frontUri: string;
   backData?: CardBackData;
+  backStyle: 'aluminum' | 'story';
+  depthRatio: number;
   rotationEnabled: boolean;
   rotationOut?: SharedValue<number>;
-}> = ({ spin, frontUri, backData, rotationEnabled, rotationOut }) => {
-  const meshRef = useRef<THREE.Mesh>(null);
+}> = ({ spin, frontUri, backData, backStyle, depthRatio, rotationEnabled, rotationOut }) => {
+  const groupRef = useRef<THREE.Group>(null);
   const [frontTex, setFrontTex] = useState<THREE.Texture | null>(null);
+  const [backTex, setBackTex] = useState<THREE.DataTexture | null>(null);
   const brushed = useMemo(makeBrushedTexture, []);
 
-  // 裏面: ホームの CardBack と同デザインを Skia で焼き込み → DataTexture
-  const backTex = useMemo(() => {
-    if (!backData) return null;
-    try {
-      const res = renderCardBackPixels(backData, 512, 768);
-      if (!res) return null;
-      // three は v=0 が下端 → Skia（上端origin）の行順を反転
-      const { pixels, width: tw, height: th } = res;
-      const flipped = new Uint8Array(pixels.length);
-      const row = tw * 4;
-      for (let y = 0; y < th; y++) {
-        flipped.set(pixels.subarray((th - 1 - y) * row, (th - y) * row), y * row);
-      }
-      const t = new THREE.DataTexture(flipped, tw, th, THREE.RGBAFormat);
-      t.needsUpdate = true;
-      return t;
-    } catch {
-      return null;
-    }
-  }, [backData]);
+  const T = W * depthRatio;
+
+  // 角丸カードのジオメトリ（表・裏の面＋側面リング）
+  const geos = useMemo(() => {
+    const shape = roundedRectShape(W, H, CORNER_RATIO * W);
+    const front = new THREE.ShapeGeometry(shape, 12);
+    remapUV(front, W, H);
+    const back = front.clone();
+    back.rotateY(Math.PI); // 裏向き（フリップ後に正しく読める向き）
+    const side = new THREE.ExtrudeGeometry(shape, {
+      depth: T,
+      bevelEnabled: false,
+      curveSegments: 12,
+    });
+    side.translate(0, 0, -T / 2);
+    return { front, back, side };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [T]);
+
+  // 側面: edgeLayer の明色スチール（#D8E2F1→#BCC9DC→#9AA8BE の中間調）
+  const sideMats = useMemo(() => {
+    const m = new THREE.MeshStandardMaterial({ color: '#BCC9DC', metalness: 0.65, roughness: 0.3 });
+    return [m, m]; // [キャップ, 側面] — キャップは面プレートの背後で見えない
+  }, []);
+
+  // 裏面テクスチャ: story=フロストのストーリー面（v98） / aluminum=アルミ刻印
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      if (!backData) return;
+      try {
+        const res =
+          backStyle === 'story'
+            ? await renderStoryBackPixels(backData, frontUri, 512, 768)
+            : renderCardBackPixels(backData, 512, 768);
+        if (res && alive) setBackTex(pixelsToTexture(res));
+      } catch {}
+    })();
+    return () => { alive = false; };
+  }, [backData, backStyle, frontUri]);
 
   // 作品画像テクスチャの読み込み（remote → ローカルへ落としてから）
   useEffect(() => {
@@ -158,15 +226,15 @@ const CardMesh: React.FC<{
       s.vx = 0;
       s.vy = 0;
       // 従来のフリップにあった「少し浮く」感じ＝回転の中腹でわずかに拡大
-      if (meshRef.current) {
+      if (groupRef.current) {
         const ang = s.q.angleTo(s.target); // π→0 と減っていく
-        meshRef.current.scale.setScalar(1 + 0.09 * Math.sin(Math.min(Math.PI, ang)));
+        groupRef.current.scale.setScalar(1 + 0.09 * Math.sin(Math.min(Math.PI, ang)));
       }
       if (s.q.angleTo(s.target) < 0.02) {
         s.q.copy(s.target);
         s.animating = false;
         s.target = null;
-        if (meshRef.current) meshRef.current.scale.setScalar(1);
+        if (groupRef.current) groupRef.current.scale.setScalar(1);
       }
     } else if (!s.dragging && rotationEnabled) {
       const speed = Math.hypot(s.vx, s.vy);
@@ -180,7 +248,7 @@ const CardMesh: React.FC<{
         s.vy = 0;
       }
     }
-    if (meshRef.current) meshRef.current.quaternion.copy(s.q);
+    if (groupRef.current) groupRef.current.quaternion.copy(s.q);
     if (rotationOut) {
       // 表面法線と視線のなす角（度）。cos(rotationOut)=表面度 になり
       // 既存の aProg / fore の導出式がそのまま使える。
@@ -190,27 +258,24 @@ const CardMesh: React.FC<{
     }
   });
 
-  const D = W * DEPTH_RATIO;
-
   return (
-    <mesh ref={meshRef}>
-      <boxGeometry args={[W, H, D]} />
-      {/* material index: 0:+X 1:-X 2:+Y 3:-Y 4:+Z(表) 5:-Z(裏) */}
-      {/* 側面（厚み）: 金属ベゼル（上白→シアン寄り） */}
-      <meshStandardMaterial attach="material-0" color="#8FB6C6" metalness={0.9} roughness={0.28} />
-      <meshStandardMaterial attach="material-1" color="#8FB6C6" metalness={0.9} roughness={0.28} />
-      <meshStandardMaterial attach="material-2" color="#CDE3EC" metalness={0.9} roughness={0.22} />
-      <meshStandardMaterial attach="material-3" color="#5E7C8A" metalness={0.9} roughness={0.32} />
-      {/* 表: 作品画像（ライト非依存で鮮明に） */}
-      <meshBasicMaterial attach="material-4" map={frontTex ?? undefined} color={frontTex ? '#ffffff' : '#222338'} />
-      {/* 裏: アルミ縦磨き＋刻印（ホームの CardBack と同デザインの焼き込み）。
-          文字の判読性を優先しライト非依存。生成失敗時は素のヘアラインへ */}
-      {backTex ? (
-        <meshBasicMaterial attach="material-5" map={backTex} />
-      ) : (
-        <meshStandardMaterial attach="material-5" map={brushed} metalness={0.72} roughness={0.4} color="#c9ced6" />
-      )}
-    </mesh>
+    <group ref={groupRef}>
+      {/* 側面リング（角丸の厚み・明色スチール） */}
+      <mesh geometry={geos.side} material={sideMats} />
+      {/* 表: 角丸の作品画像（v93: ガラス効果なし・アート原色） */}
+      <mesh geometry={geos.front} position={[0, 0, T / 2 + 0.002]}>
+        <meshBasicMaterial map={frontTex ?? undefined} color={frontTex ? '#ffffff' : '#222338'} />
+      </mesh>
+      {/* 裏: story=フロストのストーリー面（v98）/ aluminum=アルミ刻印。
+          文字の判読性を優先しライト非依存。生成前・失敗時はヘアライン */}
+      <mesh geometry={geos.back} position={[0, 0, -T / 2 - 0.002]}>
+        {backTex ? (
+          <meshBasicMaterial map={backTex} />
+        ) : (
+          <meshStandardMaterial map={brushed} metalness={0.72} roughness={0.4} color="#c9ced6" />
+        )}
+      </mesh>
+    </group>
   );
 };
 
@@ -227,11 +292,12 @@ export type CardGLProps = {
    * 'flip' = ホーム用（表面=タップで裏返し／裏面=360°回転・再タップで表面へ）
    */
   mode?: 'spin' | 'flip';
-  /**
-   * flip モードで表面のあいだ上に重ねる従来デザインの表面
-   * （ArtworkCard 等）。タップ判定もこのオーバーレイで受ける。
-   */
-  frontOverlay?: React.ReactNode;
+  /** 裏面デザイン。story=フロストのストーリー面（v98・ホーム） / aluminum=アルミ刻印（既定） */
+  backStyle?: 'aluminum' | 'story';
+  /** カード周囲のオーラ（card-aura）。指定時のみ描画（プレイヤーは CardBackdrop 側で描くため未指定） */
+  aura?: { a?: string; b?: string };
+  /** 厚み比（対カード幅）。既定は v98 の 6.5/188.6。プレイヤーは 1mm 相当 0.016 を指定 */
+  depthRatio?: number;
   /** flip モードで表↔裏が切り替わったとき（親が横スクロール可否を切替える用） */
   onFlipChange?: (flipped: boolean) => void;
   /** 背面レイヤー追従用（任意・度 / px） */
@@ -246,7 +312,9 @@ export const CardGL: React.FC<CardGLProps> = ({
   height,
   backData,
   mode = 'spin',
-  frontOverlay,
+  backStyle = 'aluminum',
+  aura,
+  depthRatio = DEPTH_RATIO,
   onFlipChange,
   rotationOut,
   dragXOut,
@@ -269,22 +337,14 @@ export const CardGL: React.FC<CardGLProps> = ({
   // 再レンダー → スラープ開始、という閉じた経路にする。
   const isFlip = mode === 'flip';
   const [flipped, setFlipped] = useState(false);
-  const [overlayVisible, setOverlayVisible] = useState(isFlip);
-  const overlayTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => { if (overlayTimer.current) clearTimeout(overlayTimer.current); }, []);
 
   const flipToBack = () => {
-    if (overlayTimer.current) { clearTimeout(overlayTimer.current); overlayTimer.current = null; }
-    setOverlayVisible(false); // 従来の表面を外して GL のフリップを見せる
     setFlipped(true);
     onFlipChange?.(true);
   };
   const flipToFront = () => {
     setFlipped(false);
     onFlipChange?.(false);
-    // 表向きへ戻るスラープ（約0.5秒）を見せてから従来の表面へ差し替え
-    if (overlayTimer.current) clearTimeout(overlayTimer.current);
-    overlayTimer.current = setTimeout(() => setOverlayVisible(true), 550);
   };
 
   // flipped の変化でフリップ演出を仕込む（表=正面 / 裏=Y軸180°へスラープ）
@@ -356,12 +416,15 @@ export const CardGL: React.FC<CardGLProps> = ({
   // ラッパは常に同じ View（要素型を変えると Canvas が再マウントされ
   //   GL 再初期化のちらつきが出るため）。
   // 回転可（プレイヤー / ホーム裏面）＝ View に PanResponder（回転＋タップ）。
-  // 回転不可（ホーム表面）＝ 従来デザインのオーバーレイ（Pressable）が
-  //   タップのみ受け、ドラッグは親の横スワイプ（曲切替）へ通す。
+  // 回転不可（ホーム表面）＝ 透明 Pressable がタップのみ受け、
+  //   ドラッグは親の横スワイプ（曲切替）へ通す。
   const handlers = canRotate ? pan.panHandlers : {};
 
   return (
     <View style={[{ width, height }, style]} {...handlers}>
+      {/* card-aura（box-shadow 2層＋落影）。指定時のみ */}
+      {aura && <CardAura width={width} height={height} auraA={aura.a} auraB={aura.b} />}
+
       <Canvas
         style={{
           position: 'absolute',
@@ -378,29 +441,23 @@ export const CardGL: React.FC<CardGLProps> = ({
         <ambientLight intensity={0.65} />
         <directionalLight position={[2.5, 3, 4]} intensity={1.25} />
         <pointLight position={[-3, 1.5, 3]} intensity={0.8} color="#7fdcf0" />
-        <CardMesh spin={spin} frontUri={frontUri} backData={backData} rotationEnabled={canRotate} rotationOut={rotationOut} />
+        <CardMesh
+          spin={spin}
+          frontUri={frontUri}
+          backData={backData}
+          backStyle={backStyle}
+          depthRatio={depthRatio}
+          rotationEnabled={canRotate}
+          rotationOut={rotationOut}
+        />
       </Canvas>
 
-      {/* flip モードの表面: 従来デザイン（ArtworkCard 等）をタップ受けと兼ねて重ねる */}
-      {isFlip && overlayVisible && (
-        <Pressable style={styles.frontOverlay} onPress={flipToBack}>
-          {frontOverlay}
-        </Pressable>
+      {/* flip モードの表面: 透明のタップ受け（GL の表面がそのまま見える） */}
+      {isFlip && !flipped && (
+        <Pressable style={StyleSheet.absoluteFill} onPress={flipToBack} />
       )}
     </View>
   );
 };
-
-const styles = StyleSheet.create({
-  frontOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});
 
 export default CardGL;

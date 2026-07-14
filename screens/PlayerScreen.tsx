@@ -194,6 +194,7 @@ export const PlayerScreen: React.FC<Props> = ({ track, onBackHome, onOpenStory }
           frontUri={track.artworkUrl}
           width={cardW}
           height={cardH}
+          depthRatio={0.016}
           backData={{
             title: track.title,
             story: track.subtitle,
