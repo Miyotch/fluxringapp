@@ -3,8 +3,8 @@
  * ------------------------------------------------------------------
  * ワイヤーフレーム 03 / P3・初動:
  *   ・上部セグメントで マイコレクション（所有）/ ウィッシュリスト を切替
- *   ・2列グリッド・カードやや小さめ（grid gap 18 / 左右 padding 38）
- *   ・マイコレ＝所有の記録（明・シアンドット）
+ *   ・3列×7行＝21枠のグリッド。未購入でも枠（点線・通し番号）をあらかじめ表示
+ *   ・マイコレ＝所有の記録（明・シアンドット）。未所有の枠はダミー（タップ不可）
  *   ・ウィッシュ＝欲しいものの保留（沈めない・価格を添える・「購入する ¥2,500」）
  *   ・楽曲タップ → ストーリー（P2.1）
  *   ・ウィッシュが空のとき: 「まだ、ひとつも。」＋「作品と出会う」
@@ -24,7 +24,6 @@ import {
 } from 'react-native';
 import Animated, { FadeInUp } from 'react-native-reanimated';
 import { ArtworkCard } from '../components/ArtworkCard';
-import { ShuffleIcon } from '../components/icons';
 import { COLOR, SPACE, RADIUS } from '../constants/design-tokens';
 import { useT } from '../lib/i18n';
 
@@ -50,8 +49,13 @@ type Props = {
 };
 
 const NUM_COLUMNS = 3;
+const NUM_ROWS = 7;
+const TOTAL_SLOTS = NUM_COLUMNS * NUM_ROWS; // 21枠。未購入でも枠を先出しする
 const GRID_GAP = 12;
 const SIDE_PAD = 20;
+
+// マイコレクションの1枠（所有=item あり／未所有=null のダミー枠）
+type MineSlot = { key: string; item: CollectionItem | null; no: string };
 
 export const CollectionScreen: React.FC<Props> = ({
   owned,
@@ -67,14 +71,12 @@ export const CollectionScreen: React.FC<Props> = ({
   // 3列・列幅 = (画面幅 - 左右padding - 列間gap×(列数-1)) / 列数
   const colW = (screenW - SIDE_PAD * 2 - GRID_GAP * (NUM_COLUMNS - 1)) / NUM_COLUMNS;
 
-  const data = seg === 'mine' ? owned : wishlist;
-
-  // 所有曲からランダムに1曲を再生（シャッフル）
-  const handleShuffle = () => {
-    if (owned.length === 0) return;
-    const idx = Math.floor(Math.random() * owned.length);
-    onOpenTrack(owned[idx].id);
-  };
+  // マイコレは常に21枠。所有分を先頭から詰め、残りは通し番号だけのダミー枠。
+  const mineSlots: MineSlot[] = Array.from({ length: TOTAL_SLOTS }, (_, i) => ({
+    key: owned[i]?.id ?? `empty-${i}`,
+    item: owned[i] ?? null,
+    no: String(i + 1).padStart(2, '0'),
+  }));
 
   const renderItem = ({ item, index }: { item: CollectionItem; index: number }) => (
     // カードは段階的にふわっと浮き出る（reanimated entering）
@@ -122,6 +124,22 @@ export const CollectionScreen: React.FC<Props> = ({
     </Animated.View>
   );
 
+  // マイコレ用: 所有=通常カード／未所有=通し番号だけの点線ダミー枠（タップ不可）
+  const renderMineSlot = ({ item: slot, index }: { item: MineSlot; index: number }) =>
+    slot.item ? (
+      renderItem({ item: slot.item, index })
+    ) : (
+      <Animated.View
+        key={`mine-${slot.key}`}
+        entering={FadeInUp.duration(420).delay((index % 8) * 55)}
+        style={[styles.cell, { width: colW }]}
+      >
+        <View style={[styles.emptySlot, { width: colW, height: colW * 1.5 }]}>
+          <Text style={styles.emptySlotNo}>{slot.no}</Text>
+        </View>
+      </Animated.View>
+    );
+
   return (
     <View style={styles.root}>
       <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
@@ -154,23 +172,20 @@ export const CollectionScreen: React.FC<Props> = ({
         </Pressable>
       </View>
 
-      {/* シャッフル（マイコレ・所有2曲以上のときだけ表示。グレーアウトでなく消える） */}
-      {seg === 'mine' && owned.length >= 2 && (
-        <View style={styles.shuffleRow}>
-          <Pressable
-            style={({ pressed }) => [styles.shuffleBtn, pressed && { opacity: 0.7 }]}
-            onPress={handleShuffle}
-            accessibilityRole="button"
-            accessibilityLabel={t('collection.shuffle')}
-          >
-            <ShuffleIcon size={12} color={COLOR.textSecondary} />
-            <Text style={styles.shuffleLabel}>{t('collection.shuffle')}</Text>
-          </Pressable>
-        </View>
-      )}
-
       {/* グリッド or 空状態 */}
-      {data.length === 0 ? (
+      {seg === 'mine' ? (
+        // マイコレは常に21枠のグリッド（未購入は通し番号だけの点線ダミー枠）
+        <FlatList
+          data={mineSlots}
+          key="mine"
+          keyExtractor={(s) => s.key}
+          renderItem={renderMineSlot}
+          numColumns={NUM_COLUMNS}
+          columnWrapperStyle={{ gap: GRID_GAP }}
+          contentContainerStyle={styles.grid}
+          showsVerticalScrollIndicator={false}
+        />
+      ) : wishlist.length === 0 ? (
         <View style={styles.empty}>
           <View style={styles.emptyOrb} />
           <Text style={styles.emptyTitle}>{t('collection.emptyTitle')}</Text>
@@ -184,9 +199,8 @@ export const CollectionScreen: React.FC<Props> = ({
         </View>
       ) : (
         <FlatList
-          data={data}
-          // seg を key に含め、タブ切替でリストを作り直して再アニメーション
-          key={seg}
+          data={wishlist}
+          key="wish"
           keyExtractor={(i) => i.id}
           renderItem={renderItem}
           numColumns={NUM_COLUMNS}
@@ -224,21 +238,19 @@ const styles = StyleSheet.create({
   segBtnActive: { backgroundColor: 'rgba(96,206,224,0.12)' },
   segText: { color: COLOR.textSecondary, fontSize: 13, letterSpacing: 0.3 },
   segTextActive: { color: COLOR.textPrimary, fontWeight: '600' },
-  shuffleRow: { alignItems: 'flex-end', marginHorizontal: SIDE_PAD, marginBottom: SPACE.sm },
-  shuffleBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 7,
-    paddingVertical: 7,
-    paddingHorizontal: 14,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: COLOR.border,
-    backgroundColor: 'rgba(34,36,69,0.30)',
-  },
-  shuffleLabel: { color: COLOR.textSecondary, fontSize: 10.5, letterSpacing: 1 },
-  grid: { paddingHorizontal: SIDE_PAD, paddingBottom: 40, gap: GRID_GAP },
+  grid: { paddingHorizontal: SIDE_PAD, paddingTop: SPACE.sm, paddingBottom: 40, gap: GRID_GAP },
   cell: { marginBottom: GRID_GAP },
+  // 未所有の枠（通し番号のみの点線ダミー・タップ不可）
+  emptySlot: {
+    borderRadius: RADIUS.card,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: 'rgba(96,206,224,0.28)',
+    backgroundColor: 'rgba(34,36,69,0.20)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptySlotNo: { color: COLOR.textSecondary, fontSize: 12, letterSpacing: 1, opacity: 0.6 },
   cellMeta: { marginTop: 6, gap: 4 },
   // 3列でカードが小さいので文字も小さめ
   cellTitle: { color: COLOR.textPrimary, fontSize: 11, letterSpacing: 0.2 },

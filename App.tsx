@@ -121,10 +121,10 @@ function AppInner() {
       <PlayerScreen
         track={playerTrack}
         onBackHome={() => {
+          // コレクションから開くのでコレクションへ戻す
           setOverlay(null);
-          setTab('home');
+          setTab('collection');
         }}
-        onOpenStory={() => setOverlay('story')}
       />
     );
   }

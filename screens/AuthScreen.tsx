@@ -34,8 +34,10 @@ import {
   GOOGLE_IOS_CLIENT_ID,
   GOOGLE_ANDROID_CLIENT_ID,
   isGoogleConfigured,
+  APPLE_SIGNIN_ENABLED,
 } from '../constants/authConfig';
 import { signUp, signIn, signInWithGoogleToken } from '../lib/firebaseAuth';
+import { AppleButton } from '../components/AppleButton';
 
 // OAuth リダイレクト後にブラウザセッションを閉じる（expo-auth-session 必須）
 WebBrowser.maybeCompleteAuthSession();
@@ -134,7 +136,7 @@ export const AuthScreen: React.FC<Props> = ({ mode, onSwitchMode, onAuthenticate
 
       <View style={styles.body}>
         <Text style={styles.brand}>FLUX RING</Text>
-        <Text style={styles.title}>{isSignup ? 'アカウント作成' : 'ログイン'}</Text>
+        <Text style={styles.title}>{isSignup ? '新規登録' : 'ログイン'}</Text>
 
         {/* メール / パスワード */}
         <TextInput
@@ -164,7 +166,7 @@ export const AuthScreen: React.FC<Props> = ({ mode, onSwitchMode, onAuthenticate
           disabled={busy}
         >
           <Text style={styles.primaryLabel}>
-            {busy ? '処理中…' : isSignup ? 'サインアップ' : 'ログイン'}
+            {busy ? '処理中…' : isSignup ? '新規登録' : 'ログイン'}
           </Text>
         </Pressable>
 
@@ -175,6 +177,7 @@ export const AuthScreen: React.FC<Props> = ({ mode, onSwitchMode, onAuthenticate
           <View style={styles.line} />
         </View>
 
+        {/* ソーシャル認証（ログイン・新規登録の両方で表示） */}
         {/* Google: 設定済みのときだけフック付きボタンをマウント（未設定時のクラッシュ回避） */}
         {isGoogleConfigured ? (
           <GoogleButton
@@ -194,7 +197,15 @@ export const AuthScreen: React.FC<Props> = ({ mode, onSwitchMode, onAuthenticate
           </Pressable>
         )}
 
-        {/* Apple サインインは provisioning 対応後に復帰（authConfig.ts 参照） */}
+        {/* Apple: iOS の対応端末でのみ表示（AppleButton 内で isAvailableAsync 判定） */}
+        {APPLE_SIGNIN_ENABLED && (
+          <AppleButton
+            busy={busy}
+            onBusy={setBusy}
+            onError={setError}
+            onAuthenticated={onAuthenticated}
+          />
+        )}
       </View>
 
       {/* モード切替 */}
@@ -203,7 +214,7 @@ export const AuthScreen: React.FC<Props> = ({ mode, onSwitchMode, onAuthenticate
         onPress={() => onSwitchMode(isSignup ? 'login' : 'signup')}
       >
         <Text style={styles.switchText}>
-          {isSignup ? 'すでにアカウントをお持ちですか？ ログイン' : 'アカウントを作成する'}
+          {isSignup ? 'すでにアカウントをお持ちですか？ ログイン' : '新規登録はこちら'}
         </Text>
       </Pressable>
     </KeyboardAvoidingView>

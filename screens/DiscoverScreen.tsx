@@ -7,7 +7,7 @@
  *   ・ブランド「Flux Ring」左上
  *   ・右上: 試聴中の EQ / 通知ベル(未読赤点) / 試聴スピーカー
  *   ・タイトル＋情景の言葉 左上
- *   ・中央: ArtworkCard（hero 明滅・作品オーラ）
+ *   ・中央: v98準拠カード（角丸作品画像＋オーラ。アクティブ面は実3D）
  *   ・下部: 発光する購入ボタン ＋ ウィッシュリスト星（所有時は再生＝星非表示）
  *   ・横スワイプで曲切替（左=次 / 右=前）
  *
@@ -35,7 +35,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useAudioPlayer } from 'expo-audio';
 import { previewUrl } from '../lib/r2';
-import { ArtworkCard } from '../components/ArtworkCard';
+import { CardFace } from '../components/CardFace';
 import { StarSeal } from '../components/StarSeal';
 import { CardGL } from '../components/CardGL';
 import { BuyButton } from '../components/BuyButton';
@@ -144,7 +144,8 @@ export const DiscoverScreen: React.FC<Props> = ({
 
   const { width: screenW } = useWindowDimensions();
   const active = tracks[activeIndex] ?? tracks[0];
-  const cardW = 180;
+  // v98 カルーセル確定値 BASE_W = 164 × 1.15 = 188.6（調律陣のスケールも参照と1:1になる）
+  const cardW = 189;
   const cardH = Math.round(cardW * 1.5);
 
   // 試聴プレイヤー（30秒・公開URL）
@@ -244,25 +245,18 @@ export const DiscoverScreen: React.FC<Props> = ({
           renderItem={({ item, index }) => (
             <View style={[styles.slide, { width: screenW, height: slideH }]}>
               {index === activeIndex ? (
-                // アクティブ面: flip モードの GL カード。
-                // 表面は従来デザインの ArtworkCard（オーラ・明滅）を CardGL が
-                // 内部で重ねて表示し、タップ→裏返し→360°回転まで内部で完結する
+                // アクティブ面: v98準拠の実3Dカード（角丸・厚み・オーラ）。
+                // 表面=角丸の作品画像＋タップで裏返し / 裏面=フロストの
+                // ストーリー面（v98）＋360°回転。タップ→フリップは内部完結
                 // （FlatList のセル再レンダーに依存しない）。
                 <CardGL
                   mode="flip"
+                  backStyle="story"
                   frontUri={item.artworkUrl}
                   width={cardW}
                   height={cardH}
+                  aura={{ a: item.glowColor, b: item.glowColor2 }}
                   onFlipChange={setFlipped}
-                  frontOverlay={
-                    <ArtworkCard
-                      width={cardW}
-                      imageUri={item.artworkUrl}
-                      glow={item.glowColor}
-                      glow2={item.glowColor2}
-                      hero={{ enabled: true }}
-                    />
-                  }
                   backData={{
                     title: item.title,
                     serial: item.back?.serial,
@@ -273,13 +267,13 @@ export const DiscoverScreen: React.FC<Props> = ({
                   }}
                 />
               ) : (
-                // 非アクティブは軽量な静止カード（スワイプ中の隣接面）
-                <ArtworkCard
+                // 非アクティブは軽量な静止カード（角丸＋オーラ・v98の表面と同一デザイン）
+                <CardFace
+                  uri={item.artworkUrl}
                   width={cardW}
-                  imageUri={item.artworkUrl}
-                  glow={item.glowColor}
-                  glow2={item.glowColor2}
-                  hero={{ enabled: false }}
+                  height={cardH}
+                  auraA={item.glowColor}
+                  auraB={item.glowColor2}
                 />
               )}
             </View>

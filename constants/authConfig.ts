@@ -38,19 +38,15 @@ export const isGoogleConfigured = Boolean(
 /**
  * Apple サインインの有効化フラグ。
  * ------------------------------------------------------------------
- * Apple サインインは provisioning profile に「Sign In with Apple」機能の
- * 登録が必要。未登録のままだと iOS ビルド（署名）が失敗する。
- * さらに expo-apple-authentication はインストールされているだけで prebuild 時に
- * applesignin エンタイトルメントを自動付与するため、依存ごと一旦除外している。
+ * expo-apple-authentication を依存に戻し、app.json に usesAppleSignIn=true と
+ * プラグインを設定済み。実行時は AppleAuthentication.isAvailableAsync() で
+ * 利用可否を判定し、iOS の対応端末でのみ Apple ボタンを表示する。
  *
- * 【再有効化手順】
- *   1. ローカルで `eas build --platform ios`（または `eas credentials`）を一度実行し、
- *      EAS に Sign In with Apple 機能を同期＋プロファイルを再生成させる
- *   2. `npx expo install expo-apple-authentication expo-crypto` で依存を戻す
- *   3. app.json の ios に `"usesAppleSignIn": true` と
- *      `"plugins": ["expo-apple-authentication"]` を戻す
- *   4. AuthScreen に Apple サインインのコード（handleApple / Apple ボタン）を戻す
- *      ※ lib/firebaseAuth.ts の signInWithAppleToken は残してある
- *   5. このフラグを true にする
+ * ⚠️ EAS ビルド前提:
+ *   expo-apple-authentication は prebuild 時に applesignin エンタイトルメントを
+ *   自動付与する。Apple Developer 側で App ID に「Sign In with Apple」capability を
+ *   有効化し、`eas credentials`（または `eas build`）でプロファイルを再生成して
+ *   おかないと iOS の署名ビルドが失敗する。
+ *   Firebase コンソール → Authentication → Apple も有効化しておくこと。
  */
-export const APPLE_SIGNIN_ENABLED = false
+export const APPLE_SIGNIN_ENABLED = true

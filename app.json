@@ -17,6 +17,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.fluxring.app",
+      "usesAppleSignIn": true,
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "UIBackgroundModes": ["audio"]
@@ -30,6 +31,7 @@
         "backgroundColor": "#0E0C20"
       }
     },
+    "plugins": ["expo-apple-authentication"],
     "extra": {
       "eas": {
         "projectId": "d94a1082-9da2-459a-88b4-cd593c16eed3"
