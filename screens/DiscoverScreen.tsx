@@ -144,7 +144,8 @@ export const DiscoverScreen: React.FC<Props> = ({
 
   const { width: screenW } = useWindowDimensions();
   const active = tracks[activeIndex] ?? tracks[0];
-  const cardW = 180;
+  // v98 カルーセル確定値 BASE_W = 164 × 1.15 = 188.6（調律陣のスケールも参照と1:1になる）
+  const cardW = 189;
   const cardH = Math.round(cardW * 1.5);
 
   // 試聴プレイヤー（30秒・公開URL）

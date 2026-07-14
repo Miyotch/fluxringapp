@@ -310,17 +310,15 @@ export async function renderStoryBackPixels(
   // タイトル（fs23 中央 #46527A）
   drawSpaced(c, data.title, W / 2, 66 * f, 23 * f, '#46527A', 0.08, 'c');
 
-  // Story（fs12.5 lh1.7 最大5行 #3B4A72・左寄せ）
+  // Story（fs12.5 lh1.7 字間.03em 最大5行 #3B4A72・左寄せ）
   if (data.story) {
     const fs = 12.5 * f;
     const lh = 21.25 * f;
-    const lines = wrap(data.story, fs, W - 32 * f, makeFont(fs), 5);
+    // 字間ぶん（約3%）を差し引いた幅で折り返す
+    const lines = wrap(data.story, fs, (W - 32 * f) * 0.97, makeFont(fs), 5);
     let y = 103 * f;
-    const sp = Skia.Paint();
-    sp.setColor(Skia.Color('#3B4A72'));
-    const font = makeFont(fs);
     for (const ln of lines) {
-      if (font) c.drawText(ln, 16 * f, y, sp, font);
+      drawSpaced(c, ln, 16 * f, y, fs, '#3B4A72', 0.03, 'l');
       y += lh;
     }
   }

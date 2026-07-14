@@ -80,6 +80,37 @@ function hash(x: number): number {
   return s - Math.floor(s);
 }
 
+/**
+ * 側面（edgeLayer）の縦グラデーション: #D8E2F1 0% → #BCC9DC 55% → #9AA8BE 100%
+ * （v98 verbatim）。1×64 の DataTexture（行0 = v0 = カード下端）。
+ */
+function makeEdgeGradientTexture(): THREE.DataTexture {
+  const N = 64;
+  const c1 = [0xd8, 0xe2, 0xf1]; // 上端
+  const c2 = [0xbc, 0xc9, 0xdc]; // 55%
+  const c3 = [0x9a, 0xa8, 0xbe]; // 下端
+  const data = new Uint8Array(N * 4);
+  for (let i = 0; i < N; i++) {
+    const v = i / (N - 1);      // 0=下端(v0) → 1=上端
+    const t = 1 - v;            // CSS 180deg（上→下）に合わせる
+    let c: number[];
+    if (t <= 0.55) {
+      const k = t / 0.55;
+      c = c1.map((a, j) => a + (c2[j] - a) * k);
+    } else {
+      const k = (t - 0.55) / 0.45;
+      c = c2.map((a, j) => a + (c3[j] - a) * k);
+    }
+    data[i * 4] = c[0];
+    data[i * 4 + 1] = c[1];
+    data[i * 4 + 2] = c[2];
+    data[i * 4 + 3] = 255;
+  }
+  const tex = new THREE.DataTexture(data, 1, N, THREE.RGBAFormat);
+  tex.needsUpdate = true;
+  return tex;
+}
+
 /** 縦ヘアラインのブラッシュドアルミ質感（DataTexture・列ごとに輝度を変える） */
 function makeBrushedTexture(): THREE.DataTexture {
   const w = 96;
@@ -172,13 +203,22 @@ const CardMesh: React.FC<{
       curveSegments: 12,
     });
     side.translate(0, 0, -T / 2);
+    // 側面の UV をカード高さ方向へ貼り直し（edgeLayer の縦グラデ用）
+    {
+      const pos = side.getAttribute('position');
+      const uv = side.getAttribute('uv');
+      for (let i = 0; i < pos.count; i++) {
+        uv.setXY(i, 0.5, pos.getY(i) / H + 0.5);
+      }
+      uv.needsUpdate = true;
+    }
     return { front, back, side };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [T]);
 
-  // 側面: edgeLayer の明色スチール（#D8E2F1→#BCC9DC→#9AA8BE の中間調）
+  // 側面: edgeLayer の縦グラデーション（#D8E2F1→55% #BCC9DC→#9AA8BE・非ライティング=CSSと同じ）
   const sideMats = useMemo(() => {
-    const m = new THREE.MeshStandardMaterial({ color: '#BCC9DC', metalness: 0.65, roughness: 0.3 });
+    const m = new THREE.MeshBasicMaterial({ map: makeEdgeGradientTexture() });
     return [m, m]; // [キャップ, 側面] — キャップは面プレートの背後で見えない
   }, []);
 
