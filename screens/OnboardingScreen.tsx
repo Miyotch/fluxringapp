@@ -12,6 +12,7 @@ import React, { useRef, useState, useCallback } from 'react';
 import {
   View,
   Text,
+  Image,
   Pressable,
   FlatList,
   StyleSheet,
@@ -19,6 +20,9 @@ import {
   StatusBar,
 } from 'react-native';
 import { COLOR, SPACE, RADIUS } from '../constants/design-tokens';
+
+// アップ済みのアプリアイコン（起動時トップ画面のロゴとして表示）
+const LOGO = require('../icon.png');
 
 // 情景3枚（効能は語らない・情景の言葉のみ）。TODO: 実画像 + コピーを運営登録に差し替え
 type Scene = { id: string; words: string; imageUri: string };
@@ -67,6 +71,7 @@ export const OnboardingScreen: React.FC<Props> = ({ onSignUp, onLogin }) => {
       <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
 
       <View style={styles.brandWrap}>
+        <Image source={LOGO} style={styles.logo} />
         <Text style={styles.brand}>FLUX RING</Text>
       </View>
 
@@ -115,6 +120,12 @@ const styles = StyleSheet.create({
     // TODO: SafeAreaInsets.top を加算
     paddingTop: 60,
     alignItems: 'center',
+    gap: SPACE.sm,
+  },
+  logo: {
+    width: 56,
+    height: 56,
+    borderRadius: 14,
   },
   brand: { color: COLOR.textSecondary, fontSize: 13, letterSpacing: 6 },
   pager: { flex: 1 },
