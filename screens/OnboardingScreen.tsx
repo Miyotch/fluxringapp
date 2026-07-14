@@ -90,19 +90,19 @@ export const OnboardingScreen: React.FC<Props> = ({ onSignUp, onLogin }) => {
         ))}
       </View>
 
-      {/* CTA: サインアップ / ログイン */}
+      {/* CTA: ログイン / 新規登録（位置入れ替え済み） */}
       <View style={styles.cta}>
-        <Pressable
-          style={({ pressed }) => [styles.primaryBtn, pressed && { opacity: 0.85 }]}
-          onPress={onSignUp}
-        >
-          <Text style={styles.primaryLabel}>サインアップ</Text>
-        </Pressable>
         <Pressable
           style={({ pressed }) => [styles.secondaryBtn, pressed && { opacity: 0.7 }]}
           onPress={onLogin}
         >
           <Text style={styles.secondaryLabel}>ログイン</Text>
+        </Pressable>
+        <Pressable
+          style={({ pressed }) => [styles.primaryBtn, pressed && { opacity: 0.85 }]}
+          onPress={onSignUp}
+        >
+          <Text style={styles.primaryLabel}>新規登録</Text>
         </Pressable>
       </View>
     </View>
