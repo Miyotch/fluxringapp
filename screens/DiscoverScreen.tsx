@@ -134,8 +134,7 @@ export const DiscoverScreen: React.FC<Props> = ({
 }) => {
   const [slideH, setSlideH] = useState(0);
   const [activeIndex, setActiveIndex] = useState(0);
-  const [flipped, setFlipped] = useState(false);   // アクティブカードが裏面か
-  const [showFront, setShowFront] = useState(true); // 表面オーバーレイ（従来のArtworkCard）を表示中か
+  const [flipped, setFlipped] = useState(false); // アクティブカードが裏面か（横スクロール可否用）
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [wishlist, setWishlist] = useState<Set<string>>(new Set());
   const [ownedIds, setOwnedIds] = useState<Set<string>>(new Set());
@@ -153,31 +152,13 @@ export const DiscoverScreen: React.FC<Props> = ({
 
   const onRootLayout = (e: LayoutChangeEvent) => setSlideH(e.nativeEvent.layout.height);
 
-  // ── カードの表↔裏 ──
-  // 表面は従来どおりの ArtworkCard（オーラ・明滅つき）を Pressable で重ねて表示。
-  // タップで隠して GL カードのフリップ（表→裏）を見せる。
-  // 裏面タップで GL が表向きへ戻るアニメーションを見せてから、表面を戻す。
-  const unflipTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const flipToBack = useCallback(() => {
-    if (unflipTimer.current) { clearTimeout(unflipTimer.current); unflipTimer.current = null; }
-    setShowFront(false);
-    setFlipped(true);
-  }, []);
-  const flipToFront = useCallback(() => {
-    setFlipped(false);
-    if (unflipTimer.current) clearTimeout(unflipTimer.current);
-    // 表向きへ戻るスラープ（約0.5秒）を見せてから従来の表面に差し替える
-    unflipTimer.current = setTimeout(() => setShowFront(true), 550);
-  }, []);
-  useEffect(() => () => { if (unflipTimer.current) clearTimeout(unflipTimer.current); }, []);
-
   const onViewableItemsChanged = useRef(
     ({ viewableItems }: { viewableItems: Array<{ index: number | null }> }) => {
       if (viewableItems.length > 0 && viewableItems[0].index != null) {
         setActiveIndex(viewableItems[0].index);
-        // 曲が変わったら必ず表面に戻す
+        // 曲が変わったら横スクロールを必ず復活（旧アクティブの CardGL は
+        // アンマウントされるので表裏状態も自然にリセットされる）
         setFlipped(false);
-        setShowFront(true);
       }
     },
   ).current;
@@ -254,6 +235,7 @@ export const DiscoverScreen: React.FC<Props> = ({
           pagingEnabled
           scrollEnabled={!flipped}
           showsHorizontalScrollIndicator={false}
+          extraData={activeIndex}
           onViewableItemsChanged={onViewableItemsChanged}
           viewabilityConfig={viewabilityConfig}
           windowSize={3}
@@ -262,38 +244,34 @@ export const DiscoverScreen: React.FC<Props> = ({
           renderItem={({ item, index }) => (
             <View style={[styles.slide, { width: screenW, height: slideH }]}>
               {index === activeIndex ? (
-                // アクティブ面: GL カード（フリップ・360°回転）の上に、
-                // 表面のあいだは従来の ArtworkCard（オーラ・明滅）を重ねる。
-                // タップ判定は GL に依存しない Pressable なので確実に反応する。
-                <View style={{ width: cardW, height: cardH }}>
-                  <CardGL
-                    frontUri={item.artworkUrl}
-                    width={cardW}
-                    height={cardH}
-                    flipped={flipped}
-                    rotationEnabled={flipped}
-                    onToggleFlip={flipToFront}
-                    backData={{
-                      title: item.title,
-                      serial: item.back?.serial,
-                      story: item.back?.story ?? item.subtitle,
-                      materials: item.back?.materials,
-                      frequencies: item.back?.frequencies,
-                      artist: item.back?.artist,
-                    }}
-                  />
-                  {showFront && (
-                    <Pressable style={styles.frontOverlay} onPress={flipToBack}>
-                      <ArtworkCard
-                        width={cardW}
-                        imageUri={item.artworkUrl}
-                        glow={item.glowColor}
-                        glow2={item.glowColor2}
-                        hero={{ enabled: true }}
-                      />
-                    </Pressable>
-                  )}
-                </View>
+                // アクティブ面: flip モードの GL カード。
+                // 表面は従来デザインの ArtworkCard（オーラ・明滅）を CardGL が
+                // 内部で重ねて表示し、タップ→裏返し→360°回転まで内部で完結する
+                // （FlatList のセル再レンダーに依存しない）。
+                <CardGL
+                  mode="flip"
+                  frontUri={item.artworkUrl}
+                  width={cardW}
+                  height={cardH}
+                  onFlipChange={setFlipped}
+                  frontOverlay={
+                    <ArtworkCard
+                      width={cardW}
+                      imageUri={item.artworkUrl}
+                      glow={item.glowColor}
+                      glow2={item.glowColor2}
+                      hero={{ enabled: true }}
+                    />
+                  }
+                  backData={{
+                    title: item.title,
+                    serial: item.back?.serial,
+                    story: item.back?.story ?? item.subtitle,
+                    materials: item.back?.materials,
+                    frequencies: item.back?.frequencies,
+                    artist: item.back?.artist,
+                  }}
+                />
               ) : (
                 // 非アクティブは軽量な静止カード（スワイプ中の隣接面）
                 <ArtworkCard
@@ -374,16 +352,6 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.page },
   slide: { alignItems: 'center', justifyContent: 'center' },
   sealLayer: { position: 'absolute', top: 0, left: 0 },
-  // 表面オーバーレイ（ArtworkCard は余白ぶん大きいので中央寄せで重ねる）
-  frontOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
 
   chrome: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
   brand: {
