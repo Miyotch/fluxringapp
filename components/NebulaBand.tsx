@@ -159,11 +159,16 @@ const StarLayer: React.FC<{
 };
 
 export type NebulaBandProps = {
+  /** 描画領域。省略時はウィンドウ全体（帯の中心 BANDY を実描画域に合わせるため指定推奨） */
+  width?: number;
+  height?: number;
   paused?: boolean;
 };
 
-export const NebulaBand: React.FC<NebulaBandProps> = ({ paused = false }) => {
-  const { width: W, height: H } = useWindowDimensions();
+export const NebulaBand: React.FC<NebulaBandProps> = ({ width, height, paused = false }) => {
+  const win = useWindowDimensions();
+  const W = width ?? win.width;
+  const H = height ?? win.height;
   const scale = W / REF_W;
 
   // reduce-motion → 静止画
