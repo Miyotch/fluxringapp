@@ -50,6 +50,8 @@ const CORNER_RATIO = 0.085;
 const SENS = 0.55; // 1px ドラッグあたりの回転角（度）
 const DECAY = 3.0; // 慣性の指数減衰（大きいほど早く止まる・実機調整ポイント）
 const STOP_DEG_PER_SEC = 2; // これ未満の角速度で停止
+const FRONT_SCALE = 1;
+const BACK_SCALE = 1.1; // 裏面（フリップ後）の表示倍率・実機調整ポイント
 
 // ── トラックボール回転の状態（JS スレッドで共有する ref） ──
 export type SpinState = {
@@ -59,6 +61,9 @@ export type SpinState = {
   dragging: boolean;
   target: THREE.Quaternion | null; // フリップ等のスラープ目標（null=なし）
   animating: boolean;    // フリップ演出中（この間ドラッグ無効）
+  scale: number;         // 現在の表示倍率（フリップ完了時に確定する値）
+  startScale: number;    // フリップ開始時点の倍率（スラープ元）
+  finalScale: number;    // フリップ完了後に確定させる倍率（表=1 / 裏=1.1）
 };
 
 const TMP_Q = new THREE.Quaternion();
@@ -273,16 +278,21 @@ const CardMesh: React.FC<{
       s.q.slerp(s.target, k);
       s.vx = 0;
       s.vy = 0;
-      // 従来のフリップにあった「少し浮く」感じ＝回転の中腹でわずかに拡大
-      if (groupRef.current) {
-        const ang = s.q.angleTo(s.target); // π→0 と減っていく
-        groupRef.current.scale.setScalar(1 + 0.09 * Math.sin(Math.min(Math.PI, ang)));
-      }
-      if (s.q.angleTo(s.target) < 0.02) {
+      // 開始→完了倍率を回転進捗で補間しつつ、中腹で「少し浮く」ぶんだけ加算
+      // （表→裏: 1 → BACK_SCALE / 裏→表: BACK_SCALE → 1）
+      const ang = s.q.angleTo(s.target); // π→0 と減っていく
+      const progress = 1 - Math.min(1, ang / Math.PI);
+      const lerped = s.startScale + (s.finalScale - s.startScale) * progress;
+      const bump = 0.09 * Math.sin(Math.min(Math.PI, ang));
+      const scaleVal = lerped + bump;
+      if (groupRef.current) groupRef.current.scale.setScalar(scaleVal);
+      s.scale = scaleVal;
+      if (ang < 0.02) {
         s.q.copy(s.target);
         s.animating = false;
         s.target = null;
-        if (groupRef.current) groupRef.current.scale.setScalar(1);
+        if (groupRef.current) groupRef.current.scale.setScalar(s.finalScale);
+        s.scale = s.finalScale;
       }
     } else if (!s.dragging && rotationEnabled) {
       const speed = Math.hypot(s.vx, s.vy);
@@ -375,6 +385,9 @@ export const CardGL: React.FC<CardGLProps> = ({
     dragging: false,
     target: null,
     animating: false,
+    scale: FRONT_SCALE,
+    startScale: FRONT_SCALE,
+    finalScale: FRONT_SCALE,
   });
   const last = useRef({ x: 0, y: 0 });
   const moved = useRef(false);
@@ -410,7 +423,8 @@ export const CardGL: React.FC<CardGLProps> = ({
     overlayTimer.current = setTimeout(() => setOverlayVisible(true), 550);
   };
 
-  // flipped の変化でフリップ演出を仕込む（表=正面 / 裏=Y軸180°へスラープ）
+  // flipped の変化でフリップ演出を仕込む（表=正面 / 裏=Y軸180°へスラープ）。
+  // 倍率も表(1.0)⇔裏(BACK_SCALE=1.1)の間で回転進捗に合わせて補間する。
   useEffect(() => {
     if (!isFlip) return;
     const s = spin.current;
@@ -419,6 +433,8 @@ export const CardGL: React.FC<CardGLProps> = ({
     s.dragging = false;
     s.vx = 0;
     s.vy = 0;
+    s.startScale = s.scale ?? FRONT_SCALE;
+    s.finalScale = flipped ? BACK_SCALE : FRONT_SCALE;
   }, [flipped, isFlip]);
 
   // spin モード=常時回転可 / flip モード=裏面のときだけ回転可
