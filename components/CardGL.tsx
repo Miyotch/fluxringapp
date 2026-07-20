@@ -21,13 +21,16 @@
  *                 フリップは quaternion のスラープ＋「少し浮く」スケール演出。
  *                 状態は内部完結（FlatList のセル再レンダーに依存しない）。
  *
- * 入力: RN 標準 PanResponder をラッパー View に常時装着（表面=タップのみ拾い
- *   ドラッグは親の横スワイプへ明け渡す / 裏面・spin=タップ＋全方向回転）。
+ * 入力:
+ *   ・flip の表面 = 実体のあるオーバーレイ（作品画像＋Pressable）でタップ受け。
+ *     GL 上の透明タップ領域は実機で反応しないことがあるため使わない（794793f で実証）。
+ *   ・裏面・spin = ラッパー View の PanResponder（タップ＋全方向回転）。
+ *   ・ラッパーの PanResponder は常時装着で、オーバーレイ不在時のタップも拾う保険。
  * 注意: expo-gl / three はネイティブ依存。反映には EAS 再ビルドが必要。
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Image, PanResponder, StyleProp, ViewStyle } from 'react-native';
+import { View, Image, Pressable, PanResponder, StyleSheet, StyleProp, ViewStyle } from 'react-native';
 import { Canvas, useFrame } from '@react-three/fiber/native';
 import * as THREE from 'three';
 import { TextureLoader } from 'expo-three';
@@ -383,13 +386,28 @@ export const CardGL: React.FC<CardGLProps> = ({
   const isFlip = mode === 'flip';
   const [flipped, setFlipped] = useState(false);
 
+  // ── 表面オーバーレイ（実機でタップが確実に反応する方式・794793f で実証済み）──
+  // GL キャンバス上の「透明タップ領域」は実機で反応しないことがあるため、
+  // 表面のあいだは実体のあるオーバーレイ（作品画像そのもの＝v98の表面と同一の
+  // 見た目）を Pressable で重ね、これをタップ受けにする。
+  //   タップ → オーバーレイを外して GL のフリップ（表→裏）を見せる
+  //   裏面タップ → GL が表向きへ戻るアニメーション（約0.5秒）後に復帰
+  const [overlayVisible, setOverlayVisible] = useState(isFlip);
+  const overlayTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (overlayTimer.current) clearTimeout(overlayTimer.current); }, []);
+
   const flipToBack = () => {
+    if (overlayTimer.current) { clearTimeout(overlayTimer.current); overlayTimer.current = null; }
+    setOverlayVisible(false); // 実体オーバーレイを外して GL のフリップを見せる
     setFlipped(true);
     onFlipChange?.(true);
   };
   const flipToFront = () => {
     setFlipped(false);
     onFlipChange?.(false);
+    // 表向きへ戻るアニメーションが落ち着いてからオーバーレイ復帰
+    if (overlayTimer.current) clearTimeout(overlayTimer.current);
+    overlayTimer.current = setTimeout(() => setOverlayVisible(true), 550);
   };
 
   // flipped の変化でフリップ演出を仕込む（表=正面 / 裏=Y軸180°へスラープ）
@@ -508,10 +526,23 @@ export const CardGL: React.FC<CardGLProps> = ({
         />
       </Canvas>
 
-      {/* GL テクスチャの読込・アップロード完了までは RN Image を重ねて
-          作品画像を即時表示（GL 側はプレースホルダ色のため）。
-          裏返し操作が入ったら GL の実描画へ任せる */}
-      {!frontReady && !flipped && (
+      {/* flip モードの表面: 実体のあるオーバーレイ（v98 表面と同一の作品画像）が
+          タップ受けを兼ねる。透明ビューや GL レイヤーのタップ判定に依存しない
+          ＝実機で確実に反応する（794793f で実証済みの方式）。
+          RN Image は即時表示されるため、GL テクスチャ生成待ちの無地も隠れる */}
+      {isFlip && overlayVisible && (
+        <Pressable style={StyleSheet.absoluteFill} onPress={flipToBack}>
+          <Image
+            source={{ uri: frontUri }}
+            style={{ width, height, borderRadius: CORNER_RATIO * width }}
+            resizeMode="cover"
+          />
+        </Pressable>
+      )}
+
+      {/* spin モード（プレイヤー）: GL テクスチャの読込・アップロード完了までは
+          RN Image を重ねて作品画像を即時表示（GL 側はプレースホルダ色のため） */}
+      {!isFlip && !frontReady && (
         <Image
           source={{ uri: frontUri }}
           style={{
