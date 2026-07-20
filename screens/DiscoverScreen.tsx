@@ -246,12 +246,12 @@ export const DiscoverScreen: React.FC<Props> = ({
             <View style={[styles.slide, { width: screenW, height: slideH }]}>
               {index === activeIndex ? (
                 // アクティブ面: v98準拠の実3Dカード（角丸・厚み・オーラ）。
-                // 表面=角丸の作品画像＋タップで裏返し / 裏面=フロストの
-                // ストーリー面（v98）＋360°回転。タップ→フリップは内部完結
-                // （FlatList のセル再レンダーに依存しない）。
+                // 表面=角丸の作品画像＋タップで180°横回転で裏返し / 裏面=
+                // アルミ刻印面（再生画面と同一デザイン）＋全方向360°回転。
+                // タップ→フリップは内部完結（FlatList のセル再レンダーに依存しない）。
                 <CardGL
                   mode="flip"
-                  backStyle="story"
+                  backStyle="aluminum"
                   frontUri={item.artworkUrl}
                   width={cardW}
                   height={cardH}
