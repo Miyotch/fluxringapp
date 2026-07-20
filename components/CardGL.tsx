@@ -39,7 +39,13 @@ import { Canvas, useFrame } from '@react-three/fiber/native';
 import * as THREE from 'three';
 import { TextureLoader } from 'expo-three';
 import { Asset } from 'expo-asset';
-import { withSpring, SharedValue } from 'react-native-reanimated';
+import Animated, {
+  withSpring,
+  withTiming,
+  useSharedValue,
+  useAnimatedStyle,
+  SharedValue,
+} from 'react-native-reanimated';
 import {
   renderStoryBackPixels,
   renderAluminumInkPixels,
@@ -60,7 +66,18 @@ const SENS = 0.55; // 1px ドラッグあたりの回転角（度）
 const DECAY = 3.0; // 慣性の指数減衰（大きいほど早く止まる・実機調整ポイント）
 const STOP_DEG_PER_SEC = 2; // これ未満の角速度で停止
 const FRONT_SCALE = 1;
-const BACK_SCALE = 1.1; // 裏面（フリップ後）の表示倍率・実機調整ポイント
+// 裏面（フリップ後）の表示倍率。参照 v99 `_dv3d.open()` の window.__dvScale=1.28。
+const BACK_SCALE = 1.28;
+// フリップ後の持ち上げ量（カード高さ比）。参照は枠高の3%（Hc*0.03）を上へ。
+// 参照のデバイス枠 760px / カード高 188.6*1.5=283px なので 0.03*760/283 = 0.0806。
+// キャンバスがカード基準なのでカード高比へ換算して保持する。
+const BACK_LIFT_RATIO = 0.0806;
+// 遠近の強さ。参照 v99 は FOV=28°（1831-1834行）。40° では回転中の歪みが強く出る。
+const FOV = 28;
+// フリップのスラープ係数。参照は 1-exp(-dt*10)（τ=0.1秒・約300msで95%）。
+const FLIP_K = 10;
+// オーラのフェード時間（ms）。参照 fadeAura(0,160)。
+const AURA_FADE_MS = 160;
 
 // ── トラックボール回転の状態（JS スレッドで共有する ref） ──
 export type SpinState = {
@@ -72,7 +89,10 @@ export type SpinState = {
   animating: boolean;    // フリップ演出中（この間ドラッグ無効）
   scale: number;         // 現在の表示倍率（フリップ完了時に確定する値）
   startScale: number;    // フリップ開始時点の倍率（スラープ元）
-  finalScale: number;    // フリップ完了後に確定させる倍率（表=1 / 裏=1.1）
+  finalScale: number;    // フリップ完了後に確定させる倍率（表=1 / 裏=1.28）
+  lift: number;          // 現在の持ち上げ量（world 単位・上が正）
+  startLift: number;     // フリップ開始時点の持ち上げ量
+  finalLift: number;     // フリップ完了後に確定させる持ち上げ量（表=0 / 裏=上へ）
 };
 
 const TMP_Q = new THREE.Quaternion();
@@ -301,7 +321,10 @@ const CardMesh: React.FC<{
     let alive = true;
     (async () => {
       try {
-        const res = await renderStoryBackPixels(backData, frontUri, 512, 768);
+        // 裏面の刻印テクスチャ。参照 __dvMakeInk は 2048x4096 だが、実機では
+        // 開いたカードの実表示が最大 ~364pt(=DPR3 で ~1092px) なので 1024x1536
+        // で 4 倍以上の余裕がある。2048x4096 は RGBA で 32MB 使うため採らない。
+        const res = await renderStoryBackPixels(backData, frontUri, 1024, 1536);
         if (res && alive) setBackTex(pixelsToTexture(res));
       } catch {}
     })();
@@ -334,25 +357,33 @@ const CardMesh: React.FC<{
     const s = spin.current;
     if (s.animating && s.target) {
       // 目標姿勢へスラープ（フリップの回り込み演出）。近づいたら確定。
-      const k = Math.min(1, dt * 9);
+      const k = Math.min(1, dt * FLIP_K);
       s.q.slerp(s.target, k);
       s.vx = 0;
       s.vy = 0;
-      // 開始→完了倍率を回転進捗で補間しつつ、中腹で「少し浮く」ぶんだけ加算
+      // 回転・倍率・持ち上げを同じ進捗で補間して同時に着地させる（参照 _dv3d は
+      // rot / scale / offset を共通の平滑化係数 sm で動かし、途中の跳ねは無い）。
       // （表→裏: 1 → BACK_SCALE / 裏→表: BACK_SCALE → 1）
       const ang = s.q.angleTo(s.target); // π→0 と減っていく
       const progress = 1 - Math.min(1, ang / Math.PI);
-      const lerped = s.startScale + (s.finalScale - s.startScale) * progress;
-      const bump = 0.09 * Math.sin(Math.min(Math.PI, ang));
-      const scaleVal = lerped + bump;
-      if (groupRef.current) groupRef.current.scale.setScalar(scaleVal);
+      const scaleVal = s.startScale + (s.finalScale - s.startScale) * progress;
+      const liftVal = s.startLift + (s.finalLift - s.startLift) * progress;
+      if (groupRef.current) {
+        groupRef.current.scale.setScalar(scaleVal);
+        groupRef.current.position.y = liftVal;
+      }
       s.scale = scaleVal;
+      s.lift = liftVal;
       if (ang < 0.02) {
         s.q.copy(s.target);
         s.animating = false;
         s.target = null;
-        if (groupRef.current) groupRef.current.scale.setScalar(s.finalScale);
+        if (groupRef.current) {
+          groupRef.current.scale.setScalar(s.finalScale);
+          groupRef.current.position.y = s.finalLift;
+        }
         s.scale = s.finalScale;
+        s.lift = s.finalLift;
       }
     } else if (!s.dragging && rotationEnabled) {
       const speed = Math.hypot(s.vx, s.vy);
@@ -450,9 +481,16 @@ export const CardGL: React.FC<CardGLProps> = ({
     scale: FRONT_SCALE,
     startScale: FRONT_SCALE,
     finalScale: FRONT_SCALE,
+    lift: 0,
+    startLift: 0,
+    finalLift: 0,
   });
   const last = useRef({ x: 0, y: 0 });
   const moved = useRef(false);
+
+  // オーラの明滅（裏返しと同時にフェードアウト・参照 fadeAura）
+  const auraOpacity = useSharedValue(1);
+  const auraStyle = useAnimatedStyle(() => ({ opacity: auraOpacity.value }));
 
   // ── フリップ状態は CardGL 内部で完結させる ──
   // 親（FlatList のセル）経由で状態を渡すと、リストのセル再レンダー最適化に
@@ -497,7 +535,11 @@ export const CardGL: React.FC<CardGLProps> = ({
     s.vy = 0;
     s.startScale = s.scale ?? FRONT_SCALE;
     s.finalScale = flipped ? BACK_SCALE : FRONT_SCALE;
-  }, [flipped, isFlip]);
+    s.startLift = s.lift ?? 0;
+    s.finalLift = flipped ? H * BACK_LIFT_RATIO : 0;
+    // オーラは裏返しと同時に消す（参照 fadeAura(0,160)）。表へ戻る時は復帰。
+    auraOpacity.value = withTiming(flipped ? 0 : 1, { duration: AURA_FADE_MS });
+  }, [flipped, isFlip, auraOpacity]);
 
   // spin モード=常時回転可 / flip モード=裏面のときだけ回転可
   const canRotate = isFlip ? flipped : true;
@@ -560,8 +602,18 @@ export const CardGL: React.FC<CardGLProps> = ({
   // はみ出して重ねる。横長の向き（90°回転など）でもカードの長辺が
   // 収まり、端で切れない。カメラ距離を D/height 倍して見かけの
   // カードサイズは従来と同一に保つ。
-  const D = Math.ceil(Math.hypot(width, height)) + 8;
-  const camZ = (3.4 * D) / height;
+  // 拡大（BACK_SCALE）と持ち上げを含めて、回転中の対角線が切れないだけの
+  // 正方形キャンバスを確保する。
+  const liftPx = height * BACK_LIFT_RATIO;
+  const D = Math.ceil(Math.hypot(width, height) * BACK_SCALE + liftPx * 2) + 8;
+
+  // カメラ距離は幾何から逆算する。
+  //   見かけのカード高(px) = D * (H_world / 可視world高)、可視world高 = 2*camZ*tan(FOV/2)
+  //   これを height に一致させる camZ = D * H_world / (height * 2*tan(FOV/2))
+  // 旧実装は係数 3.4 の決め打ちで、FOV=40 の正解 2.6788 とずれていたため
+  // GL カードがレイアウト枠の 78.8% でしか描かれず、表面オーバーレイ(RN Image)
+  // からフリップへ移る瞬間にカードが縮んで見えていた。
+  const camZ = (D * H) / (height * 2 * Math.tan((FOV * Math.PI) / 180 / 2));
 
   // ラッパは常に同じ View（要素型を変えると Canvas が再マウントされ
   //   GL 再初期化のちらつきが出るため）。PanResponder は表裏とも常時装着
@@ -574,7 +626,11 @@ export const CardGL: React.FC<CardGLProps> = ({
   return (
     <View style={[{ width, height }, style]} {...handlers}>
       {/* card-aura（box-shadow 2層＋落影）。指定時のみ */}
-      {aura && <CardAura width={width} height={height} auraA={aura.a} auraB={aura.b} />}
+      {aura && (
+        <Animated.View style={[StyleSheet.absoluteFill, auraStyle]} pointerEvents="none">
+          <CardAura width={width} height={height} auraA={aura.a} auraB={aura.b} />
+        </Animated.View>
+      )}
 
       <Canvas
         style={{
@@ -585,7 +641,7 @@ export const CardGL: React.FC<CardGLProps> = ({
           height: D,
           backgroundColor: 'transparent',
         }}
-        camera={{ position: [0, 0, camZ], fov: 40 }}
+        camera={{ position: [0, 0, camZ], fov: FOV }}
         gl={{ alpha: true }}
       >
         {/* 透明背景（Skia のオーラ/調律陣を透過させる） */}
