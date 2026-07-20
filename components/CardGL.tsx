@@ -71,6 +71,10 @@ const CARD_ANG_CLAMP = 1.25;  // 縦回転クランプ（rad）
 const CARD_VMAX = 6.0;        // 慣性の角速度上限（rad/s）
 const CARD_INIT_ANGX = -0.05; // 初期姿勢（正面やや傾き）
 const CARD_INIT_ANGY = 0.20;
+// 重力オートリターン: 手を離すと弱いバネで初期姿勢（正面）へゆっくり戻す。
+// カード下部が重い（＝下を向きたがる）ように、慣性が収まると正面へ落ち着く。
+// stiffness を小さくするほど戻りがゆっくり。ドラッグ中は無効（下の useFrame 参照）。
+const CARD_RETURN_STIFFNESS = 1.6;
 const TMP_EULER = new THREE.Euler();
 
 // ── トラックボール回転の状態（JS スレッドで共有する ref） ──
@@ -358,6 +362,12 @@ const CardMesh: React.FC<{
         const df = Math.pow(0.94, dt * 60);
         s.velX *= df;
         s.velY *= df;
+        // 重力オートリターン: 目標角を初期姿勢へ弱いバネで引き戻す。
+        // 慣性が乗っているあいだは慣性が勝ち、慣性が減衰するとこの項が
+        // 効いてきて、最終的にゆっくり正面（初期姿勢）へ戻る。ドラッグ中は無効。
+        const kRet = 1 - Math.exp(-dt * CARD_RETURN_STIFFNESS);
+        s.tAngX += (CARD_INIT_ANGX - s.tAngX) * kRet;
+        s.tAngY += (CARD_INIT_ANGY - s.tAngY) * kRet;
       }
       const sm = 1 - Math.exp(-dt * 14);
       s.angX += (s.tAngX - s.angX) * sm;

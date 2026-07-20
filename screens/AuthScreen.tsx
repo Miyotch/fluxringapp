@@ -18,6 +18,7 @@ import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
+  Image,
   TextInput,
   Pressable,
   StyleSheet,
@@ -135,6 +136,8 @@ export const AuthScreen: React.FC<Props> = ({ mode, onSwitchMode, onAuthenticate
       <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
 
       <View style={styles.body}>
+        {/* アプリアイコン（ブランド名の真上・角丸のアプリアイコン風） */}
+        <Image source={require('../icon.png')} style={styles.logo} resizeMode="cover" />
         <Text style={styles.brand}>FLUX RING</Text>
         <Text style={styles.title}>{isSignup ? '新規登録' : 'ログイン'}</Text>
 
@@ -167,6 +170,20 @@ export const AuthScreen: React.FC<Props> = ({ mode, onSwitchMode, onAuthenticate
         >
           <Text style={styles.primaryLabel}>
             {busy ? '処理中…' : isSignup ? '新規登録' : 'ログイン'}
+          </Text>
+        </Pressable>
+
+        {/* もう一方のモードへ切替（ログイン画面では「新規登録」ボタンをこの位置に） */}
+        <Pressable
+          style={({ pressed }) => [styles.secondaryBtn, pressed && { opacity: 0.7 }]}
+          onPress={() => {
+            setError(null);
+            onSwitchMode(isSignup ? 'login' : 'signup');
+          }}
+          disabled={busy}
+        >
+          <Text style={styles.secondaryLabel}>
+            {isSignup ? 'ログインはこちら' : '新規登録'}
           </Text>
         </Pressable>
 
@@ -207,16 +224,6 @@ export const AuthScreen: React.FC<Props> = ({ mode, onSwitchMode, onAuthenticate
           />
         )}
       </View>
-
-      {/* モード切替 */}
-      <Pressable
-        style={styles.switchRow}
-        onPress={() => onSwitchMode(isSignup ? 'login' : 'signup')}
-      >
-        <Text style={styles.switchText}>
-          {isSignup ? 'すでにアカウントをお持ちですか？ ログイン' : '新規登録はこちら'}
-        </Text>
-      </Pressable>
     </KeyboardAvoidingView>
   );
 };
@@ -224,6 +231,13 @@ export const AuthScreen: React.FC<Props> = ({ mode, onSwitchMode, onAuthenticate
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: COLOR.bg, justifyContent: 'center' },
   body: { paddingHorizontal: SPACE.xl, gap: SPACE.md },
+  logo: {
+    width: 76,
+    height: 76,
+    borderRadius: 18,
+    alignSelf: 'center',
+    marginBottom: SPACE.xs,
+  },
   brand: { color: COLOR.textSecondary, fontSize: 12, letterSpacing: 5, textAlign: 'center' },
   title: {
     color: COLOR.textPrimary,
@@ -254,6 +268,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   primaryLabel: { color: COLOR.textPrimary, fontSize: 15, fontWeight: '600', letterSpacing: 1 },
+  // 新規登録（副ボタン）: 主ボタンと区別しつつ確実に「押せるボタン」と分かる見た目
+  secondaryBtn: {
+    paddingVertical: 14,
+    borderRadius: RADIUS.lg,
+    borderWidth: 1,
+    borderColor: COLOR.border,
+    backgroundColor: 'rgba(34,36,69,0.30)',
+    alignItems: 'center',
+  },
+  secondaryLabel: { color: COLOR.textPrimary, fontSize: 14, fontWeight: '600', letterSpacing: 0.8 },
   divider: { flexDirection: 'row', alignItems: 'center', gap: SPACE.md, marginVertical: SPACE.xs },
   line: { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: COLOR.border },
   dividerText: { color: COLOR.textSecondary, fontSize: 12 },
@@ -265,8 +289,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   socialLabel: { color: COLOR.textPrimary, fontSize: 14, letterSpacing: 0.5 },
-  switchRow: { position: 'absolute', bottom: 40, alignSelf: 'center' },
-  switchText: { color: COLOR.textSecondary, fontSize: 13, letterSpacing: 0.3 },
 });
 
 export default AuthScreen;

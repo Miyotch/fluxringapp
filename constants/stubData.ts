@@ -52,6 +52,44 @@ export const STUB_TRACKS: Track[] = [
       artist: 'NAOKI OKA',
     },
   },
+  // ── ウィッシュリストの曲（ホーム＝ディスカバーで買える曲。ウィッシュはこの部分集合）──
+  // コレクションのウィッシュからタップすると、ホームのこのカードへ遷移する。
+  {
+    id: 'w1', title: '海鳴り', subtitle: '遠い水平線から、低くうねって届く響き',
+    artistName: '岡ナオキ', artworkUrl: img('uminari'), audioKey: 'blue', previewUrl: null, priceLabel: '¥2,500',
+    glowColor: 'rgba(70,132,224,0.42)', glowColor2: 'rgba(96,206,224,0.16)',
+    back: {
+      serial: 'No. 004',
+      story: '遠い水平線から、低くうねって届く響き。近づくでも遠のくでもなく、ただ寄せては返す。',
+      materials: ['純正律'],
+      frequencies: ['432 Hz', '7.83 Hz'],
+      artist: 'NAOKI OKA',
+    },
+  },
+  {
+    id: 'w2', title: '霧の朝', subtitle: '輪郭のほどけた朝、白にすべてが沈む',
+    artistName: '岡ナオキ', artworkUrl: img('kiri'), audioKey: 'white', previewUrl: null, priceLabel: '¥2,500',
+    glowColor: 'rgba(96,206,224,0.42)', glowColor2: 'rgba(120,150,220,0.16)',
+    back: {
+      serial: 'No. 005',
+      story: '輪郭のほどけた朝、白にすべてが沈む。音は霧の粒のあいだを、ゆっくりと渡っていく。',
+      materials: ['平均律'],
+      frequencies: ['440 Hz', '8.0 Hz'],
+      artist: 'NAOKI OKA',
+    },
+  },
+  {
+    id: 'w3', title: '遠雷', subtitle: '地平の彼方、光ってから遅れて届く低音',
+    artistName: '岡ナオキ', artworkUrl: img('enrai'), audioKey: 'red', previewUrl: null, priceLabel: '¥2,500',
+    glowColor: 'rgba(124,98,214,0.42)', glowColor2: 'rgba(96,206,224,0.16)',
+    back: {
+      serial: 'No. 006',
+      story: '地平の彼方、光ってから遅れて届く低音。急かさず、ただ空気の重さだけを伝えてくる。',
+      materials: ['純正律'],
+      frequencies: ['432 Hz', '7.83 Hz'],
+      artist: 'NAOKI OKA',
+    },
+  },
 ];
 
 // audioKey は R2 の音源キー（preview/{key}.mp3 / full/{key}.mp3）。
