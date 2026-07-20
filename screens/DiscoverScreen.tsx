@@ -36,6 +36,8 @@ import Animated, {
 import { useAudioPlayer } from 'expo-audio';
 import { previewUrl } from '../lib/r2';
 import { CardFace } from '../components/CardFace';
+import { NebulaBand } from '../components/NebulaBand';
+import { StarField } from '../components/StarField';
 import { StarSeal } from '../components/StarSeal';
 import { CardGL } from '../components/CardGL';
 import { BuyButton } from '../components/BuyButton';
@@ -213,6 +215,12 @@ export const DiscoverScreen: React.FC<Props> = ({
   return (
     <View style={styles.root} onLayout={onRootLayout}>
       <StatusBar barStyle="light-content" backgroundColor={C.page} />
+
+      {/* 背景層（参照 v99 の z 順: bgbase → nebBand → bgstars → 調律陣 → カード → クローム）
+          ・NebulaBand = bgbase(radial) ＋ 天の川帯（雲36・星520）
+          ・StarField  = bgstars（遠近3層・星479） */}
+      {slideH > 0 && <NebulaBand width={screenW} height={slideH} />}
+      {slideH > 0 && <StarField width={screenW} height={slideH} />}
 
       {/* 調律陣の背景（プレイヤーと同一・カード中心に配置） */}
       {slideH > 0 && (
