@@ -4,9 +4,9 @@
  * react-three-fiber（/native = expo-gl）で角丸（0.085w）の薄いカードを描く。
  *   ・表面: 作品画像そのまま（v93: ガラス効果なし・アート原色）
  *   ・側面: 明色スチール（edgeLayer #D8E2F1→#9AA8BE 系）・厚み 6.5/188.6
- *   ・裏面: backStyle='story' = フロストのストーリー面（v98。作品画像を
+ *   ・裏面: backStyle='aluminum' = アルミ縦磨き＋刻印（ホーム / プレイヤー共通）
+ *           backStyle='story' = フロストのストーリー面（v98。作品画像を
  *           左右反転＋blurで敷き、紺の刻印・金属フレーム・反射帯・フレネル光）
- *           backStyle='aluminum' = アルミ縦磨き＋刻印（プレイヤー用）
  *   ・オーラ: aura 指定時に card-aura（2層グロー＋落影）を Skia で重ねる
  * ジオメトリは 角丸Shape の表裏プレート＋ExtrudeGeometry の側面リング。
  *
@@ -332,7 +332,7 @@ export type CardGLProps = {
    * 'flip' = ホーム用（表面=タップで裏返し／裏面=360°回転・再タップで表面へ）
    */
   mode?: 'spin' | 'flip';
-  /** 裏面デザイン。story=フロストのストーリー面（v98・ホーム） / aluminum=アルミ刻印（既定） */
+  /** 裏面デザイン。aluminum=アルミ刻印（既定・ホーム / プレイヤー） / story=フロストのストーリー面（v98） */
   backStyle?: 'aluminum' | 'story';
   /** カード周囲のオーラ（card-aura）。指定時のみ描画（プレイヤーは CardBackdrop 側で描くため未指定） */
   aura?: { a?: string; b?: string };
