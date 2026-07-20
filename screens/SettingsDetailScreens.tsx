@@ -207,6 +207,16 @@ const TEXT_DOCS: Record<'thanks' | 'terms' | 'privacy', TextDoc> = {
     title: 'Special Thanks',
     sections: [
       {
+        heading: 'FluxRing Credits',
+        body:
+          'Presented by\n' +
+          '株式会社Numéro.8　岡 直樹\n\n' +
+          'Project Manager\n' +
+          '株式会社AppTalentHub　宮崎 翼\n\n' +
+          'Developer\n' +
+          '株式会社Sparkle vision　三代澤 哲',
+      },
+      {
         body:
           'FLUX RING は、多くの方の協力で形になりました。\n\n' +
           '・楽曲 / 音響：岡 ナオキ\n' +
