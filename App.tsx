@@ -23,6 +23,7 @@ import { Asset } from 'expo-asset';
 import { configureAudioMode } from './lib/audio';
 import { LanguageProvider } from './lib/i18n';
 import { useAuthUser } from './lib/useAuthUser';
+import { deleteAccount } from './lib/firebaseAuth';
 
 import { Footer, TabKey } from './components/Footer';
 import { OnboardingScreen } from './screens/OnboardingScreen';
@@ -290,6 +291,16 @@ function AppInner() {
             onSignOut={() => {
               setPhase('onboarding');
               setTab('home');
+            }}
+            onDeleteAccount={async () => {
+              // 退会: Firebase のアカウントを削除（未ログイン/スタブ時は no-op）→
+              // ログイン画面へ戻す。失敗時は例外を投げて SettingsScreen 側で表示。
+              await deleteAccount();
+              setSettingsDetail(null);
+              setOverlay(null);
+              setTab('home');
+              setAuthMode('login');
+              setPhase('auth');
             }}
           />
         )}

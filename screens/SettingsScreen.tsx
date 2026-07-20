@@ -25,7 +25,7 @@
  *   ※ 通知は設定に入れず、ホーム右上のベルへ。
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -33,6 +33,7 @@ import {
   ScrollView,
   StyleSheet,
   StatusBar,
+  Modal,
 } from 'react-native';
 import { COLOR, SPACE, RADIUS } from '../constants/design-tokens';
 import { useT } from '../lib/i18n';
@@ -54,15 +55,34 @@ export type SettingsKey =
 type Props = {
   onSelect: (key: SettingsKey) => void;
   onSignOut: () => void;
+  onDeleteAccount: () => void | Promise<void>; // 退会（確認後に実行）
 };
 
 type Row = { key: SettingsKey; label: string; sub?: string; value?: string };
 type Section = { title: string; rows: Row[] };
 
-export const SettingsScreen: React.FC<Props> = ({ onSelect, onSignOut }) => {
+export const SettingsScreen: React.FC<Props> = ({ onSelect, onSignOut, onDeleteAccount }) => {
   const t = useT();
   const user = useAuthUser();
   const email = user?.email ?? t('settings.notLoggedIn');
+
+  // 退会の確認ポップアップ
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  const runDelete = async () => {
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await onDeleteAccount();
+      setConfirmDelete(false);
+    } catch {
+      setDeleteError(t('settings.delete.failed'));
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const sections: Section[] = [
     {
@@ -136,9 +156,55 @@ export const SettingsScreen: React.FC<Props> = ({ onSelect, onSignOut }) => {
           <Text style={styles.signOutText}>{t('settings.signout')}</Text>
         </Pressable>
 
+        {/* アカウント削除（退会・危険操作。確認ポップアップを開く） */}
+        <Pressable
+          style={({ pressed }) => [styles.deleteBtn, pressed && { opacity: 0.7 }]}
+          onPress={() => {
+            setDeleteError(null);
+            setConfirmDelete(true);
+          }}
+        >
+          <Text style={styles.deleteText}>{t('settings.deleteAccount')}</Text>
+        </Pressable>
+        <Text style={styles.deleteHint}>{t('settings.deleteAccount.sub')}</Text>
+
         {/* アプリ情報 */}
         <Text style={styles.version}>{t('settings.version', { v: APP_VERSION })}</Text>
       </ScrollView>
+
+      {/* 退会の確認ポップアップ（購入情報など全消去の確認・戻る/削除する） */}
+      <Modal
+        visible={confirmDelete}
+        transparent
+        animationType="fade"
+        onRequestClose={() => !deleting && setConfirmDelete(false)}
+      >
+        <Pressable style={styles.modalScrim} onPress={() => !deleting && setConfirmDelete(false)}>
+          <Pressable style={styles.modalCard} onPress={() => {}}>
+            <Text style={styles.modalTitle}>{t('settings.delete.title')}</Text>
+            <Text style={styles.modalBody}>{t('settings.delete.body')}</Text>
+            {deleteError && <Text style={styles.modalError}>{deleteError}</Text>}
+
+            <Pressable
+              style={({ pressed }) => [styles.modalDeleteBtn, (pressed || deleting) && { opacity: 0.7 }]}
+              onPress={runDelete}
+              disabled={deleting}
+            >
+              <Text style={styles.modalDeleteLabel}>
+                {deleting ? '処理中…' : t('settings.delete.confirm')}
+              </Text>
+            </Pressable>
+
+            <Pressable
+              style={({ pressed }) => [styles.modalCancelBtn, pressed && { opacity: 0.7 }]}
+              onPress={() => setConfirmDelete(false)}
+              disabled={deleting}
+            >
+              <Text style={styles.modalCancelLabel}>{t('settings.delete.cancel')}</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 };
@@ -183,6 +249,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   signOutText: { color: COLOR.textSecondary, fontSize: 14, letterSpacing: 1 },
+  // アカウント削除（危険操作・赤系の枠線ボタン）
+  deleteBtn: {
+    marginTop: SPACE.md,
+    paddingVertical: 15,
+    borderRadius: RADIUS.lg,
+    borderWidth: 1,
+    borderColor: 'rgba(255,59,48,0.55)',
+    backgroundColor: 'rgba(255,59,48,0.06)',
+    alignItems: 'center',
+  },
+  deleteText: { color: COLOR.badge, fontSize: 14, letterSpacing: 1, fontWeight: '600' },
+  deleteHint: {
+    marginTop: SPACE.xs,
+    color: COLOR.textSecondary,
+    fontSize: 11,
+    textAlign: 'center',
+    opacity: 0.8,
+  },
   version: {
     marginTop: SPACE.lg,
     color: COLOR.textSecondary,
@@ -191,6 +275,39 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
     opacity: 0.7,
   },
+  // 退会確認モーダル
+  modalScrim: {
+    flex: 1,
+    backgroundColor: 'rgba(8,7,20,0.72)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: SPACE.xl,
+  },
+  modalCard: {
+    width: '100%',
+    maxWidth: 340,
+    borderRadius: RADIUS.lg,
+    borderWidth: 1,
+    borderColor: 'rgba(255,59,48,0.30)',
+    backgroundColor: '#1B1838',
+    padding: SPACE.lg,
+    gap: SPACE.sm,
+  },
+  modalTitle: { color: COLOR.textPrimary, fontSize: 17, fontWeight: '700', letterSpacing: 0.5, textAlign: 'center' },
+  modalBody: { color: COLOR.textSecondary, fontSize: 13, lineHeight: 20, textAlign: 'center' },
+  modalError: { color: COLOR.badge, fontSize: 12, textAlign: 'center' },
+  modalDeleteBtn: {
+    marginTop: SPACE.sm,
+    paddingVertical: 14,
+    borderRadius: RADIUS.lg,
+    borderWidth: 1,
+    borderColor: 'rgba(255,59,48,0.55)',
+    backgroundColor: 'rgba(255,59,48,0.12)',
+    alignItems: 'center',
+  },
+  modalDeleteLabel: { color: COLOR.badge, fontSize: 15, fontWeight: '700', letterSpacing: 1 },
+  modalCancelBtn: { paddingVertical: 12, alignItems: 'center' },
+  modalCancelLabel: { color: COLOR.textPrimary, fontSize: 14, letterSpacing: 0.5 },
 });
 
 export default SettingsScreen;

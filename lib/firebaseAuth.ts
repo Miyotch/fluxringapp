@@ -2,6 +2,7 @@ import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signOut as firebaseSignOut,
+  deleteUser,
   onAuthStateChanged,
   GoogleAuthProvider,
   OAuthProvider,
@@ -18,6 +19,16 @@ export const signIn = (email: string, password: string) =>
   signInWithEmailAndPassword(auth, email, password)
 
 export const signOut = () => firebaseSignOut(auth)
+
+// ── 退会（アカウント削除） ──
+// 現在のユーザーを削除する。ログイン状態が古いと Firebase が
+// requires-recent-login を投げるため、呼び出し側で失敗をハンドルする。
+// 未ログイン（スタブ等）のときは何もせず解決する。
+export const deleteAccount = () => {
+  const u = auth.currentUser
+  if (!u) return Promise.resolve()
+  return deleteUser(u)
+}
 
 export const onUserChanged = (callback: (user: User | null) => void) =>
   onAuthStateChanged(auth, callback)
