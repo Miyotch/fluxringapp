@@ -13,9 +13,11 @@
 | レンダリング | @shopify/react-native-skia 2.6.2 |
 | アニメーション | react-native-reanimated 4.3.1 + react-native-worklets 0.8.3 |
 | エントリポイント | `index.js` → `registerRootComponent(App)` |
-| バンドル ID (iOS) | `com.fluxring.app` |
+| バンドル ID (iOS) | `com.fluxring.tsubasa`（提出先: App Store Connect「Flux Ring Tsubasa」/ Apple ID 6778899462）|
 | パッケージ名 (Android) | `com.fluxring.app` |
-| EAS projectId | `d94a1082-9da2-459a-88b4-cd593c16eed3` |
+| Apple チーム | `N667ZB6CZ6` NUMERO.8, K.K. |
+| EAS projectId | `3f8e6ff1-9678-408d-91d9-decd7bb57674`（`@tsubasa.miyazaki/fluxring`）|
+| ビルド番号 | `app.json` の `ios.buildNumber` で管理（`appVersionSource: "local"`）|
 | ビジュアルテーマ | ダーク (`userInterfaceStyle: "dark"`, 背景 `#0E0C20`) |
 
 ---
