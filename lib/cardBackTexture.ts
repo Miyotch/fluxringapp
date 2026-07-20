@@ -18,6 +18,8 @@ import {
   PaintStyle,
   BlendMode,
   BlurStyle,
+  AlphaType,
+  ColorType,
   SkFont,
   SkCanvas,
   SkImage,
@@ -69,9 +71,10 @@ function wrap(text: string, fs: number, maxW: number, font: SkFont | null, maxLi
 
 const JP_FONT = Platform.select({ ios: 'Hiragino Mincho ProN', default: 'serif' });
 
-function makeFont(size: number): SkFont | null {
+function makeFont(size: number, weight: string = '400', family: string = JP_FONT ?? 'serif'): SkFont | null {
   try {
-    return matchFont({ fontFamily: JP_FONT, fontSize: size, fontStyle: 'normal', fontWeight: '400' });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return matchFont({ fontFamily: family, fontSize: size, fontStyle: 'normal', fontWeight: weight as any });
   } catch {
     return null;
   }
@@ -193,6 +196,150 @@ export function renderCardBackPixels(data: CardBackData, W = 512, H = 768): Back
 
   const img = surface.makeImageSnapshot();
   const px = img.readPixels(0, 0);
+  if (!px) return null;
+  return { pixels: px instanceof Uint8Array ? px : new Uint8Array(px as ArrayLike<number>), width: W, height: H };
+}
+
+/* ════════════════════════════════════════════════════════════════
+   アルミ削り出し面の刻印テクスチャ（Web版リファレンス __dvMakeInk 移植）
+   ------------------------------------------------------------------
+   金属地の質感（ヘアライン・スカイ反射・スペキュラ）は GLSL 側
+   （lib/cardShaders.ts の ALUMINUM_FRAGMENT_SHADER）で procedural に
+   描くため、ここでは「文字の刻印」だけを透明背景に描画し、シェーダー側で
+   アルファ合成する。
+   論理座標系はリファレンスの 1024×1536 をそのままテクスチャ解像度として
+   使う（f=1・座標変換不要）。リファレンスは 2048×4096（2倍）だが、
+   モバイル端末のメモリ・生成コストを優先し 1x で採用（数値レベルで
+   一致させるべき優先項目は「彫り込みの3層アルゴリズム」であって
+   解像度そのものではないため）。
+   ════════════════════════════════════════════════════════════════ */
+
+const INK_LW = 1024;
+const INK_LH = 1536;
+// iOS=Hiragino Sans, Android=Noto Sans JP相当（システムのsans-serifにフォールバック）
+const INK_FONT = Platform.select({ ios: 'Hiragino Sans', android: 'sans-serif', default: 'sans-serif' });
+
+export type AluminumInkData = CardBackData & {
+  /** 通し番号のみ（'No. ' 込みで CardBackData.serial を渡してもよい） */
+  no?: string;
+  /** 調律名（例: '純正律'）。未指定なら materials を使う */
+  tuning?: string;
+  /** 周波数配列。未指定なら frequencies を使う */
+  freqs?: string[];
+};
+
+/**
+ * 彫り込み文字（carve）: 同じ文字を3回重ね描きして V字に削った陰影を作る。
+ *   1) 暗い影（上2pxオフセット・彫りの上エッジの陰）
+ *   2) 明るいハイライト（下2pxオフセット・彫りの下エッジの照り返し）
+ *   3) 中間グレー（オフセットなし・彫りの底）
+ * オフセット量・色・アルファはリファレンス値を厳守（変更しないこと）。
+ */
+function carve(
+  c: SkCanvas,
+  text: string,
+  x: number,
+  y: number,
+  fs: number,
+  weight: string,
+  letterSpacingPx: number,
+  align: 'l' | 'c' | 'r' = 'c',
+) {
+  const font = makeFont(fs, weight, INK_FONT);
+  if (!font) return;
+  const drawLayer = (dy: number, color: string) => {
+    const paint = Skia.Paint();
+    paint.setColor(Skia.Color(color));
+    const chars = [...text];
+    const widths = chars.map((ch) => estWidth(ch, fs, font));
+    const total = widths.reduce((a, b) => a + b, 0) + letterSpacingPx * Math.max(0, chars.length - 1);
+    let cx = align === 'c' ? x - total / 2 : align === 'r' ? x - total : x;
+    chars.forEach((ch, i) => {
+      c.drawText(ch, cx, y + dy, paint, font);
+      cx += widths[i] + letterSpacingPx;
+    });
+  };
+  drawLayer(-2, 'rgba(22,24,32,0.85)');   // 1) 上2px: 暗い影
+  drawLayer(2, 'rgba(255,255,255,0.55)'); // 2) 下2px: 明るいハイライト
+  drawLayer(0, 'rgba(96,102,114,0.95)');  // 3) 中央: 中間グレー（彫りの底）
+}
+
+/** 通常テキスト（フラット単色描画） */
+function print(
+  c: SkCanvas,
+  text: string,
+  x: number,
+  y: number,
+  fs: number,
+  weight: string,
+  alpha: number,
+  letterSpacingPx = 0,
+  align: 'l' | 'c' | 'r' = 'c',
+) {
+  drawSpaced(c, text, x, y, fs, `rgba(56,61,72,${alpha})`, letterSpacingPx / fs, align);
+}
+
+/**
+ * アルミ裏面の刻印のみを透明背景に描画して RGBA ピクセルを返す（失敗時 null）。
+ * 金属地・ヘアライン・反射は GLSL シェーダー側が担当する。
+ */
+export function renderAluminumInkPixels(
+  data: AluminumInkData,
+  W = INK_LW,
+  H = INK_LH,
+): BackPixels | null {
+  const surface = Skia.Surface.Make(W, H);
+  if (!surface) return null;
+  const c = surface.getCanvas();
+  c.clear(Skia.Color('rgba(0,0,0,0)')); // 透明背景（金属地はシェーダー側）
+
+  const cx = W / 2;
+
+  // FLUX RING（見出し・彫り込み・letterSpacing 22px）
+  carve(c, 'FLUX RING', cx, 180, 62, '600', 22, 'c');
+  // No.（彫り込み・letterSpacing 6px）
+  carve(c, data.no ?? data.serial ?? 'No. 001', cx, 266, 38, '500', 6, 'c');
+  // タイトル（通常）
+  print(c, data.title, cx, 368, 52, '600', 0.95);
+
+  // Story: 40px/weight300/行高72/最大幅800を中心ゾーンで縦センタリング
+  if (data.story) {
+    const fs = 40;
+    const lh = 72;
+    const font = makeFont(fs, '300', INK_FONT);
+    const lines = wrap(data.story, fs, 800, font, 8);
+    const zoneTop = 470;
+    const zoneBottom = H - 460;
+    const blockH = lines.length * lh;
+    let y = zoneTop + Math.max(0, (zoneBottom - zoneTop - blockH) / 2) + lh * 0.75;
+    for (const ln of lines) {
+      print(c, ln, 112, y, fs, '300', 0.85, 0, 'l');
+      y += lh;
+    }
+  }
+
+  // 区切り（letterSpacing 8px）
+  print(c, 'ー 調律 ー', cx, H - 372, 32, '300', 0.62, 8);
+
+  // 調律情報
+  const tuning = data.tuning ?? data.materials?.join('・') ?? '';
+  const freqs = data.freqs ?? data.frequencies ?? [];
+  const tuningLine = [tuning, ...freqs].filter(Boolean).join('　');
+  if (tuningLine) print(c, tuningLine, cx, H - 302, 40, '300', 0.86);
+
+  // 署名（NAOKI OKA・字間10px・中央）＋ '›'
+  const signature = (data.artist ?? 'NAOKI OKA').toUpperCase();
+  drawSpaced(c, `${signature}  ›`, cx, H - 190, 24, 'rgba(56,61,72,0.8)', 10 / 24, 'c');
+
+  const img = surface.makeImageSnapshot();
+  // GLSL 側で `mix(metalColor, ink.rgb, ink.a)` とストレートアルファ合成する
+  // ため、Unpremul（非乗算アルファ）で明示的に読み出す（既定値に依存しない）。
+  const px = img.readPixels(0, 0, {
+    width: W,
+    height: H,
+    colorType: ColorType.RGBA_8888,
+    alphaType: AlphaType.Unpremul,
+  });
   if (!px) return null;
   return { pixels: px instanceof Uint8Array ? px : new Uint8Array(px as ArrayLike<number>), width: W, height: H };
 }

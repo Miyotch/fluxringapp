@@ -1,12 +1,16 @@
 /**
- * CardGL.tsx — 実3D（WebGL）カード（card_parts v98 準拠）
+ * CardGL.tsx — 実3D（WebGL）カード（card_parts v98 準拠 + シェーダーライティング）
  * ------------------------------------------------------------------
- * react-three-fiber（/native = expo-gl）で角丸（0.085w）の薄いカードを描く。
- *   ・表面: 作品画像そのまま（v93: ガラス効果なし・アート原色）
+ * react-three-fiber（/native = expo-gl＝実 WebGL）で角丸（0.085w）の薄いカードを描く。
+ *   ・表面: 作品画像＋GLSLライティング（拡散・フレネル・リム・傾きで動く光の帯）。
+ *           lib/cardShaders.ts の ART_FRAGMENT_SHADER（Web版リファレンス移植）
  *   ・側面: 明色スチール（edgeLayer #D8E2F1→#9AA8BE 系）・厚み 6.5/188.6
- *   ・裏面: backStyle='aluminum' = アルミ縦磨き＋刻印（ホーム / プレイヤー共通）
- *           backStyle='story' = フロストのストーリー面（v98。作品画像を
- *           左右反転＋blurで敷き、紺の刻印・金属フレーム・反射帯・フレネル光）
+ *   ・裏面: backStyle='aluminum' = GLSLで procedural に描く削り出しアルミ
+ *           （ヘアライン異方性・疑似スカイ反射・二段スペキュラ）＋
+ *           lib/cardBackTexture.ts の刻印テクスチャ（3層彫り込み陰影）を
+ *           アルファ合成。lib/cardShaders.ts の ALUMINUM_FRAGMENT_SHADER
+ *           backStyle='story' = 従来のフラットテクスチャ（現状呼び出し元
+ *           なし・後方互換のため維持）
  *   ・オーラ: aura 指定時に card-aura（2層グロー＋落影）を Skia で重ねる
  * ジオメトリは 角丸Shape の表裏プレート＋ExtrudeGeometry の側面リング。
  *
@@ -36,7 +40,12 @@ import * as THREE from 'three';
 import { TextureLoader } from 'expo-three';
 import { Asset } from 'expo-asset';
 import { withSpring, SharedValue } from 'react-native-reanimated';
-import { renderCardBackPixels, renderStoryBackPixels, BackPixels } from '../lib/cardBackTexture';
+import {
+  renderStoryBackPixels,
+  renderAluminumInkPixels,
+  BackPixels,
+} from '../lib/cardBackTexture';
+import { CARD_VERTEX_SHADER, ART_FRAGMENT_SHADER, ALUMINUM_FRAGMENT_SHADER } from '../lib/cardShaders';
 import { CardAura } from './CardAura';
 import type { CardBackData } from './CardBack';
 
@@ -195,8 +204,53 @@ const CardMesh: React.FC<{
 }> = ({ spin, frontUri, backData, backStyle, depthRatio, rotationEnabled, rotationOut, onFrontLoaded }) => {
   const groupRef = useRef<THREE.Group>(null);
   const [frontTex, setFrontTex] = useState<THREE.Texture | null>(null);
-  const [backTex, setBackTex] = useState<THREE.DataTexture | null>(null);
-  const brushed = useMemo(makeBrushedTexture, []);
+  const [backTex, setBackTex] = useState<THREE.DataTexture | null>(null); // backStyle='story' 用
+  const [inkTex, setInkTex] = useState<THREE.DataTexture | null>(null);  // backStyle='aluminum' の刻印
+  const brushed = useMemo(makeBrushedTexture, []); // 'story' のテクスチャ読込待ちフォールバック
+
+  // ── シェーダーマテリアル（Web版リファレンス移植・lib/cardShaders.ts） ──
+  // 表面: ライティング＋傾きで動く光の帯（優先項目①）。spin/flip 両モード共通。
+  const uLightVec = useMemo(() => new THREE.Vector3(0.45, -0.55, -0.8), []);
+  const frontMaterial = useMemo(
+    () =>
+      new THREE.ShaderMaterial({
+        vertexShader: CARD_VERTEX_SHADER,
+        fragmentShader: ART_FRAGMENT_SHADER,
+        uniforms: { map: { value: null }, uHasMap: { value: 0 }, uLight: { value: uLightVec } },
+      }),
+    [uLightVec],
+  );
+  useEffect(() => {
+    frontMaterial.uniforms.map.value = frontTex;
+    frontMaterial.uniforms.uHasMap.value = frontTex ? 1 : 0;
+    frontMaterial.uniformsNeedUpdate = true;
+  }, [frontTex, frontMaterial]);
+
+  // 裏面（aluminum）: procedural金属＋ヘアライン＋スカイ反射（優先項目②）
+  //   ＋刻印テクスチャのアルファ合成（優先項目③）。'story' は従来どおり
+  //   flatテクスチャ（meshBasicMaterial）のまま（利用箇所なし・後方互換で維持）。
+  const aluminumMaterial = useMemo(
+    () =>
+      new THREE.ShaderMaterial({
+        vertexShader: CARD_VERTEX_SHADER,
+        fragmentShader: ALUMINUM_FRAGMENT_SHADER,
+        uniforms: { inkMap: { value: null }, uHasInk: { value: 0 }, uLight: { value: uLightVec } },
+      }),
+    [uLightVec],
+  );
+  useEffect(() => {
+    aluminumMaterial.uniforms.inkMap.value = inkTex;
+    aluminumMaterial.uniforms.uHasInk.value = inkTex ? 1 : 0;
+    aluminumMaterial.uniformsNeedUpdate = true;
+  }, [inkTex, aluminumMaterial]);
+
+  useEffect(
+    () => () => {
+      frontMaterial.dispose();
+      aluminumMaterial.dispose();
+    },
+    [frontMaterial, aluminumMaterial],
+  );
 
   const T = W * depthRatio;
 
@@ -232,16 +286,22 @@ const CardMesh: React.FC<{
     return [m, m]; // [キャップ, 側面] — キャップは面プレートの背後で見えない
   }, []);
 
-  // 裏面テクスチャ: story=フロストのストーリー面（v98） / aluminum=アルミ刻印
+  // 裏面テクスチャ:
+  //   aluminum = 刻印のみ（透明背景・金属地はシェーダー側）を同期生成
+  //   story    = 従来どおりフロストのストーリー面テクスチャを非同期生成
   useEffect(() => {
+    if (!backData) return;
+    if (backStyle === 'aluminum') {
+      try {
+        const res = renderAluminumInkPixels(backData);
+        if (res) setInkTex(pixelsToTexture(res));
+      } catch {}
+      return;
+    }
     let alive = true;
     (async () => {
-      if (!backData) return;
       try {
-        const res =
-          backStyle === 'story'
-            ? await renderStoryBackPixels(backData, frontUri, 512, 768)
-            : renderCardBackPixels(backData, 512, 768);
+        const res = await renderStoryBackPixels(backData, frontUri, 512, 768);
         if (res && alive) setBackTex(pixelsToTexture(res));
       } catch {}
     })();
@@ -320,19 +380,21 @@ const CardMesh: React.FC<{
     <group ref={groupRef}>
       {/* 側面リング（角丸の厚み・明色スチール） */}
       <mesh geometry={geos.side} material={sideMats} />
-      {/* 表: 角丸の作品画像（v93: ガラス効果なし・アート原色） */}
-      <mesh geometry={geos.front} position={[0, 0, T / 2 + 0.002]}>
-        <meshBasicMaterial map={frontTex ?? undefined} color={frontTex ? '#ffffff' : '#222338'} />
-      </mesh>
-      {/* 裏: story=フロストのストーリー面（v98）/ aluminum=アルミ刻印。
-          文字の判読性を優先しライト非依存。生成前・失敗時はヘアライン */}
-      <mesh geometry={geos.back} position={[0, 0, -T / 2 - 0.002]}>
-        {backTex ? (
-          <meshBasicMaterial map={backTex} />
-        ) : (
-          <meshStandardMaterial map={brushed} metalness={0.72} roughness={0.4} color="#c9ced6" />
-        )}
-      </mesh>
+      {/* 表: アート面（ライティング＋傾きで動く光の帯・優先項目①） */}
+      <mesh geometry={geos.front} position={[0, 0, T / 2 + 0.002]} material={frontMaterial} />
+      {/* 裏: aluminum=procedural金属＋ヘアライン＋スカイ反射＋刻印合成（優先項目②③）
+             story  =従来のフラットテクスチャ（現状呼び出し元なし・後方互換で維持） */}
+      {backStyle === 'aluminum' ? (
+        <mesh geometry={geos.back} position={[0, 0, -T / 2 - 0.002]} material={aluminumMaterial} />
+      ) : (
+        <mesh geometry={geos.back} position={[0, 0, -T / 2 - 0.002]}>
+          {backTex ? (
+            <meshBasicMaterial map={backTex} />
+          ) : (
+            <meshStandardMaterial map={brushed} metalness={0.72} roughness={0.4} color="#c9ced6" />
+          )}
+        </mesh>
+      )}
     </group>
   );
 };
