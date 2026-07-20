@@ -51,8 +51,10 @@ const R_SCALE = 86 * K;
 const R_HEX = R_IN / Math.sqrt(3);
 const RATIO = [9 / 8, 5 / 4, 4 / 3, 3 / 2, 2];
 const REF_CARD_W = 188.59; // 参照のカード幅（この比で実寸へスケール）
+// 09_FS.glsl の CYAN=vec3(0.376,0.808,0.878) と一致（×255=(95.9,206.0,223.9)）
 const CYAN = 'rgba(96,206,224,1)';
-const N_SPARKS = 24;
+// 09_FS.glsl の NSP（スパーク並行数）と一致
+const N_SPARKS = 36;
 
 const ink = (a: number) => `rgba(150,190,210,${a})`;
 const lab = (a: number) => `rgba(178,198,216,${a})`;
@@ -453,7 +455,8 @@ function buildGeometry(cx: number, cy: number, s: number, W: number, H: number):
     if (inBounds(pt[0], pt[1], 4)) sparkPool.push(pt[0], pt[1]);
   }
 
-  // 光の車（尾を引く光点）: 参照 PATHS の縮約セット
+  // 光の車（尾を引く光点）: star_seal_standalone の PATHS を仕様どおり復元。
+  // 同心円は cap=台数（決定的）、線分は cap=出現確率（決定論ハッシュで採否）。
   const cars: CarParam[] = [];
   let seed = 0;
   const addCar = (
@@ -478,24 +481,27 @@ function buildGeometry(cx: number, cy: number, s: number, W: number, H: number):
       tail: Math.min(16 * s, Math.max(6 * s, vpx * 0.28)),
     });
   };
-  // 同心円（参照 cap を縮約: 27台）
-  ([[R_HEX, 3], [R_SCALE, 5], [R_IN, 5], [232, 3], [260, 3], [300, 2], [352, 2], [390, 2], [435, 2]] as
+  // 同心円（PATHS の cap そのまま: 4,6,6,4,4,3,3,3,3 = 計36台）
+  ([[R_HEX, 4], [R_SCALE, 6], [R_IN, 6], [232, 4], [260, 4], [300, 3], [352, 3], [390, 3], [435, 3]] as
     [number, number][]).forEach(([r, cap]) => {
     for (let k = 0; k < cap; k++) addCar(0, { r: U(r) });
   });
-  // 六芒星の辺（6台）
+  // 六芒星の辺（cap 1.0 = 全6台）
   hexPairs.forEach(([a, b]) => addCar(1, { a, b }));
-  // 放射（R_HEX+4 → 470）から6本
+  // 放射（R_HEX+4 → 470）24候補・各 cap 0.35（決定論ハッシュで採否）
   for (let i = 0; i < 24; i++) {
-    if (i % 4 !== 1) continue;
+    if (hash(i * 2.7 + 0.6) >= 0.35) continue;
     const a = (i / 24) * 360 - 90;
     addCar(1, { a: pol(R_HEX + 4, a), b: pol(470, a) });
   }
-  // 十二芒星の弦から3本
-  for (let i = 0; i < 12; i += 4) addCar(1, { a: P12[i], b: P12[(i + 5) % 12] });
-  // 弦スポークから3本
-  [0, 3, 5].forEach((i) => {
-    const sc = SCALE[i];
+  // 十二芒星の弦 12候補・各 cap 0.35
+  for (let i = 0; i < 12; i++) {
+    if (hash(i * 4.1 + 1.9) >= 0.35) continue;
+    addCar(1, { a: P12[i], b: P12[(i + 5) % 12] });
+  }
+  // 弦スポーク 8本・各 cap 0.5
+  SCALE.forEach((sc, i) => {
+    if (hash(i * 6.3 + 3.1) >= 0.5) return;
     addCar(1, { a: pol(R_HEX, sc.ang), b: pol(sc.oct ? R_SCALE / 2 : R_SCALE, sc.ang) });
   });
 
