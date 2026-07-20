@@ -748,6 +748,33 @@ export const StarSeal: React.FC<StarSealProps> = ({
         ))}
       </Group>
 
+      {/* ═ ②' 交点の星光（シャープ層） ═
+          発光層は全体に Blur がかかるため交点までにじんでしまう。
+          全ノード（交点）にブラーなしのコア＋十字光条を screen 合成で重ね、
+          星の光のようにくっきり見せる。にじみは②の同位置ハローが担う。
+          光条長・コア径・不透明度は実機調整ポイント */}
+      <Group opacity={glowOpacity} layer={<Paint blendMode="screen" />}>
+        {geo.glowNodes.map((n, i) => {
+          const col = n.main ? CYAN : '#FFFFFF';
+          const spike = Math.max(n.r * 5.5, 4 * s); // 十字光条の長さ
+          return (
+            <React.Fragment key={`sn${i}`}>
+              <Line
+                p1={vec(n.x - spike, n.y)} p2={vec(n.x + spike, n.y)}
+                color={col} style="stroke" strokeWidth={0.6 * s} strokeCap="round" opacity={0.55}
+              />
+              <Line
+                p1={vec(n.x, n.y - spike)} p2={vec(n.x, n.y + spike)}
+                color={col} style="stroke" strokeWidth={0.6 * s} strokeCap="round" opacity={0.55}
+              />
+              {/* シャープな白コア＋ごく薄い縁 */}
+              <Circle cx={n.x} cy={n.y} r={Math.max(n.r * 0.85, 0.9 * s)} color="#FFFFFF" opacity={0.95} />
+              <Circle cx={n.x} cy={n.y} r={Math.max(n.r * 1.6, 1.7 * s)} color={col} opacity={0.3} />
+            </React.Fragment>
+          );
+        })}
+      </Group>
+
       {/* ═ ③ 信号層（通電・光の車＋スパーク） ═ */}
       <Group
         layer={

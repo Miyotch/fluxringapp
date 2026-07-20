@@ -16,8 +16,9 @@
  */
 
 import React, { useState, useCallback, useEffect } from 'react';
-import { View, StyleSheet } from 'react-native';
+import { View, StyleSheet, Image } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { Asset } from 'expo-asset';
 
 import { configureAudioMode } from './lib/audio';
 import { LanguageProvider } from './lib/i18n';
@@ -87,6 +88,17 @@ function AppInner() {
 
   // 起動時に一度だけ音声モードを設定（サイレント時再生・バックグラウンド再生）
   useEffect(() => { configureAudioMode(); }, []);
+
+  // 作品画像の先読み（ホーム初回表示の遅延対策）。
+  //   Image.prefetch = RN Image キャッシュ（CardFace / CardGL のつなぎ表示用）
+  //   Asset.downloadAsync = expo-asset ローカルキャッシュ（GL テクスチャ生成用）
+  // オンボーディング／認証の間に裏で温まるので、ホーム到達時には即時表示できる。
+  useEffect(() => {
+    for (const t of STUB_TRACKS) {
+      Image.prefetch(t.artworkUrl).catch(() => {});
+      Asset.fromURI(t.artworkUrl).downloadAsync().catch(() => {});
+    }
+  }, []);
 
   // ── フェーズ: オンボーディング ──
   if (phase === 'onboarding') {
