@@ -22,6 +22,7 @@ import { Asset } from 'expo-asset';
 
 import { configureAudioMode } from './lib/audio';
 import { LanguageProvider } from './lib/i18n';
+import { useAuthUser } from './lib/useAuthUser';
 
 import { Footer, TabKey } from './components/Footer';
 import { OnboardingScreen } from './screens/OnboardingScreen';
@@ -65,8 +66,10 @@ type TabScreen = TabKey;
 type Overlay = 'story' | 'player' | 'notifications' | 'artist' | null;
 
 function AppInner() {
-  const [phase, setPhase] = useState<Phase>('onboarding');
-  const [authMode, setAuthMode] = useState<'signup' | 'login'>('signup');
+  // 起動時は未ログインならログイン画面から。永続セッションがあれば下の effect でアプリへ。
+  const authedUser = useAuthUser();
+  const [phase, setPhase] = useState<Phase>('auth');
+  const [authMode, setAuthMode] = useState<'signup' | 'login'>('login');
   const [tab, setTab] = useState<TabScreen>('home');
   const [overlay, setOverlay] = useState<Overlay>(null);
   const [vipUnlocked, setVipUnlocked] = useState(false);
@@ -75,19 +78,29 @@ function AppInner() {
 
   // 再生対象（player へ渡す）
   const [playerTrack, setPlayerTrack] = useState<PlayerTrack | null>(null);
+  // ホーム（ディスカバー）で最初に表示するカード id（ウィッシュから飛んできたとき用）
+  const [homeFocusId, setHomeFocusId] = useState<string | null>(null);
 
   const goApp = useCallback(() => setPhase('app'), []);
 
   // タブ切替時は必ずオーバーレイ／設定末端を閉じる
-  // （複数パネルが重なって見える不具合の防止 = v86 対策）
+  // （複数パネルが重なって見える不具合の防止 = v86 対策）。
+  // フッターからの通常のホーム遷移では、ウィッシュ由来のフォーカス指定は解除する。
   const changeTab = useCallback((next: TabScreen) => {
     setOverlay(null);
     setSettingsDetail(null);
+    if (next === 'home') setHomeFocusId(null);
     setTab(next);
   }, []);
 
   // 起動時に一度だけ音声モードを設定（サイレント時再生・バックグラウンド再生）
   useEffect(() => { configureAudioMode(); }, []);
+
+  // 永続セッションが復元されたら（＝既にログイン済みなら）ログイン画面を飛ばして
+  // アプリへ。未ログインのあいだは phase='auth'（ログイン画面）のまま。
+  useEffect(() => {
+    if (authedUser) setPhase((p) => (p === 'auth' ? 'app' : p));
+  }, [authedUser]);
 
   // 作品画像の先読み（ホーム初回表示の遅延対策）。
   //   Image.prefetch = RN Image キャッシュ（CardFace / CardGL のつなぎ表示用）
@@ -217,6 +230,7 @@ function AppInner() {
           <DiscoverScreen
             tracks={STUB_TRACKS}
             hasUnread
+            focusTrackId={homeFocusId}
             onOpenNotifications={() => setOverlay('notifications')}
           />
         )}
@@ -242,6 +256,13 @@ function AppInner() {
               } else {
                 setOverlay('story');
               }
+            }}
+            onOpenWish={(id) => {
+              // ウィッシュ曲タップ → ホーム（ディスカバー）の該当カードへ
+              setHomeFocusId(id);
+              setOverlay(null);
+              setSettingsDetail(null);
+              setTab('home');
             }}
             onBuy={() => {
               /* TODO: 購入トランジション → player */

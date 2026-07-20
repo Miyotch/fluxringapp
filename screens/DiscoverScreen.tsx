@@ -40,6 +40,7 @@ import { StarSeal } from '../components/StarSeal';
 import { CardGL } from '../components/CardGL';
 import { BuyButton } from '../components/BuyButton';
 import { WishlistStar } from '../components/WishlistStar';
+import { PurchaseModal } from '../components/PurchaseModal';
 import { BellIcon, PreviewIcon } from '../components/icons';
 import { RisingBubbles } from '../components/RisingBubbles';
 
@@ -78,6 +79,8 @@ type Props = {
   hasUnread?: boolean;
   onOpenNotifications?: () => void;
   onBuy?: (track: Track) => void;
+  /** 起動時に最初に表示するカードの id（コレクションのウィッシュから飛んできたとき用） */
+  focusTrackId?: string | null;
 };
 
 // フォールバック用スタブ（App からは stubData を渡す）
@@ -131,9 +134,14 @@ export const DiscoverScreen: React.FC<Props> = ({
   hasUnread = true,
   onOpenNotifications,
   onBuy,
+  focusTrackId,
 }) => {
+  // ウィッシュから飛んできたときは、その曲のカードを最初に表示する。
+  const initialIndex = focusTrackId
+    ? Math.max(0, tracks.findIndex((t) => t.id === focusTrackId))
+    : 0;
   const [slideH, setSlideH] = useState(0);
-  const [activeIndex, setActiveIndex] = useState(0);
+  const [activeIndex, setActiveIndex] = useState(initialIndex);
   const [flipped, setFlipped] = useState(false); // アクティブカードが裏面か（横スクロール可否用）
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [wishlist, setWishlist] = useState<Set<string>>(new Set());
@@ -141,6 +149,8 @@ export const DiscoverScreen: React.FC<Props> = ({
 
   // 購入の泡演出（元のカード位置で下から立ち上る）
   const [showBubbles, setShowBubbles] = useState(false);
+  // 購入確認ポップアップの対象（null=非表示）
+  const [purchaseTarget, setPurchaseTarget] = useState<Track | null>(null);
 
   const { width: screenW } = useWindowDimensions();
   const active = tracks[activeIndex] ?? tracks[0];
@@ -193,20 +203,28 @@ export const DiscoverScreen: React.FC<Props> = ({
     });
   }, []);
 
+  // 「購入する」押下 → まず購入確認ポップアップを開く（所有済みは再生扱いで何もしない）
   const handleBuy = useCallback(() => {
     if (!active) return;
     const owned = active.owned || ownedIds.has(active.id);
     if (owned) {
-      // TODO: 所有済みは再生画面へ。暫定は何もしない（泡の再発を防ぐ）
+      // TODO: 所有済みは再生画面へ。暫定は何もしない
       return;
     }
+    setPurchaseTarget(active);
+  }, [active, ownedIds]);
+
+  // ポップアップで「購入する」確定 → 実購入（泡演出＋所有済み化）
+  const confirmPurchase = useCallback(() => {
+    const target = purchaseTarget;
+    if (!target) return;
+    setPurchaseTarget(null);
     setPlayingId(null);
-    onBuy?.(active);
-    // 新しいカードは出さず、元のカードの位置で泡を立ち上げて購入完了を表現。
-    // 所有済みにして購入ボタンを「再生」へ。
-    setOwnedIds((prev) => new Set(prev).add(active.id));
+    onBuy?.(target);
+    // 元のカードの位置で泡を立ち上げて購入完了を表現。所有済みにして購入ボタンを「再生」へ。
+    setOwnedIds((prev) => new Set(prev).add(target.id));
     setShowBubbles(true);
-  }, [active, ownedIds, onBuy]);
+  }, [purchaseTarget, onBuy]);
 
   const isPreviewing = playingId != null && playingId === active?.id;
 
@@ -241,6 +259,7 @@ export const DiscoverScreen: React.FC<Props> = ({
           viewabilityConfig={viewabilityConfig}
           windowSize={3}
           maxToRenderPerBatch={2}
+          initialScrollIndex={initialIndex}
           getItemLayout={(_, index) => ({ length: screenW, offset: screenW * index, index })}
           renderItem={({ item, index }) => (
             <View style={[styles.slide, { width: screenW, height: slideH }]}>
@@ -338,6 +357,23 @@ export const DiscoverScreen: React.FC<Props> = ({
           onDone={() => setShowBubbles(false)}
         />
       )}
+
+      {/* 購入確認ポップアップ */}
+      <PurchaseModal
+        visible={purchaseTarget != null}
+        target={
+          purchaseTarget
+            ? {
+                id: purchaseTarget.id,
+                title: purchaseTarget.title,
+                priceLabel: purchaseTarget.priceLabel,
+                artworkUrl: purchaseTarget.artworkUrl,
+              }
+            : null
+        }
+        onConfirm={confirmPurchase}
+        onCancel={() => setPurchaseTarget(null)}
+      />
     </View>
   );
 };

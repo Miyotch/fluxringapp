@@ -24,6 +24,7 @@ import {
 } from 'react-native';
 import Animated, { FadeInUp } from 'react-native-reanimated';
 import { ArtworkCard } from '../components/ArtworkCard';
+import { PurchaseModal } from '../components/PurchaseModal';
 import { COLOR, SPACE, RADIUS } from '../constants/design-tokens';
 import { useT } from '../lib/i18n';
 
@@ -43,7 +44,8 @@ type Segment = 'mine' | 'wish';
 type Props = {
   owned: CollectionItem[];
   wishlist: CollectionItem[];
-  onOpenTrack: (id: string) => void;     // タップ→ストーリー
+  onOpenTrack: (id: string) => void;     // 所有曲タップ → 再生画面
+  onOpenWish: (id: string) => void;      // ウィッシュ曲タップ → ホームの該当カードへ
   onBuy: (item: CollectionItem) => void; // ウィッシュの購入ボタン
   onDiscover: () => void;                // 「作品と出会う」→ ディスカバー
 };
@@ -61,12 +63,15 @@ export const CollectionScreen: React.FC<Props> = ({
   owned,
   wishlist,
   onOpenTrack,
+  onOpenWish,
   onBuy,
   onDiscover,
 }) => {
   const t = useT();
   const { width: screenW } = useWindowDimensions();
   const [seg, setSeg] = useState<Segment>('mine');
+  // 購入確認ポップアップの対象（null=非表示）
+  const [purchaseTarget, setPurchaseTarget] = useState<CollectionItem | null>(null);
 
   // 3列・列幅 = (画面幅 - 左右padding - 列間gap×(列数-1)) / 列数
   const colW = (screenW - SIDE_PAD * 2 - GRID_GAP * (NUM_COLUMNS - 1)) / NUM_COLUMNS;
@@ -86,7 +91,7 @@ export const CollectionScreen: React.FC<Props> = ({
       entering={FadeInUp.duration(420).delay((index % 8) * 55)}
       style={[styles.cell, { width: colW }]}
     >
-      <Pressable onPress={() => onOpenTrack(item.id)}>
+      <Pressable onPress={() => (seg === 'wish' ? onOpenWish(item.id) : onOpenTrack(item.id))}>
         {/*
          * ArtworkCard の Canvas はオーラ余白(PAD)分だけ実寸より大きい。
          * 実寸サイズ(colW × colW*1.5)のコンテナで中央寄せし、画像とタイトルの中心を揃える。
@@ -112,7 +117,7 @@ export const CollectionScreen: React.FC<Props> = ({
             // ウィッシュ: 購入ボタン明示（金額タップ購入は審査NG＝ボタンから起動）
             <Pressable
               style={({ pressed }) => [styles.buyBtn, pressed && { opacity: 0.85 }]}
-              onPress={() => onBuy(item)}
+              onPress={() => setPurchaseTarget(item)}
             >
               <Text style={styles.buyLabel} numberOfLines={1} adjustsFontSizeToFit>
                 {t('collection.buy', { price: item.priceLabel ?? '¥2,500' })}
@@ -209,6 +214,27 @@ export const CollectionScreen: React.FC<Props> = ({
           showsVerticalScrollIndicator={false}
         />
       )}
+
+      {/* 購入確認ポップアップ（ウィッシュの「購入する」から開く） */}
+      <PurchaseModal
+        visible={purchaseTarget != null}
+        target={
+          purchaseTarget
+            ? {
+                id: purchaseTarget.id,
+                title: purchaseTarget.title,
+                priceLabel: purchaseTarget.priceLabel,
+                artworkUrl: purchaseTarget.artworkUrl,
+              }
+            : null
+        }
+        onConfirm={() => {
+          const item = purchaseTarget;
+          setPurchaseTarget(null);
+          if (item) onBuy(item);
+        }}
+        onCancel={() => setPurchaseTarget(null)}
+      />
     </View>
   );
 };
