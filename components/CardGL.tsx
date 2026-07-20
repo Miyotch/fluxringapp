@@ -21,12 +21,13 @@
  *                 フリップは quaternion のスラープ＋「少し浮く」スケール演出。
  *                 状態は内部完結（FlatList のセル再レンダーに依存しない）。
  *
- * 入力: RN 標準（回転可のとき PanResponder / 表面は透明 Pressable でタップのみ）。
+ * 入力: RN 標準 PanResponder をラッパー View に常時装着（表面=タップのみ拾い
+ *   ドラッグは親の横スワイプへ明け渡す / 裏面・spin=タップ＋全方向回転）。
  * 注意: expo-gl / three はネイティブ依存。反映には EAS 再ビルドが必要。
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Pressable, PanResponder, StyleSheet, StyleProp, ViewStyle } from 'react-native';
+import { View, Image, PanResponder, StyleProp, ViewStyle } from 'react-native';
 import { Canvas, useFrame } from '@react-three/fiber/native';
 import * as THREE from 'three';
 import { TextureLoader } from 'expo-three';
@@ -182,7 +183,8 @@ const CardMesh: React.FC<{
   depthRatio: number;
   rotationEnabled: boolean;
   rotationOut?: SharedValue<number>;
-}> = ({ spin, frontUri, backData, backStyle, depthRatio, rotationEnabled, rotationOut }) => {
+  onFrontLoaded?: () => void;
+}> = ({ spin, frontUri, backData, backStyle, depthRatio, rotationEnabled, rotationOut, onFrontLoaded }) => {
   const groupRef = useRef<THREE.Group>(null);
   const [frontTex, setFrontTex] = useState<THREE.Texture | null>(null);
   const [backTex, setBackTex] = useState<THREE.DataTexture | null>(null);
@@ -248,7 +250,10 @@ const CardMesh: React.FC<{
         const uri = asset.localUri ?? asset.uri;
         const tex = await new TextureLoader().loadAsync(uri);
         tex.colorSpace = THREE.SRGBColorSpace;
-        if (alive) setFrontTex(tex);
+        if (alive) {
+          setFrontTex(tex);
+          onFrontLoaded?.();
+        }
       } catch {
         // 読み込み失敗時はプレースホルダ色のまま
       }
@@ -401,15 +406,22 @@ export const CardGL: React.FC<CardGLProps> = ({
   // spin モード=常時回転可 / flip モード=裏面のときだけ回転可
   const canRotate = isFlip ? flipped : true;
 
+  // タップ（フリップ）と回転を1つの PanResponder で受ける。
+  // 以前は表面のタップを「GL キャンバスに重ねた透明 Pressable」で受けていたが、
+  // 実機で R3F Canvas 側のタッチ処理と競合してタップが落ちる事象があったため、
+  // 再生画面で実績のあるラッパー View への直接装着方式に統一した。
+  //   表面: 開始のみ主張（タップ検出）。移動は主張しない＝横スワイプは
+  //         FlatList（曲切替）が奪える（terminationRequest も許可）。
+  //   裏面: 移動も主張して全方向回転。スクロールへは明け渡さない。
   const pan = useMemo(
     () =>
       PanResponder.create({
-        onStartShouldSetPanResponder: () => canRotate,
+        onStartShouldSetPanResponder: () => true,
         onMoveShouldSetPanResponder: (_e, g) => canRotate && Math.abs(g.dx) + Math.abs(g.dy) > 2,
-        onPanResponderTerminationRequest: () => false,
+        onPanResponderTerminationRequest: () => !canRotate,
         onPanResponderGrant: () => {
           const s = spin.current;
-          s.dragging = true;
+          s.dragging = canRotate;
           s.vx = 0;
           s.vy = 0;
           last.current = { x: 0, y: 0 };
@@ -417,6 +429,7 @@ export const CardGL: React.FC<CardGLProps> = ({
         },
         onPanResponderMove: (_e, g) => {
           if (Math.abs(g.dx) + Math.abs(g.dy) > 4) moved.current = true;
+          if (!canRotate) return; // 表面: ドラッグは親の曲切替に任せる
           const ddx = g.dx - last.current.x;
           const ddy = g.dy - last.current.y;
           last.current = { x: g.dx, y: g.dy };
@@ -428,9 +441,10 @@ export const CardGL: React.FC<CardGLProps> = ({
           const s = spin.current;
           s.dragging = false;
           if (!moved.current && isFlip) {
-            // ほぼ動いていない＝タップ → 表へ戻す
-            flipToFront();
-          } else if (moved.current) {
+            // ほぼ動いていない＝タップ → 表⇔裏をトグル
+            if (flipped) flipToFront();
+            else flipToBack();
+          } else if (moved.current && canRotate) {
             // 離した瞬間の速度（px/ms → 度/秒）で慣性回転
             s.vx = g.vy * 1000 * SENS;
             s.vy = g.vx * 1000 * SENS;
@@ -443,7 +457,7 @@ export const CardGL: React.FC<CardGLProps> = ({
         },
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [canRotate, dragXOut, isFlip],
+    [canRotate, dragXOut, isFlip, flipped],
   );
 
   // 描画キャンバスはカードの対角線サイズの正方形にし、レイアウト枠から
@@ -454,11 +468,12 @@ export const CardGL: React.FC<CardGLProps> = ({
   const camZ = (3.4 * D) / height;
 
   // ラッパは常に同じ View（要素型を変えると Canvas が再マウントされ
-  //   GL 再初期化のちらつきが出るため）。
-  // 回転可（プレイヤー / ホーム裏面）＝ View に PanResponder（回転＋タップ）。
-  // 回転不可（ホーム表面）＝ 透明 Pressable がタップのみ受け、
-  //   ドラッグは親の横スワイプ（曲切替）へ通す。
-  const handlers = canRotate ? pan.panHandlers : {};
+  //   GL 再初期化のちらつきが出るため）。PanResponder は表裏とも常時装着
+  //   （表面はタップのみ拾い、ドラッグは親の横スワイプへ明け渡す）。
+  const handlers = pan.panHandlers;
+
+  // GL テクスチャ生成完了までのつなぎ表示（表面の作品画像を RN Image で即時に出す）
+  const [frontReady, setFrontReady] = useState(false);
 
   return (
     <View style={[{ width, height }, style]} {...handlers}>
@@ -489,12 +504,26 @@ export const CardGL: React.FC<CardGLProps> = ({
           depthRatio={depthRatio}
           rotationEnabled={canRotate}
           rotationOut={rotationOut}
+          onFrontLoaded={() => setFrontReady(true)}
         />
       </Canvas>
 
-      {/* flip モードの表面: 透明のタップ受け（GL の表面がそのまま見える） */}
-      {isFlip && !flipped && (
-        <Pressable style={StyleSheet.absoluteFill} onPress={flipToBack} />
+      {/* GL テクスチャの読込・アップロード完了までは RN Image を重ねて
+          作品画像を即時表示（GL 側はプレースホルダ色のため）。
+          裏返し操作が入ったら GL の実描画へ任せる */}
+      {!frontReady && !flipped && (
+        <Image
+          source={{ uri: frontUri }}
+          style={{
+            position: 'absolute',
+            left: 0,
+            top: 0,
+            width,
+            height,
+            borderRadius: CORNER_RATIO * width,
+          }}
+          resizeMode="cover"
+        />
       )}
     </View>
   );

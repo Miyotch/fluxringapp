@@ -11,6 +11,8 @@ import React from 'react';
 import {
   View,
   Text,
+  Image,
+  ImageSourcePropType,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -19,7 +21,7 @@ import {
 } from 'react-native';
 import { COLOR, SPACE, RADIUS } from '../constants/design-tokens';
 
-type Sns = { key: string; label: string; url: string };
+type Sns = { key: string; label: string; url: string; icon?: ImageSourcePropType };
 type Article = {
   id: string;
   title: string;
@@ -35,9 +37,18 @@ type Props = {
 };
 
 const DEFAULT_SNS: Sns[] = [
-  { key: 'instagram', label: 'Instagram', url: 'https://instagram.com' },
-  { key: 'note',      label: 'note',      url: 'https://note.com' },
-  { key: 'x',         label: 'X',         url: 'https://x.com' },
+  {
+    key: 'instagram', label: 'Instagram', url: 'https://instagram.com',
+    icon: require('../components/instagram.png'),
+  },
+  {
+    key: 'note', label: 'note', url: 'https://note.com',
+    icon: require('../components/note.png'),
+  },
+  {
+    key: 'x', label: 'X', url: 'https://x.com',
+    icon: require('../components/x.png'),
+  },
 ];
 
 const STUB_ARTICLES: Article[] = [
@@ -74,7 +85,11 @@ export const MediaScreen: React.FC<Props> = ({
             onPress={() => Linking.openURL(s.url).catch(() => {})}
             accessibilityLabel={s.label}
           >
-            <Text style={styles.snsLabel}>{s.label}</Text>
+            {s.icon ? (
+              <Image source={s.icon} style={styles.snsIcon} resizeMode="cover" />
+            ) : (
+              <Text style={styles.snsLabel}>{s.label}</Text>
+            )}
           </Pressable>
         ))}
       </View>
@@ -130,6 +145,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(34,36,69,0.30)',
   },
   snsLabel: { color: COLOR.textSecondary, fontSize: 9 },
+  // 枠線(1px)の内側いっぱいに円形で表示
+  snsIcon: { width: 42, height: 42, borderRadius: 21 },
   list: { padding: SPACE.lg, gap: SPACE.lg, paddingBottom: 40 },
   article: {
     borderRadius: RADIUS.lg,
