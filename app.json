@@ -13,14 +13,18 @@
       "backgroundColor": "#0E0C20",
       "resizeMode": "contain"
     },
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.fluxring.app",
       "usesAppleSignIn": true,
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "UIBackgroundModes": ["audio"]
+        "UIBackgroundModes": [
+          "audio"
+        ]
       }
     },
     "android": {
@@ -31,11 +35,10 @@
         "backgroundColor": "#0E0C20"
       }
     },
-    "plugins": ["expo-apple-authentication"],
+    "plugins": [
+      "expo-apple-authentication"
+    ],
     "extra": {
-      "eas": {
-        "projectId": "d94a1082-9da2-459a-88b4-cd593c16eed3"
-      },
       "googleAuth": {
         "webClientId": "",
         "iosClientId": "",
@@ -44,7 +47,11 @@
       "r2": {
         "previewBaseUrl": "https://pub-cf88142f89d0432db9d3077919d59dd0.r2.dev",
         "workerUrl": ""
+      },
+      "eas": {
+        "projectId": "3f8e6ff1-9678-408d-91d9-decd7bb57674"
       }
-    }
+    },
+    "owner": "tsubasa.miyazaki"
   }
 }
