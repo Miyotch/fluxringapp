@@ -86,7 +86,7 @@ export const MediaScreen: React.FC<Props> = ({
             accessibilityLabel={s.label}
           >
             {s.icon ? (
-              <Image source={s.icon} style={styles.snsIcon} resizeMode="cover" />
+              <Image source={s.icon} style={styles.snsIcon} resizeMode="contain" />
             ) : (
               <Text style={styles.snsLabel}>{s.label}</Text>
             )}
@@ -145,8 +145,9 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(34,36,69,0.30)',
   },
   snsLabel: { color: COLOR.textSecondary, fontSize: 9 },
-  // 枠線(1px)の内側いっぱいに円形で表示
-  snsIcon: { width: 42, height: 42, borderRadius: 21 },
+  // 丸いのはボタンの枠のみ。アイコン自体は正方形ロゴ（note等）も含め
+  // クロップせず contain で収める（枠の内側に少し余白を持たせるサイズ）
+  snsIcon: { width: 26, height: 26 },
   list: { padding: SPACE.lg, gap: SPACE.lg, paddingBottom: 40 },
   article: {
     borderRadius: RADIUS.lg,
