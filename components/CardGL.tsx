@@ -56,11 +56,22 @@ const H = W * 1.5;
 const DEPTH_RATIO = 6.5 / 188.6;
 // 角丸: --cr = 0.085 × カード幅（v98・全レイヤー共通）
 const CORNER_RATIO = 0.085;
-const SENS = 0.55; // 1px ドラッグあたりの回転角（度）
+const SENS = 0.55; // 1px ドラッグあたりの回転角（度・flip モードのトラックボール用）
 const DECAY = 3.0; // 慣性の指数減衰（大きいほど早く止まる・実機調整ポイント）
 const STOP_DEG_PER_SEC = 2; // これ未満の角速度で停止
 const FRONT_SCALE = 1;
 const BACK_SCALE = 1.1; // 裏面（フリップ後）の表示倍率・実機調整ポイント
+
+// ── spin モード（プレイヤー）の回転物理: webgl_card_standalone.html verbatim ──
+//   angX/angY(現在角)・tAngX/tAngY(目標角)・velX/velY(角速度)。
+//   感度 0.008 rad/px・縦クランプ ±1.25rad・慣性 VMAX=6.0・減衰 pow(0.94,dt*60)・
+//   スムージング sm=1-exp(-dt*14)・モデル行列 RotY(angY)*RotX(angX)・初期姿勢 (-0.05,0.20)。
+const CARD_DRAG_SENS = 0.008; // rad/px（参照 move: tAngY+=dx*0.008）
+const CARD_ANG_CLAMP = 1.25;  // 縦回転クランプ（rad）
+const CARD_VMAX = 6.0;        // 慣性の角速度上限（rad/s）
+const CARD_INIT_ANGX = -0.05; // 初期姿勢（正面やや傾き）
+const CARD_INIT_ANGY = 0.20;
+const TMP_EULER = new THREE.Euler();
 
 // ── トラックボール回転の状態（JS スレッドで共有する ref） ──
 export type SpinState = {
@@ -73,6 +84,10 @@ export type SpinState = {
   scale: number;         // 現在の表示倍率（フリップ完了時に確定する値）
   startScale: number;    // フリップ開始時点の倍率（スラープ元）
   finalScale: number;    // フリップ完了後に確定させる倍率（表=1 / 裏=1.1）
+  // spin モード（オイラー物理）専用
+  angX: number; angY: number;     // 現在角（rad）
+  tAngX: number; tAngY: number;   // 目標角（rad）
+  velX: number; velY: number;     // 角速度（rad/s）
 };
 
 const TMP_Q = new THREE.Quaternion();
@@ -199,9 +214,10 @@ const CardMesh: React.FC<{
   backStyle: 'aluminum' | 'story';
   depthRatio: number;
   rotationEnabled: boolean;
+  isFlip: boolean;
   rotationOut?: SharedValue<number>;
   onFrontLoaded?: () => void;
-}> = ({ spin, frontUri, backData, backStyle, depthRatio, rotationEnabled, rotationOut, onFrontLoaded }) => {
+}> = ({ spin, frontUri, backData, backStyle, depthRatio, rotationEnabled, isFlip, rotationOut, onFrontLoaded }) => {
   const groupRef = useRef<THREE.Group>(null);
   const [frontTex, setFrontTex] = useState<THREE.Texture | null>(null);
   const [backTex, setBackTex] = useState<THREE.DataTexture | null>(null); // backStyle='story' 用
@@ -332,6 +348,32 @@ const CardMesh: React.FC<{
   // 毎フレーム: フリップ演出 → 慣性 → 姿勢を mesh へ → 表面の向きを外部へ通知
   useFrame((_, dt) => {
     const s = spin.current;
+    // ── spin モード（プレイヤー）: webgl_card_standalone.html の render を verbatim ──
+    //   慣性→クランプ→指数スムージング→モデル行列 RotY(angY)*RotX(angX)。
+    if (!isFlip) {
+      if (!s.dragging) {
+        s.tAngY += s.velY * dt;
+        s.tAngX += s.velX * dt;
+        s.tAngX = Math.max(-CARD_ANG_CLAMP, Math.min(CARD_ANG_CLAMP, s.tAngX));
+        const df = Math.pow(0.94, dt * 60);
+        s.velX *= df;
+        s.velY *= df;
+      }
+      const sm = 1 - Math.exp(-dt * 14);
+      s.angX += (s.tAngX - s.angX) * sm;
+      s.angY += (s.tAngY - s.angY) * sm;
+      if (groupRef.current) {
+        // Euler order 'YXZ' → 回転行列 = RotY(angY)*RotX(angX)（参照 mMul と一致）
+        groupRef.current.rotation.set(s.angX, s.angY, 0, 'YXZ');
+        groupRef.current.scale.setScalar(1);
+      }
+      if (rotationOut) {
+        // 表面法線と視線のなす角（度）。front.z = cos(angX)*cos(angY)
+        const z = Math.max(-1, Math.min(1, Math.cos(s.angX) * Math.cos(s.angY)));
+        rotationOut.value = (Math.acos(z) * 180) / Math.PI;
+      }
+      return;
+    }
     if (s.animating && s.target) {
       // 目標姿勢へスラープ（フリップの回り込み演出）。近づいたら確定。
       const k = Math.min(1, dt * 9);
@@ -450,6 +492,12 @@ export const CardGL: React.FC<CardGLProps> = ({
     scale: FRONT_SCALE,
     startScale: FRONT_SCALE,
     finalScale: FRONT_SCALE,
+    angX: CARD_INIT_ANGX,
+    angY: CARD_INIT_ANGY,
+    tAngX: CARD_INIT_ANGX,
+    tAngY: CARD_INIT_ANGY,
+    velX: 0,
+    velY: 0,
   });
   const last = useRef({ x: 0, y: 0 });
   const moved = useRef(false);
@@ -484,6 +532,21 @@ export const CardGL: React.FC<CardGLProps> = ({
     if (overlayTimer.current) clearTimeout(overlayTimer.current);
     overlayTimer.current = setTimeout(() => setOverlayVisible(true), 550);
   };
+
+  // spin モード: 曲送り（frontUri 変化）で必ず正面（初期姿勢）から始める。
+  // 参照 frShow3d の「前カードの回転姿勢・慣性を持ち越さない」を再現。
+  // 一時停止→再開は同一マウント・同一 frontUri なので姿勢は維持される。
+  useEffect(() => {
+    if (isFlip) return;
+    const s = spin.current;
+    s.angX = CARD_INIT_ANGX;
+    s.angY = CARD_INIT_ANGY;
+    s.tAngX = CARD_INIT_ANGX;
+    s.tAngY = CARD_INIT_ANGY;
+    s.velX = 0;
+    s.velY = 0;
+    s.dragging = false;
+  }, [frontUri, isFlip]);
 
   // flipped の変化でフリップ演出を仕込む（表=正面 / 裏=Y軸180°へスラープ）。
   // 倍率も表(1.0)⇔裏(BACK_SCALE=1.1)の間で回転進捗に合わせて補間する。
@@ -529,8 +592,17 @@ export const CardGL: React.FC<CardGLProps> = ({
           const ddx = g.dx - last.current.x;
           const ddy = g.dy - last.current.y;
           last.current = { x: g.dx, y: g.dy };
-          // 指の移動ベクトルどおりに回す（横=Y軸 / 縦=X軸 / 斜め=合成軸）
-          applySpin(spin.current.q, ddy * SENS, ddx * SENS);
+          const s = spin.current;
+          if (isFlip) {
+            // flip モード（裏面）: 従来のトラックボール（横=Y軸 / 縦=X軸 / 斜め=合成軸）
+            applySpin(s.q, ddy * SENS, ddx * SENS);
+          } else {
+            // spin モード（プレイヤー）: 参照 move の verbatim
+            //   tAngY+=dx*0.008 / tAngX+=dy*0.008（縦のみ±1.25rad クランプ）
+            s.tAngY += ddx * CARD_DRAG_SENS;
+            s.tAngX += ddy * CARD_DRAG_SENS;
+            s.tAngX = Math.max(-CARD_ANG_CLAMP, Math.min(CARD_ANG_CLAMP, s.tAngX));
+          }
           if (dragXOut) dragXOut.value = g.dx;
         },
         onPanResponderRelease: (_e, g) => {
@@ -541,9 +613,16 @@ export const CardGL: React.FC<CardGLProps> = ({
             if (flipped) flipToFront();
             else flipToBack();
           } else if (moved.current && canRotate) {
-            // 離した瞬間の速度（px/ms → 度/秒）で慣性回転
-            s.vx = g.vy * 1000 * SENS;
-            s.vy = g.vx * 1000 * SENS;
+            if (isFlip) {
+              // 離した瞬間の速度（px/ms → 度/秒）で慣性回転（トラックボール）
+              s.vx = g.vy * 1000 * SENS;
+              s.vy = g.vx * 1000 * SENS;
+            } else {
+              // spin モード: 参照 up の verbatim（px/ms → rad/s・VMAX クランプ）
+              //   velY=dx速度*0.008 / velX=dy速度*0.008
+              s.velY = Math.max(-CARD_VMAX, Math.min(CARD_VMAX, g.vx * 1000 * CARD_DRAG_SENS));
+              s.velX = Math.max(-CARD_VMAX, Math.min(CARD_VMAX, g.vy * 1000 * CARD_DRAG_SENS));
+            }
           }
           if (dragXOut) dragXOut.value = withSpring(0, { damping: 16, stiffness: 120 });
         },
@@ -599,6 +678,7 @@ export const CardGL: React.FC<CardGLProps> = ({
           backStyle={backStyle}
           depthRatio={depthRatio}
           rotationEnabled={canRotate}
+          isFlip={isFlip}
           rotationOut={rotationOut}
           onFrontLoaded={() => setFrontReady(true)}
         />
