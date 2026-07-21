@@ -35,6 +35,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useAudioPlayer } from 'expo-audio';
 import { previewUrl } from '../lib/r2';
+import { BackdropDim } from '../components/BackdropDim';
 import { CardFace } from '../components/CardFace';
 import { NebulaBand } from '../components/NebulaBand';
 import { StarField } from '../components/StarField';
@@ -137,6 +138,8 @@ export const DiscoverScreen: React.FC<Props> = ({
   const [slideH, setSlideH] = useState(0);
   const [activeIndex, setActiveIndex] = useState(0);
   const [flipped, setFlipped] = useState(false); // アクティブカードが裏面か（横スクロール可否用）
+  // アクティブカードの表面からの回転角（度）。focus-dim（背景暗転）の駆動用
+  const cardRotation = useSharedValue(0);
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [wishlist, setWishlist] = useState<Set<string>>(new Set());
   const [ownedIds, setOwnedIds] = useState<Set<string>>(new Set());
@@ -162,6 +165,8 @@ export const DiscoverScreen: React.FC<Props> = ({
         // 曲が変わったら横スクロールを必ず復活（旧アクティブの CardGL は
         // アンマウントされるので表裏状態も自然にリセットされる）
         setFlipped(false);
+        // 旧カードの回転角が残ると背景暗転が消えないためリセット
+        cardRotation.value = 0;
       }
     },
   ).current;
@@ -234,6 +239,12 @@ export const DiscoverScreen: React.FC<Props> = ({
         />
       )}
 
+      {/* 暗化2層（bgvig 常時ビネット + focus-dim フリップ連動）。
+          参照の z 順どおり調律陣より上・カードより下 */}
+      {slideH > 0 && (
+        <BackdropDim width={screenW} height={slideH} rotationDeg={cardRotation} />
+      )}
+
       {/* カードページャ。表面=横スワイプで曲切替＋タップで裏返し、
           裏面=全方向360°回転（横スワイプは無効） */}
       {slideH > 0 && (
@@ -265,6 +276,7 @@ export const DiscoverScreen: React.FC<Props> = ({
                   height={cardH}
                   aura={{ a: item.glowColor, b: item.glowColor2 }}
                   onFlipChange={setFlipped}
+                  rotationOut={cardRotation}
                   backData={{
                     title: item.title,
                     serial: item.back?.serial,

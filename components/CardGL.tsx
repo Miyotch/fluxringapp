@@ -79,6 +79,12 @@ const FLIP_K = 10;
 // オーラのフェード時間（ms）。参照 fadeAura(0,160)。
 const AURA_FADE_MS = 160;
 
+// ── flip モードの角度駆動パラメータ（参照 _dv3d 1849-1892行の値そのまま） ──
+const FLIP_DRAG_SENS = 0.012; // rad/px（参照: tAngY += dx*0.012）
+const FLIP_PITCH_MAX = 1.25;  // ピッチ上限（参照: tAngX clamp ±1.25 rad）
+const FLIP_VEL_MAX = 6;       // フリック角速度上限（参照: vel clamp ±6 rad/s）
+const FLIP_VEL_DECAY = 0.94;  // 慣性減衰（参照: pow(0.94, dt*60)）
+
 // ── トラックボール回転の状態（JS スレッドで共有する ref） ──
 export type SpinState = {
   q: THREE.Quaternion;   // 現在の姿勢
@@ -93,11 +99,27 @@ export type SpinState = {
   lift: number;          // 現在の持ち上げ量（world 単位・上が正）
   startLift: number;     // フリップ開始時点の持ち上げ量
   finalLift: number;     // フリップ完了後に確定させる持ち上げ量（表=0 / 裏=上へ）
+
+  // ── flip モード専用（参照 _dv3d と同じヨー/ピッチの2角度駆動） ──
+  // クォータニオンの slerp は正面→真後ろ(180°)の回転軸が不定で、開くたびに
+  // 違う回り込み方をして不安定に見える。参照は angY/angX の2角度を明示的に
+  // 動かすので毎回同じ回り方になる。flip モードでは q をこの2角度から合成する。
+  fy: number;       // ヨー angY（ラジアン・0=表 / π=裏）
+  fx: number;       // ピッチ angX（ラジアン・±1.25 clamp）
+  tfy: number;      // ヨー目標
+  tfx: number;      // ピッチ目標
+  fvy: number;      // ヨー角速度（rad/s・フリック慣性）
+  fvx: number;      // ピッチ角速度
+  qq: number;       // 開閉進捗 q（0=表 / 1=裏。拡大・持ち上げの補間に使う）
+  tqq: number;      // 進捗目標
+  closing: boolean; // 表へ戻り中（完了時に fy を正面へスナップ）
 };
 
 const TMP_Q = new THREE.Quaternion();
 const TMP_AXIS = new THREE.Vector3();
 const TMP_FRONT = new THREE.Vector3();
+// 参照の回転行列 mRotY(angY)·mRotX(angX) と同じ合成順（Y が外側 = 'YXZ'）
+const TMP_EULER = new THREE.Euler(0, 0, 0, 'YXZ');
 
 // 表面（正面）と裏面（Y軸まわり180°）の姿勢
 const Q_FRONT = new THREE.Quaternion();
@@ -219,9 +241,11 @@ const CardMesh: React.FC<{
   backStyle: 'aluminum' | 'story';
   depthRatio: number;
   rotationEnabled: boolean;
+  /** true = flip モード（参照 _dv3d の角度駆動）/ false = spin モード（トラックボール） */
+  flipDrive?: boolean;
   rotationOut?: SharedValue<number>;
   onFrontLoaded?: () => void;
-}> = ({ spin, frontUri, backData, backStyle, depthRatio, rotationEnabled, rotationOut, onFrontLoaded }) => {
+}> = ({ spin, frontUri, backData, backStyle, depthRatio, rotationEnabled, flipDrive, rotationOut, onFrontLoaded }) => {
   const groupRef = useRef<THREE.Group>(null);
   const [frontTex, setFrontTex] = useState<THREE.Texture | null>(null);
   const [backTex, setBackTex] = useState<THREE.DataTexture | null>(null); // backStyle='story' 用
@@ -355,7 +379,40 @@ const CardMesh: React.FC<{
   // 毎フレーム: フリップ演出 → 慣性 → 姿勢を mesh へ → 表面の向きを外部へ通知
   useFrame((_, dt) => {
     const s = spin.current;
-    if (s.animating && s.target) {
+    if (flipDrive) {
+      // ── flip モード: 参照 _dv3d の startLoop()（1889-1897行）を移植 ──
+      // ドラッグ中でなければフリック慣性を目標角へ積み、指数減衰させる
+      if (!s.dragging) {
+        s.tfy += s.fvy * dt;
+        s.tfx = Math.max(-FLIP_PITCH_MAX, Math.min(FLIP_PITCH_MAX, s.tfx + s.fvx * dt));
+        const df = Math.pow(FLIP_VEL_DECAY, dt * 60);
+        s.fvx *= df;
+        s.fvy *= df;
+      }
+      // 参照と同じ平滑化 sm = 1 - exp(-dt·10)
+      const sm = 1 - Math.exp(-dt * FLIP_K);
+      s.fy += (s.tfy - s.fy) * sm;
+      s.fx += (s.tfx - s.fx) * sm;
+      s.qq += (s.tqq - s.qq) * sm;
+      // 表へ戻り切ったらスナップ（参照: |ΔangY|<0.06 && |angX|<0.06 && q<0.04）
+      if (s.closing && Math.abs(s.fy - s.tfy) < 0.06 && Math.abs(s.fx) < 0.06 && s.qq < 0.04) {
+        s.fy = s.tfy;
+        s.fx = 0;
+        s.qq = 0;
+        s.closing = false;
+      }
+      // 姿勢 = RotY(angY)·RotX(angX)。拡大・持ち上げは進捗 q で補間（参照 1895-1897行）
+      TMP_EULER.set(s.fx, s.fy, 0, 'YXZ');
+      s.q.setFromEuler(TMP_EULER);
+      const scaleVal = 1 + (BACK_SCALE - 1) * s.qq;
+      const liftVal = H * BACK_LIFT_RATIO * s.qq;
+      if (groupRef.current) {
+        groupRef.current.scale.setScalar(scaleVal);
+        groupRef.current.position.y = liftVal;
+      }
+      s.scale = scaleVal;
+      s.lift = liftVal;
+    } else if (s.animating && s.target) {
       // 目標姿勢へスラープ（フリップの回り込み演出）。近づいたら確定。
       const k = Math.min(1, dt * FLIP_K);
       s.q.slerp(s.target, k);
@@ -484,6 +541,15 @@ export const CardGL: React.FC<CardGLProps> = ({
     lift: 0,
     startLift: 0,
     finalLift: 0,
+    fy: 0,
+    fx: 0,
+    tfy: 0,
+    tfx: 0,
+    fvy: 0,
+    fvx: 0,
+    qq: 0,
+    tqq: 0,
+    closing: false,
   });
   const last = useRef({ x: 0, y: 0 });
   const moved = useRef(false);
@@ -523,20 +589,32 @@ export const CardGL: React.FC<CardGLProps> = ({
     overlayTimer.current = setTimeout(() => setOverlayVisible(true), 550);
   };
 
-  // flipped の変化でフリップ演出を仕込む（表=正面 / 裏=Y軸180°へスラープ）。
-  // 倍率も表(1.0)⇔裏(BACK_SCALE=1.1)の間で回転進捗に合わせて補間する。
+  // flipped の変化でフリップ演出を仕込む（参照 _dv3d の open() / close() 移植）。
+  //   開く: 姿勢を毎回 0 にリセットしてから 0→π へ（参照 1913行
+  //         angX=0;tAngX=0;angY=0;tAngY=π;vel=0;q=0;tq=1）。リセットするから
+  //         何度開いても同じ回り方になる＝「不安定」の解消。
+  //   戻す: ヨーを最寄りの全回転 k·2π へスナップして戻す（参照 close() 1881行）。
+  //         裏面で何周回していても最短の正面へ着地する。
   useEffect(() => {
     if (!isFlip) return;
     const s = spin.current;
-    s.target = (flipped ? Q_BACK : Q_FRONT).clone();
-    s.animating = true;
+    if (flipped) {
+      s.fy = 0;
+      s.tfy = Math.PI;
+      s.fx = 0;
+      s.tfx = 0;
+      s.qq = 0;
+      s.tqq = 1;
+      s.closing = false;
+    } else {
+      s.tfy = Math.round(s.fy / (2 * Math.PI)) * 2 * Math.PI;
+      s.tfx = 0;
+      s.tqq = 0;
+      s.closing = true;
+    }
+    s.fvx = 0;
+    s.fvy = 0;
     s.dragging = false;
-    s.vx = 0;
-    s.vy = 0;
-    s.startScale = s.scale ?? FRONT_SCALE;
-    s.finalScale = flipped ? BACK_SCALE : FRONT_SCALE;
-    s.startLift = s.lift ?? 0;
-    s.finalLift = flipped ? H * BACK_LIFT_RATIO : 0;
     // オーラは裏返しと同時に消す（参照 fadeAura(0,160)）。表へ戻る時は復帰。
     auraOpacity.value = withTiming(flipped ? 0 : 1, { duration: AURA_FADE_MS });
   }, [flipped, isFlip, auraOpacity]);
@@ -571,8 +649,15 @@ export const CardGL: React.FC<CardGLProps> = ({
           const ddx = g.dx - last.current.x;
           const ddy = g.dy - last.current.y;
           last.current = { x: g.dx, y: g.dy };
-          // 指の移動ベクトルどおりに回す（横=Y軸 / 縦=X軸 / 斜め=合成軸）
-          applySpin(spin.current.q, ddy * SENS, ddx * SENS);
+          if (isFlip) {
+            // flip モード: 参照 move()（1849-1851行）。横=ヨー / 縦=ピッチ(±1.25)
+            const s = spin.current;
+            s.tfy += ddx * FLIP_DRAG_SENS;
+            s.tfx = Math.max(-FLIP_PITCH_MAX, Math.min(FLIP_PITCH_MAX, s.tfx + ddy * FLIP_DRAG_SENS));
+          } else {
+            // spin モード: 指の移動ベクトルどおりに回す（横=Y軸 / 縦=X軸 / 斜め=合成軸）
+            applySpin(spin.current.q, ddy * SENS, ddx * SENS);
+          }
           if (dragXOut) dragXOut.value = g.dx;
         },
         onPanResponderRelease: (_e, g) => {
@@ -583,9 +668,15 @@ export const CardGL: React.FC<CardGLProps> = ({
             if (flipped) flipToFront();
             else flipToBack();
           } else if (moved.current && canRotate) {
-            // 離した瞬間の速度（px/ms → 度/秒）で慣性回転
-            s.vx = g.vy * 1000 * SENS;
-            s.vy = g.vx * 1000 * SENS;
+            if (isFlip) {
+              // flip モード: 参照 up()（1877-1878行）。px/ms → rad/s、±6 clamp
+              s.fvy = Math.max(-FLIP_VEL_MAX, Math.min(FLIP_VEL_MAX, g.vx * 1000 * FLIP_DRAG_SENS));
+              s.fvx = Math.max(-FLIP_VEL_MAX, Math.min(FLIP_VEL_MAX, g.vy * 1000 * FLIP_DRAG_SENS));
+            } else {
+              // spin モード: 離した瞬間の速度（px/ms → 度/秒）で慣性回転
+              s.vx = g.vy * 1000 * SENS;
+              s.vy = g.vx * 1000 * SENS;
+            }
           }
           if (dragXOut) dragXOut.value = withSpring(0, { damping: 16, stiffness: 120 });
         },
@@ -655,6 +746,7 @@ export const CardGL: React.FC<CardGLProps> = ({
           backStyle={backStyle}
           depthRatio={depthRatio}
           rotationEnabled={canRotate}
+          flipDrive={isFlip}
           rotationOut={rotationOut}
           onFrontLoaded={() => setFrontReady(true)}
         />
