@@ -5,9 +5,10 @@
  * 参照は DOM div ×479 を CSS keyframe で明滅させる実装。それを Skia へ移植する。
  *
  * 遠近3層（参照の n0/n1/n2 をそのまま計算）:
- *   層0 遠景 317個: 径 rand(0.5,1.0)×0.8 / 基輝度 rand(.05,.16)×1.6 / blur 0.4px / ハロー無し
+ *   層0 遠景 317個: 径 rand(0.5,1.0)×0.8 / 基輝度 rand(.05,.16)×1.6 / ハロー無し
  *   層1 中景 126個: 径 rand(1.1,1.7)×0.8 / 基輝度 rand(.20,.40)×1.6 / ハロー 1.3× rgba(200,220,255,.35)
  *   層2 近景  36個: 径 rand(2.0,2.9)×0.8 / 基輝度 rand(.42,.62)×1.6 / ハロー 2.2× rgba(200,230,250,.7)
+ *   ※径は SIZE_TUNE でさらに縮小（実機フィードバック反映・下記）
  *
  * 明滅: 参照は `tw` keyframe（0%,100%=o0 / 50%=o1・ease-in-out・周期 rand(2.2,5.2)/2.5
  *   = 0.88〜2.08秒）を負の delay で位相をバラつかせる。ease-in-out の2点補間は
@@ -17,8 +18,13 @@
  *   ・乱数は決定論ハッシュ（NebulaBand と同方式。再レンダーで模様が変わらない）
  *   ・明滅は群に量子化して Path をまとめ、derived value 数を抑える
  *     （479個 → 8+12+36 = 56群。層2は目立つので星ごと＝1星1群）
- *   ・ハローは参照の box-shadow の代替。CSS の blur 半径 B に対し σ=B/2 で近似し、
- *     層内の平均径で1つの σ に丸める（層内の径のばらつきは小さい）
+ *   ・ハローは参照の box-shadow の代替。当初は Path+Blur で近似したが、
+ *     毎フレーム 48 回の saveLayer（オフスクリーン合成）が走り実機で重かった
+ *     ため、星ごとの RadialGradient 円（中心=ハロー色 → 外周=透明）に変更。
+ *     Blur を使わないので saveLayer ゼロ。box-shadow '0 0 Bpx' の視覚半径
+ *     ≈ 星半径 + B をグラデ円の半径にとる
+ *   ・参照の層0 filter:blur(0.4px) は知覚できる差がほぼ無いわりに saveLayer
+ *     を要するため省略（かわりの霞は基輝度がそのまま担う）
  *   ・背景（bgbase）は NebulaBand 側が描くので、この層は透明で重ねる
  *   ・paused / reduce-motion で明滅停止（静止表示）
  *
@@ -30,9 +36,11 @@ import React, { useMemo, useEffect, useState } from 'react';
 import { AccessibilityInfo, useWindowDimensions, StyleSheet } from 'react-native';
 import {
   Canvas,
+  Circle,
   Group,
   Path,
-  Blur,
+  RadialGradient,
+  vec,
   useClock,
   Skia,
   SkPath,
@@ -49,6 +57,12 @@ const REF_W = 380;                          // 参照の内部座標幅（デバ
 const STAR_COLOR = 'rgb(238,243,255)';      // #eef3ff
 const SIZE_K = Math.max(P_SIZE, 0.5) * 1.6; // = 0.8（径への共通係数）
 
+// ── 実機調整ポイント ──
+// 星の全体スケール。1.0 = 参照 v99 の数値どおり。実機では参照より大きく・
+// 目立ちすぎて見えたため縮小（2026-07-21 実機フィードバック）。
+const SIZE_TUNE = 0.7;   // 星の径（ハローも比例して縮む）
+const HALO_TUNE = 0.85;  // ハローの強さ（α に乗算）
+
 // 参照の層別個数: 317 / 126 / 36（計479）
 const N0 = Math.round(P_COUNT * 0.58 * 1.3 * 1.4);
 const N1 = Math.round(P_COUNT * 0.3 * 1.4);
@@ -59,15 +73,15 @@ type LayerSpec = {
   groups: number;              // 明滅の群数（層2は n と同数＝星ごと）
   sMin: number; sMax: number;  // 径レンジ（SIZE_K 適用前）
   oMin: number; oMax: number;  // 基輝度レンジ（P_BRIGHT 適用前）
-  blur: number;                // 参照 filter:blur(px)
   halo: number;                // 参照 box-shadow の径倍率（0=なし）
-  haloColor: string;
+  haloRGB: string;             // ハロー色（'r,g,b'）
+  haloA: number;               // ハロー色の α（参照 box-shadow の α）
 };
 
 const LAYERS: LayerSpec[] = [
-  { n: N0, groups: 8,  sMin: 0.5, sMax: 1.0, oMin: 0.05, oMax: 0.16, blur: 0.4, halo: 0,   haloColor: '' },
-  { n: N1, groups: 12, sMin: 1.1, sMax: 1.7, oMin: 0.2,  oMax: 0.4,  blur: 0,   halo: 1.3, haloColor: 'rgba(200,220,255,0.35)' },
-  { n: N2, groups: N2, sMin: 2.0, sMax: 2.9, oMin: 0.42, oMax: 0.62, blur: 0,   halo: 2.2, haloColor: 'rgba(200,230,250,0.7)' },
+  { n: N0, groups: 8,  sMin: 0.5, sMax: 1.0, oMin: 0.05, oMax: 0.16, halo: 0,   haloRGB: '',            haloA: 0 },
+  { n: N1, groups: 12, sMin: 1.1, sMax: 1.7, oMin: 0.2,  oMax: 0.4,  halo: 1.3, haloRGB: '200,220,255', haloA: 0.35 },
+  { n: N2, groups: N2, sMin: 2.0, sMax: 2.9, oMin: 0.42, oMax: 0.62, halo: 2.2, haloRGB: '200,230,250', haloA: 0.7 },
 ];
 
 // 決定論ハッシュ（0..1）— NebulaBand と同方式
@@ -77,19 +91,20 @@ function hash(x: number): number {
 }
 const rnd = (seed: number, a: number, b: number) => a + hash(seed) * (b - a);
 
+type HaloDot = { x: number; y: number; r: number };
+
 type TwinkleGroup = {
-  path: SkPath;
-  o0: number;  // 谷（keyframe 0%,100%）
-  o1: number;  // 山（keyframe 50%）
-  w: number;   // 角速度 = 2π/dur
-  ph: number;  // 位相（参照の負 animation-delay 相当）
+  path: SkPath;      // 星本体（群でまとめて1パス）
+  halos: HaloDot[];  // ハロー（星ごとのグラデ円。halo=0 の層は空）
+  o0: number;        // 谷（keyframe 0%,100%）
+  o1: number;        // 山（keyframe 50%）
+  w: number;         // 角速度 = 2π/dur
+  ph: number;        // 位相（参照の負 animation-delay 相当）
 };
 
 type BuiltLayer = {
   spec: LayerSpec;
   groups: TwinkleGroup[];
-  blurSigma: number;  // filter:blur 相当
-  haloSigma: number;  // box-shadow blur 相当（層内平均径で丸め）
 };
 
 function buildLayers(W: number, H: number): BuiltLayer[] {
@@ -106,6 +121,7 @@ function buildLayers(W: number, H: number): BuiltLayer[] {
       const dur = rnd(sg + 3.7, 2.2, 5.2) / P_TWINKLE;
       return {
         path: Skia.Path.Make(),
+        halos: [],
         o0,
         o1,
         w: (Math.PI * 2) / dur,
@@ -118,30 +134,26 @@ function buildLayers(W: number, H: number): BuiltLayer[] {
       const si = seedL + i * 13.9;
       const x = hash(si + 0.7) * W;
       const y = hash(si + 1.9) * H;
-      const size = rnd(si + 3.1, spec.sMin, spec.sMax) * SIZE_K;
-      groups[i % spec.groups].path.addCircle(x, y, (size / 2) * scale);
+      const size = rnd(si + 3.1, spec.sMin, spec.sMax) * SIZE_K * SIZE_TUNE;
+      const g = groups[i % spec.groups];
+      g.path.addCircle(x, y, (size / 2) * scale);
+      if (spec.halo > 0) {
+        // box-shadow '0 0 Bpx'（B = size×halo）の視覚半径 ≈ 星半径 + B
+        g.halos.push({ x, y, r: (size / 2 + size * spec.halo) * scale });
+      }
     }
 
-    // ハローは層内の平均径で σ を1つに丸める（CSS box-shadow blur B → σ=B/2）
-    const meanSize = ((spec.sMin + spec.sMax) / 2) * SIZE_K;
-    return {
-      spec,
-      groups,
-      blurSigma: spec.blur * scale,
-      haloSigma: ((meanSize * spec.halo) / 2) * scale,
-    };
+    return { spec, groups };
   });
 }
 
 // ── 1群（明滅を共有する星の集合） ──
 const StarGroup: React.FC<{
   g: TwinkleGroup;
-  blurSigma: number;
-  haloSigma: number;
-  haloColor: string;
+  spec: LayerSpec;
   clock: SharedValue<number>;
   stop: SharedValue<boolean>;
-}> = ({ g, blurSigma, haloSigma, haloColor, clock, stop }) => {
+}> = ({ g, spec, clock, stop }) => {
   const opacity = useDerivedValue(() => {
     // 停止時は谷=基輝度で静止（参照の初期 style.opacity=o0 と同じ）
     if (stop.value) return g.o0;
@@ -149,16 +161,17 @@ const StarGroup: React.FC<{
     return g.o0 + (g.o1 - g.o0) * (0.5 - 0.5 * Math.cos((t + g.ph) * g.w));
   }, [clock]);
 
+  const haloIn = `rgba(${spec.haloRGB},${(spec.haloA * HALO_TUNE).toFixed(3)})`;
+  const haloOut = `rgba(${spec.haloRGB},0)`;
+
   return (
     <Group opacity={opacity}>
-      {haloSigma > 0 && (
-        <Path path={g.path} color={haloColor}>
-          <Blur blur={haloSigma} />
-        </Path>
-      )}
-      <Path path={g.path} color={STAR_COLOR}>
-        {blurSigma > 0 && <Blur blur={blurSigma} />}
-      </Path>
+      {g.halos.map((h, i) => (
+        <Circle key={i} cx={h.x} cy={h.y} r={h.r}>
+          <RadialGradient c={vec(h.x, h.y)} r={h.r} colors={[haloIn, haloOut]} />
+        </Circle>
+      ))}
+      <Path path={g.path} color={STAR_COLOR} />
     </Group>
   );
 };
@@ -203,15 +216,7 @@ export const StarField: React.FC<StarFieldProps> = ({ width, height, paused = fa
       {/* 遠景 → 近景の順に重ねる（参照の DOM 生成順と同じ） */}
       {layers.map((l, li) =>
         l.groups.map((g, gi) => (
-          <StarGroup
-            key={`${li}-${gi}`}
-            g={g}
-            blurSigma={l.blurSigma}
-            haloSigma={l.haloSigma}
-            haloColor={l.spec.haloColor}
-            clock={clock}
-            stop={stop}
-          />
+          <StarGroup key={`${li}-${gi}`} g={g} spec={l.spec} clock={clock} stop={stop} />
         )),
       )}
     </Canvas>

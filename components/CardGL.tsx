@@ -663,11 +663,15 @@ export const CardGL: React.FC<CardGLProps> = ({
         onPanResponderRelease: (_e, g) => {
           const s = spin.current;
           s.dragging = false;
-          if (!moved.current && isFlip) {
-            // ほぼ動いていない＝タップ → 表⇔裏をトグル
+          // タップ判定は参照 up() と同じユークリッド距離 <10px（1877行 tapDist<10）。
+          // 以前の |dx|+|dy|>4 は実機の指ブレで超えやすく、裏面で「タップしたのに
+          // ドラッグ扱いになり正面へ戻れない」原因だった。
+          const isTap = Math.hypot(g.dx, g.dy) < 10;
+          if (isTap && isFlip) {
+            // タップ → 表⇔裏をトグル（裏面タップ＝どの姿勢からでも正面へ戻る）
             if (flipped) flipToFront();
             else flipToBack();
-          } else if (moved.current && canRotate) {
+          } else if (!isTap && canRotate) {
             if (isFlip) {
               // flip モード: 参照 up()（1877-1878行）。px/ms → rad/s、±6 clamp
               s.fvy = Math.max(-FLIP_VEL_MAX, Math.min(FLIP_VEL_MAX, g.vx * 1000 * FLIP_DRAG_SENS));
