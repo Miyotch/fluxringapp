@@ -20,7 +20,14 @@
       "usesAppleSignIn": true,
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "UIBackgroundModes": ["audio"]
+        "UIBackgroundModes": ["audio"],
+        "CFBundleURLTypes": [
+          {
+            "CFBundleURLSchemes": [
+              "com.googleusercontent.apps.496626750767-knrhh331fj12oamcti28n5io24v15rvu"
+            ]
+          }
+        ]
       }
     },
     "android": {
@@ -37,8 +44,8 @@
         "projectId": "d94a1082-9da2-459a-88b4-cd593c16eed3"
       },
       "googleAuth": {
-        "webClientId": "",
-        "iosClientId": "",
+        "webClientId": "496626750767-n83khmlpafnl9qo5c7mdahk0nbbrhhcv.apps.googleusercontent.com",
+        "iosClientId": "496626750767-knrhh331fj12oamcti28n5io24v15rvu.apps.googleusercontent.com",
         "androidClientId": ""
       },
       "r2": {
