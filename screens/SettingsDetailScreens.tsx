@@ -25,6 +25,7 @@ import {
 import { COLOR, SPACE, RADIUS } from '../constants/design-tokens';
 import { useT, useI18n, Lang } from '../lib/i18n';
 import { useAuthUser } from '../lib/useAuthUser';
+import { StarField } from '../components/StarField';
 
 // ─────────────────────────────────────────────
 // 共通サブヘッダー（戻る＋タイトル）
@@ -202,20 +203,21 @@ type TextDoc = { title: string; lead?: string; sections: DocSection[] };
 // 表形式（特定商取引法に基づく表記）
 type TableDoc = { title: string; rows: { label: string; value: string }[] };
 
-const TEXT_DOCS: Record<'thanks' | 'terms' | 'privacy', TextDoc> = {
-  thanks: {
-    title: 'Special Thanks',
-    sections: [
-      {
-        body:
-          'FLUX RING は、多くの方の協力で形になりました。\n\n' +
-          '・楽曲 / 音響：岡 ナオキ\n' +
-          '・ビジュアルディレクション：株式会社ヌメロ.8\n' +
-          '・テスト協力：初期リスナーの皆さま\n\n' +
-          'この場をかりて、心より感謝申し上げます。',
-      },
-    ],
-  },
+// CREDITS（Special Thanks）: 役職ラベル＋名前の縦積み。
+// hero=true は上部の大きな枠（ファウンダー）で、下に区切り線を引く。
+type CreditEntry = { role: string; name: string; hero?: boolean };
+const CREDITS: CreditEntry[] = [
+  { role: 'FOUNDER / EXECUTIVE PRODUCER', name: 'Naoki Oka', hero: true },
+  { role: 'PROJECT MANAGER', name: 'Tsubasa Miyazaki' },
+  { role: 'ENGINEER', name: 'Satoshi Miyosawa' },
+  { role: 'DESIGNER', name: 'Naoki Oka' },
+  { role: 'NAMING', name: 'Mzuki Yasuoka' },
+  { role: 'ADVISOR', name: 'Sachi Nishimoto' },
+  { role: 'SPECIAL THANKS', name: 'Donuts, Inc.' },
+  { role: 'SPECIAL THANKS', name: 'Tokyo 7th Sisters' },
+];
+
+const TEXT_DOCS: Record<'terms' | 'privacy', TextDoc> = {
   terms: {
     title: 'FluxRing 利用規約',
     lead:
@@ -476,12 +478,56 @@ const TOKUSHOHO: TableDoc = {
   ],
 };
 
+// CREDITS 画面（Special Thanks）: 星背景＋中央見出し＋役職/名前の縦積み
+const CreditsScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => (
+  <View style={s.creditsRoot}>
+    <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
+    <StarField />
+
+    {/* 上部: 戻る矢印（左）＋ CREDITS 見出し（中央） */}
+    <View style={s.creditsHeader}>
+      <Pressable onPress={onBack} hitSlop={14} style={s.creditsBack}>
+        <Text style={s.creditsChevron}>‹</Text>
+      </Pressable>
+      <Text style={s.creditsTitle}>CREDITS</Text>
+    </View>
+
+    <ScrollView
+      contentContainerStyle={s.creditsBody}
+      showsVerticalScrollIndicator={false}
+    >
+      {CREDITS.map((c, i) => (
+        <View
+          key={`${c.role}-${c.name}-${i}`}
+          style={[c.hero ? s.creditHeroItem : s.creditItem]}
+        >
+          <Text style={c.hero ? s.creditHeroRole : s.creditRole}>{c.role}</Text>
+          <Text style={c.hero ? s.creditHeroName : s.creditName}>{c.name}</Text>
+          {c.hero && (
+            <>
+              <View style={s.creditHeroGlow} />
+              <View style={s.creditDivider} />
+            </>
+          )}
+        </View>
+      ))}
+    </ScrollView>
+
+    {/* 下部: FLUX RING */}
+    <Text style={s.creditsFooter}>FLUX RING</Text>
+  </View>
+);
+
 export const DocumentScreen: React.FC<{ kind: DocKind; onBack: () => void }> = ({
   kind,
   onBack,
 }) => {
   const t = useT();
-  // タイトルは i18n。本文（法務・クレジット）は現状 日本語のまま（別途英訳予定）。
+
+  // Special Thanks は専用の CREDITS 画面
+  if (kind === 'thanks') return <CreditsScreen onBack={onBack} />;
+
+  // タイトルは i18n。本文（法務）は現状 日本語のまま（別途英訳予定）。
   return (
     <View style={s.root}>
       <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
@@ -518,6 +564,85 @@ export const DocumentScreen: React.FC<{ kind: DocKind; onBack: () => void }> = (
 
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: COLOR.bg },
+
+  // ── CREDITS（Special Thanks）──
+  creditsRoot: { flex: 1, backgroundColor: COLOR.bg },
+  creditsHeader: {
+    // TODO: SafeAreaInsets.top を加算
+    paddingTop: 52,
+    paddingHorizontal: SPACE.lg,
+    paddingBottom: SPACE.md,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  creditsBack: { position: 'absolute', left: SPACE.lg, top: 46, padding: 6 },
+  creditsChevron: { color: COLOR.textPrimary, fontSize: 26, lineHeight: 26 },
+  creditsTitle: {
+    color: COLOR.textPrimary,
+    fontSize: 14,
+    letterSpacing: 6,
+    fontWeight: '400',
+  },
+  creditsBody: {
+    paddingHorizontal: SPACE.xl,
+    paddingTop: SPACE.xl,
+    paddingBottom: 72,
+    alignItems: 'stretch',
+  },
+  // ファウンダー（上部の大きな中央寄せブロック）
+  creditHeroItem: { alignItems: 'center', marginBottom: SPACE.lg },
+  creditHeroRole: {
+    color: COLOR.textSecondary,
+    fontSize: 11,
+    letterSpacing: 2.5,
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  creditHeroName: {
+    color: COLOR.textPrimary,
+    fontSize: 19,
+    letterSpacing: 0.5,
+    fontWeight: '500',
+    textAlign: 'center',
+  },
+  // 名前下の淡いシアングロー（小さな光の線）
+  creditHeroGlow: {
+    width: 26,
+    height: 3,
+    borderRadius: 2,
+    marginTop: 14,
+    backgroundColor: 'rgba(96,206,224,0.55)',
+  },
+  creditDivider: {
+    height: StyleSheet.hairlineWidth,
+    alignSelf: 'stretch',
+    backgroundColor: 'rgba(150,152,190,0.25)',
+    marginTop: SPACE.xl,
+  },
+  // 一般クレジット（左寄せの縦積み）
+  creditItem: { marginBottom: SPACE.lg, alignItems: 'flex-start' },
+  creditRole: {
+    color: COLOR.textSecondary,
+    fontSize: 11,
+    letterSpacing: 2,
+    marginBottom: 8,
+  },
+  creditName: {
+    color: COLOR.textPrimary,
+    fontSize: 18,
+    letterSpacing: 0.4,
+    fontWeight: '500',
+  },
+  creditsFooter: {
+    // TODO: SafeAreaInsets.bottom を加算
+    paddingBottom: 28,
+    textAlign: 'center',
+    color: COLOR.textSecondary,
+    fontSize: 10,
+    letterSpacing: 4,
+    opacity: 0.7,
+  },
+
   header: {
     paddingTop: 52,
     paddingHorizontal: SPACE.lg,
