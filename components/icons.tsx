@@ -96,6 +96,16 @@ export const ShuffleIcon: React.FC<IconProps> = ({ size = 14, color = COLOR.text
   </Svg>
 );
 
+// Google ロゴ（4色・fr_launch_v5.html のインライン SVG）
+export const GoogleIcon: React.FC<IconProps> = ({ size = 15 }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24">
+    <Path fill="#ECEEF7" d="M21.6 12.2c0-.7-.1-1.3-.2-1.9H12v3.7h5.4a4.6 4.6 0 0 1-2 3v2.5h3.2c1.9-1.7 3-4.3 3-7.3z" />
+    <Path fill="#9BB2E8" d="M12 22c2.7 0 4.9-.9 6.6-2.4l-3.2-2.5c-.9.6-2 1-3.4 1-2.6 0-4.8-1.7-5.6-4.1H3.1v2.6A10 10 0 0 0 12 22z" />
+    <Path fill="#7C62D6" d="M6.4 14a6 6 0 0 1 0-3.9V7.5H3.1a10 10 0 0 0 0 9z" />
+    <Path fill="#60CEE0" d="M12 5.9c1.5 0 2.8.5 3.8 1.5l2.8-2.8A10 10 0 0 0 3.1 7.5l3.3 2.6C7.2 7.6 9.4 5.9 12 5.9z" />
+  </Svg>
+);
+
 // ウィッシュリスト星。on で塗り。
 export const StarIcon: React.FC<IconProps & { filled?: boolean }> = ({
   size = 19,

@@ -19,15 +19,14 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { View, StyleSheet, Image } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Asset } from 'expo-asset';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { configureAudioMode } from './lib/audio';
 import { LanguageProvider } from './lib/i18n';
-import { useAuthUser } from './lib/useAuthUser';
-import { deleteAccount } from './lib/firebaseAuth';
+import { onUserChanged, deleteAccount, signOut } from './lib/firebaseAuth';
 
 import { Footer, TabKey } from './components/Footer';
-import { OnboardingScreen } from './screens/OnboardingScreen';
-import { AuthScreen } from './screens/AuthScreen';
+import { LaunchFlow, LaunchScreen, ConsentJoin } from './screens/LaunchFlow';
 import { DiscoverScreen } from './screens/DiscoverScreen';
 import { CollectionScreen } from './screens/CollectionScreen';
 import { MediaScreen } from './screens/MediaScreen';
@@ -59,18 +58,24 @@ import {
 
 const COLOR_BG = '#171430';
 
-// アプリのフェーズ
-type Phase = 'onboarding' | 'auth' | 'app';
+// アプリのフェーズ（launch = 起動フロー / app = 本体）
+type Phase = 'launch' | 'app';
 // フッタータブから開く主要画面
 type TabScreen = TabKey;
 // タブの上に重ねるモーダル的画面
 type Overlay = 'story' | 'player' | 'notifications' | 'artist' | null;
 
+// 規約・PP の現行バージョン（重要事項の同意型パネルの施行日）。
+// 同意済みバージョンがこれと異なると起動時に consent 画面を出す。
+const TERMS_VERSION = '2026-08-01';
+const KEY_ONBOARDED = 'fr.onboardingDone';
+const KEY_AGREED = 'fr.agreedTermsVersion';
+
 function AppInner() {
-  // 起動時は未ログインならログイン画面から。永続セッションがあれば下の effect でアプリへ。
-  const authedUser = useAuthUser();
-  const [phase, setPhase] = useState<Phase>('auth');
-  const [authMode, setAuthMode] = useState<'signup' | 'login'>('login');
+  const [phase, setPhase] = useState<Phase>('launch');
+  // launch 後に見せる画面。null=判定中（セッション/オンボ済み/同意状態を確定するまで）
+  const [launchScreen, setLaunchScreen] = useState<LaunchScreen | null>(null);
+  const [consentJoin, setConsentJoin] = useState<ConsentJoin>('new');
   const [tab, setTab] = useState<TabScreen>('home');
   const [overlay, setOverlay] = useState<Overlay>(null);
   const [vipUnlocked, setVipUnlocked] = useState(false);
@@ -82,7 +87,11 @@ function AppInner() {
   // ホーム（ディスカバー）で最初に表示するカード id（ウィッシュから飛んできたとき用）
   const [homeFocusId, setHomeFocusId] = useState<string | null>(null);
 
-  const goApp = useCallback(() => setPhase('app'), []);
+  const goApp = useCallback(() => {
+    // アプリへ入るときはオンボ済みとして記録（次回はログイン画面から）
+    AsyncStorage.setItem(KEY_ONBOARDED, '1').catch(() => {});
+    setPhase('app');
+  }, []);
 
   // タブ切替時は必ずオーバーレイ／設定末端を閉じる
   // （複数パネルが重なって見える不具合の防止 = v86 対策）。
@@ -97,11 +106,54 @@ function AppInner() {
   // 起動時に一度だけ音声モードを設定（サイレント時再生・バックグラウンド再生）
   useEffect(() => { configureAudioMode(); }, []);
 
-  // 永続セッションが復元されたら（＝既にログイン済みなら）ログイン画面を飛ばして
-  // アプリへ。未ログインのあいだは phase='auth'（ログイン画面）のまま。
+  // 起動時の分岐判定: セッション（永続復元を待つ）・オンボ済み・規約同意状態から
+  //   launchScreen（p0 / login / consent / app）と consent の合流先を決める。
+  const decideLaunch = useCallback(async () => {
+    setLaunchScreen(null);
+    const [onboarded, agreed] = await Promise.all([
+      AsyncStorage.getItem(KEY_ONBOARDED).catch(() => null),
+      AsyncStorage.getItem(KEY_AGREED).catch(() => null),
+    ]);
+    // 最初の認証コールバック（永続セッション復元）を待つ
+    const user = await new Promise<unknown>((resolve) => {
+      let done = false;
+      const unsub = onUserChanged((u) => {
+        if (done) return;
+        done = true;
+        resolve(u);
+        setTimeout(() => { try { unsub(); } catch {} }, 0);
+      });
+      // 復元が来ない環境向けのタイムアウト（未ログイン扱い）
+      setTimeout(() => { if (!done) { done = true; resolve(null); } }, 1500);
+    });
+    const hasSession = !!user;
+    const needConsent = agreed !== TERMS_VERSION;
+    const onboardedDone = onboarded === '1';
+
+    if (needConsent) {
+      setConsentJoin(hasSession ? 'exist' : onboardedDone ? 'login' : 'new');
+      setLaunchScreen('consent');
+    } else if (hasSession) {
+      setLaunchScreen('app');
+    } else if (onboardedDone) {
+      setLaunchScreen('login');
+    } else {
+      setLaunchScreen('p0');
+    }
+  }, []);
+
   useEffect(() => {
-    if (authedUser) setPhase((p) => (p === 'auth' ? 'app' : p));
-  }, [authedUser]);
+    decideLaunch();
+  }, [decideLaunch]);
+
+  // サインアウト／退会後: 起動フローへ戻す（再判定でログイン画面に落ちる）
+  const restartLaunch = useCallback(() => {
+    setOverlay(null);
+    setSettingsDetail(null);
+    setTab('home');
+    setPhase('launch');
+    decideLaunch();
+  }, [decideLaunch]);
 
   // 作品画像の先読み（ホーム初回表示の遅延対策）。
   //   Image.prefetch = RN Image キャッシュ（CardFace / CardGL のつなぎ表示用）
@@ -114,29 +166,22 @@ function AppInner() {
     }
   }, []);
 
-  // ── フェーズ: オンボーディング ──
-  if (phase === 'onboarding') {
+  // ── フェーズ: 起動フロー（launch → p0 / login / consent / app）──
+  if (phase === 'launch') {
+    // 判定中は背景色のみ（すぐに決まる。決まったら LaunchFlow が splash を出す）
+    if (!launchScreen) return <View style={styles.root} />;
     return (
-      <OnboardingScreen
-        onSignUp={() => {
-          setAuthMode('signup');
-          setPhase('auth');
+      <LaunchFlow
+        initialScreen={launchScreen}
+        consentJoin={consentJoin}
+        onEnterApp={goApp}
+        onCompleteSignup={() => {
+          // 表示名・情景は将来 Firestore へ保存。いまはオンボ完了として記録しアプリへ。
+          goApp();
         }}
-        onLogin={() => {
-          setAuthMode('login');
-          setPhase('auth');
+        onAgreeConsent={() => {
+          AsyncStorage.setItem(KEY_AGREED, TERMS_VERSION).catch(() => {});
         }}
-      />
-    );
-  }
-
-  // ── フェーズ: 認証 ──
-  if (phase === 'auth') {
-    return (
-      <AuthScreen
-        mode={authMode}
-        onSwitchMode={setAuthMode}
-        onAuthenticated={goApp}
       />
     );
   }
@@ -199,10 +244,9 @@ function AppInner() {
         return (
           <AccountScreen
             onBack={back}
-            onSignOut={() => {
-              setSettingsDetail(null);
-              setPhase('onboarding');
-              setTab('home');
+            onSignOut={async () => {
+              try { await signOut(); } catch {}
+              restartLaunch();
             }}
           />
         );
@@ -288,19 +332,16 @@ function AppInner() {
               if (key === 'artist') setOverlay('artist');
               else setSettingsDetail(key);
             }}
-            onSignOut={() => {
-              setPhase('onboarding');
-              setTab('home');
+            onSignOut={async () => {
+              try { await signOut(); } catch {}
+              restartLaunch();
             }}
             onDeleteAccount={async () => {
               // 退会: Firebase のアカウントを削除（未ログイン/スタブ時は no-op）→
-              // ログイン画面へ戻す。失敗時は例外を投げて SettingsScreen 側で表示。
+              // 起動フローへ戻す（ログイン画面に落ちる）。失敗時は例外を投げて
+              // SettingsScreen 側で表示。
               await deleteAccount();
-              setSettingsDetail(null);
-              setOverlay(null);
-              setTab('home');
-              setAuthMode('login');
-              setPhase('auth');
+              restartLaunch();
             }}
           />
         )}
