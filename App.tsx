@@ -16,14 +16,14 @@
  */
 
 import React, { useState, useCallback, useEffect } from 'react';
-import { View, StyleSheet, Image } from 'react-native';
+import { View, StyleSheet } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { Asset } from 'expo-asset';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { configureAudioMode } from './lib/audio';
 import { LanguageProvider } from './lib/i18n';
 import { onUserChanged, deleteAccount, signOut } from './lib/firebaseAuth';
+import { prefetchArtwork } from './constants/artwork';
 
 import { Footer, TabKey } from './components/Footer';
 import { LaunchFlow, LaunchScreen, ConsentJoin } from './screens/LaunchFlow';
@@ -155,15 +155,11 @@ function AppInner() {
     decideLaunch();
   }, [decideLaunch]);
 
-  // 作品画像の先読み（ホーム初回表示の遅延対策）。
-  //   Image.prefetch = RN Image キャッシュ（CardFace / CardGL のつなぎ表示用）
-  //   Asset.downloadAsync = expo-asset ローカルキャッシュ（GL テクスチャ生成用）
-  // オンボーディング／認証の間に裏で温まるので、ホーム到達時には即時表示できる。
+  // 同梱アートの展開（起動フローの裏で実行）。
+  // downloadAsync で localUri（file://）を確定させ、Skia / GL テクスチャが
+  // リリースビルドでも読めるようにする（Android の asset:// 対策）。
   useEffect(() => {
-    for (const t of STUB_TRACKS) {
-      Image.prefetch(t.artworkUrl).catch(() => {});
-      Asset.fromURI(t.artworkUrl).downloadAsync().catch(() => {});
-    }
+    prefetchArtwork();
   }, []);
 
   // ── フェーズ: 起動フロー（launch → p0 / login / consent / app）──

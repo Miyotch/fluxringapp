@@ -7,86 +7,79 @@ import type { Notice } from '../screens/NotificationsScreen';
 import type { Artist, ArtistTrack } from '../screens/ArtistScreen';
 import type { StoryData } from '../screens/StoryScreen';
 import type { VipCard } from '../screens/VipScreen';
+import { artUri } from './artwork';
+import { buyLabel } from './pricing';
 
+// 同梱アート（v98_FIX ハンドオフ実ファイル）。picsum のダミーは廃止。
+// 作家一覧など未FIX画面のプレースホルダにのみ img() を残す。
 const img = (seed: string) => `https://picsum.photos/seed/${seed}/600/900`;
 
-// 作品カードに差し込む3作品（ASSETS.md / component_catalog v50 準拠）。
-// artworkSource に実 jpg（require('../assets/art_blue.jpg') 等）を差し替える。
-// 現状はモック確認用のリモート画像で代替。
-// オーラ色は component_catalog の「曲別オーラ」確定値:
-//   冬明け blue  rgb(96,206,224) / 薄明 white rgb(179,199,235) / 遠い灯 red rgb(219,120,150)
+// 作品カード（v98_FIX ハンドオフ data/cards.json の実データ・全5作品）。
+// タイトル/情景/story/原材料/調律/周波数/オーラ色は原本の値をそのまま使用。
+// アートは assets/art/ の実ファイル（683×1024・2:3）。
 export const STUB_TRACKS: Track[] = [
   {
-    id: 't1', title: '冬明け', subtitle: '夜明け前、まだ青い部屋に最初の光がにじむ',
-    artistName: '岡ナオキ', artworkUrl: img('fuyuake'), audioKey: 'blue', previewUrl: null, priceLabel: '¥2,500',
-    glowColor: 'rgba(96,206,224,0.42)', glowColor2: 'rgba(70,132,224,0.16)',
+    id: 'blue', title: '冬明け', subtitle: '夜明け前の青',
+    artistName: '岡ナオキ', artworkUrl: artUri('blue'), audioKey: 'blue',
+    previewUrl: null, priceLabel: buyLabel(),
+    glowColor: 'rgba(96,206,224,.42)', glowColor2: 'rgba(70,132,224,.16)',
     back: {
       serial: 'No. 001',
       story: '夜明け前、まだ青い部屋に最初の光がにじむ。音は何も足さず、ただ部屋の温度をわずかに上げていく。',
-      materials: ['純正律'],
-      frequencies: ['432 Hz', '7.83 Hz'],
+      materials: ['朝の空気', '低い持続音', '遠い反響', '青の残光', '静けさ'],
+      frequencies: ['純正律', '432 Hz', '7.83 Hz'],
       artist: 'NAOKI OKA',
     },
   },
   {
-    id: 't2', title: '薄明', subtitle: '眠りと覚醒のあわい、輪郭の生まれる時間',
-    artistName: '岡ナオキ', artworkUrl: img('hakumei'), audioKey: 'white', previewUrl: null, priceLabel: '¥2,500',
-    glowColor: 'rgba(179,199,235,0.42)', glowColor2: 'rgba(120,150,220,0.16)',
+    id: 'white', title: '薄明', subtitle: '色の決まらない時間',
+    artistName: '岡ナオキ', artworkUrl: artUri('white'), audioKey: 'white',
+    previewUrl: null, priceLabel: buyLabel(),
+    glowColor: 'rgba(180,200,230,.4)', glowColor2: 'rgba(150,170,210,.16)',
     back: {
       serial: 'No. 002',
-      story: '眠りと覚醒のあわい。輪郭がまだやわらかいうちに、音は静かに世界の縁をなぞる。',
-      materials: ['平均律'],
-      frequencies: ['440 Hz', '8.0 Hz'],
+      story: '夜と朝のあいだ、まだ色が決まらない時間。輪郭がほどけ、呼吸がゆっくりと深くなる。',
+      materials: ['薄明', '白の階調', '緩やかな上昇', '余白', '無音の間'],
+      frequencies: ['平均律', '440 Hz', '7.83 Hz'],
       artist: 'NAOKI OKA',
     },
   },
   {
-    id: 't3', title: '遠い灯', subtitle: '暗がりの向こう、ひとつだけ灯る温度',
-    artistName: '岡ナオキ', artworkUrl: img('toihi'), audioKey: 'red', previewUrl: null, priceLabel: '¥2,500',
-    glowColor: 'rgba(219,120,150,0.42)', glowColor2: 'rgba(180,90,140,0.16)',
+    id: 'mesh', title: '白鉛筆 I（仮）', subtitle: '骨子のねじれ',
+    artistName: '岡ナオキ', artworkUrl: artUri('mesh'), audioKey: 'mesh',
+    previewUrl: null, priceLabel: buyLabel(),
+    glowColor: 'rgba(232,226,210,.40)', glowColor2: 'rgba(180,174,158,.16)',
     back: {
       serial: 'No. 003',
-      story: '暗がりの向こうに、ひとつだけ灯る温度。近づきすぎず、消えもせず、ただそこに在る。',
-      materials: ['純正律'],
-      frequencies: ['432 Hz', '6.0 Hz'],
+      story: '鉛筆の輪郭だけが、白い格子でねじれながら立っている。芯はなく、かたちの記憶だけが残っている。',
+      materials: ['白い格子', 'ねじれ', '六角の名残', '無地の余白', '逆さの尖端'],
+      frequencies: ['純正律', '432 Hz', '7.83 Hz'],
       artist: 'NAOKI OKA',
     },
   },
-  // ── ウィッシュリストの曲（ホーム＝ディスカバーで買える曲。ウィッシュはこの部分集合）──
-  // コレクションのウィッシュからタップすると、ホームのこのカードへ遷移する。
   {
-    id: 'w1', title: '海鳴り', subtitle: '遠い水平線から、低くうねって届く響き',
-    artistName: '岡ナオキ', artworkUrl: img('uminari'), audioKey: 'blue', previewUrl: null, priceLabel: '¥2,500',
-    glowColor: 'rgba(70,132,224,0.42)', glowColor2: 'rgba(96,206,224,0.16)',
+    id: 'kite', title: '白鉛筆 II（仮）', subtitle: '細密な網',
+    artistName: '岡ナオキ', artworkUrl: artUri('kite'), audioKey: 'kite',
+    previewUrl: null, priceLabel: buyLabel(),
+    glowColor: 'rgba(214,218,226,.40)', glowColor2: 'rgba(160,164,176,.16)',
     back: {
       serial: 'No. 004',
-      story: '遠い水平線から、低くうねって届く響き。近づくでも遠のくでもなく、ただ寄せては返す。',
-      materials: ['純正律'],
-      frequencies: ['432 Hz', '7.83 Hz'],
+      story: '先端で立つ菱形の網。細い線が重なるほど、内側の空洞は静かになっていく。',
+      materials: ['細線の網', '菱形', '点で立つ', '白', '空洞'],
+      frequencies: ['平均律', '440 Hz', '7.83 Hz'],
       artist: 'NAOKI OKA',
     },
   },
   {
-    id: 'w2', title: '霧の朝', subtitle: '輪郭のほどけた朝、白にすべてが沈む',
-    artistName: '岡ナオキ', artworkUrl: img('kiri'), audioKey: 'white', previewUrl: null, priceLabel: '¥2,500',
-    glowColor: 'rgba(96,206,224,0.42)', glowColor2: 'rgba(120,150,220,0.16)',
+    id: 'bloom', title: '白鉛筆 III（仮）', subtitle: '花の格子',
+    artistName: '岡ナオキ', artworkUrl: artUri('bloom'), audioKey: 'bloom',
+    previewUrl: null, priceLabel: buyLabel(),
+    glowColor: 'rgba(196,210,228,.40)', glowColor2: 'rgba(146,160,186,.16)',
     back: {
       serial: 'No. 005',
-      story: '輪郭のほどけた朝、白にすべてが沈む。音は霧の粒のあいだを、ゆっくりと渡っていく。',
-      materials: ['平均律'],
-      frequencies: ['440 Hz', '8.0 Hz'],
-      artist: 'NAOKI OKA',
-    },
-  },
-  {
-    id: 'w3', title: '遠雷', subtitle: '地平の彼方、光ってから遅れて届く低音',
-    artistName: '岡ナオキ', artworkUrl: img('enrai'), audioKey: 'red', previewUrl: null, priceLabel: '¥2,500',
-    glowColor: 'rgba(124,98,214,0.42)', glowColor2: 'rgba(96,206,224,0.16)',
-    back: {
-      serial: 'No. 006',
-      story: '地平の彼方、光ってから遅れて届く低音。急かさず、ただ空気の重さだけを伝えてくる。',
-      materials: ['純正律'],
-      frequencies: ['432 Hz', '7.83 Hz'],
+      story: '円が重なって花になり、花が連なって鉛筆のかたちを覆う。規則だけで編まれた、白い静けさ。',
+      materials: ['重なる円', '花の格子', '白い骨組', '淡い青の余白', '細い影'],
+      frequencies: ['純正律', '528 Hz', '7.83 Hz'],
       artist: 'NAOKI OKA',
     },
   },
@@ -95,15 +88,14 @@ export const STUB_TRACKS: Track[] = [
 // audioKey は R2 の音源キー（preview/{key}.mp3 / full/{key}.mp3）。
 // モックの音源は blue/white/red の3つ想定なので所有曲もこれに揃える。
 export const STUB_OWNED: CollectionItem[] = [
-  { id: 't1', title: '冬明け', artworkUrl: img('fuyuake'), owned: true, audioKey: 'blue', glowColor: 'rgba(96,206,224,0.40)' },
-  { id: 't2', title: '薄明', artworkUrl: img('hakumei'), owned: true, audioKey: 'white', glowColor: 'rgba(70,132,224,0.40)' },
-  { id: 't3', title: '遠い灯', artworkUrl: img('toihi'), owned: true, audioKey: 'red', glowColor: 'rgba(219,120,150,0.40)' },
+  { id: 'blue', title: '冬明け', artworkUrl: artUri('blue'), owned: true, audioKey: 'blue', glowColor: 'rgba(96,206,224,.42)', glowColor2: 'rgba(70,132,224,.16)' },
+  { id: 'white', title: '薄明', artworkUrl: artUri('white'), owned: true, audioKey: 'white', glowColor: 'rgba(180,200,230,.4)', glowColor2: 'rgba(150,170,210,.16)' },
+  { id: 'mesh', title: '白鉛筆 I（仮）', artworkUrl: artUri('mesh'), owned: true, audioKey: 'mesh', glowColor: 'rgba(232,226,210,.40)', glowColor2: 'rgba(180,174,158,.16)' },
 ];
 
 export const STUB_WISHLIST: CollectionItem[] = [
-  { id: 'w1', title: '海鳴り', artworkUrl: img('uminari'), owned: false, priceLabel: '¥2,500', glowColor: 'rgba(70,132,224,0.40)' },
-  { id: 'w2', title: '霧の朝', artworkUrl: img('kiri'), owned: false, priceLabel: '¥2,500', glowColor: 'rgba(96,206,224,0.40)' },
-  { id: 'w3', title: '遠雷', artworkUrl: img('enrai'), owned: false, priceLabel: '¥2,500', glowColor: 'rgba(124,98,214,0.40)' },
+  { id: 'kite', title: '白鉛筆 II（仮）', artworkUrl: artUri('kite'), owned: false, priceLabel: buyLabel(), glowColor: 'rgba(214,218,226,.40)', glowColor2: 'rgba(160,164,176,.16)' },
+  { id: 'bloom', title: '白鉛筆 III（仮）', artworkUrl: artUri('bloom'), owned: false, priceLabel: buyLabel(), glowColor: 'rgba(196,210,228,.40)', glowColor2: 'rgba(146,160,186,.16)' },
 ];
 
 export const STUB_NOTICES: Notice[] = [

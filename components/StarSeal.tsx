@@ -50,7 +50,12 @@ const R_TICK = 89 * K;
 const R_SCALE = 86 * K;
 const R_HEX = R_IN / Math.sqrt(3);
 const RATIO = [9 / 8, 5 / 4, 4 / 3, 3 / 2, 2];
-const REF_CARD_W = 188.59; // 参照のカード幅（この比で実寸へスケール）
+const REF_CARD_W = 188.59; // 参照のカード幅
+// 参照の内部座標系（v98_FIX の .device と .card 実測）
+const REF_BOX_W = 380;
+const REF_BOX_H = 760;
+const REF_CARD_CX = 189.955; // .card left 95.66 + 188.59/2
+const REF_CARD_CY = 367.765; // .card top 226.33 + 282.87/2
 // 09_FS.glsl の CYAN=vec3(0.376,0.808,0.878) と一致（×255=(95.9,206.0,223.9)）
 const CYAN = 'rgba(96,206,224,1)';
 // 09_FS.glsl の NSP（スパーク並行数）と一致
@@ -623,9 +628,17 @@ export const StarSeal: React.FC<StarSealProps> = ({
   paused = false,
   style,
 }) => {
-  const cx = centerX ?? W / 2;
-  const cy = centerY ?? H / 2;
-  const s = (cardWidth ?? REF_CARD_W) / REF_CARD_W;
+  // ── 参照モデル（v98_FIX / StarSeal.tsx ハンドオフ）──
+  // 陣は内部座標 380×760 の箱に描かれ、箱ごと **均等スケール** で表示される。
+  // 陣の中心＝カード中心 (189.955, 367.765)（.card left95.66 top226.33 188.59×282.87）
+  // ＝箱の縦中央より約12px上。不均等スケールは歪みの実事故があるため禁止。
+  const k = Math.min(W / REF_BOX_W, H / REF_BOX_H);
+  const offX = (W - REF_BOX_W * k) / 2;
+  const offY = (H - REF_BOX_H * k) / 2;
+  const cx = centerX ?? offX + REF_CARD_CX * k;
+  const cy = centerY ?? offY + REF_CARD_CY * k;
+  // cardWidth 指定時のみ従来のカード幅基準（明示指定の上書き）
+  const s = cardWidth ? cardWidth / REF_CARD_W : k;
 
   const geo = useMemo(() => buildGeometry(cx, cy, s, W, H), [cx, cy, s, W, H]);
 

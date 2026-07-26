@@ -1,17 +1,23 @@
 # FR Assets — アート画像
 
-## 同梱アート画像（モック用）
+## 同梱アート画像（v98_FIX ハンドオフ実ファイル）
 
-作品カードに差し込む 2:3 の作品画像。**このフォルダに実ファイルを配置**する。
+`assets/art/` に FR_engineering_handoff_v98_FIX の実アートを同梱済み（683×1024・2:3・計18点）。
+参照は `constants/artwork.ts`（`artUri('blue')` 等）。picsum のダミーは廃止。
 
-| ファイル | サイズ | 用途 | オーラ色 rgb |
+| key | ファイル | 作品 | オーラ auraA / auraB |
 |---|---|---|---|
-| `art_blue.jpg`  | 640×960 (2:3) | 冬明け（track: blue）   | rgb(96,206,224) |
-| `art_white.jpg` | 640×960 (2:3) | 薄明（track: white）     | rgb(179,199,235) |
-| `art_red.jpg`   | 640×960 (2:3) | 遠い灯（track: red）     | rgb(219,120,150) |
+| `blue`  | `art/blue.jpg`  | 冬明け No.001        | rgba(96,206,224,.42) / rgba(70,132,224,.16) |
+| `white` | `art/white.jpg` | 薄明 No.002          | rgba(180,200,230,.4) / rgba(150,170,210,.16) |
+| `mesh`  | `art/mesh.jpg`  | 白鉛筆 I（仮）No.003 | rgba(232,226,210,.40) / rgba(180,174,158,.16) |
+| `kite`  | `art/kite.jpg`  | 白鉛筆 II（仮）No.004| rgba(214,218,226,.40) / rgba(160,164,176,.16) |
+| `bloom` | `art/bloom.jpg` | 白鉛筆 III（仮）No.005| rgba(196,210,228,.40) / rgba(146,160,186,.16) |
 
-> 現状はモック確認用のリモート画像（picsum）で代替。実 jpg を上記名でこのフォルダに置き、
-> `constants/stubData.ts` の `artworkSource` を `require('../assets/art_blue.jpg')` に差し替える。
+各 `*_thumb.jpg`（107×160）はコレクション等の軽量表示用。
+`pool*_art.jpg` / `pool*_thumb.jpg` はスワップ用プール（data/swap_pool.json 相当）。
+
+> リリースビルドでは `prefetchArtwork()`（App 起動時）が `downloadAsync()` を実行し、
+> localUri（file://）を確定させる。Skia / GL テクスチャは file:// でのみ確実に読めるため必須。
 
 ## 本番アート画像の要件
 
