@@ -11,18 +11,30 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { Platform, Pressable, Text, StyleSheet } from 'react-native';
+import {
+  Platform,
+  Pressable,
+  Text,
+  StyleSheet,
+  type StyleProp,
+  type ViewStyle,
+  type TextStyle,
+} from 'react-native';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import * as Crypto from 'expo-crypto';
 import Svg, { Path } from 'react-native-svg';
 import { COLOR, RADIUS } from '../constants/design-tokens';
 import { signInWithAppleToken } from '../lib/firebaseAuth';
 
-const AppleLogo: React.FC = () => (
-  <Svg width={16} height={18} viewBox="0 0 16 18">
+/** Apple ロゴ。size = 高さ（px）、幅は元の 16:18 比を保つ */
+const AppleLogo: React.FC<{ size?: number; color?: string }> = ({
+  size = 18,
+  color = COLOR.textPrimary,
+}) => (
+  <Svg width={(size * 16) / 18} height={size} viewBox="0 0 16 18">
     <Path
       d="M13.2 9.5c0-2 1.6-2.9 1.7-3-1-1.4-2.4-1.6-2.9-1.6-1.2-.1-2.4.7-3 .7-.6 0-1.6-.7-2.6-.7C5 4.9 3.8 5.6 3.1 6.7 1.7 9 2.7 12.5 4 14.4c.6.9 1.4 1.9 2.4 1.9 1 0 1.3-.6 2.5-.6s1.5.6 2.5.6 1.7-.9 2.3-1.8c.7-1 1-2 1-2.1 0 0-1.9-.8-2-2.9zM11.3 3.3c.5-.7.9-1.6.8-2.5-.8 0-1.7.5-2.3 1.2-.5.6-.9 1.5-.8 2.4.9.1 1.7-.4 2.3-1.1z"
-      fill={COLOR.textPrimary}
+      fill={color}
     />
   </Svg>
 );
@@ -32,9 +44,29 @@ type Props = {
   onBusy: (b: boolean) => void;
   onError: (m: string | null) => void;
   onAuthenticated: () => void;
+  /** ラベル文言（既定: 'Apple でログイン'） */
+  label?: string;
+  /** 枠のスタイル。呼び出し側の共通ボタン（LaunchFlow の s.btn 等）を渡して見た目を揃える */
+  style?: StyleProp<ViewStyle>;
+  /** 押下時に重ねるスタイル */
+  pressedStyle?: StyleProp<ViewStyle>;
+  /** ラベルのスタイル */
+  labelStyle?: StyleProp<TextStyle>;
+  /** ロゴの高さ（既定: 18） */
+  iconSize?: number;
 };
 
-export const AppleButton: React.FC<Props> = ({ busy, onBusy, onError, onAuthenticated }) => {
+export const AppleButton: React.FC<Props> = ({
+  busy,
+  onBusy,
+  onError,
+  onAuthenticated,
+  label = 'Apple でログイン',
+  style,
+  pressedStyle,
+  labelStyle,
+  iconSize = 18,
+}) => {
   const [available, setAvailable] = useState(false);
 
   useEffect(() => {
@@ -81,9 +113,13 @@ export const AppleButton: React.FC<Props> = ({ busy, onBusy, onError, onAuthenti
   };
 
   return (
-    <Pressable style={styles.btn} onPress={handlePress} disabled={busy}>
-      <AppleLogo />
-      <Text style={styles.label}>Apple で続ける</Text>
+    <Pressable
+      style={({ pressed }) => [styles.btn, style, pressed && pressedStyle]}
+      onPress={handlePress}
+      disabled={busy}
+    >
+      <AppleLogo size={iconSize} />
+      <Text style={[styles.label, labelStyle]}>{label}</Text>
     </Pressable>
   );
 };
@@ -92,7 +128,9 @@ const styles = StyleSheet.create({
   btn: {
     flexDirection: 'row',
     gap: 8,
-    paddingVertical: 14,
+    // paddingVertical ではなく minHeight。呼び出し側が height を指定したときに
+    // 内側 padding と競合して中身が潰れるのを避ける。
+    minHeight: 48,
     borderRadius: RADIUS.lg,
     borderWidth: 1,
     borderColor: COLOR.border,
