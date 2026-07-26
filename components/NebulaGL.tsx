@@ -29,6 +29,7 @@ precision highp float;
 varying vec2 vUv;
 uniform float iTime;
 uniform vec2 iRes;
+const float CLOUD_GAIN = 0.38;
 vec3 mod289(vec3 x){return x-floor(x*(1.0/289.0))*289.0;}
 vec4 mod289(vec4 x){return x-floor(x*(1.0/289.0))*289.0;}
 vec4 permute(vec4 x){return mod289(((x*34.0)+1.0)*x);}
@@ -62,7 +63,10 @@ void main(){
   float n=fbm(vec3(uv*2.4*asp,z));
   n=clamp((n*0.5+0.5-0.38)*2.0,0.0,1.0);
   float cloud=band*n;
-  vec3 col=vec3(0.20,0.41,0.82)*cloud*0.60;
+  // CLOUD_GAIN: もや（星雲）の濃さ。実機調整ポイント。
+  // 旧 0.60 は主張が強くカードの背景がうるさかったため 0.38 に抑制。
+  // 星の粒（下の col+= ）はこの係数の影響を受けないので明るさは維持される。
+  vec3 col=vec3(0.20,0.41,0.82)*cloud*CLOUD_GAIN;
   vec2 sg=uv*asp*150.0;vec2 sid=floor(sg);vec2 sf=fract(sg)-0.5;
   float shv=hash21(sid);float dens=0.93-0.06*band;
   if(shv>dens){float bb=hash21(sid+7.7);float tw=0.4+0.6*(0.5+0.5*sin(iTime*(0.8+bb*2.0)+shv*40.0));
