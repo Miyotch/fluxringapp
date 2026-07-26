@@ -83,6 +83,7 @@ const styles = StyleSheet.create({
     color: '#8FD4DE',
     fontSize: 11,
     letterSpacing: 1,
+    marginLeft: 6, // .buy small { margin-left:6px }（.buy の gap:7px に加算）
     // グローなし
   },
 });

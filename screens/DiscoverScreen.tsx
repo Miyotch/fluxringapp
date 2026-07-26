@@ -232,16 +232,11 @@ export const DiscoverScreen: React.FC<Props> = ({
     <View style={styles.root} onLayout={onRootLayout}>
       <StatusBar barStyle="light-content" backgroundColor={C.page} />
 
-      {/* 調律陣の背景（プレイヤーと同一・カード中心に配置） */}
+      {/* 調律陣の背景。座標は v98_FIX の参照モデル（内部380×760を均等スケールし、
+          陣の中心＝カード中心＝箱の縦中央より約12px上）に委ねる。
+          中心・スケールを外から与えると不均等・ずれの原因になるため指定しない。 */}
       {slideH > 0 && (
-        <StarSeal
-          width={screenW}
-          height={slideH}
-          centerX={screenW / 2}
-          centerY={slideH / 2}
-          cardWidth={cardW}
-          style={styles.sealLayer}
-        />
+        <StarSeal width={screenW} height={slideH} style={styles.sealLayer} />
       )}
 
       {/* カードページャ。表面=横スワイプで曲切替＋タップで裏返し、
@@ -328,7 +323,7 @@ export const DiscoverScreen: React.FC<Props> = ({
         </View>
 
         {/* 下部: 購入ボタン ＋ ウィッシュ星 */}
-        <View style={styles.bottom} pointerEvents="box-none">
+        <View style={[styles.bottom, { bottom: 92 + slideH * 0.02 }]} pointerEvents="box-none">
           {(() => {
             const owned = active ? active.owned || ownedIds.has(active.id) : false;
             return (
@@ -401,11 +396,21 @@ const styles = StyleSheet.create({
   eqBar: { width: 2, borderRadius: 1, backgroundColor: C.cyan },
 
   texts: { position: 'absolute', left: 22, right: 120, top: 58 },
-  title: { fontSize: 18, letterSpacing: 0.9, color: C.text },
+  // .title: 18px / 字間.05em / text-shadow 0 1px 10px rgba(0,0,0,.5)
+  title: {
+    fontSize: 18,
+    letterSpacing: 0.9,
+    color: C.text,
+    textShadowColor: 'rgba(0,0,0,0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 10,
+  },
   subt: { fontSize: 11, color: C.sub, fontWeight: '300', marginTop: 4, lineHeight: 17 },
 
+  // .bottom: 原本 bottom:calc(146px + 2vh)（フッター54px込みのデバイス基準）。
+  // 本アプリはフッターを親が描くため、本体領域基準へ 54px 差し引いて 92px + 2vh。
   bottom: {
-    position: 'absolute', left: 0, right: 0, bottom: 36,
+    position: 'absolute', left: 0, right: 0,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
   },
   starSlot: { position: 'absolute', left: '50%', marginLeft: 64 + 12 },
