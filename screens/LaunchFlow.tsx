@@ -54,6 +54,7 @@ import {
   GOOGLE_WEB_CLIENT_ID,
   GOOGLE_IOS_CLIENT_ID,
   GOOGLE_ANDROID_CLIENT_ID,
+  GOOGLE_REDIRECT_URI,
   isGoogleConfigured,
   APPLE_SIGNIN_ENABLED,
 } from '../constants/authConfig';
@@ -193,6 +194,7 @@ const GoogleAuthButton: React.FC<{
     webClientId: GOOGLE_WEB_CLIENT_ID || undefined,
     iosClientId: GOOGLE_IOS_CLIENT_ID || undefined,
     androidClientId: GOOGLE_ANDROID_CLIENT_ID || undefined,
+    redirectUri: GOOGLE_REDIRECT_URI,
   });
   useEffect(() => {
     if (response?.type === 'success') {

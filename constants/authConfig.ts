@@ -16,6 +16,7 @@
  */
 
 import Constants from 'expo-constants'
+import { Platform } from 'react-native'
 
 type GoogleAuthConfig = {
   webClientId?: string
@@ -30,9 +31,36 @@ export const GOOGLE_WEB_CLIENT_ID = extra.webClientId ?? ''
 export const GOOGLE_IOS_CLIENT_ID = extra.iosClientId ?? ''
 export const GOOGLE_ANDROID_CLIENT_ID = extra.androidClientId ?? ''
 
-/** クライアントIDが設定済みか（未設定なら UI で Google ボタンを無効化する） */
+/**
+ * expo-auth-session の Google プロバイダは、redirectUri 未指定だと
+ * `${bundleId}:/oauthredirect`（= com.fluxring.app:/oauthredirect）を送る。
+ * しかし Google の iOS / Android クライアントが受理するのは「逆順クライアントID」
+ * スキームのみのため、既定値のままだと必ず error 400: redirect_uri_mismatch になる。
+ * app.json の CFBundleURLSchemes に登録済みのスキームと一致させる。
+ */
+function reversedClientIdRedirect(clientId: string): string | undefined {
+  const guid = clientId.replace(/\.apps\.googleusercontent\.com$/, '')
+  if (!guid || guid === clientId) return undefined
+  return `com.googleusercontent.apps.${guid}:/oauthredirect`
+}
+
+export const GOOGLE_REDIRECT_URI = Platform.select({
+  ios: reversedClientIdRedirect(GOOGLE_IOS_CLIENT_ID),
+  android: reversedClientIdRedirect(GOOGLE_ANDROID_CLIENT_ID),
+  default: undefined,
+})
+
+/**
+ * クライアントIDが設定済みか（未設定なら UI で Google ボタンを出さない）。
+ * expo-auth-session は「実行中のプラットフォーム用の」クライアントIDが無いと
+ * フック実行時に throw するため、プラットフォーム別に判定する必要がある。
+ */
 export const isGoogleConfigured = Boolean(
-  GOOGLE_WEB_CLIENT_ID || GOOGLE_IOS_CLIENT_ID,
+  Platform.select({
+    ios: GOOGLE_IOS_CLIENT_ID,
+    android: GOOGLE_ANDROID_CLIENT_ID,
+    default: GOOGLE_WEB_CLIENT_ID,
+  }),
 )
 
 /**
