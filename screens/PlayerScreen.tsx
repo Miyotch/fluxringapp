@@ -328,7 +328,8 @@ const styles = StyleSheet.create({
   cardArea: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   backLayer: { position: 'absolute', top: 0, left: 0 },
   // ベール背景（コレクションをぼかしたような暗い面）
-  veilImage: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, opacity: 0.32 },
+  // 作品画像を強ブラーした背景。もやが強くカードの背景がうるさかったため 0.32→0.18 に抑制
+  veilImage: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, opacity: 0.18 },
   veilScrim: {
     position: 'absolute',
     top: 0, left: 0, right: 0, bottom: 0,

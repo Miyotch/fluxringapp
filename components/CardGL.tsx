@@ -73,8 +73,15 @@ const CARD_INIT_ANGX = -0.05; // 初期姿勢（正面やや傾き）
 const CARD_INIT_ANGY = 0.20;
 // 重力オートリターン: 手を離すと弱いバネで初期姿勢（正面）へゆっくり戻す。
 // カード下部が重い（＝下を向きたがる）ように、慣性が収まると正面へ落ち着く。
-// stiffness を小さくするほど戻りがゆっくり。ドラッグ中は無効（下の useFrame 参照）。
-const CARD_RETURN_STIFFNESS = 1.6;
+// 残差は exp(-K*T)。K=0.15 なら 20 秒で約95%戻る（1.6 だと約2秒で戻り切ってしまい、
+// 3D回転をゆっくり眺められなかった）。小さいほど戻りが遅い。ドラッグ中は無効。
+const CARD_RETURN_STIFFNESS = 0.15;
+// タップ判定のしきい値（|dx|+|dy| px）。これ以下の移動はタップ扱いにして
+//   ・flip（ホーム）: 表⇔裏のトグルを確実に拾う（4px では指の微動でドラッグ扱いになり
+//                     タップで戻れないことがあった）
+//   ・spin（プレイヤー）: 離した瞬間の慣性を与えない（軽いタップで card が
+//                     大きく回り、裏返ったように見えるのを防ぐ）
+const TAP_SLOP = 12;
 const TMP_EULER = new THREE.Euler();
 
 // ── トラックボール回転の状態（JS スレッドで共有する ref） ──
@@ -597,7 +604,7 @@ export const CardGL: React.FC<CardGLProps> = ({
           moved.current = false;
         },
         onPanResponderMove: (_e, g) => {
-          if (Math.abs(g.dx) + Math.abs(g.dy) > 4) moved.current = true;
+          if (Math.abs(g.dx) + Math.abs(g.dy) > TAP_SLOP) moved.current = true;
           if (!canRotate) return; // 表面: ドラッグは親の曲切替に任せる
           const ddx = g.dx - last.current.x;
           const ddy = g.dy - last.current.y;
