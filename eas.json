@@ -16,6 +16,12 @@
     }
   },
   "submit": {
-    "production": {}
+    "production": {
+      "ios": {},
+      "android": {
+        "serviceAccountKeyPath": "env:EXPO_SERVICE_ACCOUNT_KEY",
+        "track": "internal"
+      }
+    }
   }
 }
