@@ -54,6 +54,7 @@ import {
   GOOGLE_WEB_CLIENT_ID,
   GOOGLE_IOS_CLIENT_ID,
   GOOGLE_ANDROID_CLIENT_ID,
+  GOOGLE_REDIRECT_URI,
   isGoogleConfigured,
   APPLE_SIGNIN_ENABLED,
 } from '../constants/authConfig';
@@ -193,6 +194,7 @@ const GoogleAuthButton: React.FC<{
     webClientId: GOOGLE_WEB_CLIENT_ID || undefined,
     iosClientId: GOOGLE_IOS_CLIENT_ID || undefined,
     androidClientId: GOOGLE_ANDROID_CLIENT_ID || undefined,
+    redirectUri: GOOGLE_REDIRECT_URI,
   });
   useEffect(() => {
     if (response?.type === 'success') {
@@ -227,11 +229,12 @@ const GoogleAuthButton: React.FC<{
 // 社会連携ボタン群（Google / Apple）を共通描画
 const SocialButtons: React.FC<{
   googleLabel: string;
+  appleLabel?: string;
   busy: boolean;
   setBusy: (b: boolean) => void;
   setError: (m: string | null) => void;
   onAuthenticated: () => void;
-}> = ({ googleLabel, busy, setBusy, setError, onAuthenticated }) => (
+}> = ({ googleLabel, appleLabel = 'Apple でログイン', busy, setBusy, setError, onAuthenticated }) => (
   <>
     {isGoogleConfigured ? (
       <GoogleAuthButton
@@ -251,7 +254,17 @@ const SocialButtons: React.FC<{
       </Pressable>
     )}
     {APPLE_SIGNIN_ENABLED && (
-      <AppleButton busy={busy} onBusy={setBusy} onError={setError} onAuthenticated={onAuthenticated} />
+      <AppleButton
+        label={appleLabel}
+        style={s.btn}
+        pressedStyle={s.btnPressed}
+        labelStyle={s.btnLabel}
+        iconSize={16}
+        busy={busy}
+        onBusy={setBusy}
+        onError={setError}
+        onAuthenticated={onAuthenticated}
+      />
     )}
   </>
 );
@@ -780,6 +793,7 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 8, // アイコンとラベルの間隔（Google / Apple 共通）
     height: 48,
     borderRadius: 12,
     borderWidth: 1,

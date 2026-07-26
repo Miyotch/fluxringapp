@@ -61,6 +61,14 @@ const CYAN = 'rgba(96,206,224,1)';
 // 09_FS.glsl の NSP（スパーク並行数）と一致
 const N_SPARKS = 36;
 
+/* ── 交点の星光（②' シャープ層）の十字光条 ── 実機調整ポイント
+   コア（点）のくっきり感は保ったまま、十字の主張だけを抑える値。
+   強くしすぎると「星の光」ではなく「十字マーク」に見えるので上げすぎ注意。 */
+const SPIKE_LEN_K = 3.2; // 光条の長さ ＝ ノード半径 × この係数
+const SPIKE_LEN_MIN = 2.6; // 光条の長さの下限（× s）
+const SPIKE_W = 0.38; // 光条の太さ（× s）
+const SPIKE_OPACITY = 0.3; // 光条の不透明度
+
 const ink = (a: number) => `rgba(150,190,210,${a})`;
 const lab = (a: number) => `rgba(178,198,216,${a})`;
 
@@ -771,20 +779,20 @@ export const StarSeal: React.FC<StarSealProps> = ({
           発光層は全体に Blur がかかるため交点までにじんでしまう。
           全ノード（交点）にブラーなしのコア＋十字光条を screen 合成で重ね、
           星の光のようにくっきり見せる。にじみは②の同位置ハローが担う。
-          光条長・コア径・不透明度は実機調整ポイント */}
+          コア（点）はくっきりのまま、十字光条だけを SPIKE_* で控えめにしている */}
       <Group opacity={glowOpacity} layer={<Paint blendMode="screen" />}>
         {geo.glowNodes.map((n, i) => {
           const col = n.main ? CYAN : '#FFFFFF';
-          const spike = Math.max(n.r * 5.5, 4 * s); // 十字光条の長さ
+          const spike = Math.max(n.r * SPIKE_LEN_K, SPIKE_LEN_MIN * s); // 十字光条の長さ
           return (
             <React.Fragment key={`sn${i}`}>
               <Line
                 p1={vec(n.x - spike, n.y)} p2={vec(n.x + spike, n.y)}
-                color={col} style="stroke" strokeWidth={0.6 * s} strokeCap="round" opacity={0.55}
+                color={col} style="stroke" strokeWidth={SPIKE_W * s} strokeCap="round" opacity={SPIKE_OPACITY}
               />
               <Line
                 p1={vec(n.x, n.y - spike)} p2={vec(n.x, n.y + spike)}
-                color={col} style="stroke" strokeWidth={0.6 * s} strokeCap="round" opacity={0.55}
+                color={col} style="stroke" strokeWidth={SPIKE_W * s} strokeCap="round" opacity={SPIKE_OPACITY}
               />
               {/* シャープな白コア＋ごく薄い縁 */}
               <Circle cx={n.x} cy={n.y} r={Math.max(n.r * 0.85, 0.9 * s)} color="#FFFFFF" opacity={0.95} />
