@@ -19,17 +19,29 @@ import { useT } from '../lib/i18n';
 type Props = {
   owned?: boolean;
   priceJpy?: number;
+  /**
+   * ストア取得のローカライズ表示価格（displayPrice）。未取得のときだけ
+   * priceJpy から formatPrice() で作る。日本以外のストアフロントで
+   * モーダルの金額とここの金額が食い違わないようにするため。
+   */
+  priceLabel?: string;
   onPress: () => void;
 };
 
-export const BuyButton: React.FC<Props> = ({ owned = false, priceJpy = TRACK_PRICE_JPY, onPress }) => {
+export const BuyButton: React.FC<Props> = ({
+  owned = false,
+  priceJpy = TRACK_PRICE_JPY,
+  priceLabel,
+  onPress,
+}) => {
   const t = useT();
+  const price = priceLabel ?? formatPrice(priceJpy);
   return (
     <Pressable
       onPress={onPress}
       hitSlop={8}
       accessibilityRole="button"
-      accessibilityLabel={owned ? t('buy.play') : `${t('buy.label')} ${formatPrice(priceJpy)}`}
+      accessibilityLabel={owned ? t('buy.play') : `${t('buy.label')} ${price}`}
       style={({ pressed }) => [styles.btn, pressed && styles.pressed]}
     >
       {/* 背後の薄いシアン発光（3層グローの近似） */}
@@ -40,7 +52,7 @@ export const BuyButton: React.FC<Props> = ({ owned = false, priceJpy = TRACK_PRI
       ) : (
         <View style={styles.labelRow}>
           <Text style={styles.label}>{t('buy.label')}</Text>
-          <Text style={styles.price}>{formatPrice(priceJpy)}</Text>
+          <Text style={styles.price}>{price}</Text>
         </View>
       )}
     </Pressable>
