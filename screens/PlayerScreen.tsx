@@ -24,29 +24,15 @@ import {
   LayoutChangeEvent,
   GestureResponderEvent,
 } from 'react-native';
-import Svg, { Path } from 'react-native-svg';
 import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import { useSharedValue, useDerivedValue } from 'react-native-reanimated';
 import { CardGL } from '../components/CardGL';
 import { NebulaGL } from '../components/NebulaGL';
 import { CardBackdrop } from '../components/CardBackdrop';
-import { PlayMark, LoopIcon } from '../components/icons';
+import { PlayMark, PauseMark, LoopIcon, ShareIcon } from '../components/icons';
 import { COLOR, SPACE, TRANSPORT } from '../constants/design-tokens';
 import { formatTime } from '../lib/audio';
 import { fullAudioUrl, previewUrl } from '../lib/r2';
-
-// 共有アイコン（右上・ストーリー導線の置き換え）
-const ShareIcon: React.FC = () => (
-  <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
-    <Path
-      d="M12 3v13M12 3l-4 4M12 3l4 4M5 12v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"
-      stroke={COLOR.textSecondary}
-      strokeWidth={1.5}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    />
-  </Svg>
-);
 
 export type PlayerTrack = {
   id: string;
@@ -291,14 +277,7 @@ export const PlayerScreen: React.FC<Props> = ({ track, onBackHome }) => {
             hitSlop={10}
             accessibilityLabel={playing ? '一時停止' : '再生'}
           >
-            {playing ? (
-              <View style={styles.pauseRow}>
-                <View style={styles.pauseBar} />
-                <View style={styles.pauseBar} />
-              </View>
-            ) : (
-              <PlayMark size={19} />
-            )}
+            {playing ? <PauseMark size={19} /> : <PlayMark size={19} />}
           </Pressable>
           <Pressable
             style={styles.loopBtn}
@@ -402,8 +381,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  pauseRow: { flexDirection: 'row', gap: 4 },
-  pauseBar: { width: 3, height: 14, borderRadius: 1.5, backgroundColor: COLOR.textPrimary },
   loopBtn: { width: 32, alignItems: 'center', justifyContent: 'center' },
 });
 
