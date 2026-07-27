@@ -19,6 +19,7 @@ import {
   StatusBar,
 } from 'react-native';
 import { COLOR, SPACE } from '../constants/design-tokens';
+import { useTopInset } from '../lib/safeArea';
 
 export type Notice = {
   id: string;
@@ -35,11 +36,12 @@ type Props = {
 };
 
 export const NotificationsScreen: React.FC<Props> = ({ notices, onBack, onOpen }) => {
+  const headerTop = useTopInset(8); // 従来 52px（=44+8）
   return (
     <View style={styles.root}>
       <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
 
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: headerTop }]}>
         <Pressable onPress={onBack} hitSlop={12}>
           <Text style={styles.back}>‹ ホーム</Text>
         </Pressable>
@@ -69,7 +71,7 @@ export const NotificationsScreen: React.FC<Props> = ({ notices, onBack, onOpen }
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: COLOR.bg },
   header: {
-    // TODO: SafeAreaInsets.top を加算
+    // 既定値。実機では SafeArea の top を加味して JSX 側で上書き
     paddingTop: 52,
     paddingHorizontal: SPACE.lg,
     paddingBottom: SPACE.md,

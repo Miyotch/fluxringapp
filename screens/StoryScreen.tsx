@@ -24,6 +24,7 @@ import {
 } from 'react-native';
 import { ArtworkCard } from '../components/ArtworkCard';
 import { COLOR, SPACE, RADIUS } from '../constants/design-tokens';
+import { useTopInset } from '../lib/safeArea';
 
 export type StoryData = {
   trackId: string;
@@ -44,6 +45,7 @@ type Props = {
 };
 
 export const StoryScreen: React.FC<Props> = ({ data, onBack, onOpenArtist }) => {
+  const backTop = useTopInset(8); // 従来 52px（=44+8）
   // 調律素材は最大8個・1行最大4つ（2段固定）
   const materials = data.materials.slice(0, 8);
 
@@ -52,7 +54,7 @@ export const StoryScreen: React.FC<Props> = ({ data, onBack, onOpenArtist }) => 
       <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
 
       {/* 戻る導線 [<<<]（右スワイプでも戻れる想定） */}
-      <Pressable style={styles.back} onPress={onBack} hitSlop={12}>
+      <Pressable style={[styles.back, { top: backTop }]} onPress={onBack} hitSlop={12}>
         <Text style={styles.backText}>‹‹‹</Text>
       </Pressable>
 
@@ -110,7 +112,7 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: COLOR.bg },
   back: {
     position: 'absolute',
-    // TODO: SafeAreaInsets.top を加算
+    // 既定値。実機では SafeArea の top を加味して JSX 側で上書き
     top: 52,
     left: 20,
     zIndex: 10,

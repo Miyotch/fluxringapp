@@ -32,6 +32,7 @@ import Animated, { FadeInUp } from 'react-native-reanimated';
 import Svg, { Defs, LinearGradient as SvgLinear, Stop, Rect, RadialGradient as SvgRadial } from 'react-native-svg';
 import { PurchaseModal } from '../components/PurchaseModal';
 import { useT } from '../lib/i18n';
+import { useTopInset } from '../lib/safeArea';
 
 export type CollectionItem = {
   id: string;
@@ -169,6 +170,7 @@ export const CollectionScreen: React.FC<Props> = ({
   onDiscover,
 }) => {
   const t = useT();
+  const titleTop = useTopInset(14); // 従来 58px（=44+14）
   const { width: screenW, height: screenH } = useWindowDimensions();
   const [seg, setSeg] = useState<Segment>('mine');
   const [purchaseTarget, setPurchaseTarget] = useState<CollectionItem | null>(null);
@@ -251,7 +253,7 @@ export const CollectionScreen: React.FC<Props> = ({
       <PanelBackground w={screenW} h={screenH} />
 
       {/* タイトル（.skh: 上58px / 18px / 字間.05em） */}
-      <Text style={styles.skh}>{t('collection.title')}</Text>
+      <Text style={[styles.skh, { paddingTop: titleTop }]}>{t('collection.title')}</Text>
 
       {/* タブ（.col-tabs: 左右22px / 下線 rgba(96,206,224,.15)） */}
       <View style={styles.colTabs}>

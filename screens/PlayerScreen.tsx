@@ -32,6 +32,7 @@ import { CardBackdrop } from '../components/CardBackdrop';
 import { PlayMark, PauseMark, LoopIcon, ShareIcon } from '../components/icons';
 import { COLOR, SPACE, TRANSPORT } from '../constants/design-tokens';
 import { formatTime } from '../lib/audio';
+import { useTopInset, useBottomInset } from '../lib/safeArea';
 import { fullAudioUrl, previewUrl } from '../lib/r2';
 
 export type PlayerTrack = {
@@ -53,6 +54,8 @@ type Props = {
 
 export const PlayerScreen: React.FC<Props> = ({ track, onBackHome }) => {
   const { width: screenW, height: screenH } = useWindowDimensions();
+  const navTop = useTopInset(8);            // 従来 52px（=44+8）
+  const transportBottom = useBottomInset(40, 12); // ホームインジケータ回避（従来 40px を下回らない）
   const cardW = Math.min(screenW - 96, 240);
 
   // ベール（再生前）→ 再生 の2フェーズ。初回はいきなり再生しない。
@@ -169,7 +172,7 @@ export const PlayerScreen: React.FC<Props> = ({ track, onBackHome }) => {
       )}
 
       {/* 上部導線: コレクションへ戻る / 共有（ストーリー導線は廃止） */}
-      <View style={styles.topNav}>
+      <View style={[styles.topNav, { paddingTop: navTop }]}>
         <Pressable onPress={onBackHome} hitSlop={10}>
           <Text style={styles.navText}>‹ コレクションへ戻る</Text>
         </Pressable>
@@ -251,7 +254,7 @@ export const PlayerScreen: React.FC<Props> = ({ track, onBackHome }) => {
 
       {/* フロストのトランスポート（再生フェーズのみ） */}
       {phase === 'playing' && (
-      <View style={styles.transport}>
+      <View style={[styles.transport, { marginBottom: transportBottom }]}>
         {/* シークバー（上下拡張の当たり領域でタップシーク） */}
         <Pressable
           style={styles.seekHit}
@@ -297,7 +300,7 @@ export const PlayerScreen: React.FC<Props> = ({ track, onBackHome }) => {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: COLOR.bg },
   topNav: {
-    // TODO: SafeAreaInsets.top を加算
+    // 既定値。実機では SafeArea の top を加味して JSX 側で上書き
     paddingTop: 52,
     paddingHorizontal: SPACE.lg,
     flexDirection: 'row',
@@ -339,7 +342,7 @@ const styles = StyleSheet.create({
   err: { color: COLOR.badge, fontSize: 12, marginTop: 4, textAlign: 'center' },
   transport: {
     marginHorizontal: SPACE.lg,
-    // TODO: SafeAreaInsets.bottom を加算
+    // 既定値。実機では SafeArea の bottom を加味して JSX 側で上書き
     marginBottom: 40,
     padding: SPACE.md,
     borderRadius: TRANSPORT.radius,

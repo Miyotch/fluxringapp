@@ -38,6 +38,7 @@ import {
 import { COLOR, SPACE, RADIUS } from '../constants/design-tokens';
 import { useT } from '../lib/i18n';
 import { useAuthUser } from '../lib/useAuthUser';
+import { useTopInset } from '../lib/safeArea';
 
 const APP_VERSION = '1.0.0';
 
@@ -63,6 +64,7 @@ type Section = { title: string; rows: Row[] };
 
 export const SettingsScreen: React.FC<Props> = ({ onSelect, onSignOut, onDeleteAccount }) => {
   const t = useT();
+  const scrollTop = useTopInset(12); // 従来 56px（=44+12）
   const user = useAuthUser();
   const email = user?.email ?? t('settings.notLoggedIn');
 
@@ -121,7 +123,7 @@ export const SettingsScreen: React.FC<Props> = ({ onSelect, onSignOut, onDeleteA
       <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
 
       <ScrollView
-        contentContainerStyle={styles.scroll}
+        contentContainerStyle={[styles.scroll, { paddingTop: scrollTop }]}
         showsVerticalScrollIndicator={false}
       >
         <Text style={styles.h1}>{t('settings.title')}</Text>
@@ -212,7 +214,7 @@ export const SettingsScreen: React.FC<Props> = ({ onSelect, onSignOut, onDeleteA
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: COLOR.bg },
   scroll: {
-    // TODO: SafeAreaInsets.top を加算
+    // 既定値。実機では SafeArea の top を加味して JSX 側で上書き
     paddingTop: 56,
     paddingHorizontal: SPACE.lg,
     paddingBottom: 48,

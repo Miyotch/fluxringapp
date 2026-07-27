@@ -42,6 +42,7 @@ import { BuyButton } from '../components/BuyButton';
 import { WishlistStar } from '../components/WishlistStar';
 import { PurchaseModal } from '../components/PurchaseModal';
 import { BellIcon, PreviewIcon } from '../components/icons';
+import { useTopInset } from '../lib/safeArea';
 import { RisingBubbles } from '../components/RisingBubbles';
 
 const C = {
@@ -140,6 +141,11 @@ export const DiscoverScreen: React.FC<Props> = ({
   const initialIndex = focusTrackId
     ? Math.max(0, tracks.findIndex((t) => t.id === focusTrackId))
     : 0;
+  // 上部クローム（ブランド／右上アイコン／タイトル）はセーフエリア下へ寄せる。
+  // 原本 v98 は top:22/26/58 の相対配置。その間隔を保ったまま、最上段の
+  // topRight を insets.top + 8 に合わせて全体を同じだけ下げる。
+  const topRightY = useTopInset(8);
+  const chromeShift = topRightY - 22;
   const [slideH, setSlideH] = useState(0);
   const [activeIndex, setActiveIndex] = useState(initialIndex);
   const [flipped, setFlipped] = useState(false); // アクティブカードが裏面か（横スクロール可否用）
@@ -298,10 +304,10 @@ export const DiscoverScreen: React.FC<Props> = ({
       {/* ── 固定クローム（active に連動） ── */}
       <View style={styles.chrome} pointerEvents="box-none">
         {/* ブランド */}
-        <Text style={styles.brand}>Flux Ring</Text>
+        <Text style={[styles.brand, { top: 26 + chromeShift }]}>Flux Ring</Text>
 
         {/* 右上: EQ / ベル / 試聴 */}
-        <View style={styles.topRight} pointerEvents="box-none">
+        <View style={[styles.topRight, { top: topRightY }]} pointerEvents="box-none">
           <View style={styles.icons}>
             <EqBars active={isPreviewing} />
             <Pressable onPress={onOpenNotifications} hitSlop={10} style={styles.bell}>
@@ -315,7 +321,7 @@ export const DiscoverScreen: React.FC<Props> = ({
         </View>
 
         {/* タイトル＋情景 */}
-        <View style={styles.texts} pointerEvents="none">
+        <View style={[styles.texts, { top: 58 + chromeShift }]} pointerEvents="none">
           <Text style={styles.title} numberOfLines={1}>{active?.title}</Text>
           {active?.subtitle && (
             <Text style={styles.subt} numberOfLines={2}>{active.subtitle}</Text>
@@ -381,7 +387,7 @@ const styles = StyleSheet.create({
   chrome: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
   brand: {
     position: 'absolute',
-    // TODO: SafeAreaInsets.top を加算
+    // top は SafeArea を加味して JSX 側で上書き（既定は原本 v98 の値）
     top: 26, left: 22,
     fontSize: 10, letterSpacing: 4, color: C.sub, fontWeight: '300',
   },

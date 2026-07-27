@@ -59,6 +59,7 @@ import {
   APPLE_SIGNIN_ENABLED,
 } from '../constants/authConfig';
 import { signIn, signInWithGoogleToken } from '../lib/firebaseAuth';
+import { useTopInset } from '../lib/safeArea';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -592,6 +593,8 @@ const PostSteps: React.FC<{ onDone: (info: { name: string; scene: string }) => v
 
 // ══════════════ ログイン ══════════════
 const LoginScreen: React.FC<{ onEnterApp: () => void; onToSignup: () => void }> = ({ onEnterApp, onToSignup }) => {
+  // ワードマークが端末の時計に重ならないよう、セーフエリア下から始める
+  const loginTop = useTopInset(0);
   const [email, setEmail] = useState('');
   const [pw, setPw] = useState('');
   const [busy, setBusy] = useState(false);
@@ -630,7 +633,7 @@ const LoginScreen: React.FC<{ onEnterApp: () => void; onToSignup: () => void }> 
   };
 
   return (
-    <ScrollView contentContainerStyle={s.loginBody} showsVerticalScrollIndicator={false}>
+    <ScrollView contentContainerStyle={[s.loginBody, { paddingTop: loginTop }]} showsVerticalScrollIndicator={false}>
       <View style={{ alignItems: 'center', marginTop: 40, marginBottom: 34 }}>
         <Wordmark width={132} color={C.text} opacity={0.88} />
       </View>

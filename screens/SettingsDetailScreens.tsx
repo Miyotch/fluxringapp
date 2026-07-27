@@ -26,6 +26,7 @@ import { COLOR, SPACE, RADIUS } from '../constants/design-tokens';
 import { useT, useI18n, Lang } from '../lib/i18n';
 import { useAuthUser } from '../lib/useAuthUser';
 import { StarField } from '../components/StarField';
+import { useTopInset, useBottomInset } from '../lib/safeArea';
 
 // ─────────────────────────────────────────────
 // 共通サブヘッダー（戻る＋タイトル）
@@ -209,9 +210,9 @@ type CreditEntry = { role: string; name: string; hero?: boolean };
 const CREDITS: CreditEntry[] = [
   { role: 'FOUNDER / EXECUTIVE PRODUCER', name: 'Naoki Oka', hero: true },
   { role: 'PROJECT MANAGER', name: 'Tsubasa Miyazaki' },
-  { role: 'ENGINEER', name: 'Satoshi Miyosawa' },
+  { role: 'ENGINEER', name: 'Satoru Miyosawa' },
   { role: 'DESIGNER', name: 'Naoki Oka' },
-  { role: 'NAMING', name: 'Mzuki Yasuoka' },
+  { role: 'NAMING', name: 'Mizuki Yasuoka' },
   { role: 'ADVISOR', name: 'Sachi Nishimoto' },
   { role: 'SPECIAL THANKS', name: 'Donuts, Inc.' },
   { role: 'SPECIAL THANKS', name: 'Tokyo 7th Sisters' },
@@ -560,13 +561,16 @@ const TOKUSHOHO: TableDoc = {
 };
 
 // CREDITS 画面（Special Thanks）: 星背景＋中央見出し＋役職/名前の縦積み
-const CreditsScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => (
+const CreditsScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
+  const headerTop = useTopInset(8);              // 従来 52px（=44+8）
+  const footerBottom = useBottomInset(28, 8);    // 従来 28px を下回らない
+  return (
   <View style={s.creditsRoot}>
     <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
     <StarField />
 
     {/* 上部: 戻る矢印（左）＋ CREDITS 見出し（中央） */}
-    <View style={s.creditsHeader}>
+    <View style={[s.creditsHeader, { paddingTop: headerTop }]}>
       <Pressable onPress={onBack} hitSlop={14} style={s.creditsBack}>
         <Text style={s.creditsChevron}>‹</Text>
       </Pressable>
@@ -594,10 +598,14 @@ const CreditsScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => (
       ))}
     </ScrollView>
 
-    {/* 下部: FLUX RING */}
-    <Text style={s.creditsFooter}>FLUX RING</Text>
+    {/* 下部: FLUX RING ＋ Powered by */}
+    <View style={[s.creditsFooterWrap, { paddingBottom: footerBottom }]}>
+      <Text style={s.creditsFooter}>FLUX RING</Text>
+      <Text style={s.creditsPoweredBy}>Powered by Numéro.8</Text>
+    </View>
   </View>
-);
+  );
+};
 
 export const DocumentScreen: React.FC<{ kind: DocKind; onBack: () => void }> = ({
   kind,
@@ -649,7 +657,7 @@ const s = StyleSheet.create({
   // ── CREDITS（Special Thanks）──
   creditsRoot: { flex: 1, backgroundColor: COLOR.bg },
   creditsHeader: {
-    // TODO: SafeAreaInsets.top を加算
+    // paddingTop は SafeArea を加味して JSX 側で上書き
     paddingTop: 52,
     paddingHorizontal: SPACE.lg,
     paddingBottom: SPACE.md,
@@ -714,14 +722,21 @@ const s = StyleSheet.create({
     letterSpacing: 0.4,
     fontWeight: '500',
   },
+  // 下部フッター。paddingBottom は SafeArea の bottom を加算して実機で上書きする
+  creditsFooterWrap: { paddingBottom: 28, gap: 6 },
   creditsFooter: {
-    // TODO: SafeAreaInsets.bottom を加算
-    paddingBottom: 28,
     textAlign: 'center',
     color: COLOR.textSecondary,
     fontSize: 10,
     letterSpacing: 4,
     opacity: 0.7,
+  },
+  creditsPoweredBy: {
+    textAlign: 'center',
+    color: COLOR.textSecondary,
+    fontSize: 9,
+    letterSpacing: 1.6,
+    opacity: 0.5,
   },
 
   header: {

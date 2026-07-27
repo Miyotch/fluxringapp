@@ -18,6 +18,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { configureAudioMode } from './lib/audio';
@@ -352,9 +353,13 @@ function AppInner() {
 export default function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <LanguageProvider>
-        <AppInner />
-      </LanguageProvider>
+      {/* SafeAreaProvider は最外殻に置く。各画面は useSafeAreaInsets() で
+          ノッチ／Dynamic Island／ホームインジケータの実寸を取得する。 */}
+      <SafeAreaProvider>
+        <LanguageProvider>
+          <AppInner />
+        </LanguageProvider>
+      </SafeAreaProvider>
     </GestureHandlerRootView>
   );
 }
