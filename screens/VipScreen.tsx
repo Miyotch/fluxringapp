@@ -32,6 +32,7 @@ import Animated, {
   interpolate,
 } from 'react-native-reanimated';
 import { ArtworkCard } from '../components/ArtworkCard';
+import { LockIcon } from '../components/icons';
 import { COLOR, SPACE, RADIUS } from '../constants/design-tokens';
 
 export type VipCard = {
@@ -61,7 +62,7 @@ export const VipScreen: React.FC<Props> = ({ locked, cards = [], onSubmitCode })
         <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
         <View style={styles.lockBody}>
           <View style={styles.lockBadge}>
-            <Text style={styles.lockGlyph}>🔒</Text>
+            <LockIcon size={26} color={COLOR.auraCyan} />
           </View>
           <Text style={styles.lockText}>VIP は成約者のみ解放されます</Text>
           <View style={styles.lockRule} />
@@ -196,7 +197,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  lockGlyph: { fontSize: 26 },
   lockText: { color: COLOR.textSecondary, fontSize: 14, letterSpacing: 0.5, textAlign: 'center' },
   lockRule: { width: 120, height: StyleSheet.hairlineWidth, backgroundColor: COLOR.border, marginTop: SPACE.sm },
 

@@ -14,18 +14,27 @@ import React from 'react';
 import { View, Text, Pressable, StyleSheet, Platform } from 'react-native';
 import { COLOR } from '../constants/design-tokens';
 import { useT } from '../lib/i18n';
+import {
+  TabHomeIcon,
+  TabCollectionIcon,
+  TabMediaIcon,
+  TabSettingsIcon,
+  LockIcon,
+} from './icons';
 
 export type TabKey = 'home' | 'collection' | 'vip' | 'media' | 'settings';
 
-type TabDef = { key: TabKey; labelKey: string; glyph: string };
+type TabIcon = React.FC<{ size?: number; color?: string }>;
+type TabDef = { key: TabKey; labelKey: string; Icon?: TabIcon; glyph?: string };
 
-// グリフは仮（実装時に Skia アイコン or アイコンフォントに差し替え）
+// アイコンは assets/icons/tab_*.svg を icons.tsx へ移植したもの。
+// VIP のみ原本に対応する svg が無いため、従来のグリフ（✦）を維持する。
 const TABS: TabDef[] = [
-  { key: 'home',       labelKey: 'tab.home',       glyph: '⌂' },
-  { key: 'collection', labelKey: 'tab.collection', glyph: '▦' },
+  { key: 'home',       labelKey: 'tab.home',       Icon: TabHomeIcon },
+  { key: 'collection', labelKey: 'tab.collection', Icon: TabCollectionIcon },
   { key: 'vip',        labelKey: 'tab.vip',        glyph: '✦' },
-  { key: 'media',      labelKey: 'tab.media',      glyph: '◉' },
-  { key: 'settings',   labelKey: 'tab.settings',   glyph: '⚙' },
+  { key: 'media',      labelKey: 'tab.media',      Icon: TabMediaIcon },
+  { key: 'settings',   labelKey: 'tab.settings',   Icon: TabSettingsIcon },
 ];
 
 type FooterProps = {
@@ -60,9 +69,15 @@ export const Footer: React.FC<FooterProps> = ({ active, onChange, vipLocked = tr
             accessibilityLabel={t(tab.labelKey)}
           >
             <View style={styles.glyphWrap}>
-              <Text style={[styles.glyph, { color: tint }]}>{tab.glyph}</Text>
+              {tab.Icon ? (
+                <tab.Icon size={20} color={tint} />
+              ) : (
+                <Text style={[styles.glyph, { color: tint }]}>{tab.glyph}</Text>
+              )}
               {isVip && vipLocked && (
-                <Text style={styles.lock} accessibilityLabel="ロック">🔒</Text>
+                <View style={styles.lock} accessibilityLabel="ロック">
+                  <LockIcon size={11} color={COLOR.auraCyan} />
+                </View>
               )}
             </View>
             <Text
@@ -110,7 +125,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: -4,
     right: -10,
-    fontSize: 9,
   },
   label: {
     fontSize: 9.5,

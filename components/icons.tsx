@@ -1,16 +1,23 @@
 /**
  * icons.tsx — FLUX RING 共通アイコン（react-native-svg）
  * ------------------------------------------------------------------
- * component_catalog.html（v50確定版）の SVG path をそのまま移植。
+ * 形状の正は `assets/icons/*.svg`（_icons_manifest.json に用途を記載）。
+ * RN は .svg を直接 import できない（svg-transformer 未導入）ため、
+ * 各ファイルの path / rect / circle をこのファイルへ 1:1 で書き写す。
+ * 色とサイズだけを props で外出しし、形状は原本から変えない。
+ *
  * 発光は RN の drop-shadow が使えないため、Svg の外側 View に近似の
  * glow（下地の薄いシアン）を必要に応じて重ねる（各利用側で対応）。
  */
 
 import React from 'react';
-import Svg, { Path, Rect } from 'react-native-svg';
+import Svg, { Path, Rect, Circle } from 'react-native-svg';
 import { COLOR } from '../constants/design-tokens';
 
 type IconProps = { size?: number; color?: string };
+
+// 線画アイコン共通の描画属性（原本の stroke-linecap/linejoin=round に対応）
+const STROKE = { strokeLinecap: 'round', strokeLinejoin: 'round' } as const;
 
 // 再生マーク（PLAY_HTML）— 全ての「再生」表現で共通。白芯＋シアン外光。
 export const PlayMark: React.FC<IconProps> = ({ size = 19, color = '#E9FBFE' }) => (
@@ -19,27 +26,15 @@ export const PlayMark: React.FC<IconProps> = ({ size = 19, color = '#E9FBFE' }) 
   </Svg>
 );
 
-// 通知ベル（線画）
+// 通知ベル（線画）。assets/icons/bell.svg
 export const BellIcon: React.FC<IconProps> = ({ size = 17, color = COLOR.textPrimary }) => (
   <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-    <Path
-      d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"
-      stroke={color}
-      strokeWidth={1.5}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    />
-    <Path
-      d="M13.7 21a2 2 0 0 1-3.4 0"
-      stroke={color}
-      strokeWidth={1.5}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    />
+    <Path d="M18 8a6 6 0 00-12 0c0 7-3 9-3 9h18s-3-2-3-9" stroke={color} strokeWidth={1.5} {...STROKE} />
+    <Path d="M13.7 21a2 2 0 01-3.4 0" stroke={color} strokeWidth={1.5} {...STROKE} />
   </Svg>
 );
 
-// 試聴（スピーカー）。on でシアン。
+// 試聴（スピーカー）。on でシアン。assets/icons/speaker_preview.svg
 export const PreviewIcon: React.FC<IconProps & { on?: boolean }> = ({
   size = 17,
   on = false,
@@ -47,19 +42,8 @@ export const PreviewIcon: React.FC<IconProps & { on?: boolean }> = ({
   const color = on ? COLOR.auraCyan : COLOR.textSecondary;
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path
-        d="M11 5L6 9H2v6h4l5 4V5z"
-        stroke={color}
-        strokeWidth={1.5}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <Path
-        d="M15.5 8.5a5 5 0 0 1 0 7M18.5 6a8 8 0 0 1 0 12"
-        stroke={color}
-        strokeWidth={1.5}
-        strokeLinecap="round"
-      />
+      <Path d="M11 5L6 9H2v6h4l5 4z" stroke={color} strokeWidth={1.5} {...STROKE} />
+      <Path d="M15 9a3 3 0 010 6" stroke={color} strokeWidth={1.5} {...STROKE} />
     </Svg>
   );
 };
@@ -77,11 +61,43 @@ export const LoopIcon: React.FC<IconProps & { on?: boolean }> = ({ size = 16, on
   );
 };
 
-// 曲送り（次へ）
-export const SkipIcon: React.FC<IconProps> = ({ size = 16, color = '#BFE8F1' }) => (
+// 一時停止（共通）。assets/icons/pause_mark.svg
+export const PauseMark: React.FC<IconProps> = ({ size = 19, color = '#E9FBFE' }) => (
   <Svg width={size} height={size} viewBox="0 0 24 24">
+    <Path d="M6 5h4v14H6zM14 5h4v14h-4z" fill={color} />
+  </Svg>
+);
+
+// 曲送り（次へ）。assets/icons/skip_next.svg
+export const SkipIcon: React.FC<IconProps> = ({ size = 16, color = '#BFE8F1' }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" opacity={0.8}>
     <Path d="M5 5v14l9-7z" fill={color} />
     <Rect x={16.2} y={5} width={1.8} height={14} rx={0.9} fill={color} />
+  </Svg>
+);
+
+// 曲戻し（前へ）。assets/icons/skip_prev.svg
+export const SkipPrevIcon: React.FC<IconProps> = ({ size = 16, color = '#BFE8F1' }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" opacity={0.8}>
+    <Path d="M19 5v14l-9-7z" fill={color} />
+    <Rect x={6} y={5} width={1.8} height={14} rx={0.9} fill={color} />
+  </Svg>
+);
+
+// 出力／共有。assets/icons/export.svg
+export const ShareIcon: React.FC<IconProps> = ({ size = 18, color = COLOR.textSecondary }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+    <Path d="M12 15V4" stroke={color} strokeWidth={1.6} {...STROKE} />
+    <Path d="M8 8l4-4 4 4" stroke={color} strokeWidth={1.6} {...STROKE} />
+    <Rect x={4} y={13} width={16} height={8} rx={2} stroke={color} strokeWidth={1.6} {...STROKE} />
+  </Svg>
+);
+
+// ロック（VIP / 行 / 見出し共通形状。色とサイズは利用側で指定）。assets/icons/lock.svg
+export const LockIcon: React.FC<IconProps> = ({ size = 16, color = COLOR.auraCyan }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+    <Rect x={5} y={11} width={14} height={9} rx={2} stroke={color} strokeWidth={1.6} {...STROKE} />
+    <Path d="M8 11V8a4 4 0 018 0v3" stroke={color} strokeWidth={1.6} {...STROKE} />
   </Svg>
 );
 
@@ -106,7 +122,40 @@ export const GoogleIcon: React.FC<IconProps> = ({ size = 15 }) => (
   </Svg>
 );
 
-// ウィッシュリスト星。on で塗り。
+// ── フッタータブ（assets/icons/tab_*.svg）──
+// 原本は stroke="currentColor"。RN は currentColor を継承しないため色は props 必須。
+
+export const TabHomeIcon: React.FC<IconProps> = ({ size = 20, color = COLOR.textSecondary }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+    <Path d="M3 11l9-8 9 8" stroke={color} strokeWidth={1.5} {...STROKE} />
+    <Path d="M5 10v10h14V10" stroke={color} strokeWidth={1.5} {...STROKE} />
+  </Svg>
+);
+
+export const TabCollectionIcon: React.FC<IconProps> = ({ size = 20, color = COLOR.textSecondary }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+    <Rect x={3} y={3} width={7} height={7} rx={1.5} stroke={color} strokeWidth={1.5} {...STROKE} />
+    <Rect x={14} y={3} width={7} height={7} rx={1.5} stroke={color} strokeWidth={1.5} {...STROKE} />
+    <Rect x={3} y={14} width={7} height={7} rx={1.5} stroke={color} strokeWidth={1.5} {...STROKE} />
+    <Rect x={14} y={14} width={7} height={7} rx={1.5} stroke={color} strokeWidth={1.5} {...STROKE} />
+  </Svg>
+);
+
+export const TabMediaIcon: React.FC<IconProps> = ({ size = 20, color = COLOR.textSecondary }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+    <Circle cx={12} cy={12} r={9} stroke={color} strokeWidth={1.5} {...STROKE} />
+    <Path d="M10 9l5 3-5 3z" stroke={color} strokeWidth={1.5} {...STROKE} />
+  </Svg>
+);
+
+export const TabSettingsIcon: React.FC<IconProps> = ({ size = 20, color = COLOR.textSecondary }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+    <Circle cx={12} cy={12} r={3} stroke={color} strokeWidth={1.5} {...STROKE} />
+    <Path d="M12 3v3M12 18v3M3 12h3M18 12h3" stroke={color} strokeWidth={1.5} {...STROKE} />
+  </Svg>
+);
+
+// ウィッシュリスト星。on で塗り。assets/icons/wishstar.svg
 export const StarIcon: React.FC<IconProps & { filled?: boolean }> = ({
   size = 19,
   filled = false,
@@ -117,7 +166,7 @@ export const StarIcon: React.FC<IconProps & { filled?: boolean }> = ({
       fill={filled ? COLOR.auraCyan : 'none'}
       stroke={COLOR.auraCyan}
       strokeWidth={1.5}
-      strokeLinejoin="round"
+      {...STROKE}
     />
   </Svg>
 );
