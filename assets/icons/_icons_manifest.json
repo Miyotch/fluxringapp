@@ -1,0 +1,66 @@
+[
+ {
+  "file": "bell.svg",
+  "usage": "通知ベル(ホーム右上) stroke=#ECEEF7"
+ },
+ {
+  "file": "speaker_preview.svg",
+  "usage": "プレビュー音量 stroke=currentColor"
+ },
+ {
+  "file": "wishstar.svg",
+  "usage": "ウィッシュ星 stroke=#60CEE0(登録時fill遷移)"
+ },
+ {
+  "file": "export.svg",
+  "usage": "出力/共有(コレクション) stroke=#9498BE :active=#60CEE0"
+ },
+ {
+  "file": "shuffle.svg",
+  "usage": "シャッフル stroke=currentColor(#9498BE)"
+ },
+ {
+  "file": "play_mark.svg",
+  "usage": "再生三角(共通) fill=#E9FBFE+シアンdrop-shadow"
+ },
+ {
+  "file": "pause_mark.svg",
+  "usage": "一時停止(JS埋込・pplay差替) fill=#E9FBFE"
+ },
+ {
+  "file": "skip_prev.svg",
+  "usage": "前の曲 fill=#BFE8F1"
+ },
+ {
+  "file": "skip_next.svg",
+  "usage": "次の曲 fill=#BFE8F1"
+ },
+ {
+  "file": "loop.svg",
+  "usage": "ループ stroke=#6E7796(ON時変化)"
+ },
+ {
+  "file": "lock.svg",
+  "usage": "ロック(VIP/行/見出し共通形状・色サイズはCSS)"
+ },
+ {
+  "file": "tab_home.svg",
+  "usage": "フッター:ホーム"
+ },
+ {
+  "file": "tab_collection.svg",
+  "usage": "フッター:コレクション"
+ },
+ {
+  "file": "tab_media.svg",
+  "usage": "フッター:メディア"
+ },
+ {
+  "file": "tab_settings.svg",
+  "usage": "フッター:設定"
+ },
+ {
+  "file": "_bg_texture_datauri.svg",
+  "usage": "CSS埋込テクスチャ(bggrainノイズ)。CSS内data URIが正、参考書出"
+ }
+]
