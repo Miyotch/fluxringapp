@@ -8,6 +8,7 @@
     "android": "expo run:android"
   },
   "dependencies": {
+    "@expo-google-fonts/eb-garamond": "^0.4.3",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-three/fiber": "^9.6.1",
     "@shopify/react-native-skia": "2.6.2",
@@ -19,6 +20,7 @@
     "expo-constants": "~56.0.18",
     "expo-crypto": "^56.0.4",
     "expo-file-system": "^56.0.8",
+    "expo-font": "~56.0.7",
     "expo-gl": "^56.0.6",
     "expo-iap": "~4.7.2",
     "expo-status-bar": "~56.0.4",

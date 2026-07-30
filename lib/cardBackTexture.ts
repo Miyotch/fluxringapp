@@ -214,10 +214,44 @@ export function renderCardBackPixels(data: CardBackData, W = 512, H = 768): Back
    解像度そのものではないため）。
    ════════════════════════════════════════════════════════════════ */
 
+// 参照CSSのカード幅（authored 基準）。刻印テクスチャ・ストーリー面の両方が
+// この幅を基準に px を写すため、両者より前で1度だけ宣言する。
+const REF_W = 188.6;
 const INK_LW = 1024;
 const INK_LH = 1536;
-// iOS=Hiragino Sans, Android=Noto Sans JP相当（システムのsans-serifにフォールバック）
-const INK_FONT = Platform.select({ ios: 'Hiragino Sans', android: 'sans-serif', default: 'sans-serif' });
+// トンマナ確定: 和文は明朝（Hiragino Mincho ProN / Yu Mincho 系）。
+// 旧実装は Hiragino Sans（ゴシック）で、tonmana_usage_map.md の
+// 「共通フォント: 和文 明朝」に反していた。
+const INK_FONT = Platform.select({
+  ios: 'Hiragino Mincho ProN',
+  android: 'serif',
+  default: 'serif',
+});
+
+/* ── カード裏のインク色・寸法（tonmana_usage_map.md §2 / typography_reference の確定値）──
+   参照CSSは カード幅 188.6px 基準で authored されている。刻印テクスチャは
+   1024px 幅なので、CSS px → テクスチャ px は INK_SCALE 倍で写す。
+   ※ α・字間・行間まで一致させること（資料の指示）。 */
+const INK_SCALE = INK_LW / REF_W; // ≈ 5.43
+/** 参照CSSの px をテクスチャ px へ */
+const ipx = (cssPx: number) => cssPx * INK_SCALE;
+
+const INK = {
+  /** .bk-mlabel 11px / 字間.36em */
+  label: '#7C87A4',
+  /** .bk-title 23px / 字間.08em / lh1.2 */
+  title: '#46527A',
+  /** .bk-storyw 12.5px / lh1.7 / 字間.03em / 5行クリップ */
+  story: '#3B4A72',
+  /** .bk-tune 15px / 字間.2em */
+  tune: '#2C3856',
+  /** 調律行の周波数 */
+  freq: '#3B7C97',
+  /** 調律行の区切り */
+  sep: '#A9B2C8',
+  /** .bk-artist 12px / 字間.3em / 大文字 */
+  artist: '#8890A6',
+} as const;
 
 export type AluminumInkData = CardBackData & {
   /** 通し番号のみ（'No. ' 込みで CardBackData.serial を渡してもよい） */
@@ -232,8 +266,10 @@ export type AluminumInkData = CardBackData & {
  * 彫り込み文字（carve）: 同じ文字を3回重ね描きして V字に削った陰影を作る。
  *   1) 暗い影（上2pxオフセット・彫りの上エッジの陰）
  *   2) 明るいハイライト（下2pxオフセット・彫りの下エッジの照り返し）
- *   3) 中間グレー（オフセットなし・彫りの底）
- * オフセット量・色・アルファはリファレンス値を厳守（変更しないこと）。
+ *   3) 彫りの底（オフセットなし・inkColor）
+ * 3層構造とオフセット量はリファレンス厳守。底の色だけトンマナの確定インク色を
+ * 使う（旧: 固定 rgba(96,102,114,.95) は金属地に対して明るすぎて読めなかった）。
+ * ハイライトも 0.55→0.34 に落とす（「明るすぎる」の主要因がこの白層）。
  */
 function carve(
   c: SkCanvas,
@@ -244,6 +280,7 @@ function carve(
   weight: string,
   letterSpacingPx: number,
   align: 'l' | 'c' | 'r' = 'c',
+  inkColor: string = INK.label,
 ) {
   const font = makeFont(fs, weight, INK_FONT);
   if (!font) return;
@@ -260,23 +297,60 @@ function carve(
     });
   };
   drawLayer(-2, 'rgba(22,24,32,0.85)');   // 1) 上2px: 暗い影
-  drawLayer(2, 'rgba(255,255,255,0.55)'); // 2) 下2px: 明るいハイライト
-  drawLayer(0, 'rgba(96,102,114,0.95)');  // 3) 中央: 中間グレー（彫りの底）
+  drawLayer(2, 'rgba(255,255,255,0.34)'); // 2) 下2px: 明るいハイライト（控えめに）
+  drawLayer(0, inkColor);                  // 3) 中央: 彫りの底（確定インク色）
 }
 
-/** 通常テキスト（フラット単色描画） */
-function print(
+/**
+ * 色の異なる区間をひと続きの1行として中央寄せ描画する。
+ * 幅が maxW を超える場合は行全体を比例縮小して収める（＝端が切れない）。
+ * 「調律」行は調律名 #2C3856・周波数 #3B7C97・区切り #A9B2C8 と色が分かれ、
+ * かつ実データ次第で長さが変わるため、この2つを1関数で担保する。
+ * 戻り値は実際に使ったフォントサイズ。
+ */
+function drawRunsCentered(
   c: SkCanvas,
-  text: string,
-  x: number,
+  runs: { text: string; color: string }[],
+  cx: number,
   y: number,
   fs: number,
-  weight: string,
-  alpha: number,
-  letterSpacingPx = 0,
-  align: 'l' | 'c' | 'r' = 'c',
-) {
-  drawSpaced(c, text, x, y, fs, `rgba(56,61,72,${alpha})`, letterSpacingPx / fs, align);
+  lsEm: number,
+  maxW: number,
+  weight = '400',
+  minRatio = 0.6,
+): number {
+  const measure = (size: number) => {
+    const font = makeFont(size, weight, INK_FONT);
+    const ls = lsEm * size;
+    let total = 0;
+    let n = 0;
+    for (const r of runs) {
+      for (const ch of [...r.text]) {
+        total += estWidth(ch, size, font);
+        n++;
+      }
+    }
+    return { total: total + ls * Math.max(0, n - 1), ls, font };
+  };
+
+  let size = fs;
+  const first = measure(size);
+  if (first.total > maxW && first.total > 0) {
+    size = Math.max(fs * minRatio, fs * (maxW / first.total));
+  }
+  const { total, ls, font } = measure(size);
+  if (!font) return size;
+
+  let x = cx - total / 2;
+  for (const r of runs) {
+    const paint = Skia.Paint();
+    paint.setColor(Skia.Color(r.color));
+    for (const ch of [...r.text]) {
+      c.drawText(ch, x, y, paint, font);
+      x += estWidth(ch, size, font) + ls;
+    }
+  }
+  return size;
 }
 
 /**
@@ -295,41 +369,56 @@ export function renderAluminumInkPixels(
 
   const cx = W / 2;
 
-  // FLUX RING（見出し・彫り込み・letterSpacing 22px）
-  carve(c, 'FLUX RING', cx, 180, 62, '600', 22, 'c');
-  // No.（彫り込み・letterSpacing 6px）
-  carve(c, data.no ?? data.serial ?? 'No. 001', cx, 266, 38, '500', 6, 'c');
-  // タイトル（通常）
-  print(c, data.title, cx, 368, 52, '600', 0.95);
+  // 全要素の左右マージン。ここに収まらない行は drawRunsCentered が縮めて収める。
+  const maxW = W - ipx(14) * 2;
 
-  // Story: 40px/weight300/行高72/最大幅800を中心ゾーンで縦センタリング
+  // FLUX RING（見出しラベル役・彫り込み・字間.36em）
+  carve(c, 'FLUX RING', cx, 168, ipx(11), '600', ipx(11) * 0.36, 'c', INK.label);
+  // No.（彫り込み・字間.2em）※通し番号
+  carve(c, data.no ?? data.serial ?? 'No. 001', cx, 264, ipx(10), '500', ipx(10) * 0.2, 'c', INK.label);
+
+  // タイトル 23px / 字間.08em / #46527A
+  drawRunsCentered(c, [{ text: data.title, color: INK.title }], cx, 404, ipx(23), 0.08, maxW, '400');
+
+  // Story 12.5px / lh1.7 / 字間.03em / #3B4A72 / 5行クリップ。
+  // 各行を cx 軸で中央寄せする（旧: 固定 x=112 の左寄せ。他の要素は全て中央寄せ
+  // なので Story だけ左に張り付き、面全体が左に偏って見える原因だった）。
   if (data.story) {
-    const fs = 40;
-    const lh = 72;
-    const font = makeFont(fs, '300', INK_FONT);
-    const lines = wrap(data.story, fs, 800, font, 8);
-    const zoneTop = 470;
-    const zoneBottom = H - 460;
+    const fs = ipx(12.5);
+    const lh = fs * 1.7;
+    const font = makeFont(fs, '400', INK_FONT);
+    const lines = wrap(data.story, fs, maxW, font, 5);
+    const zoneTop = 476;
+    const zoneBottom = H - 476;
     const blockH = lines.length * lh;
     let y = zoneTop + Math.max(0, (zoneBottom - zoneTop - blockH) / 2) + lh * 0.75;
     for (const ln of lines) {
-      print(c, ln, 112, y, fs, '300', 0.85, 0, 'l');
+      drawSpaced(c, ln, cx, y, fs, INK.story, 0.03, 'c');
       y += lh;
     }
   }
 
-  // 区切り（letterSpacing 8px）
-  print(c, 'ー 調律 ー', cx, H - 372, 32, '300', 0.62, 8);
+  // 見出しラベル「調律」11px / 字間.36em / #7C87A4
+  drawRunsCentered(c, [{ text: 'ー 調律 ー', color: INK.label }], cx, H - 400, ipx(11), 0.36, maxW);
 
-  // 調律情報
+  // 調律 15px / 字間.2em。調律名 #2C3856・周波数 #3B7C97・区切り #A9B2C8 で
+  // 色を分ける。実データで長さが変わるため drawRunsCentered が幅に収める
+  // （旧: 固定サイズ＋単色で、周波数の数字が枠外に出て切れていた）。
   const tuning = data.tuning ?? data.materials?.join('・') ?? '';
-  const freqs = data.freqs ?? data.frequencies ?? [];
-  const tuningLine = [tuning, ...freqs].filter(Boolean).join('　');
-  if (tuningLine) print(c, tuningLine, cx, H - 302, 40, '300', 0.86);
+  const freqs = (data.freqs ?? data.frequencies ?? []).filter(Boolean);
+  const runs: { text: string; color: string }[] = [];
+  if (tuning) runs.push({ text: tuning, color: INK.tune });
+  freqs.forEach((f) => {
+    if (runs.length) runs.push({ text: ' · ', color: INK.sep });
+    runs.push({ text: f, color: INK.freq });
+  });
+  if (runs.length) {
+    drawRunsCentered(c, runs, cx, H - 300, ipx(15), 0.2, maxW);
+  }
 
-  // 署名（NAOKI OKA・字間10px・中央）＋ '›'
+  // Artist名 12px / 字間.3em / #8890A6 / 大文字（この面のみ表示）
   const signature = (data.artist ?? 'NAOKI OKA').toUpperCase();
-  drawSpaced(c, `${signature}  ›`, cx, H - 190, 24, 'rgba(56,61,72,0.8)', 10 / 24, 'c');
+  drawRunsCentered(c, [{ text: signature, color: INK.artist }], cx, H - 170, ipx(12), 0.3, maxW);
 
   const img = surface.makeImageSnapshot();
   // GLSL 側で `mix(metalColor, ink.rgb, ink.a)` とストレートアルファ合成する
@@ -357,7 +446,6 @@ export function renderAluminumInkPixels(
    参照カード幅 188.6 を基準にテクスチャへ等倍スケール。
    ════════════════════════════════════════════════════════════════ */
 
-const REF_W = 188.6;
 
 // 字間つき描画（CSS letter-spacing 相当）
 function drawSpaced(
