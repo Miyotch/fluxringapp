@@ -85,7 +85,9 @@ function AppInner() {
   const [settingsDetail, setSettingsDetail] = useState<SettingsKey | null>(null);
 
   // 再生対象（player へ渡す）
-  const [playerTrack, setPlayerTrack] = useState<PlayerTrack | null>(null);
+  // 再生対象は「所有一覧の中の id」で持つ。曲送り／戻しで前後の曲へ移るとき、
+  // track オブジェクトを直接持っていると一覧との対応が取れないため。
+  const [playerTrackId, setPlayerTrackId] = useState<string | null>(null);
   // ホーム（ディスカバー）で最初に表示するカード id（ウィッシュから飛んできたとき用）
   const [homeFocusId, setHomeFocusId] = useState<string | null>(null);
 
@@ -114,6 +116,33 @@ function AppInner() {
         glowColor2: tr.glowColor2,
       })),
     [ownedTrackIds],
+  );
+
+  // 再生画面が扱うトラック一覧（＝マイコレの並び順）。曲送り／戻しはこの並びを辿る。
+  const playerTracks = useMemo<PlayerTrack[]>(
+    () =>
+      ownedItems.map((o) => ({
+        id: o.id,
+        title: o.title,
+        artworkUrl: o.artworkUrl,
+        audioKey: o.audioKey ?? o.id,
+        durationSec: 220,
+        glowColor: o.glowColor,
+        glowColor2: o.glowColor2,
+      })),
+    [ownedItems],
+  );
+  const playerIndex = playerTracks.findIndex((t) => t.id === playerTrackId);
+  const playerTrack = playerIndex >= 0 ? playerTracks[playerIndex] : null;
+  // 2曲以上あるときだけ曲送り／戻しを渡す。端は巻き戻して循環させる。
+  const canSkip = playerTracks.length > 1;
+  const goTrack = useCallback(
+    (delta: number) => {
+      if (playerIndex < 0 || playerTracks.length === 0) return;
+      const n = playerTracks.length;
+      setPlayerTrackId(playerTracks[(playerIndex + delta + n) % n].id);
+    },
+    [playerIndex, playerTracks],
   );
 
   // ウィッシュから所有済みは外す（買った作品がウィッシュに残り続けないように）
@@ -222,6 +251,8 @@ function AppInner() {
     return (
       <PlayerScreen
         track={playerTrack}
+        onPrevTrack={canSkip ? () => goTrack(-1) : undefined}
+        onNextTrack={canSkip ? () => goTrack(1) : undefined}
         onBackHome={() => {
           // コレクションから開くのでコレクションへ戻す
           setOverlay(null);
@@ -320,17 +351,8 @@ function AppInner() {
             purchase={purchase}
             onOpenTrack={(id) => {
               // 所有曲タップ → 再生画面（ワイヤーフレーム P3）
-              const item = ownedItems.find((o) => o.id === id);
-              if (item) {
-                setPlayerTrack({
-                  id: item.id,
-                  title: item.title,
-                  artworkUrl: item.artworkUrl,
-                  audioKey: item.audioKey ?? item.id,
-                  durationSec: 220,
-                  glowColor: item.glowColor,
-                  glowColor2: item.glowColor2,
-                });
+              if (playerTracks.some((tr) => tr.id === id)) {
+                setPlayerTrackId(id);
                 setOverlay('player');
               } else {
                 setOverlay('story');
