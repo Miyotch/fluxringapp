@@ -132,6 +132,32 @@ export const PlayerScreen: React.FC<Props> = ({ track, onBackHome, onPrevTrack, 
   // ループ反映
   useEffect(() => { player.loop = loop; }, [loop, player]);
 
+  // ロック画面／コントロールセンターの再生情報。
+  // 見栄えのためだけではなく、**Android ではこれを有効にしないと
+  // バックグラウンド再生が約3分で OS に止められる**（expo-audio の注記）。
+  // 動作条件の interruptionMode:'doNotMix' は lib/audio.ts で設定済み。
+  useEffect(() => {
+    if (phase !== 'playing' || !status.isLoaded) return;
+    try {
+      player.setActiveForLockScreen(
+        true,
+        {
+          title: track.title,
+          artist: 'NAOKI OKA',
+          albumTitle: 'FLUX RING',
+          artworkUrl: track.artworkUrl,
+        },
+        // 曲送り／戻しはアプリ内の所有一覧に紐づくため、ロック画面には出さない
+        { showSeekForward: false, showSeekBackward: false, isLiveStream: false },
+      );
+    } catch {
+      // 未対応環境（Expo Go・古いビルド）では何もしない。再生自体は続ける。
+    }
+    return () => {
+      try { player.clearLockScreenControls(); } catch {}
+    };
+  }, [phase, status.isLoaded, player, track.title, track.artworkUrl]);
+
   const duration = status.duration || track.durationSec || 0;
   const position = status.currentTime || 0;
   const playing = status.playing;

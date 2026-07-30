@@ -38,7 +38,17 @@
         "backgroundColor": "#0E0C20"
       }
     },
-    "plugins": ["expo-apple-authentication", "expo-iap"],
+    "plugins": [
+      "expo-apple-authentication",
+      "expo-iap",
+      [
+        "expo-audio",
+        {
+          "recordAudioAndroid": false,
+          "microphonePermission": false
+        }
+      ]
+    ],
     "extra": {
       "eas": {
         "projectId": "d94a1082-9da2-459a-88b4-cd593c16eed3"
