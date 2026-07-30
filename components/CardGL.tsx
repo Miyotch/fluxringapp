@@ -87,11 +87,15 @@ const CARD_ANG_CLAMP = 1.25;  // 縦回転クランプ（rad）
 const CARD_VMAX = 6.0;        // 慣性の角速度上限（rad/s）
 const CARD_INIT_ANGX = -0.05; // 初期姿勢（正面やや傾き）
 const CARD_INIT_ANGY = 0.20;
-// 重力オートリターン: 手を離すと弱いバネで初期姿勢（正面）へゆっくり戻す。
-// カード下部が重い（＝下を向きたがる）ように、慣性が収まると正面へ落ち着く。
-// 残差は exp(-K*T)。K=0.15 なら 20 秒で約95%戻る（1.6 だと約2秒で戻り切ってしまい、
-// 3D回転をゆっくり眺められなかった）。小さいほど戻りが遅い。ドラッグ中は無効。
-const CARD_RETURN_STIFFNESS = 0.15;
+// 重力オートリターン: 手を離すと弱いバネで静止姿勢へ戻す。
+// カード下部が重い（＝下を向きたがる）ように、慣性が収まると立った姿勢へ落ち着く。
+// 残差は exp(-K*T)。95%戻るまでの時間 T ≒ ln(20)/K なので、
+//   K=1.0 → 約3秒（指定値）／ K=0.15 → 約20秒 ／ K=1.6 → 約2秒
+// 小さいほど戻りが遅い。ドラッグ中は無効。
+const CARD_RETURN_STIFFNESS = 1.0;
+// 復帰先の姿勢。裏面を見ているときは「裏面のまま」立った姿勢（Y+180°）へ戻す。
+// 表向きの初期姿勢へ引き戻すと、裏を眺めている最中に勝手に表返ってしまう。
+const CARD_BACK_ANGY = Math.PI + CARD_INIT_ANGY;
 // タップ判定のしきい値（|dx|+|dy| px）。これ以下の移動はタップ扱いにして
 //   ・flip（ホーム）: 表⇔裏のトグルを確実に拾う（4px では指の微動でドラッグ扱いになり
 //                     タップで戻れないことがあった）
@@ -116,6 +120,14 @@ export type SpinState = {
   angX: number; angY: number;     // 現在角（rad）
   tAngX: number; tAngY: number;   // 目標角（rad）
   velX: number; velY: number;     // 角速度（rad/s）
+  /**
+   * 縦ドラッグの符号。裏面を見ているあいだは -1。
+   * 裏を向いていると同じ world X 回転で「見えている面」は逆向きに動くため、
+   * 補正しないと指とカードの動きが上下逆になる。
+   * ドラッグ開始時に確定し、そのジェスチャ中は変えない（途中で反転すると
+   * 指を動かしている最中に挙動が飛ぶ）。
+   */
+  vSign: number;
 };
 
 const TMP_Q = new THREE.Quaternion();
@@ -391,12 +403,23 @@ const CardMesh: React.FC<{
         const df = Math.pow(0.94, dt * 60);
         s.velX *= df;
         s.velY *= df;
-        // 重力オートリターン: 目標角を初期姿勢へ弱いバネで引き戻す。
-        // 慣性が乗っているあいだは慣性が勝ち、慣性が減衰するとこの項が
-        // 効いてきて、最終的にゆっくり正面（初期姿勢）へ戻る。ドラッグ中は無効。
+        // 重力オートリターン: 目標角を静止姿勢へ弱いバネで引き戻す。
+        // 慣性が乗っているあいだは慣性が勝ち、慣性が減衰するとこの項が効いて、
+        // 最終的に「下が重い＝立った姿勢」へ落ち着く。ドラッグ中は無効。
+        //
+        // 復帰先の向きは “いま見えている面” で決める。裏を見ているなら裏のまま
+        // （Y+180°）立たせる。常に表向きへ戻すと、裏を眺めている最中に勝手に
+        // 表返ってしまう。
+        // |angX| は ±1.25rad(<90°) クランプなので cos(angX)>0 ＝ 表裏は
+        // cos(angY) の符号だけで決まる。
+        const backFacing = Math.cos(s.angY) < 0;
+        const baseY = backFacing ? CARD_BACK_ANGY : CARD_INIT_ANGY;
+        // 何周も巻き戻さないよう、現在角に最も近い等価角（±2π の倍数）を狙う。
+        const TAU = Math.PI * 2;
+        const targetY = baseY + Math.round((s.tAngY - baseY) / TAU) * TAU;
         const kRet = 1 - Math.exp(-dt * CARD_RETURN_STIFFNESS);
         s.tAngX += (CARD_INIT_ANGX - s.tAngX) * kRet;
-        s.tAngY += (CARD_INIT_ANGY - s.tAngY) * kRet;
+        s.tAngY += (targetY - s.tAngY) * kRet;
       }
       const sm = 1 - Math.exp(-dt * 14);
       s.angX += (s.tAngX - s.angX) * sm;
@@ -551,6 +574,7 @@ export const CardGL: React.FC<CardGLProps> = ({
     tAngY: CARD_INIT_ANGY,
     velX: 0,
     velY: 0,
+    vSign: 1,
   });
   const last = useRef({ x: 0, y: 0 });
   const moved = useRef(false);
@@ -658,6 +682,10 @@ export const CardGL: React.FC<CardGLProps> = ({
           s.dragging = canRotate;
           s.vx = 0;
           s.vy = 0;
+          // 縦ドラッグの符号をこのジェスチャの分だけ確定させる。
+          // |angX| は ±1.25rad(<90°) にクランプされているので cos(angX)>0。
+          // つまり表裏は cos(angY) の符号だけで決まる。
+          s.vSign = Math.cos(s.angY) < 0 ? -1 : 1;
           last.current = { x: 0, y: 0 };
           moved.current = false;
         },
@@ -675,7 +703,9 @@ export const CardGL: React.FC<CardGLProps> = ({
             // spin モード（プレイヤー）: 参照 move の verbatim
             //   tAngY+=dx*0.008 / tAngX+=dy*0.008（縦のみ±1.25rad クランプ）
             s.tAngY += ddx * CARD_DRAG_SENS;
-            s.tAngX += ddy * CARD_DRAG_SENS;
+            // 縦は vSign を掛ける。裏向きでは同じ world X 回転で見えている面が
+            // 逆に動くため、掛けないと指と上下が逆になる。
+            s.tAngX += ddy * CARD_DRAG_SENS * s.vSign;
             s.tAngX = Math.max(-CARD_ANG_CLAMP, Math.min(CARD_ANG_CLAMP, s.tAngX));
           }
           if (dragXOut) dragXOut.value = g.dx;
@@ -696,7 +726,8 @@ export const CardGL: React.FC<CardGLProps> = ({
               // spin モード: 参照 up の verbatim（px/ms → rad/s・VMAX クランプ）
               //   velY=dx速度*0.008 / velX=dy速度*0.008
               s.velY = Math.max(-CARD_VMAX, Math.min(CARD_VMAX, g.vx * 1000 * CARD_DRAG_SENS));
-              s.velX = Math.max(-CARD_VMAX, Math.min(CARD_VMAX, g.vy * 1000 * CARD_DRAG_SENS));
+              // 慣性の縦成分もドラッグと同じ符号にする（離した瞬間に逆へ跳ねないように）
+              s.velX = Math.max(-CARD_VMAX, Math.min(CARD_VMAX, g.vy * 1000 * CARD_DRAG_SENS * s.vSign));
             }
           }
           if (dragXOut) dragXOut.value = withSpring(0, { damping: 16, stiffness: 120 });
