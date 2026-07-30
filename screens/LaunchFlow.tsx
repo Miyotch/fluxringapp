@@ -50,6 +50,7 @@ import { Wordmark } from '../components/Wordmark';
 import { AppleButton } from '../components/AppleButton';
 import { GoogleIcon } from '../components/icons';
 import { COLOR } from '../constants/design-tokens';
+import { NUM_FONT } from '../constants/fonts';
 import {
   GOOGLE_WEB_CLIENT_ID,
   GOOGLE_IOS_CLIENT_ID,
@@ -170,7 +171,7 @@ const FlatArtCard: React.FC<{ w: number }> = ({ w }) => {
       <Wordmark width={w * 0.55} color="#ECEEF7" opacity={0.92} />
       <View style={{ width: 30, height: 1, marginVertical: 17, backgroundColor: 'rgba(96,206,224,0.6)' }} />
       <Text style={{ fontSize: 9, letterSpacing: 3, color: 'rgba(236,238,247,0.42)', marginBottom: 7 }}>調律</Text>
-      <Text style={{ fontSize: 13.5, letterSpacing: 2, color: '#60CEE0' }}>432Hz</Text>
+      <Text style={{ fontSize: 13.5, letterSpacing: 2, color: '#60CEE0', fontFamily: NUM_FONT }}>432Hz</Text>
     </View>
   );
 };

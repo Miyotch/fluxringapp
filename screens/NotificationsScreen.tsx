@@ -20,6 +20,7 @@ import {
 } from 'react-native';
 import { COLOR, SPACE } from '../constants/design-tokens';
 import { useTopInset } from '../lib/safeArea';
+import { NUM_FONT } from '../constants/fonts';
 
 export type Notice = {
   id: string;
@@ -94,7 +95,8 @@ const styles = StyleSheet.create({
   textCol: { flex: 1, gap: 4 },
   title: { color: COLOR.textSecondary, fontSize: 15, letterSpacing: 0.3, lineHeight: 21 },
   titleUnread: { color: COLOR.textPrimary, fontWeight: '500' },
-  date: { color: COLOR.textSecondary, fontSize: 11, letterSpacing: 0.5 },
+  // 日付＝数字表記
+  date: { color: COLOR.textSecondary, fontSize: 11, letterSpacing: 0.5, fontFamily: NUM_FONT },
 });
 
 export default NotificationsScreen;

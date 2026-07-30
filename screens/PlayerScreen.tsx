@@ -7,7 +7,8 @@
  *   ・再生(playing): 再生ボタンで開始。背景は星雲（NebulaGL）に切替、
  *                    下部にフロストのトランスポート（シーク・時間・再生/停止・ループ）
  *   ・上部左「コレクションへ戻る」／右に共有（旧ストーリー導線は廃止）
- *   ・EQ・曲送りなし。フッター非表示・縦画面固定。総時間は音源から自動算出
+ *   ・EQ なし。曲送り／戻しは所有が2曲以上のときだけ有効（1曲なら淡色の無効表示）
+ *   ・フッター非表示・縦画面固定。総時間は音源から自動算出
  *   ・ホーム(ディスカバー)側は従来のまま。この画面のみの挙動
  */
 
@@ -29,11 +30,12 @@ import { useSharedValue, useDerivedValue } from 'react-native-reanimated';
 import { CardGL } from '../components/CardGL';
 import { NebulaGL } from '../components/NebulaGL';
 import { CardBackdrop } from '../components/CardBackdrop';
-import { PlayMark, PauseMark, LoopIcon, ShareIcon } from '../components/icons';
+import { PlayMark, PauseMark, LoopIcon, ShareIcon, SkipIcon, SkipPrevIcon } from '../components/icons';
 import { COLOR, SPACE, TRANSPORT } from '../constants/design-tokens';
 import { formatTime } from '../lib/audio';
 import { useTopInset, useBottomInset } from '../lib/safeArea';
 import { fullAudioUrl, previewUrl } from '../lib/r2';
+import { NUM_FONT } from '../constants/fonts';
 
 export type PlayerTrack = {
   id: string;
@@ -50,9 +52,16 @@ type Props = {
   track: PlayerTrack;
   onBackHome: () => void; // コレクションへ戻る
   onOpenStory?: () => void; // 未使用（ストーリー導線は廃止）
+  /**
+   * 曲送り／戻し。所有が2曲以上のときだけ親から渡る。
+   * 1曲しか持っていない場合は undefined で、ボタンは淡色の無効表示になる
+   * （非表示にすると押すたびにレイアウトが変わって落ち着かないため）。
+   */
+  onPrevTrack?: () => void;
+  onNextTrack?: () => void;
 };
 
-export const PlayerScreen: React.FC<Props> = ({ track, onBackHome }) => {
+export const PlayerScreen: React.FC<Props> = ({ track, onBackHome, onPrevTrack, onNextTrack }) => {
   const { width: screenW, height: screenH } = useWindowDimensions();
   const navTop = useTopInset(8);            // 従来 52px（=44+8）
   const transportBottom = useBottomInset(40, 12); // ホームインジケータ回避（従来 40px を下回らない）
@@ -123,6 +132,32 @@ export const PlayerScreen: React.FC<Props> = ({ track, onBackHome }) => {
 
   // ループ反映
   useEffect(() => { player.loop = loop; }, [loop, player]);
+
+  // ロック画面／コントロールセンターの再生情報。
+  // 見栄えのためだけではなく、**Android ではこれを有効にしないと
+  // バックグラウンド再生が約3分で OS に止められる**（expo-audio の注記）。
+  // 動作条件の interruptionMode:'doNotMix' は lib/audio.ts で設定済み。
+  useEffect(() => {
+    if (phase !== 'playing' || !status.isLoaded) return;
+    try {
+      player.setActiveForLockScreen(
+        true,
+        {
+          title: track.title,
+          artist: 'NAOKI OKA',
+          albumTitle: 'FLUX RING',
+          artworkUrl: track.artworkUrl,
+        },
+        // 曲送り／戻しはアプリ内の所有一覧に紐づくため、ロック画面には出さない
+        { showSeekForward: false, showSeekBackward: false, isLiveStream: false },
+      );
+    } catch {
+      // 未対応環境（Expo Go・古いビルド）では何もしない。再生自体は続ける。
+    }
+    return () => {
+      try { player.clearLockScreenControls(); } catch {}
+    };
+  }, [phase, status.isLoaded, player, track.title, track.artworkUrl]);
 
   const duration = status.duration || track.durationSec || 0;
   const position = status.currentTime || 0;
@@ -271,9 +306,18 @@ export const PlayerScreen: React.FC<Props> = ({ track, onBackHome }) => {
           <Text style={styles.time}>{formatTime(position)}</Text>
           <Text style={styles.time}>{formatTime(duration)}</Text>
         </View>
-        {/* コントロール: 左54pxスペース / 中央 再生・停止 / 右 ループ */}
+        {/* コントロール: 戻し / 再生・停止 / 送り / ループ。
+            曲送り・戻しは所有が2曲以上のときだけ有効（親が渡すかで決まる）。 */}
         <View style={styles.controls}>
-          <View style={{ width: TRANSPORT.controlLeftPad }} />
+          <Pressable
+            style={[styles.skipBtn, !onPrevTrack && styles.skipDisabled]}
+            onPress={onPrevTrack}
+            disabled={!onPrevTrack}
+            hitSlop={12}
+            accessibilityLabel="前の曲"
+          >
+            <SkipPrevIcon size={16} />
+          </Pressable>
           <Pressable
             style={styles.playBtn}
             onPress={togglePlay}
@@ -281,6 +325,15 @@ export const PlayerScreen: React.FC<Props> = ({ track, onBackHome }) => {
             accessibilityLabel={playing ? '一時停止' : '再生'}
           >
             {playing ? <PauseMark size={19} /> : <PlayMark size={19} />}
+          </Pressable>
+          <Pressable
+            style={[styles.skipBtn, !onNextTrack && styles.skipDisabled]}
+            onPress={onNextTrack}
+            disabled={!onNextTrack}
+            hitSlop={12}
+            accessibilityLabel="次の曲"
+          >
+            <SkipIcon size={16} />
           </Pressable>
           <Pressable
             style={styles.loopBtn}
@@ -373,8 +426,13 @@ const styles = StyleSheet.create({
     marginLeft: -TRANSPORT.seekKnobSize / 2,
   },
   timeRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: SPACE.md },
-  time: { color: COLOR.textSecondary, fontSize: 11, letterSpacing: 0.5 },
-  controls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACE.xl },
+  // 再生時間＝数字表記
+  time: { color: COLOR.textSecondary, fontSize: 11, letterSpacing: 0.5, fontFamily: NUM_FONT },
+  // 戻し/再生/送り/ループの4つが並ぶため gap は xl(32) → lg 相当に詰める
+  controls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACE.lg },
+  skipBtn: { width: 32, alignItems: 'center', justifyContent: 'center' },
+  // 1曲しか持っていないときは押せないことが分かる淡さにする
+  skipDisabled: { opacity: 0.28 },
   playBtn: {
     width: TRANSPORT.playBtnSize,
     height: TRANSPORT.playBtnSize,

@@ -36,6 +36,7 @@ import {
   Modal,
 } from 'react-native';
 import { COLOR, SPACE, RADIUS } from '../constants/design-tokens';
+import { NUM_FONT } from '../constants/fonts';
 import { useT } from '../lib/i18n';
 import { useAuthUser } from '../lib/useAuthUser';
 import { useTopInset } from '../lib/safeArea';
@@ -269,7 +270,9 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     opacity: 0.8,
   },
+  // バージョン番号＝数字表記
   version: {
+    fontFamily: NUM_FONT,
     marginTop: SPACE.lg,
     color: COLOR.textSecondary,
     fontSize: 11,

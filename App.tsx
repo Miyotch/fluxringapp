@@ -21,7 +21,10 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+import { useFonts } from 'expo-font';
 import { configureAudioMode } from './lib/audio';
+import { APP_FONTS } from './constants/fonts';
+import { loadNumTypeface } from './lib/skiaFonts';
 import { LanguageProvider } from './lib/i18n';
 import { onUserChanged, deleteAccount, signOut } from './lib/firebaseAuth';
 import { usePurchaseFlow } from './lib/usePurchaseFlow';
@@ -74,6 +77,12 @@ const KEY_ONBOARDED = 'fr.onboardingDone';
 const KEY_AGREED = 'fr.agreedTermsVersion';
 
 function AppInner() {
+  // 数字・欧文の EB Garamond を読み込む。読み込み前に fontFamily を当てると
+  // 一瞬だけ別書体で描かれるため、起動フローの判定と同じゲートで待つ。
+  const [fontsLoaded] = useFonts(APP_FONTS);
+  // Skia は matchFont で OS のフォントしか見ないので、魔法陣・カード裏の刻印用に
+  // 同じ ttf を SkTypeface としても読み込む（失敗しても従来の明朝で描ける）。
+  const [skiaFontReady, setSkiaFontReady] = useState(false);
   const [phase, setPhase] = useState<Phase>('launch');
   // launch 後に見せる画面。null=判定中（セッション/オンボ済み/同意状態を確定するまで）
   const [launchScreen, setLaunchScreen] = useState<LaunchScreen | null>(null);
@@ -85,7 +94,9 @@ function AppInner() {
   const [settingsDetail, setSettingsDetail] = useState<SettingsKey | null>(null);
 
   // 再生対象（player へ渡す）
-  const [playerTrack, setPlayerTrack] = useState<PlayerTrack | null>(null);
+  // 再生対象は「所有一覧の中の id」で持つ。曲送り／戻しで前後の曲へ移るとき、
+  // track オブジェクトを直接持っていると一覧との対応が取れないため。
+  const [playerTrackId, setPlayerTrackId] = useState<string | null>(null);
   // ホーム（ディスカバー）で最初に表示するカード id（ウィッシュから飛んできたとき用）
   const [homeFocusId, setHomeFocusId] = useState<string | null>(null);
 
@@ -116,6 +127,33 @@ function AppInner() {
     [ownedTrackIds],
   );
 
+  // 再生画面が扱うトラック一覧（＝マイコレの並び順）。曲送り／戻しはこの並びを辿る。
+  const playerTracks = useMemo<PlayerTrack[]>(
+    () =>
+      ownedItems.map((o) => ({
+        id: o.id,
+        title: o.title,
+        artworkUrl: o.artworkUrl,
+        audioKey: o.audioKey ?? o.id,
+        durationSec: 220,
+        glowColor: o.glowColor,
+        glowColor2: o.glowColor2,
+      })),
+    [ownedItems],
+  );
+  const playerIndex = playerTracks.findIndex((t) => t.id === playerTrackId);
+  const playerTrack = playerIndex >= 0 ? playerTracks[playerIndex] : null;
+  // 2曲以上あるときだけ曲送り／戻しを渡す。端は巻き戻して循環させる。
+  const canSkip = playerTracks.length > 1;
+  const goTrack = useCallback(
+    (delta: number) => {
+      if (playerIndex < 0 || playerTracks.length === 0) return;
+      const n = playerTracks.length;
+      setPlayerTrackId(playerTracks[(playerIndex + delta + n) % n].id);
+    },
+    [playerIndex, playerTracks],
+  );
+
   // ウィッシュから所有済みは外す（買った作品がウィッシュに残り続けないように）
   const wishlistItems = useMemo<CollectionItem[]>(
     () => STUB_WISHLIST.filter((w) => !ownedTrackIds.has(w.id)),
@@ -140,6 +178,7 @@ function AppInner() {
 
   // 起動時に一度だけ音声モードを設定（サイレント時再生・バックグラウンド再生）
   useEffect(() => { configureAudioMode(); }, []);
+  useEffect(() => { loadNumTypeface().finally(() => setSkiaFontReady(true)); }, []);
 
   // 起動時の分岐判定: セッション（永続復元を待つ）・オンボ済み・規約同意状態から
   //   launchScreen（p0 / login / consent / app）と consent の合流先を決める。
@@ -199,8 +238,8 @@ function AppInner() {
 
   // ── フェーズ: 起動フロー（launch → p0 / login / consent / app）──
   if (phase === 'launch') {
-    // 判定中は背景色のみ（すぐに決まる。決まったら LaunchFlow が splash を出す）
-    if (!launchScreen) return <View style={styles.root} />;
+    // 判定中・フォント読込中は背景色のみ（すぐに決まる。決まったら LaunchFlow が splash を出す）
+    if (!launchScreen || !fontsLoaded || !skiaFontReady) return <View style={styles.root} />;
     return (
       <LaunchFlow
         initialScreen={launchScreen}
@@ -222,6 +261,8 @@ function AppInner() {
     return (
       <PlayerScreen
         track={playerTrack}
+        onPrevTrack={canSkip ? () => goTrack(-1) : undefined}
+        onNextTrack={canSkip ? () => goTrack(1) : undefined}
         onBackHome={() => {
           // コレクションから開くのでコレクションへ戻す
           setOverlay(null);
@@ -320,17 +361,8 @@ function AppInner() {
             purchase={purchase}
             onOpenTrack={(id) => {
               // 所有曲タップ → 再生画面（ワイヤーフレーム P3）
-              const item = ownedItems.find((o) => o.id === id);
-              if (item) {
-                setPlayerTrack({
-                  id: item.id,
-                  title: item.title,
-                  artworkUrl: item.artworkUrl,
-                  audioKey: item.audioKey ?? item.id,
-                  durationSec: 220,
-                  glowColor: item.glowColor,
-                  glowColor2: item.glowColor2,
-                });
+              if (playerTracks.some((tr) => tr.id === id)) {
+                setPlayerTrackId(id);
                 setOverlay('player');
               } else {
                 setOverlay('story');

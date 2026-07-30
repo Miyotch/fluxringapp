@@ -17,6 +17,7 @@ import {
   rrect,
   rect,
 } from '@shopify/react-native-skia';
+import { CARD_AURA_ENABLED } from '../constants/design-tokens';
 
 const REF_W = 188.6;
 
@@ -60,12 +61,12 @@ export const CardAura: React.FC<Props> = ({
       style={{ position: 'absolute', left: -M, top: -M, width: cw, height: ch, opacity }}
       pointerEvents="none"
     >
-      {/* 落影（0 20px 46px 黒50%）を最下層に */}
+      {/* 落影（0 20px 46px 黒50%）を最下層に。靄ではなくカードを空間に置く影なので常に描く */}
       {layer(0, 46, 'rgba(0,0,0,0.5)', 20, 'shadow')}
-      {/* 外側の広いオーラ（0 0 84px 21px auraB） */}
-      {layer(21, 84, auraB, 0, 'b')}
-      {/* 内側の濃いオーラ（0 0 39px 6px auraA） */}
-      {layer(6, 39, auraA, 0, 'a')}
+      {/* 色付きオーラ（靄）。CARD_AURA_ENABLED=false のときは描かない。
+          v98 参照値（外 0 0 84px 21px auraB / 内 0 0 39px 6px auraA）は保持。 */}
+      {CARD_AURA_ENABLED && layer(21, 84, auraB, 0, 'b')}
+      {CARD_AURA_ENABLED && layer(6, 39, auraA, 0, 'a')}
     </Canvas>
   );
 };
