@@ -263,12 +263,20 @@ export function usePurchaseFlow(): PurchaseFlow {
     }
   }, [])
 
-  // ── 表示用キャッシュの更新 ──
+  // ── 表示用キャッシュの更新（起動直後のちらつき防止専用）──
+  // ownedIds（remoteOwned ∪ localOwned）ではなく remoteOwned だけを保存する。
+  // localOwned には「検証サーバ未設定（extra.iap.verifyUrl 空）のまま成立した
+  // 購入」も含まれ、これは lib/ownership.ts 冒頭のとおり真正性が無い
+  // 表示専用の楽観反映でしかない。ここに union を保存すると、サーバ未設定の
+  // 状態で一度でも購入操作をした曲が次回起動以降も「所有済み」として
+  // 固定されてしまい、「購入する」ボタンが二度と出せなくなる
+  // （実際に発生した不具合。サインアウト→サインインでキャッシュを
+  // 破棄するまで復活しなかった）。
   useEffect(() => {
     const uid = uidRef.current
     if (!uid) return
-    saveCachedOwnedIds(uid, Array.from(ownedIds)).catch(() => {})
-  }, [ownedIds])
+    saveCachedOwnedIds(uid, remoteOwned).catch(() => {})
+  }, [remoteOwned])
 
   // ── 画面へ渡す操作 ──
   const start = useCallback(

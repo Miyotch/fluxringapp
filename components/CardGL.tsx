@@ -27,6 +27,9 @@
  *                 フレーム数に依存させると、タップ直後のヒッチ1回で 180° を
  *                 1フレームで飛び越して演出が消える（実測 dt≧111ms で発生）。
  *                 状態は内部完結（FlatList のセル再レンダーに依存しない）。
+ *                 裏面の自由回転は、指を離すと重力オートリターン
+ *                 （spin モードと同じ CARD_RETURN_STIFFNESS・約3秒）で
+ *                 裏の定位置（Q_BACK）へ戻る。
  *
  * 入力:
  *   ・flip の表面 = 実体のあるオーバーレイ（作品画像＋Pressable）でタップ受け。
@@ -481,6 +484,14 @@ const CardMesh: React.FC<{
         s.vx = 0;
         s.vy = 0;
       }
+      // 重力オートリターン（コレクション/プレイヤーの spin モードと同じ仕様・
+      // 同じ時定数）: 指を離すと弱いバネで裏面の元の姿勢（Q_BACK）へ戻す。
+      // この分岐は isFlip かつ rotationEnabled（=flipped）のときだけ通るので、
+      // 対象は常に「裏面」——表面はタップ以外で動かないためここには来ない。
+      // 慣性が乗っているあいだは speed 側が優勢、慣性が減衰するとこの項が
+      // 効いて最終的に裏の定位置へ収束する（残差 exp(-K*T)・95%収束 ≒3秒）。
+      const kRet = 1 - Math.exp(-dt * CARD_RETURN_STIFFNESS);
+      s.q.slerp(Q_BACK, kRet);
     }
     if (groupRef.current) groupRef.current.quaternion.copy(s.q);
     if (rotationOut) {
