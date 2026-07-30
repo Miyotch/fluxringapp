@@ -36,6 +36,7 @@ import Animated, {
 import { useAudioPlayer } from 'expo-audio';
 import { previewUrl } from '../lib/r2';
 import { CardFace } from '../components/CardFace';
+import { StarField } from '../components/StarField';
 import { StarSeal } from '../components/StarSeal';
 import { CardGL } from '../components/CardGL';
 import type { CardBackData } from '../components/CardBack';
@@ -334,6 +335,10 @@ export const DiscoverScreen: React.FC<Props> = ({
   return (
     <View style={styles.root} onLayout={onRootLayout}>
       <StatusBar barStyle="light-content" backgroundColor={C.page} />
+
+      {/* 最背面: CREDITS(Special Thanks)画面と同じ星空（StarField）。
+          調律陣（StarSeal）はこの上に重ねる装飾レイヤーで、星空自体を置き換えない。 */}
+      <StarField />
 
       {/* 調律陣の背景。座標は v98_FIX の参照モデル（内部380×760を均等スケールし、
           陣の中心＝カード中心＝箱の縦中央より約12px上）に委ねる。
