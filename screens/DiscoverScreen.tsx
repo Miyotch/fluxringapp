@@ -14,7 +14,7 @@
  * フッターは App.tsx が描画（この画面は body 内・フッターの上に収まる）。
  */
 
-import React, { useRef, useState, useCallback, useEffect } from 'react';
+import React, { useRef, useState, useCallback, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -36,13 +36,19 @@ import Animated, {
 import { useAudioPlayer } from 'expo-audio';
 import { previewUrl } from '../lib/r2';
 import { CardFace } from '../components/CardFace';
+import { StarField } from '../components/StarField';
 import { StarSeal } from '../components/StarSeal';
 import { CardGL } from '../components/CardGL';
+import type { CardBackData } from '../components/CardBack';
 import { BuyButton } from '../components/BuyButton';
 import { WishlistStar } from '../components/WishlistStar';
 import { PurchaseModal } from '../components/PurchaseModal';
 import { BellIcon, PreviewIcon } from '../components/icons';
+import { useTopInset } from '../lib/safeArea';
 import { RisingBubbles } from '../components/RisingBubbles';
+import { PURCHASE } from '../constants/design-tokens';
+import { formatPrice, TRACK_PRICE_JPY } from '../constants/pricing';
+import type { PurchaseController } from '../lib/usePurchaseFlow';
 
 const C = {
   page: '#0E0C20',
@@ -78,9 +84,14 @@ type Props = {
   tracks?: Track[];
   hasUnread?: boolean;
   onOpenNotifications?: () => void;
+  /** 購入が**成立した**ときだけ呼ばれる（キャンセル・失敗では呼ばない） */
   onBuy?: (track: Track) => void;
   /** 起動時に最初に表示するカードの id（コレクションのウィッシュから飛んできたとき用） */
   focusTrackId?: string | null;
+  /** 所有している trackId（App.tsx の usePurchaseFlow から。Firestore が正） */
+  ownedIds?: Set<string>;
+  /** 購入フロー。未指定なら購入ボタンは押しても何も起きない（ギャラリー表示用） */
+  purchase?: PurchaseController;
 };
 
 // フォールバック用スタブ（App からは stubData を渡す）
@@ -135,22 +146,31 @@ export const DiscoverScreen: React.FC<Props> = ({
   onOpenNotifications,
   onBuy,
   focusTrackId,
+  ownedIds,
+  purchase,
 }) => {
   // ウィッシュから飛んできたときは、その曲のカードを最初に表示する。
   const initialIndex = focusTrackId
     ? Math.max(0, tracks.findIndex((t) => t.id === focusTrackId))
     : 0;
+  // 上部クローム（ブランド／右上アイコン／タイトル）はセーフエリア下へ寄せる。
+  // 原本 v98 は top:22/26/58 の相対配置。その間隔を保ったまま、最上段の
+  // topRight を insets.top + 8 に合わせて全体を同じだけ下げる。
+  const topRightY = useTopInset(8);
+  const chromeShift = topRightY - 22;
   const [slideH, setSlideH] = useState(0);
   const [activeIndex, setActiveIndex] = useState(initialIndex);
   const [flipped, setFlipped] = useState(false); // アクティブカードが裏面か（横スクロール可否用）
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [wishlist, setWishlist] = useState<Set<string>>(new Set());
-  const [ownedIds, setOwnedIds] = useState<Set<string>>(new Set());
 
   // 購入の泡演出（元のカード位置で下から立ち上る）
   const [showBubbles, setShowBubbles] = useState(false);
   // 購入確認ポップアップの対象（null=非表示）
   const [purchaseTarget, setPurchaseTarget] = useState<Track | null>(null);
+  // 購入は成立したが、まだ「再生」表示に切り替えていない trackId。
+  // 泡が立ち切る前にボタンが変わると、演出が事後報告に見えるため一拍待たせる。
+  const [pendingReveal, setPendingReveal] = useState<Set<string>>(new Set());
 
   const { width: screenW } = useWindowDimensions();
   const active = tracks[activeIndex] ?? tracks[0];
@@ -160,6 +180,27 @@ export const DiscoverScreen: React.FC<Props> = ({
 
   // 試聴プレイヤー（30秒・公開URL）
   const preview = useAudioPlayer();
+
+  // カード裏面の刻印データ。renderItem 内でオブジェクトリテラルを組むと
+  // 再レンダーのたびに参照が変わり、CardGL 内の裏面テクスチャ生成 useEffect
+  // （依存に backData を持つ）が毎回走ってしまう。刻印は 1024×1536 の Skia
+  // サーフェスを同期生成するため、タップ直後にこれが挟まると数十〜百ms級の
+  // ヒッチになり、フリップ演出のフレームを丸ごと食う。曲一覧が変わらない限り
+  // 同じ参照を返して再生成を止める。
+  const backDataById = useMemo(() => {
+    const m = new Map<string, CardBackData>();
+    for (const t of tracks) {
+      m.set(t.id, {
+        title: t.title,
+        serial: t.back?.serial,
+        story: t.back?.story ?? t.subtitle,
+        materials: t.back?.materials,
+        frequencies: t.back?.frequencies,
+        artist: t.back?.artist,
+      });
+    }
+    return m;
+  }, [tracks]);
 
   const onRootLayout = (e: LayoutChangeEvent) => setSlideH(e.nativeEvent.layout.height);
 
@@ -203,34 +244,101 @@ export const DiscoverScreen: React.FC<Props> = ({
     });
   }, []);
 
+  // 所有判定。pendingReveal に居る間は「まだ所有していない」ように見せる（演出の順序のため）
+  const isOwned = useCallback(
+    (track?: Track | null) => {
+      if (!track) return false;
+      if (pendingReveal.has(track.id)) return false;
+      return track.owned === true || ownedIds?.has(track.id) === true;
+    },
+    [ownedIds, pendingReveal],
+  );
+
   // 「購入する」押下 → まず購入確認ポップアップを開く（所有済みは再生扱いで何もしない）
   const handleBuy = useCallback(() => {
     if (!active) return;
-    const owned = active.owned || ownedIds.has(active.id);
-    if (owned) {
+    if (isOwned(active)) {
       // TODO: 所有済みは再生画面へ。暫定は何もしない
       return;
     }
+    purchase?.dismiss(); // 前回の失敗表示を持ち越さない
     setPurchaseTarget(active);
-  }, [active, ownedIds]);
+  }, [active, isOwned, purchase]);
 
-  // ポップアップで「購入する」確定 → 実購入（泡演出＋所有済み化）
+  // ポップアップの金額 or 確定ボタン → OS の課金シートへ。
+  // ここでは所有状態も演出も動かさない。成立したかどうかは purchase.onSuccess で受ける
+  // （requestPurchase の戻り値は結果ではないため）。
   const confirmPurchase = useCallback(() => {
     const target = purchaseTarget;
     if (!target) return;
-    setPurchaseTarget(null);
     setPlayingId(null);
-    onBuy?.(target);
-    // 元のカードの位置で泡を立ち上げて購入完了を表現。所有済みにして購入ボタンを「再生」へ。
-    setOwnedIds((prev) => new Set(prev).add(target.id));
-    setShowBubbles(true);
-  }, [purchaseTarget, onBuy]);
+    purchase?.start(target.id);
+  }, [purchaseTarget, purchase]);
+
+  // モーダルを閉じる（キャンセル／閉じる／暗幕タップ）。所有状態は変えない
+  const closePurchase = useCallback(() => {
+    setPurchaseTarget(null);
+    purchase?.dismiss();
+  }, [purchase]);
+
+  // ── 購入成立後の順序 ──
+  // (1) モーダルを fade out → (2) PURCHASE.sheetSettleMs 待つ（Modal の消え際と
+  // OS 課金シートの dismiss に演出を重ねない）→ (3) 泡をマウント →
+  // (4) PURCHASE.ownedRevealDelayMs 後に所有済み化して購入ボタンを「再生」へ →
+  // (5) onDone で泡をアンマウント、画面遷移はしない（ホームに留まる）。
+  //
+  // PurchaseTransition（拡大＋星点火＋トランスポート）はここでは使わない。
+  // ホームの完了演出は RisingBubbles を正とする（元のカード位置で下から立ち上る・
+  // 複製カードは出さない方針を維持するため）。PurchaseTransition は
+  // ComponentGallery の部品デモとして据え置き。
+  const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const onBuyRef = useRef(onBuy);
+  onBuyRef.current = onBuy;
+
+  useEffect(() => {
+    if (!purchase) return;
+    return purchase.onSuccess((trackId) => {
+      const bought = tracks.find((tr) => tr.id === trackId);
+      setPurchaseTarget(null);
+      setPlayingId(null);
+      setPendingReveal((prev) => new Set(prev).add(trackId));
+      if (bought) onBuyRef.current?.(bought);
+
+      timersRef.current.push(
+        setTimeout(() => {
+          setShowBubbles(true);
+          timersRef.current.push(
+            setTimeout(() => {
+              setPendingReveal((prev) => {
+                const next = new Set(prev);
+                next.delete(trackId);
+                return next;
+              });
+            }, PURCHASE.ownedRevealDelayMs),
+          );
+        }, PURCHASE.sheetSettleMs),
+      );
+    });
+  }, [purchase, tracks]);
+
+  // アンマウント時に演出タイマーを止める（解放後の setState を防ぐ）
+  useEffect(
+    () => () => {
+      timersRef.current.forEach(clearTimeout);
+      timersRef.current = [];
+    },
+    [],
+  );
 
   const isPreviewing = playingId != null && playingId === active?.id;
 
   return (
     <View style={styles.root} onLayout={onRootLayout}>
       <StatusBar barStyle="light-content" backgroundColor={C.page} />
+
+      {/* 最背面: CREDITS(Special Thanks)画面と同じ星空（StarField）。
+          調律陣（StarSeal）はこの上に重ねる装飾レイヤーで、星空自体を置き換えない。 */}
+      <StarField />
 
       {/* 調律陣の背景。座標は v98_FIX の参照モデル（内部380×760を均等スケールし、
           陣の中心＝カード中心＝箱の縦中央より約12px上）に委ねる。
@@ -271,14 +379,7 @@ export const DiscoverScreen: React.FC<Props> = ({
                   height={cardH}
                   aura={{ a: item.glowColor, b: item.glowColor2 }}
                   onFlipChange={setFlipped}
-                  backData={{
-                    title: item.title,
-                    serial: item.back?.serial,
-                    story: item.back?.story ?? item.subtitle,
-                    materials: item.back?.materials,
-                    frequencies: item.back?.frequencies,
-                    artist: item.back?.artist,
-                  }}
+                  backData={backDataById.get(item.id)}
                 />
               ) : (
                 // 非アクティブは軽量な静止カード（角丸＋オーラ・v98の表面と同一デザイン）
@@ -298,10 +399,10 @@ export const DiscoverScreen: React.FC<Props> = ({
       {/* ── 固定クローム（active に連動） ── */}
       <View style={styles.chrome} pointerEvents="box-none">
         {/* ブランド */}
-        <Text style={styles.brand}>Flux Ring</Text>
+        <Text style={[styles.brand, { top: 26 + chromeShift }]}>Flux Ring</Text>
 
         {/* 右上: EQ / ベル / 試聴 */}
-        <View style={styles.topRight} pointerEvents="box-none">
+        <View style={[styles.topRight, { top: topRightY }]} pointerEvents="box-none">
           <View style={styles.icons}>
             <EqBars active={isPreviewing} />
             <Pressable onPress={onOpenNotifications} hitSlop={10} style={styles.bell}>
@@ -315,7 +416,7 @@ export const DiscoverScreen: React.FC<Props> = ({
         </View>
 
         {/* タイトル＋情景 */}
-        <View style={styles.texts} pointerEvents="none">
+        <View style={[styles.texts, { top: 58 + chromeShift }]} pointerEvents="none">
           <Text style={styles.title} numberOfLines={1}>{active?.title}</Text>
           {active?.subtitle && (
             <Text style={styles.subt} numberOfLines={2}>{active.subtitle}</Text>
@@ -325,10 +426,14 @@ export const DiscoverScreen: React.FC<Props> = ({
         {/* 下部: 購入ボタン ＋ ウィッシュ星 */}
         <View style={[styles.bottom, { bottom: 92 + slideH * 0.02 }]} pointerEvents="box-none">
           {(() => {
-            const owned = active ? active.owned || ownedIds.has(active.id) : false;
+            const owned = isOwned(active);
             return (
               <>
-                <BuyButton owned={owned} onPress={handleBuy} />
+                <BuyButton
+                  owned={owned}
+                  priceLabel={active ? purchase?.displayPriceOf(active.id) : undefined}
+                  onPress={handleBuy}
+                />
                 {/* 所有済みでは星を非表示 */}
                 {!owned && (
                   <View style={styles.starSlot}>
@@ -353,7 +458,10 @@ export const DiscoverScreen: React.FC<Props> = ({
         />
       )}
 
-      {/* 購入確認ポップアップ */}
+      {/* 購入確認ポップアップ。
+          金額はストアのローカライズ価格（displayPrice）を正とし、未取得のときだけ
+          pricing.ts の ¥2,500 にフォールバックする。track.priceLabel は
+          buyLabel()（「購入する ¥2,500」）でボタン全体のラベルなので使わない。 */}
       <PurchaseModal
         visible={purchaseTarget != null}
         target={
@@ -361,13 +469,16 @@ export const DiscoverScreen: React.FC<Props> = ({
             ? {
                 id: purchaseTarget.id,
                 title: purchaseTarget.title,
-                priceLabel: purchaseTarget.priceLabel,
+                priceLabel:
+                  purchase?.displayPriceOf(purchaseTarget.id) ?? formatPrice(TRACK_PRICE_JPY),
                 artworkUrl: purchaseTarget.artworkUrl,
               }
             : null
         }
+        state={purchase?.state ?? 'idle'}
+        reason={purchase?.reason}
         onConfirm={confirmPurchase}
-        onCancel={() => setPurchaseTarget(null)}
+        onCancel={closePurchase}
       />
     </View>
   );
@@ -381,7 +492,7 @@ const styles = StyleSheet.create({
   chrome: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
   brand: {
     position: 'absolute',
-    // TODO: SafeAreaInsets.top を加算
+    // top は SafeArea を加味して JSX 側で上書き（既定は原本 v98 の値）
     top: 26, left: 22,
     fontSize: 10, letterSpacing: 4, color: C.sub, fontWeight: '300',
   },

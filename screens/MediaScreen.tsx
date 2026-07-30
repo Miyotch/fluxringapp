@@ -20,6 +20,7 @@ import {
   Linking,
 } from 'react-native';
 import { COLOR, SPACE, RADIUS } from '../constants/design-tokens';
+import { useTopInset } from '../lib/safeArea';
 
 type Sns = { key: string; label: string; url: string; icon?: ImageSourcePropType };
 type Article = {
@@ -72,12 +73,13 @@ export const MediaScreen: React.FC<Props> = ({
   sns = DEFAULT_SNS,
   articles = STUB_ARTICLES,
 }) => {
+  const barTop = useTopInset(12); // 従来 56px（=44+12）
   return (
     <View style={styles.root}>
       <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
 
       {/* SNS 常設 */}
-      <View style={styles.snsBar}>
+      <View style={[styles.snsBar, { paddingTop: barTop }]}>
         {sns.map((s) => (
           <Pressable
             key={s.key}
@@ -124,7 +126,7 @@ export const MediaScreen: React.FC<Props> = ({
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: COLOR.bg },
   snsBar: {
-    // TODO: SafeAreaInsets.top を加算
+    // 既定値。実機では SafeArea の top を加味して JSX 側で上書き
     paddingTop: 56,
     paddingBottom: SPACE.md,
     paddingHorizontal: SPACE.lg,

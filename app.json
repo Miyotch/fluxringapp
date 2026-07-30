@@ -38,7 +38,7 @@
         "backgroundColor": "#0E0C20"
       }
     },
-    "plugins": ["expo-apple-authentication"],
+    "plugins": ["expo-apple-authentication", "expo-iap"],
     "extra": {
       "eas": {
         "projectId": "d94a1082-9da2-459a-88b4-cd593c16eed3"
@@ -51,6 +51,9 @@
       "r2": {
         "previewBaseUrl": "https://pub-cf88142f89d0432db9d3077919d59dd0.r2.dev",
         "workerUrl": ""
+      },
+      "iap": {
+        "verifyUrl": ""
       }
     }
   }

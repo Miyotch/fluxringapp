@@ -38,6 +38,21 @@ export const fetchUserCollection = (uid: string) =>
     ),
   )
 
+// ── ユーザーの所有権をリアルタイム監視（購入直後の反映用）───
+// orderBy を付けないのは、所有集合に順序が要らないうえ、purchasedAt を
+// 持たないドキュメント（旧データ・grant 付与の書き漏れ）を orderBy が
+// 黙って除外してしまい「買ったのに所有されていない」ように見えるため。
+export const subscribeUserPurchases = (
+  uid: string,
+  callback: (docs: Array<{ id: string } & Record<string, unknown>>) => void,
+  onError?: (e: Error) => void,
+): Unsubscribe =>
+  onSnapshot(
+    collection(db, 'users', uid, 'purchases'),
+    snap => callback(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+    onError,
+  )
+
 // ── ディスカバー リアルタイム監視 ──────────────────
 export const subscribeArtworks = (
   count: number,

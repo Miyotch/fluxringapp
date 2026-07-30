@@ -23,6 +23,9 @@
  *   ・ホーム    : mode='flip'。表面=タップで裏返し（回転不可・横ドラッグは
  *                 親の曲切替へ）、裏面=全方向回転可・再タップで表面へ。
  *                 フリップは quaternion のスラープ＋「少し浮く」スケール演出。
+ *                 補間は経過時間駆動（constants/design-tokens.ts の FLIP_*）。
+ *                 フレーム数に依存させると、タップ直後のヒッチ1回で 180° を
+ *                 1フレームで飛び越して演出が消える（実測 dt≧111ms で発生）。
  *                 状態は内部完結（FlatList のセル再レンダーに依存しない）。
  *
  * 入力:
@@ -46,6 +49,16 @@ import {
   BackPixels,
 } from '../lib/cardBackTexture';
 import { CARD_VERTEX_SHADER, ART_FRAGMENT_SHADER, ALUMINUM_FRAGMENT_SHADER } from '../lib/cardShaders';
+import {
+  FLIP_DURATION_MS,
+  FLIP_MAX_STEP_MS,
+  FLIP_EASING,
+  FLIP_BACK_SCALE,
+  FLIP_LIFT,
+  FLIP_OVERLAY_RESTORE_MS,
+  FLIP_OVERLAY_RECHECK_MS,
+  FLIP_OVERLAY_MAX_WAIT_MS,
+} from '../constants/design-tokens';
 import { CardAura } from './CardAura';
 import type { CardBackData } from './CardBack';
 
@@ -60,7 +73,10 @@ const SENS = 0.55; // 1px ドラッグあたりの回転角（度・flip モー�
 const DECAY = 3.0; // 慣性の指数減衰（大きいほど早く止まる・実機調整ポイント）
 const STOP_DEG_PER_SEC = 2; // これ未満の角速度で停止
 const FRONT_SCALE = 1;
-const BACK_SCALE = 1.1; // 裏面（フリップ後）の表示倍率・実機調整ポイント
+// 裏面倍率・浮き量・回転時間・オーバーレイ復帰時間は constants/design-tokens.ts
+// （FLIP_BACK_SCALE / FLIP_LIFT / FLIP_DURATION_MS / FLIP_OVERLAY_RESTORE_MS）に集約。
+// 1フレームで進める dt の上限（秒）。flip の補間と spin の物理の両方に掛ける。
+const FRAME_MAX_DT = FLIP_MAX_STEP_MS / 1000;
 
 // ── spin モード（プレイヤー）の回転物理: webgl_card_standalone.html verbatim ──
 //   angX/angY(現在角)・tAngX/tAngY(目標角)・velX/velY(角速度)。
@@ -71,18 +87,21 @@ const CARD_ANG_CLAMP = 1.25;  // 縦回転クランプ（rad）
 const CARD_VMAX = 6.0;        // 慣性の角速度上限（rad/s）
 const CARD_INIT_ANGX = -0.05; // 初期姿勢（正面やや傾き）
 const CARD_INIT_ANGY = 0.20;
-// 重力オートリターン: 手を離すと弱いバネで初期姿勢（正面）へゆっくり戻す。
-// カード下部が重い（＝下を向きたがる）ように、慣性が収まると正面へ落ち着く。
-// 残差は exp(-K*T)。K=0.15 なら 20 秒で約95%戻る（1.6 だと約2秒で戻り切ってしまい、
-// 3D回転をゆっくり眺められなかった）。小さいほど戻りが遅い。ドラッグ中は無効。
-const CARD_RETURN_STIFFNESS = 0.15;
+// 重力オートリターン: 手を離すと弱いバネで静止姿勢へ戻す。
+// カード下部が重い（＝下を向きたがる）ように、慣性が収まると立った姿勢へ落ち着く。
+// 残差は exp(-K*T)。95%戻るまでの時間 T ≒ ln(20)/K なので、
+//   K=1.0 → 約3秒（指定値）／ K=0.15 → 約20秒 ／ K=1.6 → 約2秒
+// 小さいほど戻りが遅い。ドラッグ中は無効。
+const CARD_RETURN_STIFFNESS = 1.0;
+// 復帰先の姿勢。裏面を見ているときは「裏面のまま」立った姿勢（Y+180°）へ戻す。
+// 表向きの初期姿勢へ引き戻すと、裏を眺めている最中に勝手に表返ってしまう。
+const CARD_BACK_ANGY = Math.PI + CARD_INIT_ANGY;
 // タップ判定のしきい値（|dx|+|dy| px）。これ以下の移動はタップ扱いにして
 //   ・flip（ホーム）: 表⇔裏のトグルを確実に拾う（4px では指の微動でドラッグ扱いになり
 //                     タップで戻れないことがあった）
 //   ・spin（プレイヤー）: 離した瞬間の慣性を与えない（軽いタップで card が
 //                     大きく回り、裏返ったように見えるのを防ぐ）
 const TAP_SLOP = 12;
-const TMP_EULER = new THREE.Euler();
 
 // ── トラックボール回転の状態（JS スレッドで共有する ref） ──
 export type SpinState = {
@@ -91,6 +110,8 @@ export type SpinState = {
   vy: number;            // Y軸まわり角速度（度/秒・横なぞり由来）
   dragging: boolean;
   target: THREE.Quaternion | null; // フリップ等のスラープ目標（null=なし）
+  from: THREE.Quaternion;  // フリップ開始時点の姿勢（毎フレーム from→target を作り直す）
+  elapsed: number;         // フリップ開始からの経過時間(ms)。dt を上限クランプして積む
   animating: boolean;    // フリップ演出中（この間ドラッグ無効）
   scale: number;         // 現在の表示倍率（フリップ完了時に確定する値）
   startScale: number;    // フリップ開始時点の倍率（スラープ元）
@@ -99,6 +120,14 @@ export type SpinState = {
   angX: number; angY: number;     // 現在角（rad）
   tAngX: number; tAngY: number;   // 目標角（rad）
   velX: number; velY: number;     // 角速度（rad/s）
+  /**
+   * 縦ドラッグの符号。裏面を見ているあいだは -1。
+   * 裏を向いていると同じ world X 回転で「見えている面」は逆向きに動くため、
+   * 補正しないと指とカードの動きが上下逆になる。
+   * ドラッグ開始時に確定し、そのジェスチャ中は変えない（途中で反転すると
+   * 指を動かしている最中に挙動が飛ぶ）。
+   */
+  vSign: number;
 };
 
 const TMP_Q = new THREE.Quaternion();
@@ -357,8 +386,13 @@ const CardMesh: React.FC<{
   }, [frontUri]);
 
   // 毎フレーム: フリップ演出 → 慣性 → 姿勢を mesh へ → 表面の向きを外部へ通知
-  useFrame((_, dt) => {
+  useFrame((_, rawDt) => {
     const s = spin.current;
+    // dt の上限クランプ。バックグラウンド復帰や一時的なヒッチで巨大な dt が来ると、
+    // 慣性・減衰・重力復帰・フリップ補間がまとめて先へ飛び、「カードが突然回っている」
+    // 「演出が一瞬で終わる」状態になる。FRAME_MAX_DT=50ms(20fps相当)で頭打ちにする。
+    // 掛かるのは frame 落ち時だけなので、通常時（30〜60fps）の挙動は一切変わらない。
+    const dt = Math.min(rawDt, FRAME_MAX_DT);
     // ── spin モード（プレイヤー）: webgl_card_standalone.html の render を verbatim ──
     //   慣性→クランプ→指数スムージング→モデル行列 RotY(angY)*RotX(angX)。
     if (!isFlip) {
@@ -369,12 +403,23 @@ const CardMesh: React.FC<{
         const df = Math.pow(0.94, dt * 60);
         s.velX *= df;
         s.velY *= df;
-        // 重力オートリターン: 目標角を初期姿勢へ弱いバネで引き戻す。
-        // 慣性が乗っているあいだは慣性が勝ち、慣性が減衰するとこの項が
-        // 効いてきて、最終的にゆっくり正面（初期姿勢）へ戻る。ドラッグ中は無効。
+        // 重力オートリターン: 目標角を静止姿勢へ弱いバネで引き戻す。
+        // 慣性が乗っているあいだは慣性が勝ち、慣性が減衰するとこの項が効いて、
+        // 最終的に「下が重い＝立った姿勢」へ落ち着く。ドラッグ中は無効。
+        //
+        // 復帰先の向きは “いま見えている面” で決める。裏を見ているなら裏のまま
+        // （Y+180°）立たせる。常に表向きへ戻すと、裏を眺めている最中に勝手に
+        // 表返ってしまう。
+        // |angX| は ±1.25rad(<90°) クランプなので cos(angX)>0 ＝ 表裏は
+        // cos(angY) の符号だけで決まる。
+        const backFacing = Math.cos(s.angY) < 0;
+        const baseY = backFacing ? CARD_BACK_ANGY : CARD_INIT_ANGY;
+        // 何周も巻き戻さないよう、現在角に最も近い等価角（±2π の倍数）を狙う。
+        const TAU = Math.PI * 2;
+        const targetY = baseY + Math.round((s.tAngY - baseY) / TAU) * TAU;
         const kRet = 1 - Math.exp(-dt * CARD_RETURN_STIFFNESS);
         s.tAngX += (CARD_INIT_ANGX - s.tAngX) * kRet;
-        s.tAngY += (CARD_INIT_ANGY - s.tAngY) * kRet;
+        s.tAngY += (targetY - s.tAngY) * kRet;
       }
       const sm = 1 - Math.exp(-dt * 14);
       s.angX += (s.tAngX - s.angX) * sm;
@@ -392,21 +437,33 @@ const CardMesh: React.FC<{
       return;
     }
     if (s.animating && s.target) {
-      // 目標姿勢へスラープ（フリップの回り込み演出）。近づいたら確定。
-      const k = Math.min(1, dt * 9);
-      s.q.slerp(s.target, k);
+      // ── フリップの回り込み演出: 経過時間で進める（フレーム数に依存させない） ──
+      // 旧実装は k=min(1, dt*9) を毎フレーム現在姿勢へ積む方式だった。この k は
+      // dt=1/9秒(111ms)で 1 に飽和し、k=1 の slerp は目標の丸コピー＝そのフレームで
+      // 180°到達＋終了判定(ang<0.02)まで同時に成立するため、ヒッチが1回あるだけで
+      // 中間姿勢を1枚も描かずに裏面へ飛んでいた（＝「一瞬で切り替わる」の実体）。
+      // ここでは進捗 t を経過時間から出し、開始姿勢 from → 目標 target を毎フレーム
+      // 作り直す。dt は上で FRAME_MAX_DT にクランプ済みなので、フレームが飛んでも
+      // 1フレームあたりの進みは 50/520 が上限＝必ず11フレーム前後は中間姿勢を通る。
+      s.elapsed += dt * 1000;
+      // 起点と目標がほぼ同じ場合（初回マウントの flipped=false など）は演出せず即確定。
+      // 進捗を回すと「浮き」だけが出てしまうため。
+      const degenerate = s.from.angleTo(s.target) < 0.02;
+      const t = degenerate ? 1 : Math.min(1, s.elapsed / FLIP_DURATION_MS);
+      const e = FLIP_EASING(t);
+      s.q.slerpQuaternions(s.from, s.target, e);
       s.vx = 0;
       s.vy = 0;
-      // 開始→完了倍率を回転進捗で補間しつつ、中腹で「少し浮く」ぶんだけ加算
-      // （表→裏: 1 → BACK_SCALE / 裏→表: BACK_SCALE → 1）
-      const ang = s.q.angleTo(s.target); // π→0 と減っていく
-      const progress = 1 - Math.min(1, ang / Math.PI);
-      const lerped = s.startScale + (s.finalScale - s.startScale) * progress;
-      const bump = 0.09 * Math.sin(Math.min(Math.PI, ang));
-      const scaleVal = lerped + bump;
+      // 開始→完了倍率を同じ進捗で補間しつつ、中腹で「少し浮く」ぶんだけ加算
+      // （表→裏: 1 → FLIP_BACK_SCALE / 裏→表: FLIP_BACK_SCALE → 1）。
+      // 浮きは sin(π*e) なので回転が最も横を向く中腹でピークになる。
+      const lerped = s.startScale + (s.finalScale - s.startScale) * e;
+      const scaleVal = lerped + FLIP_LIFT * Math.sin(Math.PI * e);
       if (groupRef.current) groupRef.current.scale.setScalar(scaleVal);
       s.scale = scaleVal;
-      if (ang < 0.02) {
+      // 終了判定は進捗だけで行う（旧: 残り角 ang<0.02。回転と終了が同じフレームで
+      // 成立しうるため、演出が1フレームで終わる原因になっていた）
+      if (t >= 1) {
         s.q.copy(s.target);
         s.animating = false;
         s.target = null;
@@ -505,6 +562,8 @@ export const CardGL: React.FC<CardGLProps> = ({
     vy: 0,
     dragging: false,
     target: null,
+    from: new THREE.Quaternion(),
+    elapsed: 0,
     animating: false,
     scale: FRONT_SCALE,
     startScale: FRONT_SCALE,
@@ -515,6 +574,7 @@ export const CardGL: React.FC<CardGLProps> = ({
     tAngY: CARD_INIT_ANGY,
     velX: 0,
     velY: 0,
+    vSign: 1,
   });
   const last = useRef({ x: 0, y: 0 });
   const moved = useRef(false);
@@ -545,9 +605,27 @@ export const CardGL: React.FC<CardGLProps> = ({
   const flipToFront = () => {
     setFlipped(false);
     onFlipChange?.(false);
-    // 表向きへ戻るアニメーションが落ち着いてからオーバーレイ復帰
+    // 表向きへ戻るアニメーションが「実際に終わってから」オーバーレイ復帰。
+    // FLIP_OVERLAY_RESTORE_MS（= FLIP_DURATION_MS + 30ms）待ったうえで、その時点で
+    // まだ回っていたら FLIP_OVERLAY_RECHECK_MS ごとに再確認する。
+    //   固定 setTimeout 一発では足りない: useFrame の dt を FLIP_MAX_STEP_MS で
+    //   頭打ちにしている都合上、20fps を割る／途中で 250ms 級のヒッチが1回でも入ると
+    //   回転の所要が実時間で 550ms を超え、まだ横を向いているカードの上に
+    //   表の作品画像が突然現れる。通常時は1回目の判定で必ず抜けるので従来と同じ。
     if (overlayTimer.current) clearTimeout(overlayTimer.current);
-    overlayTimer.current = setTimeout(() => setOverlayVisible(true), 550);
+    const deadline = Date.now() + FLIP_OVERLAY_MAX_WAIT_MS;
+    const restoreOverlay = () => {
+      // 打ち切りを併用するのは、useFrame が止まる状況（Canvas 一時停止・
+      // GL コンテキスト喪失）で animating が true のまま残ったときに
+      // 再確認が永久に続いて表面が戻らなくなるのを防ぐため。
+      if (spin.current.animating && Date.now() < deadline) {
+        overlayTimer.current = setTimeout(restoreOverlay, FLIP_OVERLAY_RECHECK_MS);
+        return;
+      }
+      overlayTimer.current = null;
+      setOverlayVisible(true);
+    };
+    overlayTimer.current = setTimeout(restoreOverlay, FLIP_OVERLAY_RESTORE_MS);
   };
 
   // spin モード: 曲送り（frontUri 変化）で必ず正面（初期姿勢）から始める。
@@ -566,17 +644,21 @@ export const CardGL: React.FC<CardGLProps> = ({
   }, [frontUri, isFlip]);
 
   // flipped の変化でフリップ演出を仕込む（表=正面 / 裏=Y軸180°へスラープ）。
-  // 倍率も表(1.0)⇔裏(BACK_SCALE=1.1)の間で回転進捗に合わせて補間する。
+  // 倍率も表(1.0)⇔裏(FLIP_BACK_SCALE=1.1)の間で進捗に合わせて補間する。
   useEffect(() => {
     if (!isFlip) return;
     const s = spin.current;
     s.target = (flipped ? Q_BACK : Q_FRONT).clone();
+    // 起点は「いま」の姿勢。裏面で自由回転してから表に戻す場合も、その姿勢から
+    // 目標へ一本の補間になる（毎フレーム from→target を作り直すので必須）。
+    s.from.copy(s.q);
+    s.elapsed = 0;
     s.animating = true;
     s.dragging = false;
     s.vx = 0;
     s.vy = 0;
     s.startScale = s.scale ?? FRONT_SCALE;
-    s.finalScale = flipped ? BACK_SCALE : FRONT_SCALE;
+    s.finalScale = flipped ? FLIP_BACK_SCALE : FRONT_SCALE;
   }, [flipped, isFlip]);
 
   // spin モード=常時回転可 / flip モード=裏面のときだけ回転可
@@ -600,6 +682,10 @@ export const CardGL: React.FC<CardGLProps> = ({
           s.dragging = canRotate;
           s.vx = 0;
           s.vy = 0;
+          // 縦ドラッグの符号をこのジェスチャの分だけ確定させる。
+          // |angX| は ±1.25rad(<90°) にクランプされているので cos(angX)>0。
+          // つまり表裏は cos(angY) の符号だけで決まる。
+          s.vSign = Math.cos(s.angY) < 0 ? -1 : 1;
           last.current = { x: 0, y: 0 };
           moved.current = false;
         },
@@ -617,7 +703,9 @@ export const CardGL: React.FC<CardGLProps> = ({
             // spin モード（プレイヤー）: 参照 move の verbatim
             //   tAngY+=dx*0.008 / tAngX+=dy*0.008（縦のみ±1.25rad クランプ）
             s.tAngY += ddx * CARD_DRAG_SENS;
-            s.tAngX += ddy * CARD_DRAG_SENS;
+            // 縦は vSign を掛ける。裏向きでは同じ world X 回転で見えている面が
+            // 逆に動くため、掛けないと指と上下が逆になる。
+            s.tAngX += ddy * CARD_DRAG_SENS * s.vSign;
             s.tAngX = Math.max(-CARD_ANG_CLAMP, Math.min(CARD_ANG_CLAMP, s.tAngX));
           }
           if (dragXOut) dragXOut.value = g.dx;
@@ -638,7 +726,8 @@ export const CardGL: React.FC<CardGLProps> = ({
               // spin モード: 参照 up の verbatim（px/ms → rad/s・VMAX クランプ）
               //   velY=dx速度*0.008 / velX=dy速度*0.008
               s.velY = Math.max(-CARD_VMAX, Math.min(CARD_VMAX, g.vx * 1000 * CARD_DRAG_SENS));
-              s.velX = Math.max(-CARD_VMAX, Math.min(CARD_VMAX, g.vy * 1000 * CARD_DRAG_SENS));
+              // 慣性の縦成分もドラッグと同じ符号にする（離した瞬間に逆へ跳ねないように）
+              s.velX = Math.max(-CARD_VMAX, Math.min(CARD_VMAX, g.vy * 1000 * CARD_DRAG_SENS * s.vSign));
             }
           }
           if (dragXOut) dragXOut.value = withSpring(0, { damping: 16, stiffness: 120 });

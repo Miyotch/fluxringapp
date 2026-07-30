@@ -34,6 +34,7 @@ import Animated, {
 import { ArtworkCard } from '../components/ArtworkCard';
 import { LockIcon } from '../components/icons';
 import { COLOR, SPACE, RADIUS } from '../constants/design-tokens';
+import { useTopInset } from '../lib/safeArea';
 
 export type VipCard = {
   id: string;
@@ -86,6 +87,7 @@ const VipUnlocked: React.FC<{ cards: VipCard[]; onSubmitCode?: (code: string) =>
   const { width: screenW } = useWindowDimensions();
   const cardW = Math.min(screenW - 120, 220);
   const [code, setCode] = useState('');
+  const headingTop = useTopInset(16); // 従来 60px（=44+16）
 
   // 先頭カードを代表表示（実装ではフリップ対象を選択式に）
   const card = cards[0];
@@ -115,7 +117,7 @@ const VipUnlocked: React.FC<{ cards: VipCard[]; onSubmitCode?: (code: string) =>
     <View style={styles.root}>
       <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
 
-      <Text style={styles.vipHeading}>あなたの音</Text>
+      <Text style={[styles.vipHeading, { paddingTop: headingTop }]}>あなたの音</Text>
 
       {/* カード（表↔裏） */}
       <View style={[styles.cardStage, { height: cardW * 1.5 + 40 }]}>
@@ -206,7 +208,7 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
     letterSpacing: 1,
-    // TODO: SafeAreaInsets.top を加算
+    // 既定値。実機では SafeArea の top を加味して JSX 側で上書き
     paddingTop: 60,
     paddingHorizontal: SPACE.lg,
   },

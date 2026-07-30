@@ -15,20 +15,22 @@
  * 旧・部品デモは screens/ComponentGallery.tsx に退避（__DEV_GALLERY__ で切替可）。
  */
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { configureAudioMode } from './lib/audio';
 import { LanguageProvider } from './lib/i18n';
 import { onUserChanged, deleteAccount, signOut } from './lib/firebaseAuth';
+import { usePurchaseFlow } from './lib/usePurchaseFlow';
 import { prefetchArtwork } from './constants/artwork';
 
 import { Footer, TabKey } from './components/Footer';
 import { LaunchFlow, LaunchScreen, ConsentJoin } from './screens/LaunchFlow';
 import { DiscoverScreen } from './screens/DiscoverScreen';
-import { CollectionScreen } from './screens/CollectionScreen';
+import { CollectionScreen, CollectionItem } from './screens/CollectionScreen';
 import { MediaScreen } from './screens/MediaScreen';
 import { SettingsScreen, SettingsKey } from './screens/SettingsScreen';
 import {
@@ -86,6 +88,39 @@ function AppInner() {
   const [playerTrack, setPlayerTrack] = useState<PlayerTrack | null>(null);
   // ホーム（ディスカバー）で最初に表示するカード id（ウィッシュから飛んできたとき用）
   const [homeFocusId, setHomeFocusId] = useState<string | null>(null);
+
+  // アプリ内課金と所有権。アプリ全体で1つだけ持つ（ストア接続・購入イベントの
+  // 購読・未完了トランザクションの引き取りが二重に走らないようにするため）。
+  const { controller: purchase, ownedIds, restore } = usePurchaseFlow();
+
+  // 所有集合。STUB_OWNED は Firestore を繋ぐまでの土台（デモの見え方を保つため）で、
+  // 購入で増えたぶんを足し込む。**Firestore 接続後はこの seed を外すこと**——
+  // 残したままだと未購入の3曲を所有しているように見え続ける。
+  const ownedTrackIds = useMemo(
+    () => new Set<string>([...STUB_OWNED.map((o) => o.id), ...ownedIds]),
+    [ownedIds],
+  );
+
+  // コレクション（マイコレ）。作品データはスタブの全曲から所有ぶんを引く。
+  const ownedItems = useMemo<CollectionItem[]>(
+    () =>
+      STUB_TRACKS.filter((tr) => ownedTrackIds.has(tr.id)).map((tr) => ({
+        id: tr.id,
+        title: tr.title,
+        artworkUrl: tr.artworkUrl,
+        owned: true,
+        audioKey: tr.audioKey,
+        glowColor: tr.glowColor,
+        glowColor2: tr.glowColor2,
+      })),
+    [ownedTrackIds],
+  );
+
+  // ウィッシュから所有済みは外す（買った作品がウィッシュに残り続けないように）
+  const wishlistItems = useMemo<CollectionItem[]>(
+    () => STUB_WISHLIST.filter((w) => !ownedTrackIds.has(w.id)),
+    [ownedTrackIds],
+  );
 
   const goApp = useCallback(() => {
     // アプリへ入るときはオンボ済みとして記録（次回はログイン画面から）
@@ -247,7 +282,7 @@ function AppInner() {
           />
         );
       case 'restore':
-        return <RestoreScreen onBack={back} />;
+        return <RestoreScreen onBack={back} onRestore={restore} />;
       case 'language':
         return <LanguageScreen onBack={back} />;
       case 'support':
@@ -273,16 +308,19 @@ function AppInner() {
             hasUnread
             focusTrackId={homeFocusId}
             onOpenNotifications={() => setOverlay('notifications')}
+            ownedIds={ownedTrackIds}
+            purchase={purchase}
           />
         )}
 
         {tab === 'collection' && (
           <CollectionScreen
-            owned={STUB_OWNED}
-            wishlist={STUB_WISHLIST}
+            owned={ownedItems}
+            wishlist={wishlistItems}
+            purchase={purchase}
             onOpenTrack={(id) => {
               // 所有曲タップ → 再生画面（ワイヤーフレーム P3）
-              const item = STUB_OWNED.find((o) => o.id === id);
+              const item = ownedItems.find((o) => o.id === id);
               if (item) {
                 setPlayerTrack({
                   id: item.id,
@@ -306,7 +344,10 @@ function AppInner() {
               setTab('home');
             }}
             onBuy={() => {
-              /* TODO: 購入トランジション → player */
+              // 購入が成立したときだけ呼ばれる。所有権は usePurchaseFlow が
+              // 反映済みで、ウィッシュからは自動的に外れてマイコレへ移る。
+              // ここで再生画面へ飛ばさないのは、コレクションに増えたことを
+              // その場で見せるほうが購入体験として静かなため。
             }}
             onDiscover={() => setTab('home')}
           />
@@ -352,9 +393,13 @@ function AppInner() {
 export default function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <LanguageProvider>
-        <AppInner />
-      </LanguageProvider>
+      {/* SafeAreaProvider は最外殻に置く。各画面は useSafeAreaInsets() で
+          ノッチ／Dynamic Island／ホームインジケータの実寸を取得する。 */}
+      <SafeAreaProvider>
+        <LanguageProvider>
+          <AppInner />
+        </LanguageProvider>
+      </SafeAreaProvider>
     </GestureHandlerRootView>
   );
 }

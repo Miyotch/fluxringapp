@@ -17,7 +17,7 @@
  * マイコレは 21枠の常設グリッド（未購入も枠を先出し）。
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -32,6 +32,9 @@ import Animated, { FadeInUp } from 'react-native-reanimated';
 import Svg, { Defs, LinearGradient as SvgLinear, Stop, Rect, RadialGradient as SvgRadial } from 'react-native-svg';
 import { PurchaseModal } from '../components/PurchaseModal';
 import { useT } from '../lib/i18n';
+import { useTopInset } from '../lib/safeArea';
+import { formatPrice, TRACK_PRICE_JPY } from '../constants/pricing';
+import type { PurchaseController } from '../lib/usePurchaseFlow';
 
 export type CollectionItem = {
   id: string;
@@ -51,8 +54,11 @@ type Props = {
   wishlist: CollectionItem[];
   onOpenTrack: (id: string) => void;     // 所有曲タップ → 再生画面
   onOpenWish: (id: string) => void;      // ウィッシュ曲タップ → ホームの該当カードへ
-  onBuy: (item: CollectionItem) => void; // ウィッシュの購入ボタン
+  /** 購入が**成立した**ときだけ呼ばれる（キャンセル・失敗では呼ばない） */
+  onBuy: (item: CollectionItem) => void;
   onDiscover: () => void;                // 「作品と出会う」→ ディスカバー
+  /** 購入フロー。未指定なら購入ボタンは押しても何も起きない */
+  purchase?: PurchaseController;
 };
 
 // ── 確定値（v98_FIX） ──
@@ -167,11 +173,31 @@ export const CollectionScreen: React.FC<Props> = ({
   onOpenWish,
   onBuy,
   onDiscover,
+  purchase,
 }) => {
   const t = useT();
+  const titleTop = useTopInset(14); // 従来 58px（=44+14）
   const { width: screenW, height: screenH } = useWindowDimensions();
   const [seg, setSeg] = useState<Segment>('mine');
   const [purchaseTarget, setPurchaseTarget] = useState<CollectionItem | null>(null);
+
+  // ウィッシュの金額表示。ストアのローカライズ価格を正とし、未取得のときだけ
+  // pricing.ts の ¥2,500 にフォールバックする。
+  // （item.priceLabel は buyLabel()＝「購入する ¥2,500」でボタン全体のラベルのため、
+  //   そのまま t('collection.buy', { price }) に渡すと「購入する 購入する ¥2,500」になる）
+  const priceOf = (item: CollectionItem) =>
+    purchase?.displayPriceOf(item.id) ?? formatPrice(TRACK_PRICE_JPY);
+
+  // 購入成立でモーダルを閉じ、成立したときだけ onBuy を通知する。
+  // コレクション側では泡演出を出さない（ホームの購入完了演出＝RisingBubbles が正）。
+  useEffect(() => {
+    if (!purchase) return;
+    return purchase.onSuccess((trackId) => {
+      setPurchaseTarget((prev) => (prev && prev.id === trackId ? null : prev));
+      const bought = wishlist.find((w) => w.id === trackId);
+      if (bought) onBuy(bought);
+    });
+  }, [purchase, wishlist, onBuy]);
 
   // 3列: (画面幅 - 左右padding - 列間×2) / 3。タイルは aspect 2:3
   const colW = (screenW - PAD_X * 2 - COL_GAP * (COLS - 1)) / COLS;
@@ -234,10 +260,13 @@ export const CollectionScreen: React.FC<Props> = ({
           <Text style={styles.wishName} numberOfLines={1}>{item.title}</Text>
           <Pressable
             style={({ pressed }) => [styles.wishBtn, pressed && { opacity: 0.85 }]}
-            onPress={() => setPurchaseTarget(item)}
+            onPress={() => {
+              purchase?.dismiss(); // 前回の失敗表示を持ち越さない
+              setPurchaseTarget(item);
+            }}
           >
             <Text style={styles.wishBtnLabel} numberOfLines={1}>
-              {t('collection.buy', { price: item.priceLabel ?? '¥2,500' })}
+              {t('collection.buy', { price: priceOf(item) })}
             </Text>
           </Pressable>
         </View>
@@ -251,7 +280,7 @@ export const CollectionScreen: React.FC<Props> = ({
       <PanelBackground w={screenW} h={screenH} />
 
       {/* タイトル（.skh: 上58px / 18px / 字間.05em） */}
-      <Text style={styles.skh}>{t('collection.title')}</Text>
+      <Text style={[styles.skh, { paddingTop: titleTop }]}>{t('collection.title')}</Text>
 
       {/* タブ（.col-tabs: 左右22px / 下線 rgba(96,206,224,.15)） */}
       <View style={styles.colTabs}>
@@ -311,17 +340,22 @@ export const CollectionScreen: React.FC<Props> = ({
             ? {
                 id: purchaseTarget.id,
                 title: purchaseTarget.title,
-                priceLabel: purchaseTarget.priceLabel,
+                priceLabel: priceOf(purchaseTarget),
                 artworkUrl: purchaseTarget.artworkUrl,
               }
             : null
         }
+        state={purchase?.state ?? 'idle'}
+        reason={purchase?.reason}
+        // 金額 / 確定ボタンのどちらも OS の課金シートを起動する。
+        // 所有化と onBuy は成立してから（上の purchase.onSuccess）行う。
         onConfirm={() => {
-          const item = purchaseTarget;
-          setPurchaseTarget(null);
-          if (item) onBuy(item);
+          if (purchaseTarget) purchase?.start(purchaseTarget.id);
         }}
-        onCancel={() => setPurchaseTarget(null)}
+        onCancel={() => {
+          setPurchaseTarget(null);
+          purchase?.dismiss();
+        }}
       />
     </View>
   );

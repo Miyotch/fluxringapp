@@ -14,6 +14,7 @@ import React from 'react';
 import { View, Text, Pressable, StyleSheet, Platform } from 'react-native';
 import { COLOR } from '../constants/design-tokens';
 import { useT } from '../lib/i18n';
+import { useBottomInset } from '../lib/safeArea';
 import {
   TabHomeIcon,
   TabCollectionIcon,
@@ -46,8 +47,10 @@ type FooterProps = {
 
 export const Footer: React.FC<FooterProps> = ({ active, onChange, vipLocked = true }) => {
   const t = useT();
+  // ホームインジケータ（34pt）を避ける。従来の固定値を下回らないようにする。
+  const padBottom = useBottomInset(Platform.OS === 'ios' ? 20 : 12);
   return (
-    <View style={styles.bar}>
+    <View style={[styles.bar, { paddingBottom: padBottom }]}>
       {TABS.map((tab) => {
         const isActive = tab.key === active;
         const isVip = tab.key === 'vip';
@@ -99,8 +102,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-around',
-    // TODO: 実機で SafeAreaInsets.bottom を加算する
     paddingTop: 8,
+    // paddingBottom は SafeArea の bottom を JSX 側で上書き
     paddingBottom: Platform.OS === 'ios' ? 28 : 12,
     paddingHorizontal: 8,
     borderTopWidth: StyleSheet.hairlineWidth,

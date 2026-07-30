@@ -25,6 +25,7 @@ import {
 import Animated, { FadeInUp } from 'react-native-reanimated';
 import { ArtworkCard } from '../components/ArtworkCard';
 import { COLOR, SPACE, RADIUS } from '../constants/design-tokens';
+import { useTopInset } from '../lib/safeArea';
 
 export type Artist = {
   id: string;
@@ -59,6 +60,7 @@ export const ArtistScreen: React.FC<Props> = ({
   onOpenStory,
 }) => {
   const { width: screenW } = useWindowDimensions();
+  const headerTop = useTopInset(8); // 従来 52px（=44+8）
   const [stage, setStage] = useState<Stage>('list');
   const [selected, setSelected] = useState<Artist | null>(null);
   const colW = (screenW - SPACE.lg * 2 - SPACE.md) / 2;
@@ -68,7 +70,7 @@ export const ArtistScreen: React.FC<Props> = ({
     return (
       <View style={styles.root}>
         <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
-        <View style={styles.header}>
+        <View style={[styles.header, { paddingTop: headerTop }]}>
           <Pressable onPress={onBackToSettings} hitSlop={12}>
             <Text style={styles.back}>‹ 設定</Text>
           </Pressable>
@@ -103,7 +105,7 @@ export const ArtistScreen: React.FC<Props> = ({
     return (
       <View style={styles.root}>
         <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
-        <View style={styles.header}>
+        <View style={[styles.header, { paddingTop: headerTop }]}>
           <Pressable onPress={() => setStage('list')} hitSlop={12}>
             <Text style={styles.back}>‹ 作家一覧</Text>
           </Pressable>
@@ -135,7 +137,7 @@ export const ArtistScreen: React.FC<Props> = ({
   return (
     <View style={styles.root}>
       <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: headerTop }]}>
         <Pressable onPress={() => setStage('profile')} hitSlop={12}>
           <Text style={styles.back}>‹ 作家</Text>
         </Pressable>
