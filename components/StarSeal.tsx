@@ -8,8 +8,9 @@
  *       放射24・モノコード弦＋比率目盛・2/1回帰弧・6弁ロゼット・頂点菱形・
  *       音階星四方点・銘文2帯・Λ数列・音階/倍音/シューマン ラベル
  *   ② glow: 発光層（WebGL screen合成 → Skia screen+Blur・呼吸 0.86+0.14sin）
- *       同心円3・六芒星6辺＋シューマン線・全ノード（主音のみシアン＋十字光条、
- *       他は白系）
+ *       同心円3・六芒星6辺（シアン・最も明瞭）＋シューマン線・全ノードは
+ *       ブラーの効いた柔らかい点（主音のみシアン、他は白系。十字光条は
+ *       クロスマークに見えるため使わない）
  *   ③ sig : 信号層（通電表現）
  *       幾何路（同心円9・放射・六芒星辺・十二芒星弦・弦スポーク）を
  *       尾を引く光点が定速走行（速度・輝度は基準比-30%系の参照値）＋
@@ -62,14 +63,6 @@ const CYAN = 'rgba(96,206,224,1)';
 // 09_FS.glsl の NSP（スパーク並行数）と一致
 const N_SPARKS = 36;
 
-/* ── 交点の星光（②' シャープ層）の十字光条 ── 実機調整ポイント
-   コア（点）のくっきり感は保ったまま、十字の主張だけを抑える値。
-   強くしすぎると「星の光」ではなく「十字マーク」に見えるので上げすぎ注意。 */
-const SPIKE_LEN_K = 3.2; // 光条の長さ ＝ ノード半径 × この係数
-const SPIKE_LEN_MIN = 2.6; // 光条の長さの下限（× s）
-const SPIKE_W = 0.38; // 光条の太さ（× s）
-const SPIKE_OPACITY = 0.3; // 光条の不透明度
-
 const ink = (a: number) => `rgba(150,190,210,${a})`;
 const lab = (a: number) => `rgba(178,198,216,${a})`;
 
@@ -89,7 +82,7 @@ type TxtItem = {
   size: number; color: string; align: 'c' | 'l' | 'r'; voff: number;
 };
 type GlowCircle = { r: number; op: number };
-type GlowSeg = { x1: number; y1: number; x2: number; y2: number; op: number };
+type GlowSeg = { x1: number; y1: number; x2: number; y2: number; op: number; width?: number };
 type GlowNode = { x: number; y: number; r: number; main: boolean };
 export type CarParam = {
   kind: 0 | 1;              // 0=円 1=線分
@@ -421,7 +414,9 @@ function buildGeometry(cx: number, cy: number, s: number, W: number, H: number):
     [VA[0], VA[1]], [VA[1], VA[2]], [VA[2], VA[0]],
     [VB[0], VB[1]], [VB[1], VB[2]], [VB[2], VB[0]],
   ];
-  hexPairs.forEach(([a, b]) => glowSegs.push({ x1: a[0], y1: a[1], x2: b[0], y2: b[1], op: 0.38 }));
+  // 六芒星の6辺はシアンで最もはっきり見える主役の線にする（他の帯・目盛より
+  // 明確に太く・濃く）。シューマン線（直後の1本）は従来どおり控えめのまま。
+  hexPairs.forEach(([a, b]) => glowSegs.push({ x1: a[0], y1: a[1], x2: b[0], y2: b[1], op: 0.58, width: 1.7 }));
   glowSegs.push({ x1: pol(R_IN, 90)[0], y1: pol(R_IN, 90)[1], x2: SCHU[0], y2: SCHU[1], op: 0.09 });
 
   const glowNodes: GlowNode[] = [];
@@ -756,55 +751,40 @@ export const StarSeal: React.FC<StarSealProps> = ({
             p2={vec(sg.x2, sg.y2)}
             color={CYAN}
             style="stroke"
-            strokeWidth={1.3 * s}
+            strokeWidth={(sg.width ?? 1.3) * s}
             opacity={sg.op}
           />
         ))}
         {geo.glowNodes.map((n, i) => (
-          <React.Fragment key={`gn${i}`}>
-            <Circle cx={n.x} cy={n.y} r={n.r * 1.9} color={n.main ? CYAN : '#F3F8FF'} opacity={0.85} />
-            <Circle cx={n.x} cy={n.y} r={n.r * 4.6} color={n.main ? CYAN : '#F3F8FF'} opacity={0.12} />
-            {n.main && (
-              <>
-                <Line
-                  p1={vec(n.x - n.r * 7, n.y)} p2={vec(n.x + n.r * 7, n.y)}
-                  color={CYAN} style="stroke" strokeWidth={0.8 * s} opacity={0.3}
-                />
-                <Line
-                  p1={vec(n.x, n.y - n.r * 7)} p2={vec(n.x, n.y + n.r * 7)}
-                  color={CYAN} style="stroke" strokeWidth={0.8 * s} opacity={0.3}
-                />
-              </>
-            )}
-          </React.Fragment>
+          <Circle key={`gn${i}`} cx={n.x} cy={n.y} r={n.r * 1.9} color={n.main ? CYAN : '#F3F8FF'} opacity={0.85} />
+        ))}
+        {geo.glowNodes.map((n, i) => (
+          <Circle key={`gh${i}`} cx={n.x} cy={n.y} r={n.r * 4.6} color={n.main ? CYAN : '#F3F8FF'} opacity={0.12} />
         ))}
       </Group>
 
-      {/* ═ ②' 交点の星光（シャープ層） ═
-          発光層は全体に Blur がかかるため交点までにじんでしまう。
-          全ノード（交点）にブラーなしのコア＋十字光条を screen 合成で重ね、
-          星の光のようにくっきり見せる。にじみは②の同位置ハローが担う。
-          コア（点）はくっきりのまま、十字光条だけを SPIKE_* で控えめにしている */}
-      <Group opacity={glowOpacity} layer={<Paint blendMode="screen" />}>
-        {geo.glowNodes.map((n, i) => {
-          const col = n.main ? CYAN : '#FFFFFF';
-          const spike = Math.max(n.r * SPIKE_LEN_K, SPIKE_LEN_MIN * s); // 十字光条の長さ
-          return (
-            <React.Fragment key={`sn${i}`}>
-              <Line
-                p1={vec(n.x - spike, n.y)} p2={vec(n.x + spike, n.y)}
-                color={col} style="stroke" strokeWidth={SPIKE_W * s} strokeCap="round" opacity={SPIKE_OPACITY}
-              />
-              <Line
-                p1={vec(n.x, n.y - spike)} p2={vec(n.x, n.y + spike)}
-                color={col} style="stroke" strokeWidth={SPIKE_W * s} strokeCap="round" opacity={SPIKE_OPACITY}
-              />
-              {/* シャープな白コア＋ごく薄い縁 */}
-              <Circle cx={n.x} cy={n.y} r={Math.max(n.r * 0.85, 0.9 * s)} color="#FFFFFF" opacity={0.95} />
-              <Circle cx={n.x} cy={n.y} r={Math.max(n.r * 1.6, 1.7 * s)} color={col} opacity={0.3} />
-            </React.Fragment>
-          );
-        })}
+      {/* ═ ②' 交点の星光（ソフト層） ═
+          交点にごく小さな白コアだけを screen 合成で重ね、星がにじんで
+          光っているように見せる。十字の光条は入れない（クロスマークに
+          見えてしまうため）。コア自体も②と同じ Blur を通し、
+          「少しぼやけた点」の見え方にする。 */}
+      <Group
+        opacity={glowOpacity}
+        layer={
+          <Paint blendMode="screen">
+            <Blur blur={2.4 * s} />
+          </Paint>
+        }
+      >
+        {geo.glowNodes.map((n, i) => (
+          <Circle
+            key={`sn${i}`}
+            cx={n.x} cy={n.y}
+            r={Math.max(n.r * 0.85, 0.9 * s)}
+            color="#FFFFFF"
+            opacity={n.main ? 0.9 : 0.7}
+          />
+        ))}
       </Group>
 
       {/* ═ ③ 信号層（通電・光の車＋スパーク） ═ */}
