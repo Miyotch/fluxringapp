@@ -25,6 +25,7 @@ import {
   vec,
 } from '@shopify/react-native-skia';
 import { useDerivedValue, SharedValue } from 'react-native-reanimated';
+import { CARD_AURA_ENABLED } from '../constants/design-tokens';
 
 export type CardBackdropProps = {
   /** キャンバスサイズ */
@@ -147,7 +148,10 @@ export const CardBackdrop: React.FC<CardBackdropProps> = ({
           </Group>
         </Group>
 
-        {/* ③ aura：色付きグロー（内 auraA / 外 auraB・rim 光なし） */}
+        {/* ③ aura：色付きグロー（靄）。CARD_AURA_ENABLED=false のときは描かない。
+               ①halo・②接地影は靄ではなくカードを空間に置く影なので残す。
+               v98 の動的 blur/spread 計算は保持してある。 */}
+        {CARD_AURA_ENABLED && (
         <Group opacity={auraOpacity}>
           {/* 外側（広く薄い） */}
           <RoundedRect
@@ -172,6 +176,7 @@ export const CardBackdrop: React.FC<CardBackdropProps> = ({
             <Blur blur={inBlur / 2} />
           </RoundedRect>
         </Group>
+        )}
       </Group>
     </Canvas>
   );
