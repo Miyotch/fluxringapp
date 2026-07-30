@@ -21,6 +21,7 @@ import {
 } from 'react-native';
 import { COLOR, SPACE, RADIUS } from '../constants/design-tokens';
 import { useTopInset } from '../lib/safeArea';
+import { NUM_FONT } from '../constants/fonts';
 
 type Sns = { key: string; label: string; url: string; icon?: ImageSourcePropType };
 type Article = {
@@ -159,7 +160,8 @@ const styles = StyleSheet.create({
     padding: SPACE.md,
     gap: SPACE.sm,
   },
-  articleDate: { color: COLOR.textSecondary, fontSize: 11, letterSpacing: 0.5 },
+  // 日付＝数字表記
+  articleDate: { color: COLOR.textSecondary, fontSize: 11, letterSpacing: 0.5, fontFamily: NUM_FONT },
   articleTitle: { color: COLOR.textPrimary, fontSize: 15, fontWeight: '600', letterSpacing: 0.3 },
   thumb: {
     aspectRatio: 16 / 9,

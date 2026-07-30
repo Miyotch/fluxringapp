@@ -35,6 +35,7 @@ import { PurchaseModal } from '../components/PurchaseModal';
 import { useT } from '../lib/i18n';
 import { useTopInset } from '../lib/safeArea';
 import { formatPrice, TRACK_PRICE_JPY } from '../constants/pricing';
+import { NUM_FONT } from '../constants/fonts';
 import type { PurchaseController } from '../lib/usePurchaseFlow';
 
 export type CollectionItem = {
@@ -440,7 +441,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   // .slot-num（空スロット: 中央）
-  slotNum: { fontSize: 11, letterSpacing: 2.2, color: C.slotNum },
+  slotNum: { fontSize: 11, letterSpacing: 2.2, color: C.slotNum, fontFamily: NUM_FONT }, // 通し番号＝数字表記
   // .deck-slot.filled .slot-num（所有: 上6px・opacity.65）
   filledNum: {
     position: 'absolute',
@@ -451,6 +452,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
     letterSpacing: 2.2,
     color: C.filledNum,
+    fontFamily: NUM_FONT, // 通し番号＝数字表記
     opacity: 0.65,
     textShadowColor: 'rgba(0,0,0,0.8)',
     textShadowOffset: { width: 0, height: 1 },
@@ -477,7 +479,7 @@ const styles = StyleSheet.create({
     borderColor: C.wishBtnBorder,
     borderRadius: 11,
   },
-  wishBtnLabel: { fontSize: 9.5, letterSpacing: 0.95, color: C.cyan },
+  wishBtnLabel: { fontSize: 9.5, letterSpacing: 0.95, color: C.cyan, fontFamily: NUM_FONT }, // 価格＝数字表記
 
   // 空状態
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, gap: 16 },

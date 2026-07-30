@@ -16,6 +16,7 @@ import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { PlayMark } from './icons';
 import { formatPrice, TRACK_PRICE_JPY } from '../constants/pricing';
 import { useT } from '../lib/i18n';
+import { NUM_FONT } from '../constants/fonts';
 
 type Props = {
   owned?: boolean;
@@ -82,6 +83,7 @@ const styles = StyleSheet.create({
     color: '#8FD4DE',
     fontSize: 11,
     letterSpacing: 1,
+    fontFamily: NUM_FONT, // 価格＝数字表記
     marginLeft: 6, // .buy small { margin-left:6px }（.buy の gap:7px に加算）
     // グローなし
   },

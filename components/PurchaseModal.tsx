@@ -39,6 +39,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { COLOR, SPACE, ANIM } from '../constants/design-tokens';
 import { useT } from '../lib/i18n';
+import { NUM_FONT } from '../constants/fonts';
 
 export type PurchaseTarget = {
   id: string;
@@ -305,6 +306,7 @@ const styles = StyleSheet.create({
   price: {
     color: COLOR.auraCyan,
     fontSize: 22,
+    fontFamily: NUM_FONT, // 価格＝数字表記
     // 太らせず大きさだけで主役にする（煽らない）
     fontWeight: '600',
     // BuyButton の price は 11px/ls1。モーダル内の金額は「読ませる値」なので字間で階層差をつける

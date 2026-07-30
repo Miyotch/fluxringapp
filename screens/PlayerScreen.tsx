@@ -35,6 +35,7 @@ import { COLOR, SPACE, TRANSPORT } from '../constants/design-tokens';
 import { formatTime } from '../lib/audio';
 import { useTopInset, useBottomInset } from '../lib/safeArea';
 import { fullAudioUrl, previewUrl } from '../lib/r2';
+import { NUM_FONT } from '../constants/fonts';
 
 export type PlayerTrack = {
   id: string;
@@ -425,7 +426,8 @@ const styles = StyleSheet.create({
     marginLeft: -TRANSPORT.seekKnobSize / 2,
   },
   timeRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: SPACE.md },
-  time: { color: COLOR.textSecondary, fontSize: 11, letterSpacing: 0.5 },
+  // 再生時間＝数字表記
+  time: { color: COLOR.textSecondary, fontSize: 11, letterSpacing: 0.5, fontFamily: NUM_FONT },
   // 戻し/再生/送り/ループの4つが並ぶため gap は xl(32) → lg 相当に詰める
   controls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACE.lg },
   skipBtn: { width: 32, alignItems: 'center', justifyContent: 'center' },

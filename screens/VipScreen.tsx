@@ -34,6 +34,7 @@ import Animated, {
 import { ArtworkCard } from '../components/ArtworkCard';
 import { LockIcon } from '../components/icons';
 import { COLOR, SPACE, RADIUS } from '../constants/design-tokens';
+import { NUM_FONT } from '../constants/fonts';
 import { useTopInset } from '../lib/safeArea';
 
 export type VipCard = {
@@ -224,10 +225,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   backBrand: { color: COLOR.textSecondary, fontSize: 10, letterSpacing: 3 },
-  backSerialNo: { color: COLOR.auraCyan, fontSize: 36, fontWeight: '700', letterSpacing: 2, marginTop: 8 },
-  backEdition: { color: COLOR.textSecondary, fontSize: 11, letterSpacing: 2 },
+  // シリアル番号・エディション・各フィールド＝数字表記
+  backSerialNo: { color: COLOR.auraCyan, fontSize: 36, fontWeight: '700', letterSpacing: 2, marginTop: 8, fontFamily: NUM_FONT },
+  backEdition: { color: COLOR.textSecondary, fontSize: 11, letterSpacing: 2, fontFamily: NUM_FONT },
   backRule: { height: StyleSheet.hairlineWidth, backgroundColor: COLOR.border, marginVertical: SPACE.md },
-  backField: { color: COLOR.textSecondary, fontSize: 11, letterSpacing: 0.5, marginVertical: 2 },
+  backField: { color: COLOR.textSecondary, fontSize: 11, letterSpacing: 0.5, marginVertical: 2, fontFamily: NUM_FONT },
   backSign: { color: COLOR.textPrimary, fontSize: 15, fontStyle: 'italic', marginTop: SPACE.md },
   flipHint: { color: COLOR.textSecondary, fontSize: 12, textAlign: 'center', marginTop: SPACE.md },
 

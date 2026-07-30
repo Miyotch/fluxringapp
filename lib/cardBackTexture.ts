@@ -25,6 +25,7 @@ import {
   SkImage,
 } from '@shopify/react-native-skia';
 import type { CardBackData } from '../components/CardBack';
+import { numFont, isLatinOnly } from './skiaFonts';
 
 // CardBack.tsx と同じ帯色
 const BAND_COLORS = [
@@ -78,6 +79,23 @@ function makeFont(size: number, weight: string = '400', family: string = JP_FONT
   } catch {
     return null;
   }
+}
+
+/**
+ * 数字を含む欧文の文字列（No. 001 / 432 Hz など）は EB Garamond で描く。
+ * 和文混じり・数字なし・未読込のときは従来の明朝（matchFont）にフォールバック。
+ * ※ 見出しの「FLUX RING」や作家名は数字を含まないので従来どおり明朝のまま。
+ */
+function isNumeric(text: string): boolean {
+  return isLatinOnly(text) && /\d/.test(text);
+}
+
+function fontFor(text: string, size: number, weight: string, family: string): SkFont | null {
+  if (isNumeric(text)) {
+    const g = numFont(size);
+    if (g) return g;
+  }
+  return makeFont(size, weight, family);
 }
 
 export type BackPixels = { pixels: Uint8Array; width: number; height: number };
@@ -282,7 +300,7 @@ function carve(
   align: 'l' | 'c' | 'r' = 'c',
   inkColor: string = INK.label,
 ) {
-  const font = makeFont(fs, weight, INK_FONT);
+  const font = fontFor(text, fs, weight, INK_FONT);
   if (!font) return;
   const drawLayer = (dy: number, color: string) => {
     const paint = Skia.Paint();
@@ -319,18 +337,20 @@ function drawRunsCentered(
   weight = '400',
   minRatio = 0.6,
 ): number {
+  // 書体は run ごとに選ぶ（数字を含む欧文＝EB Garamond／和文＝明朝）。
+  // ひと続きの行でも「純正律」は明朝、「432 Hz」は EB Garamond になる。
   const measure = (size: number) => {
-    const font = makeFont(size, weight, INK_FONT);
+    const fonts = runs.map((r) => fontFor(r.text, size, weight, INK_FONT));
     const ls = lsEm * size;
     let total = 0;
     let n = 0;
-    for (const r of runs) {
+    runs.forEach((r, ri) => {
       for (const ch of [...r.text]) {
-        total += estWidth(ch, size, font);
+        total += estWidth(ch, size, fonts[ri]);
         n++;
       }
-    }
-    return { total: total + ls * Math.max(0, n - 1), ls, font };
+    });
+    return { total: total + ls * Math.max(0, n - 1), ls, fonts };
   };
 
   let size = fs;
@@ -338,18 +358,20 @@ function drawRunsCentered(
   if (first.total > maxW && first.total > 0) {
     size = Math.max(fs * minRatio, fs * (maxW / first.total));
   }
-  const { total, ls, font } = measure(size);
-  if (!font) return size;
+  const { total, ls, fonts } = measure(size);
+  if (fonts.every((f) => !f)) return size;
 
   let x = cx - total / 2;
-  for (const r of runs) {
+  runs.forEach((r, ri) => {
+    const font = fonts[ri];
+    if (!font) return;
     const paint = Skia.Paint();
     paint.setColor(Skia.Color(r.color));
     for (const ch of [...r.text]) {
       c.drawText(ch, x, y, paint, font);
       x += estWidth(ch, size, font) + ls;
     }
-  }
+  });
   return size;
 }
 
@@ -460,15 +482,20 @@ function drawSpaced(
 ) {
   const font = makeFont(fs);
   if (!font) return;
+  // 数字を含む行だけ、ASCII の文字を EB Garamond に差し替える（1文字ずつ描いて
+  // いるので混植できる）。「432 Hz ・ 7.83 Hz」なら数字と Hz が Garamond、
+  // 中黒は明朝のまま。数字を含まない行は従来どおり全て明朝。
+  const num = /\d/.test(text) ? numFont(fs) : null;
+  const fontOf = (ch: string) => (num && ch.charCodeAt(0) <= 0x7f ? num : font);
   const paint = Skia.Paint();
   paint.setColor(Skia.Color(color));
   const chars = [...text];
   const ls = lsEm * fs;
-  const widths = chars.map((ch) => estWidth(ch, fs, font));
+  const widths = chars.map((ch) => estWidth(ch, fs, fontOf(ch)));
   const total = widths.reduce((a, b) => a + b, 0) + ls * Math.max(0, chars.length - 1);
   let cx = align === 'c' ? x - total / 2 : align === 'r' ? x - total : x;
   chars.forEach((ch, i) => {
-    c.drawText(ch, cx, y, paint, font);
+    c.drawText(ch, cx, y, paint, fontOf(ch));
     cx += widths[i] + ls;
   });
 }

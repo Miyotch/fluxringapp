@@ -21,7 +21,10 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+import { useFonts } from 'expo-font';
 import { configureAudioMode } from './lib/audio';
+import { APP_FONTS } from './constants/fonts';
+import { loadNumTypeface } from './lib/skiaFonts';
 import { LanguageProvider } from './lib/i18n';
 import { onUserChanged, deleteAccount, signOut } from './lib/firebaseAuth';
 import { usePurchaseFlow } from './lib/usePurchaseFlow';
@@ -74,6 +77,12 @@ const KEY_ONBOARDED = 'fr.onboardingDone';
 const KEY_AGREED = 'fr.agreedTermsVersion';
 
 function AppInner() {
+  // 数字・欧文の EB Garamond を読み込む。読み込み前に fontFamily を当てると
+  // 一瞬だけ別書体で描かれるため、起動フローの判定と同じゲートで待つ。
+  const [fontsLoaded] = useFonts(APP_FONTS);
+  // Skia は matchFont で OS のフォントしか見ないので、魔法陣・カード裏の刻印用に
+  // 同じ ttf を SkTypeface としても読み込む（失敗しても従来の明朝で描ける）。
+  const [skiaFontReady, setSkiaFontReady] = useState(false);
   const [phase, setPhase] = useState<Phase>('launch');
   // launch 後に見せる画面。null=判定中（セッション/オンボ済み/同意状態を確定するまで）
   const [launchScreen, setLaunchScreen] = useState<LaunchScreen | null>(null);
@@ -169,6 +178,7 @@ function AppInner() {
 
   // 起動時に一度だけ音声モードを設定（サイレント時再生・バックグラウンド再生）
   useEffect(() => { configureAudioMode(); }, []);
+  useEffect(() => { loadNumTypeface().finally(() => setSkiaFontReady(true)); }, []);
 
   // 起動時の分岐判定: セッション（永続復元を待つ）・オンボ済み・規約同意状態から
   //   launchScreen（p0 / login / consent / app）と consent の合流先を決める。
@@ -228,8 +238,8 @@ function AppInner() {
 
   // ── フェーズ: 起動フロー（launch → p0 / login / consent / app）──
   if (phase === 'launch') {
-    // 判定中は背景色のみ（すぐに決まる。決まったら LaunchFlow が splash を出す）
-    if (!launchScreen) return <View style={styles.root} />;
+    // 判定中・フォント読込中は背景色のみ（すぐに決まる。決まったら LaunchFlow が splash を出す）
+    if (!launchScreen || !fontsLoaded || !skiaFontReady) return <View style={styles.root} />;
     return (
       <LaunchFlow
         initialScreen={launchScreen}

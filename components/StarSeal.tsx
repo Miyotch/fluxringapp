@@ -40,6 +40,7 @@ import {
   SkPath,
   SkFont,
 } from '@shopify/react-native-skia';
+import { numFont } from '../lib/skiaFonts';
 import { useSharedValue, useDerivedValue, SharedValue } from 'react-native-reanimated';
 
 // ── 参照定数（内部単位） ──
@@ -650,13 +651,17 @@ export const StarSeal: React.FC<StarSealProps> = ({
 
   const geo = useMemo(() => buildGeometry(cx, cy, s, W, H), [cx, cy, s, W, H]);
 
-  // フォント（出現サイズぶんキャッシュ・serif 系）
+  // フォント（出現サイズぶんキャッシュ）。刻まれる文字は周波数・比率・
+  // ローマ数字・ラテン銘文＝すべて欧文なので、トンマナ確定の EB Garamond で描く。
+  // 未読込・失敗時のみ従来の serif 系（Georgia）にフォールバックする。
   const fontFamily = Platform.select({ ios: 'Georgia', default: 'serif' });
   const fonts = useMemo(() => {
     const m = new Map<number, SkFont | null>();
     geo.texts.forEach((t) => {
       const key = Math.round(t.size * 10);
       if (!m.has(key)) {
+        const g = numFont(t.size);
+        if (g) { m.set(key, g); return; }
         try {
           m.set(key, matchFont({ fontFamily, fontSize: t.size, fontStyle: 'normal', fontWeight: '400' }));
         } catch {
