@@ -150,6 +150,8 @@ eas submit --platform ios --latest
 - Expo Go 不可（Skia / reanimated worklet はネイティブ必須）
 - New Architecture 必須（`newArchEnabled: true`）
 - babel プラグイン: `react-native-worklets/plugin` を **plugins の末尾** に配置
+- **iOS ビルドイメージは `latest` 固定**（`eas.json` の `base` プロファイル）。`expo-iap` が依存する `openiap` は iOS 26 SDK の StoreKit API（`Product.SubscriptionInfo.PricingTerms` / `BillingPlanType` / `RenewalInfo.commitmentInfo` / `Transaction.billingPlanType`）を使うため、既定イメージ（Xcode 26 未満）では Swift のコンパイルが通らない
+- EAS CLI は `npx eas-cli@latest ...` で呼ぶ。`npx eas ...` は npm 上の**別パッケージ**（`eas@0.1.0`）を取ってきて `could not determine executable to run` で落ちる
 
 ---
 
