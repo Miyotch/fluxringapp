@@ -17,7 +17,7 @@
  * マイコレは 21枠の常設グリッド（未購入も枠を先出し）。
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -26,6 +26,7 @@ import {
   FlatList,
   StyleSheet,
   StatusBar,
+  PanResponder,
   useWindowDimensions,
 } from 'react-native';
 import Animated, { FadeInUp } from 'react-native-reanimated';
@@ -77,6 +78,13 @@ const FADE_H = 22;              // 上端フェード 22px
 const WISH_COLS = 2;
 const WISH_GAP = 12;
 const WISH_RADIUS = 13.9;
+
+// ── タブの横スワイプ切替（実機調整ポイント） ──
+// 中身は縦スクロールの FlatList なので、「明確に横」のときだけ引き取る。
+const SWIPE_CLAIM_PX = 12;    // これだけ横に動いたら判定を始める
+const SWIPE_H_RATIO = 1.4;    // |dx| がこの倍率で |dy| を上回ること（縦スクロールを奪わない）
+const SWIPE_COMMIT_PX = 48;   // 切替を確定する移動量
+const SWIPE_COMMIT_VX = 0.35; // 速いフリックはこの速度で確定（移動量が短くても切替）
 
 const C = {
   text: '#ECEEF7',
@@ -180,6 +188,24 @@ export const CollectionScreen: React.FC<Props> = ({
   const { width: screenW, height: screenH } = useWindowDimensions();
   const [seg, setSeg] = useState<Segment>('mine');
   const [purchaseTarget, setPurchaseTarget] = useState<CollectionItem | null>(null);
+
+  // タブの横スワイプ切替。中身は縦スクロールの FlatList なので、
+  // Capture 側で「明確に横」のジェスチャだけ先に引き取る。
+  //   ・非 Capture だと FlatList が先に応答者になり、スワイプが届かないことがある
+  //   ・横優位（|dx| > 1.4×|dy|）に限定するので、通常の縦スクロールは奪わない
+  const segSwipe = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponderCapture: (_e, g) =>
+        Math.abs(g.dx) > SWIPE_CLAIM_PX && Math.abs(g.dx) > Math.abs(g.dy) * SWIPE_H_RATIO,
+      onPanResponderRelease: (_e, g) => {
+        const far = Math.abs(g.dx) >= SWIPE_COMMIT_PX;
+        const fast = Math.abs(g.vx) >= SWIPE_COMMIT_VX;
+        if (!far && !fast) return; // 迷い程度の動きでは切り替えない
+        // タブは [マイコレ, ウィッシュ] の並び。左スワイプ=次 / 右スワイプ=前。
+        setSeg(g.dx < 0 ? 'wish' : 'mine');
+      },
+    }),
+  ).current;
 
   // ウィッシュの金額表示。ストアのローカライズ価格を正とし、未取得のときだけ
   // pricing.ts の ¥2,500 にフォールバックする。
@@ -294,8 +320,8 @@ export const CollectionScreen: React.FC<Props> = ({
         ))}
       </View>
 
-      {/* グリッド（上端フェード付き） */}
-      <View style={styles.pagesWrap}>
+      {/* グリッド（上端フェード付き）。横スワイプでマイコレ↔ウィッシュを切替 */}
+      <View style={styles.pagesWrap} {...segSwipe.panHandlers}>
         {seg === 'mine' ? (
           <FlatList
             data={mineSlots}
