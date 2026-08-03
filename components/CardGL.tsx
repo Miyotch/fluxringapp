@@ -756,7 +756,15 @@ export const CardGL: React.FC<CardGLProps> = ({
   // はみ出して重ねる。横長の向き（90°回転など）でもカードの長辺が
   // 収まり、端で切れない。カメラ距離を D/height 倍して見かけの
   // カードサイズは従来と同一に保つ。
-  const D = Math.ceil(Math.hypot(width, height)) + 8;
+  //
+  // 対角線には**最大表示倍率**を掛ける。flip は裏面で FLIP_BACK_SCALE まで
+  // 拡大し、回転の中腹ではさらに FLIP_LIFT ぶん浮くため、倍率1のままの
+  // キャンバスだと拡大後のカードが収まらず四隅が切れる
+  // （裏面1.75倍の対角は枠189×284pt に対して 471pt。倍率1基準の D=350 では
+  //   確実に欠ける）。camZ が D に比例するので、D を増やしても倍率1での
+  // 見かけのサイズ（px/world = height/2.475）は変わらず、余白だけが増える。
+  const maxScale = isFlip ? FLIP_BACK_SCALE + FLIP_LIFT : 1;
+  const D = Math.ceil(Math.hypot(width, height) * maxScale) + 8;
   const camZ = (3.4 * D) / height;
 
   // ラッパは常に同じ View（要素型を変えると Canvas が再マウントされ
