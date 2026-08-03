@@ -359,7 +359,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
   },
-  navText: { color: COLOR.textSecondary, fontSize: 13, letterSpacing: 0.4 },
+  // .skback: 12px / 字間.05em / #AEB4D6
+  navText: { color: COLOR.textBack, fontSize: 12, letterSpacing: 0.6 },
   cardArea: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   backLayer: { position: 'absolute', top: 0, left: 0 },
   // ベール背景（コレクションをぼかしたような暗い面）
@@ -427,7 +428,8 @@ const styles = StyleSheet.create({
   },
   timeRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: SPACE.md },
   // 再生時間＝数字表記
-  time: { color: COLOR.textSecondary, fontSize: 11, letterSpacing: 0.5, fontFamily: NUM_FONT },
+  // .ptimes: 9.5px / 字間.06em / #98A2C4
+  time: { color: '#98A2C4', fontSize: 9.5, letterSpacing: 0.57, fontFamily: NUM_FONT },
   // 戻し/再生/送り/ループの4つが並ぶため gap は xl(32) → lg 相当に詰める
   controls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACE.lg },
   skipBtn: { width: 32, alignItems: 'center', justifyContent: 'center' },

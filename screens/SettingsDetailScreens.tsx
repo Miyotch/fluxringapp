@@ -711,10 +711,13 @@ const s = StyleSheet.create({
   },
   // ファウンダー（上部の大きな中央寄せブロック）
   creditHeroItem: { alignItems: 'center', marginBottom: SPACE.lg },
+  // eyebrow見出し: 10px / 字間.28em / Gold #E9C879 / weight600 / 大文字
   creditHeroRole: {
-    color: COLOR.textSecondary,
-    fontSize: 11,
-    letterSpacing: 2.5,
+    color: '#E9C879',
+    fontSize: 10,
+    fontWeight: '600',
+    letterSpacing: 2.8,
+    textTransform: 'uppercase',
     marginBottom: 10,
     textAlign: 'center',
   },
@@ -741,10 +744,13 @@ const s = StyleSheet.create({
   },
   // 一般クレジット（左寄せの縦積み）
   creditItem: { marginBottom: SPACE.lg, alignItems: 'flex-start' },
+  // eyebrow見出し: 10px / 字間.28em / Gold #E9C879 / weight600 / 大文字
   creditRole: {
-    color: COLOR.textSecondary,
-    fontSize: 11,
-    letterSpacing: 2,
+    color: '#E9C879',
+    fontSize: 10,
+    fontWeight: '600',
+    letterSpacing: 2.8,
+    textTransform: 'uppercase',
     marginBottom: 8,
   },
   creditName: {
@@ -778,7 +784,8 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  back: { color: COLOR.textSecondary, fontSize: 14 },
+  // .skback: 12px / 字間.05em / #AEB4D6
+  back: { color: COLOR.textBack, fontSize: 12, letterSpacing: 0.6 },
   h1: { color: COLOR.textPrimary, fontSize: 16, fontWeight: '600', letterSpacing: 1 },
   body: { paddingHorizontal: SPACE.lg, paddingBottom: 48, gap: SPACE.md },
 

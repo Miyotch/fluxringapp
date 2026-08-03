@@ -35,7 +35,7 @@ import { PurchaseModal } from '../components/PurchaseModal';
 import { useT } from '../lib/i18n';
 import { useTopInset } from '../lib/safeArea';
 import { formatPrice, TRACK_PRICE_JPY } from '../constants/pricing';
-import { NUM_FONT } from '../constants/fonts';
+import { NUM_FONT, JP_SERIF_FONT } from '../constants/fonts';
 import type { PurchaseController } from '../lib/usePurchaseFlow';
 
 export type CollectionItem = {
@@ -470,7 +470,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingBottom: 12,
   },
-  wishName: { fontSize: 12, letterSpacing: 0.6, color: C.text, marginBottom: 7 },
+  // .wl-name: 12px / 字間.05em / #ECEEF7 / 明朝体
+  wishName: { fontSize: 12, letterSpacing: 0.6, color: C.text, fontFamily: JP_SERIF_FONT, marginBottom: 7 },
   wishBtn: {
     alignSelf: 'flex-start',
     paddingVertical: 5,

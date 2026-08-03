@@ -220,7 +220,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACE.lg,
     paddingBottom: 48,
   },
-  h1: { color: COLOR.textPrimary, fontSize: 24, fontWeight: '700', letterSpacing: 0.5, marginBottom: SPACE.lg },
+  // .skh: 18px / 字間.05em / #ECEEF7（コレクションと同じフッタータブ・ルート見出し）
+  h1: { color: COLOR.textPrimary, fontSize: 18, letterSpacing: 0.9, marginBottom: SPACE.lg },
   section: { marginBottom: SPACE.lg },
   sectionTitle: {
     color: COLOR.textSecondary,
