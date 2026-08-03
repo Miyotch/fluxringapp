@@ -97,7 +97,8 @@ export const AppleButton: React.FC<Props> = ({
         nonce: hashedNonce,
       });
       if (!credential.identityToken) {
-        onError('Apple サインインに失敗しました（トークンなし）');
+        // messages.login_provider（確定文言・改変不可）
+        onError('ログインを完了できませんでした。もう一度お試しください。');
         return;
       }
       onBusy(true);
@@ -106,7 +107,9 @@ export const AppleButton: React.FC<Props> = ({
     } catch (e: any) {
       // ユーザーが途中でキャンセルした場合はエラー表示しない
       if (e?.code === 'ERR_REQUEST_CANCELED') return;
-      onError(e?.message ?? 'Apple サインインに失敗しました');
+      // messages.login_provider（確定文言・改変不可）。e?.message はログにのみ使い、
+      // ユーザーには生の技術文言を見せない。
+      onError('ログインを完了できませんでした。もう一度お試しください。');
     } finally {
       onBusy(false);
     }

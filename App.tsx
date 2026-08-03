@@ -239,7 +239,7 @@ function AppInner() {
   // ── フェーズ: 起動フロー（launch → p0 / login / consent / app）──
   if (phase === 'launch') {
     // 判定中・フォント読込中は背景色のみ（すぐに決まる。決まったら LaunchFlow が splash を出す）
-    if (!launchScreen || !fontsLoaded || !skiaFontReady) return <View style={styles.root} />;
+    if (!launchScreen || !fontsLoaded || !skiaFontReady) return <View style={styles.launchRoot} />;
     return (
       <LaunchFlow
         initialScreen={launchScreen}
@@ -439,4 +439,8 @@ export default function App() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: COLOR_BG },
   body: { flex: 1 },
+  // 起動判定中の一瞬だけ出る空の画面。app.json の splash/backgroundColor と
+  // 同じ #0E0C20 にして、ネイティブ起動画面 → この画面 → LaunchFlow の間で
+  // 背景色が一瞬だけ #171430 に化けるフラッシュを防ぐ（launch_onboarding_spec 準拠）。
+  launchRoot: { flex: 1, backgroundColor: '#0E0C20' },
 });
