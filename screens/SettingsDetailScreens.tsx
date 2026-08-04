@@ -21,8 +21,10 @@ import {
   StyleSheet,
   StatusBar,
   Linking,
+  Modal,
 } from 'react-native';
 import { COLOR, SPACE, RADIUS } from '../constants/design-tokens';
+import { NUM_FONT } from '../constants/fonts';
 import { useT, useI18n, Lang } from '../lib/i18n';
 import { useAuthUser } from '../lib/useAuthUser';
 import { StarField } from '../components/StarField';
@@ -52,10 +54,34 @@ const SubHeader: React.FC<{ title: string; onBack: () => void }> = ({ title, onB
 export const AccountScreen: React.FC<{
   onBack: () => void;
   onSignOut: () => void;
-}> = ({ onBack, onSignOut }) => {
+  /** 退会（確認後に実行）。設定リストがカード型7項目になったため、
+   *  退会導線はこの画面に集約する（App Store の審査要件で、アカウントを
+   *  作れるアプリはアプリ内に削除導線が必要）。 */
+  onDeleteAccount?: () => void | Promise<void>;
+}> = ({ onBack, onSignOut, onDeleteAccount }) => {
   const t = useT();
   const user = useAuthUser();
   const email = user?.email ?? t('settings.notLoggedIn');
+
+  // 退会の確認ポップアップ
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  const runDelete = async () => {
+    if (!onDeleteAccount) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await onDeleteAccount();
+      setConfirmDelete(false);
+    } catch {
+      setDeleteError(t('settings.delete.failed'));
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   return (
     <View style={s.root}>
       <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
@@ -79,11 +105,55 @@ export const AccountScreen: React.FC<{
           <Text style={s.outlineLabel}>{t('settings.signout')}</Text>
         </Pressable>
 
-        {/* TODO: アカウント削除フロー（確認ダイアログ + Firebase 退会処理） */}
-        <Pressable style={s.dangerRow} onPress={() => {}}>
-          <Text style={s.dangerLabel}>{t('account.delete')}</Text>
-        </Pressable>
+        {onDeleteAccount && (
+          <>
+            <Pressable
+              style={({ pressed }) => [s.dangerRow, pressed && { opacity: 0.7 }]}
+              onPress={() => {
+                setDeleteError(null);
+                setConfirmDelete(true);
+              }}
+            >
+              <Text style={s.dangerLabel}>{t('settings.deleteAccount')}</Text>
+            </Pressable>
+            <Text style={s.dangerHint}>{t('settings.deleteAccount.sub')}</Text>
+          </>
+        )}
       </ScrollView>
+
+      {/* 退会の確認ポップアップ（購入情報など全消去の確認・戻る/削除する） */}
+      <Modal
+        visible={confirmDelete}
+        transparent
+        animationType="fade"
+        onRequestClose={() => !deleting && setConfirmDelete(false)}
+      >
+        <Pressable style={s.modalScrim} onPress={() => !deleting && setConfirmDelete(false)}>
+          <Pressable style={s.modalCard} onPress={() => {}}>
+            <Text style={s.modalTitle}>{t('settings.delete.title')}</Text>
+            <Text style={s.modalBody}>{t('settings.delete.body')}</Text>
+            {deleteError && <Text style={s.modalError}>{deleteError}</Text>}
+
+            <Pressable
+              style={({ pressed }) => [s.modalDeleteBtn, (pressed || deleting) && { opacity: 0.7 }]}
+              onPress={runDelete}
+              disabled={deleting}
+            >
+              <Text style={s.modalDeleteLabel}>
+                {deleting ? '処理中…' : t('settings.delete.confirm')}
+              </Text>
+            </Pressable>
+
+            <Pressable
+              style={({ pressed }) => [s.modalCancelBtn, pressed && { opacity: 0.7 }]}
+              onPress={() => setConfirmDelete(false)}
+              disabled={deleting}
+            >
+              <Text style={s.modalCancelLabel}>{t('settings.delete.cancel')}</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 };
@@ -679,11 +749,85 @@ export const DocumentScreen: React.FC<{ kind: DocKind; onBack: () => void }> = (
 };
 
 // ─────────────────────────────────────────────
+// 情報（規約類のまとめ）
+// ─────────────────────────────────────────────
+
+const APP_VERSION = '1.0.0';
+
+/**
+ * 設定「情報」。CREDITS / 利用規約 / プライバシー / 特商法 を束ねる中間画面。
+ * 設定リストを7項目に保つため、読み物4点はここへ集約する。
+ * 遷移は自前の state で持つ（App 側の settingsDetail を1段に保てるので、
+ * 読み物から戻ったときに設定直下ではなくこの画面へ正しく戻れる）。
+ */
+export const InfoScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
+  const t = useT();
+  const [doc, setDoc] = useState<DocKind | null>(null);
+
+  if (doc) return <DocumentScreen kind={doc} onBack={() => setDoc(null)} />;
+
+  const rows: { kind: DocKind; label: string }[] = [
+    { kind: 'thanks', label: t('settings.thanks') },
+    { kind: 'terms', label: t('settings.terms') },
+    { kind: 'privacy', label: t('settings.privacy') },
+    { kind: 'tokushoho', label: t('settings.tokushoho') },
+  ];
+
+  return (
+    <View style={s.root}>
+      <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
+      <SubHeader title={t('settings.info')} onBack={onBack} />
+      <ScrollView contentContainerStyle={s.body} showsVerticalScrollIndicator={false}>
+        <View style={s.infoList}>
+          {rows.map((r) => (
+            <Pressable
+              key={r.kind}
+              style={({ pressed }) => [s.infoCard, pressed && { opacity: 0.7 }]}
+              onPress={() => setDoc(r.kind)}
+              accessibilityRole="button"
+            >
+              <Text style={s.infoLabel}>{r.label}</Text>
+              <Text style={s.chevron}>›</Text>
+            </Pressable>
+          ))}
+        </View>
+        <Text style={s.version}>{t('settings.version', { v: APP_VERSION })}</Text>
+      </ScrollView>
+    </View>
+  );
+};
+
+// ─────────────────────────────────────────────
 // スタイル
 // ─────────────────────────────────────────────
 
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: COLOR.bg },
+
+  // ── 情報（設定と同じカード型リスト）──
+  infoList: { gap: 12 },
+  infoCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 17,
+    paddingHorizontal: SPACE.md,
+    borderRadius: RADIUS.lg,
+    borderWidth: 1,
+    borderColor: COLOR.border,
+    backgroundColor: 'rgba(34,36,69,0.30)',
+  },
+  infoLabel: { color: COLOR.textPrimary, fontSize: 14, letterSpacing: 1.6, flex: 1, paddingRight: SPACE.sm },
+  // バージョン番号＝数字表記
+  version: {
+    fontFamily: NUM_FONT,
+    marginTop: SPACE.lg,
+    color: COLOR.textSecondary,
+    fontSize: 11,
+    textAlign: 'center',
+    letterSpacing: 0.5,
+    opacity: 0.7,
+  },
 
   // ── CREDITS（Special Thanks）──
   creditsRoot: { flex: 1, backgroundColor: COLOR.bg },
@@ -849,8 +993,57 @@ const s = StyleSheet.create({
     alignItems: 'center',
   },
   outlineLabel: { color: COLOR.textSecondary, fontSize: 14, letterSpacing: 1 },
-  dangerRow: { marginTop: SPACE.lg, alignItems: 'center', paddingVertical: SPACE.sm },
-  dangerLabel: { color: COLOR.badge, fontSize: 13, letterSpacing: 0.5 },
+  dangerRow: {
+    marginTop: SPACE.lg,
+    paddingVertical: 14,
+    borderRadius: RADIUS.lg,
+    borderWidth: 1,
+    borderColor: 'rgba(255,59,48,0.55)',
+    backgroundColor: 'rgba(255,59,48,0.06)',
+    alignItems: 'center',
+  },
+  dangerLabel: { color: COLOR.badge, fontSize: 14, letterSpacing: 1, fontWeight: '600' },
+  dangerHint: {
+    marginTop: SPACE.xs,
+    color: COLOR.textSecondary,
+    fontSize: 11,
+    textAlign: 'center',
+    opacity: 0.8,
+  },
+
+  // ── 退会確認モーダル ──
+  modalScrim: {
+    flex: 1,
+    backgroundColor: 'rgba(8,7,20,0.72)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: SPACE.xl,
+  },
+  modalCard: {
+    width: '100%',
+    maxWidth: 340,
+    borderRadius: RADIUS.lg,
+    borderWidth: 1,
+    borderColor: 'rgba(255,59,48,0.30)',
+    backgroundColor: '#1B1838',
+    padding: SPACE.lg,
+    gap: SPACE.sm,
+  },
+  modalTitle: { color: COLOR.textPrimary, fontSize: 17, fontWeight: '700', letterSpacing: 0.5, textAlign: 'center' },
+  modalBody: { color: COLOR.textSecondary, fontSize: 13, lineHeight: 20, textAlign: 'center' },
+  modalError: { color: COLOR.badge, fontSize: 12, textAlign: 'center' },
+  modalDeleteBtn: {
+    marginTop: SPACE.sm,
+    paddingVertical: 14,
+    borderRadius: RADIUS.lg,
+    borderWidth: 1,
+    borderColor: 'rgba(255,59,48,0.55)',
+    backgroundColor: 'rgba(255,59,48,0.12)',
+    alignItems: 'center',
+  },
+  modalDeleteLabel: { color: COLOR.badge, fontSize: 15, fontWeight: '700', letterSpacing: 1 },
+  modalCancelBtn: { paddingVertical: 12, alignItems: 'center' },
+  modalCancelLabel: { color: COLOR.textPrimary, fontSize: 14, letterSpacing: 0.5 },
 });
 
 export default DocumentScreen;

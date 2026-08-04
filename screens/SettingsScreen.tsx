@@ -1,31 +1,25 @@
 /**
  * SettingsScreen.tsx — 設定 P5
  * ------------------------------------------------------------------
- * ワイヤーフレーム 04 / 設定画面（P5）確定リスト:
- *   静かなリスト（ラベル＋控えめな矢印のみ・アイコンは並べない）。
- *   セクションで小さなまとまりに分け、余白で静かに区切る。
+ * 確定デザイン: セクション見出しを持たない**カード型の一列リスト**。
+ * 1項目 = 角丸の枠 + ラベル（字間広め）+ 右端の控えめな矢印。副文は置かない。
  *
- *   【アカウント】
- *     1. アカウント（メール・サインアウト）   naoki@example.com
- *     2. 購入の復元（買い切り作品を引き継ぐ）
- *   【CREATOR】
- *     3. Artistのご紹介（作家一覧 → 作家 → 楽曲一覧）
- *   【一般】
- *     4. 言語（日本語）
- *     5. サポート（お問い合わせ）
- *   【情報】
- *     6. Special Thanks（スタッフクレジット・協力者）
- *     7. 利用規約
- *     8. プライバシーポリシー
- *     9. 特定商取引法に基づく表記
- *   ─ サインアウト（枠線ボタン）
- *   ─ FLUX RING バージョン 1.0.0
+ *   1. アカウント        （メール・パスワード・サインアウト・退会）
+ *   2. 購入の復元        （買い切り作品を引き継ぐ）
+ *   3. Artistのご紹介    （作家一覧 → 作家 → 楽曲一覧）
+ *   4. 言語
+ *   5. サポート
+ *   6. 情報              （CREDITS / 利用規約 / プライバシー / 特商法 / バージョン）
+ *   7. サインアウト
+ *
+ * CLAUDE.md の遷移図「アカウント / 購入の復元 → Artistのご紹介 → 言語 / サポート / 情報」
+ * と同じ粒度。規約類の4点は 6.情報 の下にまとめ、退会は 1.アカウント の中に置く。
  *
  *   ※ 再生設定・通知設定・テーマ切替・カスタマイズ・EQ は置かない。
  *   ※ 通知は設定に入れず、ホーム右上のベルへ。
  */
 
-import React, { useState } from 'react';
+import React from 'react';
 import {
   View,
   Text,
@@ -33,15 +27,10 @@ import {
   ScrollView,
   StyleSheet,
   StatusBar,
-  Modal,
 } from 'react-native';
 import { COLOR, SPACE, RADIUS } from '../constants/design-tokens';
-import { NUM_FONT } from '../constants/fonts';
 import { useT } from '../lib/i18n';
-import { useAuthUser } from '../lib/useAuthUser';
 import { useTopInset } from '../lib/safeArea';
-
-const APP_VERSION = '1.0.0';
 
 export type SettingsKey =
   | 'account'
@@ -49,6 +38,7 @@ export type SettingsKey =
   | 'artist'
   | 'language'
   | 'support'
+  | 'info'
   | 'thanks'
   | 'terms'
   | 'privacy'
@@ -57,66 +47,22 @@ export type SettingsKey =
 type Props = {
   onSelect: (key: SettingsKey) => void;
   onSignOut: () => void;
-  onDeleteAccount: () => void | Promise<void>; // 退会（確認後に実行）
 };
 
-type Row = { key: SettingsKey; label: string; sub?: string; value?: string };
-type Section = { title: string; rows: Row[] };
+type Row = { key: SettingsKey | 'signout'; label: string };
 
-export const SettingsScreen: React.FC<Props> = ({ onSelect, onSignOut, onDeleteAccount }) => {
+export const SettingsScreen: React.FC<Props> = ({ onSelect, onSignOut }) => {
   const t = useT();
   const scrollTop = useTopInset(12); // 従来 56px（=44+12）
-  const user = useAuthUser();
-  const email = user?.email ?? t('settings.notLoggedIn');
 
-  // 退会の確認ポップアップ
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
-
-  const runDelete = async () => {
-    setDeleting(true);
-    setDeleteError(null);
-    try {
-      await onDeleteAccount();
-      setConfirmDelete(false);
-    } catch {
-      setDeleteError(t('settings.delete.failed'));
-    } finally {
-      setDeleting(false);
-    }
-  };
-
-  const sections: Section[] = [
-    {
-      title: t('settings.sec.account'),
-      rows: [
-        { key: 'account', label: t('settings.account'), sub: email },
-        { key: 'restore', label: t('settings.restore'), sub: t('settings.restore.sub') },
-      ],
-    },
-    {
-      title: t('settings.sec.creator'),
-      rows: [
-        { key: 'artist', label: t('settings.artist'), sub: t('settings.artist.sub') },
-      ],
-    },
-    {
-      title: t('settings.sec.general'),
-      rows: [
-        { key: 'language', label: t('settings.language'), value: t('settings.langName') },
-        { key: 'support', label: t('settings.support'), sub: t('settings.support.sub') },
-      ],
-    },
-    {
-      title: t('settings.sec.info'),
-      rows: [
-        { key: 'thanks', label: t('settings.thanks'), sub: t('settings.thanks.sub') },
-        { key: 'terms', label: t('settings.terms') },
-        { key: 'privacy', label: t('settings.privacy') },
-        { key: 'tokushoho', label: t('settings.tokushoho') },
-      ],
-    },
+  const rows: Row[] = [
+    { key: 'account', label: t('settings.account') },
+    { key: 'restore', label: t('settings.restore') },
+    { key: 'artist', label: t('settings.artist') },
+    { key: 'language', label: t('settings.language') },
+    { key: 'support', label: t('settings.support') },
+    { key: 'info', label: t('settings.info') },
+    { key: 'signout', label: t('settings.signout') },
   ];
 
   return (
@@ -129,85 +75,20 @@ export const SettingsScreen: React.FC<Props> = ({ onSelect, onSignOut, onDeleteA
       >
         <Text style={styles.h1}>{t('settings.title')}</Text>
 
-        {sections.map((sec) => (
-          <View key={sec.title} style={styles.section}>
-            <Text style={styles.sectionTitle}>{sec.title}</Text>
-            {sec.rows.map((row) => (
-              <Pressable
-                key={row.key}
-                style={styles.row}
-                onPress={() => onSelect(row.key)}
-              >
-                <View style={styles.rowText}>
-                  <Text style={styles.rowLabel}>{row.label}</Text>
-                  {row.sub && <Text style={styles.rowSub}>{row.sub}</Text>}
-                </View>
-                <View style={styles.rowRight}>
-                  {row.value && <Text style={styles.rowValue}>{row.value}</Text>}
-                  <Text style={styles.chevron}>›</Text>
-                </View>
-              </Pressable>
-            ))}
-          </View>
-        ))}
-
-        {/* サインアウト（枠線ボタン） */}
-        <Pressable
-          style={({ pressed }) => [styles.signOut, pressed && { opacity: 0.7 }]}
-          onPress={onSignOut}
-        >
-          <Text style={styles.signOutText}>{t('settings.signout')}</Text>
-        </Pressable>
-
-        {/* アカウント削除（退会・危険操作。確認ポップアップを開く） */}
-        <Pressable
-          style={({ pressed }) => [styles.deleteBtn, pressed && { opacity: 0.7 }]}
-          onPress={() => {
-            setDeleteError(null);
-            setConfirmDelete(true);
-          }}
-        >
-          <Text style={styles.deleteText}>{t('settings.deleteAccount')}</Text>
-        </Pressable>
-        <Text style={styles.deleteHint}>{t('settings.deleteAccount.sub')}</Text>
-
-        {/* アプリ情報 */}
-        <Text style={styles.version}>{t('settings.version', { v: APP_VERSION })}</Text>
+        <View style={styles.list}>
+          {rows.map((row) => (
+            <Pressable
+              key={row.key}
+              style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
+              onPress={() => (row.key === 'signout' ? onSignOut() : onSelect(row.key))}
+              accessibilityRole="button"
+            >
+              <Text style={styles.cardLabel}>{row.label}</Text>
+              <Text style={styles.chevron}>›</Text>
+            </Pressable>
+          ))}
+        </View>
       </ScrollView>
-
-      {/* 退会の確認ポップアップ（購入情報など全消去の確認・戻る/削除する） */}
-      <Modal
-        visible={confirmDelete}
-        transparent
-        animationType="fade"
-        onRequestClose={() => !deleting && setConfirmDelete(false)}
-      >
-        <Pressable style={styles.modalScrim} onPress={() => !deleting && setConfirmDelete(false)}>
-          <Pressable style={styles.modalCard} onPress={() => {}}>
-            <Text style={styles.modalTitle}>{t('settings.delete.title')}</Text>
-            <Text style={styles.modalBody}>{t('settings.delete.body')}</Text>
-            {deleteError && <Text style={styles.modalError}>{deleteError}</Text>}
-
-            <Pressable
-              style={({ pressed }) => [styles.modalDeleteBtn, (pressed || deleting) && { opacity: 0.7 }]}
-              onPress={runDelete}
-              disabled={deleting}
-            >
-              <Text style={styles.modalDeleteLabel}>
-                {deleting ? '処理中…' : t('settings.delete.confirm')}
-              </Text>
-            </Pressable>
-
-            <Pressable
-              style={({ pressed }) => [styles.modalCancelBtn, pressed && { opacity: 0.7 }]}
-              onPress={() => setConfirmDelete(false)}
-              disabled={deleting}
-            >
-              <Text style={styles.modalCancelLabel}>{t('settings.delete.cancel')}</Text>
-            </Pressable>
-          </Pressable>
-        </Pressable>
-      </Modal>
     </View>
   );
 };
@@ -222,98 +103,23 @@ const styles = StyleSheet.create({
   },
   // .skh: 18px / 字間.05em / #ECEEF7（コレクションと同じフッタータブ・ルート見出し）
   h1: { color: COLOR.textPrimary, fontSize: 18, letterSpacing: 0.9, marginBottom: SPACE.lg },
-  section: { marginBottom: SPACE.lg },
-  sectionTitle: {
-    color: COLOR.textSecondary,
-    fontSize: 11,
-    letterSpacing: 1.2,
-    marginBottom: SPACE.xs,
-    paddingHorizontal: 2,
-  },
-  row: {
+
+  // カード型の一列リスト。区切り線ではなく、角丸の枠と余白で1項目ずつ独立させる
+  list: { gap: 12 },
+  card: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 16,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: COLOR.border,
-  },
-  rowText: { flex: 1, gap: 3 },
-  rowLabel: { color: COLOR.textPrimary, fontSize: 15, letterSpacing: 0.3 },
-  rowSub: { color: COLOR.textSecondary, fontSize: 12 },
-  rowRight: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
-  rowValue: { color: COLOR.textSecondary, fontSize: 13 },
-  chevron: { color: COLOR.textSecondary, fontSize: 18 },
-  signOut: {
-    marginTop: SPACE.md,
-    paddingVertical: 15,
+    paddingVertical: 17,
+    paddingHorizontal: SPACE.md,
     borderRadius: RADIUS.lg,
     borderWidth: 1,
     borderColor: COLOR.border,
-    alignItems: 'center',
+    backgroundColor: 'rgba(34,36,69,0.30)',
   },
-  signOutText: { color: COLOR.textSecondary, fontSize: 14, letterSpacing: 1 },
-  // アカウント削除（危険操作・赤系の枠線ボタン）
-  deleteBtn: {
-    marginTop: SPACE.md,
-    paddingVertical: 15,
-    borderRadius: RADIUS.lg,
-    borderWidth: 1,
-    borderColor: 'rgba(255,59,48,0.55)',
-    backgroundColor: 'rgba(255,59,48,0.06)',
-    alignItems: 'center',
-  },
-  deleteText: { color: COLOR.badge, fontSize: 14, letterSpacing: 1, fontWeight: '600' },
-  deleteHint: {
-    marginTop: SPACE.xs,
-    color: COLOR.textSecondary,
-    fontSize: 11,
-    textAlign: 'center',
-    opacity: 0.8,
-  },
-  // バージョン番号＝数字表記
-  version: {
-    fontFamily: NUM_FONT,
-    marginTop: SPACE.lg,
-    color: COLOR.textSecondary,
-    fontSize: 11,
-    textAlign: 'center',
-    letterSpacing: 0.5,
-    opacity: 0.7,
-  },
-  // 退会確認モーダル
-  modalScrim: {
-    flex: 1,
-    backgroundColor: 'rgba(8,7,20,0.72)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: SPACE.xl,
-  },
-  modalCard: {
-    width: '100%',
-    maxWidth: 340,
-    borderRadius: RADIUS.lg,
-    borderWidth: 1,
-    borderColor: 'rgba(255,59,48,0.30)',
-    backgroundColor: '#1B1838',
-    padding: SPACE.lg,
-    gap: SPACE.sm,
-  },
-  modalTitle: { color: COLOR.textPrimary, fontSize: 17, fontWeight: '700', letterSpacing: 0.5, textAlign: 'center' },
-  modalBody: { color: COLOR.textSecondary, fontSize: 13, lineHeight: 20, textAlign: 'center' },
-  modalError: { color: COLOR.badge, fontSize: 12, textAlign: 'center' },
-  modalDeleteBtn: {
-    marginTop: SPACE.sm,
-    paddingVertical: 14,
-    borderRadius: RADIUS.lg,
-    borderWidth: 1,
-    borderColor: 'rgba(255,59,48,0.55)',
-    backgroundColor: 'rgba(255,59,48,0.12)',
-    alignItems: 'center',
-  },
-  modalDeleteLabel: { color: COLOR.badge, fontSize: 15, fontWeight: '700', letterSpacing: 1 },
-  modalCancelBtn: { paddingVertical: 12, alignItems: 'center' },
-  modalCancelLabel: { color: COLOR.textPrimary, fontSize: 14, letterSpacing: 0.5 },
+  cardPressed: { opacity: 0.7 },
+  cardLabel: { color: COLOR.textPrimary, fontSize: 14, letterSpacing: 1.6 },
+  chevron: { color: COLOR.textSecondary, fontSize: 16 },
 });
 
 export default SettingsScreen;

@@ -41,6 +41,7 @@ import {
   RestoreScreen,
   LanguageScreen,
   SupportScreen,
+  InfoScreen,
   DocumentScreen,
 } from './screens/SettingsDetailScreens';
 import { NotificationsScreen } from './screens/NotificationsScreen';
@@ -320,6 +321,13 @@ function AppInner() {
               try { await signOut(); } catch {}
               restartLaunch();
             }}
+            onDeleteAccount={async () => {
+              // 退会: Firebase のアカウントを削除（未ログイン/スタブ時は no-op）→
+              // 起動フローへ戻す（ログイン画面に落ちる）。失敗時は例外を投げて
+              // AccountScreen 側で表示。
+              await deleteAccount();
+              restartLaunch();
+            }}
           />
         );
       case 'restore':
@@ -328,6 +336,8 @@ function AppInner() {
         return <LanguageScreen onBack={back} />;
       case 'support':
         return <SupportScreen onBack={back} />;
+      case 'info':
+        return <InfoScreen onBack={back} />;
       case 'thanks':
         return <DocumentScreen kind="thanks" onBack={back} />;
       case 'terms':
@@ -403,13 +413,6 @@ function AppInner() {
             }}
             onSignOut={async () => {
               try { await signOut(); } catch {}
-              restartLaunch();
-            }}
-            onDeleteAccount={async () => {
-              // 退会: Firebase のアカウントを削除（未ログイン/スタブ時は no-op）→
-              // 起動フローへ戻す（ログイン画面に落ちる）。失敗時は例外を投げて
-              // SettingsScreen 側で表示。
-              await deleteAccount();
               restartLaunch();
             }}
           />
