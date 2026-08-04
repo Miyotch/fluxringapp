@@ -414,9 +414,10 @@ function buildGeometry(cx: number, cy: number, s: number, W: number, H: number):
     [VA[0], VA[1]], [VA[1], VA[2]], [VA[2], VA[0]],
     [VB[0], VB[1]], [VB[1], VB[2]], [VB[2], VB[0]],
   ];
-  // 六芒星の6辺はシアンで最もはっきり見える主役の線にする（他の帯・目盛より
-  // 明確に太く・濃く）。シューマン線（直後の1本）は従来どおり控えめのまま。
-  hexPairs.forEach(([a, b]) => glowSegs.push({ x1: a[0], y1: a[1], x2: b[0], y2: b[1], op: 0.58, width: 1.7 }));
+  // 六芒星の6辺。star_seal_standalone.html のシェーダーでは円・線分とも
+  // 同一の距離減衰式（exp(-d²/0.35)）で描かれ、差は intensity のみ
+  // （六芒星=0.38 / R_IN円=0.34）。太さも円と揃え、参照どおりの強さにする。
+  hexPairs.forEach(([a, b]) => glowSegs.push({ x1: a[0], y1: a[1], x2: b[0], y2: b[1], op: 0.38 }));
   glowSegs.push({ x1: pol(R_IN, 90)[0], y1: pol(R_IN, 90)[1], x2: SCHU[0], y2: SCHU[1], op: 0.09 });
 
   const glowNodes: GlowNode[] = [];
@@ -760,30 +761,6 @@ export const StarSeal: React.FC<StarSealProps> = ({
         ))}
         {geo.glowNodes.map((n, i) => (
           <Circle key={`gh${i}`} cx={n.x} cy={n.y} r={n.r * 4.6} color={n.main ? CYAN : '#F3F8FF'} opacity={0.12} />
-        ))}
-      </Group>
-
-      {/* ═ ②' 交点の星光（ソフト層） ═
-          交点にごく小さな白コアだけを screen 合成で重ね、星がにじんで
-          光っているように見せる。十字の光条は入れない（クロスマークに
-          見えてしまうため）。コア自体も②と同じ Blur を通し、
-          「少しぼやけた点」の見え方にする。 */}
-      <Group
-        opacity={glowOpacity}
-        layer={
-          <Paint blendMode="screen">
-            <Blur blur={2.4 * s} />
-          </Paint>
-        }
-      >
-        {geo.glowNodes.map((n, i) => (
-          <Circle
-            key={`sn${i}`}
-            cx={n.x} cy={n.y}
-            r={Math.max(n.r * 0.85, 0.9 * s)}
-            color="#FFFFFF"
-            opacity={n.main ? 0.9 : 0.7}
-          />
         ))}
       </Group>
 

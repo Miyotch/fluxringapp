@@ -28,7 +28,7 @@ import {
 import { useAudioPlayer } from 'expo-audio';
 import { previewUrl } from '../lib/r2';
 import { CardFace } from '../components/CardFace';
-import { StarField } from '../components/StarField';
+import { NebulaBand } from '../components/NebulaBand';
 import { StarSeal } from '../components/StarSeal';
 import { CardGL } from '../components/CardGL';
 import type { CardBackData } from '../components/CardBack';
@@ -53,7 +53,6 @@ const C = {
 export type Track = {
   id: string;
   title: string;
-  eye?: string;              // 一行コピー（v98_FIX data/cards.json の eye。例:「冬明け の出会い」）
   subtitle?: string;        // 情景の言葉（効能は語らない）
   artistName: string;
   artworkUrl: string;
@@ -300,15 +299,24 @@ export const DiscoverScreen: React.FC<Props> = ({
     <View style={styles.root} onLayout={onRootLayout}>
       <StatusBar barStyle="light-content" backgroundColor={C.page} />
 
-      {/* 最背面: CREDITS(Special Thanks)画面と同じ星空（StarField）。
-          調律陣（StarSeal）はこの上に重ねる装飾レイヤーで、星空自体を置き換えない。 */}
-      <StarField />
+      {/* 最背面: 天の川バンド（NebulaBand）。カード左上あたりに紫の星雲が
+          密集する帯を敷く全面背景（自身が bgbase グラデーションも描く）。
+          調律陣（StarSeal）はこの上に重ねる装飾レイヤーで、背景自体を置き換えない。 */}
+      <NebulaBand />
 
-      {/* 調律陣の背景。座標は v98_FIX の参照モデル（内部380×760を均等スケールし、
-          陣の中心＝カード中心＝箱の縦中央より約12px上）に委ねる。
-          中心・スケールを外から与えると不均等・ずれの原因になるため指定しない。 */}
+      {/* 調律陣の背景。スケール基準はカード幅（cardW）に固定する。
+          画面基準（width/heightのみ）だとタブレットで画面ごと拡大され、
+          カードに対して陣だけが不釣り合いに巨大化する（iPad実測で参照比1.71倍）。
+          中心は実際にカードが描かれる位置（スライド中央）に一致させる。 */}
       {slideH > 0 && (
-        <StarSeal width={screenW} height={slideH} style={styles.sealLayer} />
+        <StarSeal
+          width={screenW}
+          height={slideH}
+          cardWidth={cardW}
+          centerX={screenW / 2}
+          centerY={slideH / 2}
+          style={styles.sealLayer}
+        />
       )}
 
       {/* カードページャ。表面=横スワイプで曲切替＋タップで裏返し、
@@ -365,29 +373,23 @@ export const DiscoverScreen: React.FC<Props> = ({
         {/* ブランド */}
         <Text style={[styles.brand, { top: 26 + chromeShift }]}>Flux Ring</Text>
 
-        {/* 右上: EQ / ベル / 試聴 */}
+        {/* 右上: EQ+ベル(1段目) / 試聴(2段目) */}
         <View style={[styles.topRight, { top: topRightY }]} pointerEvents="box-none">
-          <View style={styles.icons}>
+          <View style={styles.iconsRow1}>
             <EqBars active={isPreviewing} />
             <Pressable onPress={onOpenNotifications} hitSlop={10} style={styles.bell}>
               <BellIcon size={17} />
               {hasUnread && <View style={styles.bdot} />}
             </Pressable>
-            <Pressable onPress={togglePreview} hitSlop={10}>
-              <PreviewIcon size={17} on={isPreviewing} />
-            </Pressable>
           </View>
+          <Pressable onPress={togglePreview} hitSlop={10} style={styles.iconsRow2}>
+            <PreviewIcon size={17} on={isPreviewing} />
+          </Pressable>
         </View>
 
-        {/* タイトル＋情景 */}
-        <View style={[styles.texts, { top: 58 + chromeShift }]} pointerEvents="none">
-          {active?.eye && (
-            <Text style={styles.eyeCopy} numberOfLines={1}>{active.eye}</Text>
-          )}
+        {/* タイトル（1行のみ。eyeコピー・情景サブタイトルはモック確定値により非表示） */}
+        <View style={[styles.texts, { top: 75 + chromeShift }]} pointerEvents="none">
           <Text style={styles.title} numberOfLines={1}>{active?.title}</Text>
-          {active?.subtitle && (
-            <Text style={styles.subt} numberOfLines={2}>{active.subtitle}</Text>
-          )}
         </View>
 
         {/* 下部: 購入ボタン ＋ ウィッシュ星 */}
@@ -461,18 +463,17 @@ const styles = StyleSheet.create({
     position: 'absolute',
     // top は SafeArea を加味して JSX 側で上書き（既定は原本 v98 の値）
     top: 26, left: 22,
-    fontSize: 10, letterSpacing: 4, color: C.sub, fontWeight: '300',
+    fontSize: 10, letterSpacing: 4, color: 'rgba(148,152,190,0.45)', fontWeight: '300',
   },
-  topRight: { position: 'absolute', top: 22, right: 20 },
-  icons: { flexDirection: 'row', alignItems: 'center', gap: 13 },
+  topRight: { position: 'absolute', top: 22, right: 20, alignItems: 'flex-end' },
+  iconsRow1: { flexDirection: 'row', alignItems: 'center', gap: 13 },
+  iconsRow2: { marginTop: 10 },
   bell: {},
   bdot: {
     position: 'absolute', top: -1, right: -1,
     width: 6, height: 6, borderRadius: 3, backgroundColor: C.badge,
   },
   texts: { position: 'absolute', left: 22, right: 120, top: 58 },
-  // 一行コピー（v98_FIX data/cards.json の eye）。タイトルより控えめな小さな前置き
-  eyeCopy: { fontSize: 10, letterSpacing: 1, color: 'rgba(174,180,214,0.65)', marginBottom: 3 },
   // .title: 18px / 字間.05em / text-shadow 0 1px 10px rgba(0,0,0,.5)
   title: {
     fontSize: 18,
@@ -482,7 +483,6 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 10,
   },
-  subt: { fontSize: 11, color: C.sub, fontWeight: '300', marginTop: 4, lineHeight: 17 },
 
   // .bottom: 原本 bottom:calc(146px + 2vh)（フッター54px込みのデバイス基準）。
   // 本アプリはフッターを親が描くため、本体領域基準へ 54px 差し引いて 92px + 2vh。
