@@ -30,6 +30,8 @@ import {
   Circle,
   Line,
   Path,
+  Fill,
+  Shader,
   Text as SkText,
   Paint,
   Blur,
@@ -82,7 +84,8 @@ type TxtItem = {
   size: number; color: string; align: 'c' | 'l' | 'r'; voff: number;
 };
 type GlowCircle = { r: number; op: number };
-type GlowSeg = { x1: number; y1: number; x2: number; y2: number; op: number; width?: number };
+// 線幅は持たない。太さ・滲みは発光層シェーダーの減衰式 exp(-d²/0.35) が決める。
+type GlowSeg = { x1: number; y1: number; x2: number; y2: number; op: number };
 type GlowNode = { x: number; y: number; r: number; main: boolean };
 export type CarParam = {
   kind: 0 | 1;              // 0=円 1=線分
@@ -527,6 +530,83 @@ function buildGeometry(cx: number, cy: number, s: number, W: number, H: number):
   };
 }
 
+/* ══════ ② 発光層シェーダー（参照 09_FS.glsl の逐語移植） ══════
+   参照実装は円・線分・ノードを「解析的な距離減衰」で1枚のフラグメント
+   シェーダーに焼く。Skia のプリミティブ＋Blur で近似すると、
+   ・線: exp(-d²/0.35) は σ=√(0.35/2)=0.418px の極細ガウス＝ほぼ1pxの鋭線
+         （実測: 理想動画の六芒星辺は FWHM=1px・σ≈0.42px）なのに対し、
+         Blur(σ=4px) を掛けると FWHM≈9.4px まで太く滲む
+   ・星: core(鋭いガウス)+halo+far(なだらかな指数裾) の三層で、
+         硬い円2枚＋Blur では中心の鋭さと長い裾を同時に出せない
+   ・星の明滅（tw）はノードごとに位相 i*0.93・角速度 2.094rad/s で独立
+   と、いずれも別物になる。距離減衰式ごと移植して一致させる。
+
+   座標はキャンバス px で渡し、シェーダー内で 1/s して参照単位へ戻す
+   （参照の半径 2.6 / 1.0 などは 380×760 箱の単位で書かれているため）。 */
+function buildGlowShaderSource(nCirc: number, nSeg: number, nNode: number): string {
+  return `
+uniform float uS;
+uniform float uTime;
+uniform float uBreath;
+uniform float4 uCirc[${nCirc}];
+uniform float4 uSegA[${nSeg}];
+uniform float uSegS[${nSeg}];
+uniform float4 uNode[${nNode}];
+
+const float3 CYAN = float3(0.376, 0.808, 0.878);
+
+float segDist(float2 p, float2 a, float2 b) {
+  float2 pa = p - a;
+  float2 ba = b - a;
+  float t = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-4), 0.0, 1.0);
+  return length(pa - ba * t);
+}
+
+half4 main(float2 fragCoord) {
+  float2 p = fragCoord;
+  float invS = 1.0 / max(uS, 1e-4);
+  float3 glow = float3(0.0);
+  float br = 0.86 + 0.14 * uBreath;
+
+  for (int i = 0; i < ${nCirc}; i++) {
+    float4 cc = uCirc[i];
+    float d = abs(length(p - cc.xy) - cc.z) * invS;
+    glow += CYAN * exp(-d * d / 0.35) * cc.w * 0.50 * br;
+  }
+  for (int i = 0; i < ${nSeg}; i++) {
+    float d = segDist(p, uSegA[i].xy, uSegA[i].zw) * invS;
+    glow += CYAN * exp(-d * d / 0.35) * uSegS[i] * 0.50 * br;
+  }
+  for (int i = 0; i < ${nNode}; i++) {
+    float4 nd = uNode[i];
+    float2 q = (p - nd.xy) * invS;
+    float rr = length(q);
+    float cs = max(nd.z * invS, 1e-4);
+    // the far term decays as exp(-rr/(cs*13)); beyond cs*80 it is under 1e-5
+    if (rr < cs * 80.0) {
+      float core = exp(-rr * rr / (cs * cs));
+      float halo = exp(-rr / (cs * 4.2)) * 0.18;
+      float farv = exp(-rr / (cs * 13.0)) * 0.05;
+      float tw = 0.86 + 0.14 * sin(uTime * 2.094 + float(i) * 0.93);
+      float3 ncol = mix(float3(0.95, 0.97, 1.0), CYAN, nd.w);
+      float sp = 0.0;
+      if (nd.w > 0.5) {
+        sp = (exp(-abs(q.x) / 1.0) * exp(-abs(q.y) / (cs * 6.0))
+            + exp(-abs(q.y) / 1.0) * exp(-abs(q.x) / (cs * 6.0))) * 0.16;
+      }
+      glow += ncol * ((core + halo + farv) * tw + sp * tw) * 0.60;
+    }
+  }
+  float3 col = float3(1.0) - exp(-glow * 1.35);
+  // The reference screen-blends its whole canvas. Here the canvas composites
+  // over a separate view, so return a premultiplied color whose alpha is the
+  // max channel: source-over then yields col + dst*(1-a), i.e. screen-like.
+  float a = clamp(max(max(col.r, col.g), col.b), 0.0, 1.0);
+  return half4(half3(col), half(a));
+}
+`;
+}
+
 // ══════ 動的部品 ══════
 
 // 尾を引く光点（1台）
@@ -701,13 +781,56 @@ export const StarSeal: React.FC<StarSealProps> = ({
     stopSV.value = paused || reduced;
   }, [paused, reduced, stopSV]);
 
-  // 呼吸（0.86+0.14·sin 周期6s）
+  // 呼吸（0.86+0.14·sin 周期6s）。退避描画のみで使う
   const glowOpacity = useDerivedValue(() => {
     if (stopSV.value) return 0.93;
     const t = clock.value / 1000;
     const breath = 0.5 + 0.5 * Math.sin((t / 3) * Math.PI * 2);
     return 0.86 + 0.14 * breath;
   }, [clock]);
+
+  // ── ② 発光層シェーダー ──
+  // 幾何の個数は決定論なので、実際の要素数でソースを生成してコンパイルする。
+  const glowEffect = useMemo(() => {
+    try {
+      return Skia.RuntimeEffect.Make(
+        buildGlowShaderSource(geo.glowCircles.length, geo.glowSegs.length, geo.glowNodes.length),
+      );
+    } catch {
+      return null;
+    }
+  }, [geo.glowCircles.length, geo.glowSegs.length, geo.glowNodes.length]);
+
+  // uniform に渡す平坦配列。参照は px 座標で距離を測り、シェーダー側で 1/s する。
+  const glowArrays = useMemo(() => {
+    const circ: number[] = [];
+    geo.glowCircles.forEach((c) => circ.push(cx, cy, c.r, c.op));
+    const segA: number[] = [];
+    const segS: number[] = [];
+    geo.glowSegs.forEach((sg) => {
+      segA.push(sg.x1, sg.y1, sg.x2, sg.y2);
+      segS.push(sg.op);
+    });
+    const node: number[] = [];
+    geo.glowNodes.forEach((n) => node.push(n.x, n.y, n.r, n.main ? 1 : 0));
+    return { circ, segA, segS, node };
+  }, [geo.glowCircles, geo.glowSegs, geo.glowNodes, cx, cy]);
+
+  // 静的配列は参照を使い回し、毎フレーム作るのは時刻・呼吸だけにする。
+  const glowUniforms = useDerivedValue(() => {
+    const stopped = stopSV.value;
+    const t = stopped ? 0 : clock.value / 1000;
+    const breath = stopped ? 0.5 : 0.5 + 0.5 * Math.sin((t / 3) * Math.PI * 2);
+    return {
+      uS: s,
+      uTime: t,
+      uBreath: breath,
+      uCirc: glowArrays.circ,
+      uSegA: glowArrays.segA,
+      uSegS: glowArrays.segS,
+      uNode: glowArrays.node,
+    };
+  }, [clock, glowArrays, s]);
 
   return (
     <Canvas style={[{ width: W, height: H }, style]} pointerEvents="none">
@@ -733,36 +856,35 @@ export const StarSeal: React.FC<StarSealProps> = ({
         })}
       </Group>
 
-      {/* ═ ② 発光層（screen 合成＋呼吸） ═ */}
-      <Group
-        opacity={glowOpacity}
-        layer={
-          <Paint blendMode="screen">
-            <Blur blur={4 * s} />
-          </Paint>
-        }
-      >
-        {geo.glowCircles.map((c, i) => (
-          <Circle key={`gc${i}`} cx={cx} cy={cy} r={c.r} style="stroke" strokeWidth={1.3 * s} color={CYAN} opacity={c.op} />
-        ))}
-        {geo.glowSegs.map((sg, i) => (
-          <Line
-            key={`gs${i}`}
-            p1={vec(sg.x1, sg.y1)}
-            p2={vec(sg.x2, sg.y2)}
-            color={CYAN}
-            style="stroke"
-            strokeWidth={(sg.width ?? 1.3) * s}
-            opacity={sg.op}
-          />
-        ))}
-        {geo.glowNodes.map((n, i) => (
-          <Circle key={`gn${i}`} cx={n.x} cy={n.y} r={n.r * 1.9} color={n.main ? CYAN : '#F3F8FF'} opacity={0.85} />
-        ))}
-        {geo.glowNodes.map((n, i) => (
-          <Circle key={`gh${i}`} cx={n.x} cy={n.y} r={n.r * 4.6} color={n.main ? CYAN : '#F3F8FF'} opacity={0.12} />
-        ))}
-      </Group>
+      {/* ═ ② 発光層（参照シェーダーの逐語移植） ═
+          円・線分・ノードの距離減衰を1枚のシェーダーで解析的に描く。
+          Skia の Blur は使わない（滲みは減衰式そのものが持っている）。 */}
+      {glowEffect ? (
+        <Fill>
+          <Shader source={glowEffect} uniforms={glowUniforms} />
+        </Fill>
+      ) : (
+        // RuntimeEffect が使えない環境向けの退避描画（滲みなしの細線＋点）
+        <Group opacity={glowOpacity} layer={<Paint blendMode="screen" />}>
+          {geo.glowCircles.map((c, i) => (
+            <Circle key={`gc${i}`} cx={cx} cy={cy} r={c.r} style="stroke" strokeWidth={s} color={CYAN} opacity={c.op} />
+          ))}
+          {geo.glowSegs.map((sg, i) => (
+            <Line
+              key={`gs${i}`}
+              p1={vec(sg.x1, sg.y1)}
+              p2={vec(sg.x2, sg.y2)}
+              color={CYAN}
+              style="stroke"
+              strokeWidth={s}
+              opacity={sg.op}
+            />
+          ))}
+          {geo.glowNodes.map((n, i) => (
+            <Circle key={`gn${i}`} cx={n.x} cy={n.y} r={n.r} color={n.main ? CYAN : '#F3F8FF'} opacity={0.85} />
+          ))}
+        </Group>
+      )}
 
       {/* ═ ③ 信号層（通電・光の車＋スパーク） ═ */}
       <Group

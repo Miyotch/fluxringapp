@@ -256,7 +256,7 @@ export const PlayerScreen: React.FC<Props> = ({ track, onBackHome, onPrevTrack, 
           backData={{
             title: track.title,
             story: track.subtitle,
-            materials: ['純正律'],
+            tuning: '純正律',
             frequencies: ['432 Hz', '7.83 Hz'],
             artist: 'NAOKI OKA',
           }}
