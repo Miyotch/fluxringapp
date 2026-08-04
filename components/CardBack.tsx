@@ -26,8 +26,9 @@ export type CardBackData = {
   serial?: string;         // 'No. 001'
   title: string;
   story?: string;
-  materials?: string[];    // 原材料（例: ['純正律']）
-  frequencies?: string[];  // 例: ['432 Hz', '7.83 Hz']
+  materials?: string[];    // 原材料（例: ['朝の空気', '低い持続音']）
+  tuning?: string;         // 調律名（例: '純正律'）
+  frequencies?: string[];  // 周波数のみ（例: ['432 Hz', '7.83 Hz']）
   artist?: string;         // 'NAOKI OKA'
 };
 
