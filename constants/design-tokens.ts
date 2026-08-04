@@ -20,6 +20,9 @@ export const COLOR = {
   // テキスト
   textPrimary:   '#ECEEF7',
   textSecondary: '#9498BE',
+  // 「戻る」リンク専用（tonmana_typography_reference .skback）。
+  // textSecondary とは別トーン（やや明るい藤色）で、全画面共通。
+  textBack:      '#AEB4D6',
 
   // 機能記号（世界観とは層が別）
   badge: '#FF3B30', // 未読バッジ

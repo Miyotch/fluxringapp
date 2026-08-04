@@ -16,6 +16,7 @@
 // サブパスから読む（パッケージのルートを import すると未使用の全ウェイト
 // 10ファイル・約4.5MB がバンドルに載るため）。
 import { EBGaramond_400Regular } from '@expo-google-fonts/eb-garamond/400Regular';
+import { Platform } from 'react-native';
 
 /** useFonts / loadAsync に渡すマップ。キーが fontFamily 名になる。 */
 export const APP_FONTS = {
@@ -24,3 +25,10 @@ export const APP_FONTS = {
 
 /** 数字・欧文に当てる書体名 */
 export const NUM_FONT = 'EBGaramond_400Regular';
+
+/**
+ * 和文の明朝（OS 標準・同梱不要）。タイポグラフィ・リファレンスで「明朝体」と
+ * 明記されている要素だけに当てる（カード裏タイトル・ウィッシュ曲名など）。
+ * それ以外の和文テキストは OS 既定のゴシック系のまま。
+ */
+export const JP_SERIF_FONT = Platform.select({ ios: 'Hiragino Mincho ProN', default: 'serif' });

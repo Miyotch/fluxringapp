@@ -54,11 +54,13 @@ export const Footer: React.FC<FooterProps> = ({ active, onChange, vipLocked = tr
       {TABS.map((tab) => {
         const isActive = tab.key === active;
         const isVip = tab.key === 'vip';
-        // VIP は常時シアン寄り。それ以外はアクティブ時のみシアン。
+        // .tb: OFF #9498BE / ON #ECEEF7 / VIP #60CEE0（常時）。
+        // シアンは「不変の規律」どおり VIP 一点だけの装飾。他タブは選択時も
+        // 白寄りに留め、シアンを面積いっぱいに使わない。
         const tint = isVip
           ? COLOR.auraCyan
           : isActive
-          ? COLOR.auraCyan
+          ? COLOR.textPrimary
           : COLOR.textSecondary;
 
         return (
@@ -129,8 +131,10 @@ const styles = StyleSheet.create({
     top: -4,
     right: -10,
   },
+  // .tb: 9px / weight 500
   label: {
-    fontSize: 9.5,
+    fontSize: 9,
+    fontWeight: '500',
     letterSpacing: 0.2,
   },
 });

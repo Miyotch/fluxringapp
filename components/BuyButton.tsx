@@ -74,7 +74,7 @@ const styles = StyleSheet.create({
     // 「少しぼやけた」見え方にする。芯を不透明のままにすると輪郭が固く残ってしまう。
     color: 'rgba(244,254,255,0.55)',
     fontSize: 13,
-    letterSpacing: 3, // .2em 相当
+    letterSpacing: 2.6, // .2em（tonmana_typography_reference .buy 準拠）
     textShadowColor: 'rgba(96,206,224,0.9)',
     textShadowOffset: { width: 0, height: 0 },
     textShadowRadius: 4, // 実機調整ポイント: 大きいほどぼやける

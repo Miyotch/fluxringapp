@@ -28,7 +28,6 @@ import {
   StyleSheet,
   StatusBar,
   Modal,
-  Platform,
   useWindowDimensions,
   NativeSyntheticEvent,
   NativeScrollEvent,
@@ -49,8 +48,7 @@ import { NebulaBand } from '../components/NebulaBand';
 import { Wordmark } from '../components/Wordmark';
 import { AppleButton } from '../components/AppleButton';
 import { GoogleIcon } from '../components/icons';
-import { COLOR } from '../constants/design-tokens';
-import { NUM_FONT } from '../constants/fonts';
+import { NUM_FONT, JP_SERIF_FONT } from '../constants/fonts';
 import {
   GOOGLE_WEB_CLIENT_ID,
   GOOGLE_IOS_CLIENT_ID,
@@ -64,8 +62,12 @@ import { useTopInset } from '../lib/safeArea';
 
 WebBrowser.maybeCompleteAuthSession();
 
-const MINCHO = Platform.select({ ios: 'Hiragino Mincho ProN', default: 'serif' });
+const MINCHO = JP_SERIF_FONT;
 const C = {
+  // ページ地。ローンチ〜オンボーディングだけの専用値（flux_ring_launch_onboarding_spec）。
+  // app.json の splash/backgroundColor と同じ #0E0C20 にして、ネイティブ起動画面から
+  // 継ぎ目なく繋げる。ディスカバー以降は design-tokens.ts の COLOR.bg（#171430）のまま。
+  bg: '#0E0C20',
   text: '#ECEEF7',
   sub: '#9498BE',
   dim: 'rgba(148,152,190,0.62)',
@@ -203,13 +205,14 @@ const GoogleAuthButton: React.FC<{
       const idToken = response.params?.id_token;
       if (idToken) {
         onBusy(true);
+        // messages.login_provider（確定文言・改変不可）。e?.message はユーザーに見せない。
         signInWithGoogleToken(idToken)
           .then(onAuthenticated)
-          .catch((e) => onError(e?.message ?? 'Google サインインに失敗しました'))
+          .catch(() => onError('ログインを完了できませんでした。もう一度お試しください。'))
           .finally(() => onBusy(false));
       }
     } else if (response?.type === 'error') {
-      onError('Google サインインに失敗しました');
+      onError('ログインを完了できませんでした。もう一度お試しください。');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [response]);
@@ -324,7 +327,7 @@ export const LaunchFlow: React.FC<Props> = ({
 
   return (
     <View style={s.root}>
-      <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
+      <StatusBar barStyle="light-content" backgroundColor={C.bg} />
       <NebulaBand />
 
       {screen === 'launch' && (
@@ -422,7 +425,8 @@ const P0: React.FC<{ onSignup: () => void; onEnterApp: () => void; onToLogin: ()
           <View style={s.paneBody}>
             <Text style={s.copy}>
               一枚ずつ、手作業で周波数を調律した作品を、カードとして所有します。
-              <Text style={s.copySm}>{'\n'}（聴き放題サービスではありません。）</Text>
+              {/* p2_sub（確定文言・半角括弧） */}
+              <Text style={s.copySm}>{'\n'}(聴き放題サービスではありません。)</Text>
             </Text>
           </View>
         </View>
@@ -526,7 +530,7 @@ const PostSteps: React.FC<{ onDone: (info: { name: string; scene: string }) => v
           <View style={s.stepFoot}>
             <TextInput
               style={s.nameInput}
-              placeholder="例：ナオキ"
+              placeholder="例: ナオキ"
               placeholderTextColor={C.sub}
               value={name}
               onChangeText={setName}
@@ -625,8 +629,22 @@ const LoginScreen: React.FC<{ onEnterApp: () => void; onToSignup: () => void }> 
     try {
       await signIn(m, pw);
       onEnterApp();
-    } catch {
-      setError('メールアドレスまたはパスワードが一致しません。');
+    } catch (e: any) {
+      // messages.network / login_mismatch / unknown（確定文言・改変不可）。
+      // Firebase の code で分岐し、通信断を「パスワード不一致」と誤表示しない。
+      const code = e?.code as string | undefined;
+      if (code === 'auth/network-request-failed') {
+        setError('通信できませんでした。電波の状況をご確認ください。');
+      } else if (
+        code === 'auth/invalid-credential' ||
+        code === 'auth/wrong-password' ||
+        code === 'auth/user-not-found' ||
+        code === 'auth/invalid-email'
+      ) {
+        setError('メールアドレスまたはパスワードが一致しません。');
+      } else {
+        setError('処理を完了できませんでした。もう一度お試しください。');
+      }
       setErrField('both');
     } finally {
       setBusy(false);
@@ -755,7 +773,8 @@ const ConsentScreen: React.FC<{ onAgree: () => void }> = ({ onAgree }) => {
         <Wordmark width={104} color={C.text} />
       </View>
       <Text style={s.consentH2}>利用規約とプライバシーポリシーを{'\n'}改定しました。</Text>
-      <Text style={s.consentSub}>2026年8月1日 施行／改定の要点は次のとおりです。</Text>
+      {/* messages.consent.sub: "{date} 施行/改定の要点は次のとおりです。"（確定文言・半角スラッシュ） */}
+      <Text style={s.consentSub}>2026年8月1日 施行/改定の要点は次のとおりです。</Text>
 
       <ScrollView style={s.consentBody} showsVerticalScrollIndicator={false}>
         <Text style={s.consentH3}>改定の要点</Text>
@@ -789,7 +808,7 @@ const ConsentScreen: React.FC<{ onAgree: () => void }> = ({ onAgree }) => {
 
 // ══════════════ スタイル ══════════════
 const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: COLOR.bg },
+  root: { flex: 1, backgroundColor: C.bg },
   center: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' },
 
   // ボタン共通

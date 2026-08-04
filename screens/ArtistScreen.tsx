@@ -188,7 +188,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  back: { color: COLOR.textSecondary, fontSize: 14 },
+  // .skback: 12px / 字間.05em / #AEB4D6
+  back: { color: COLOR.textBack, fontSize: 12, letterSpacing: 0.6 },
   h1: { color: COLOR.textPrimary, fontSize: 16, fontWeight: '600', letterSpacing: 1 },
   chevron: { color: COLOR.textSecondary, fontSize: 18 },
 

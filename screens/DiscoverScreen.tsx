@@ -25,14 +25,6 @@ import {
   LayoutChangeEvent,
   useWindowDimensions,
 } from 'react-native';
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withRepeat,
-  withSequence,
-  withTiming,
-  Easing,
-} from 'react-native-reanimated';
 import { useAudioPlayer } from 'expo-audio';
 import { previewUrl } from '../lib/r2';
 import { CardFace } from '../components/CardFace';
@@ -43,6 +35,7 @@ import type { CardBackData } from '../components/CardBack';
 import { BuyButton } from '../components/BuyButton';
 import { WishlistStar } from '../components/WishlistStar';
 import { PurchaseModal } from '../components/PurchaseModal';
+import { EqBars } from '../components/EqBars';
 import { BellIcon, PreviewIcon } from '../components/icons';
 import { useTopInset } from '../lib/safeArea';
 import { RisingBubbles } from '../components/RisingBubbles';
@@ -54,13 +47,13 @@ const C = {
   page: '#0E0C20',
   text: '#ECEEF7',
   sub: '#9498BE',
-  cyan: '#60CEE0',
   badge: '#E0584E',
 } as const;
 
 export type Track = {
   id: string;
   title: string;
+  eye?: string;              // 一行コピー（v98_FIX data/cards.json の eye。例:「冬明け の出会い」）
   subtitle?: string;        // 情景の言葉（効能は語らない）
   artistName: string;
   artworkUrl: string;
@@ -110,35 +103,6 @@ const FALLBACK: Track[] = [
     },
   },
 ];
-
-// ── 試聴中の EQ バー（component_catalog: audio.on） ──
-const EqBars: React.FC<{ active: boolean }> = ({ active }) => {
-  const p = useSharedValue(0);
-  useEffect(() => {
-    p.value = active
-      ? withRepeat(withSequence(
-          withTiming(1, { duration: 500, easing: Easing.inOut(Easing.sin) }),
-          withTiming(0, { duration: 500, easing: Easing.inOut(Easing.sin) }),
-        ), -1, false)
-      : withTiming(0, { duration: 200 });
-  }, [active, p]);
-
-  // フックは常に同数・同順で呼ぶ（条件分岐やループ内で呼ばない）
-  const s0 = useAnimatedStyle(() => ({ transform: [{ scaleY: 0.5 + p.value * 0.5 }] }));
-  const s1 = useAnimatedStyle(() => ({ transform: [{ scaleY: 0.5 + p.value * 1.0 }] }));
-  const s2 = useAnimatedStyle(() => ({ transform: [{ scaleY: 0.5 + p.value * 0.7 }] }));
-  const s3 = useAnimatedStyle(() => ({ transform: [{ scaleY: 0.5 + p.value * 1.0 }] }));
-
-  if (!active) return null;
-  const bars = [s0, s1, s2, s3];
-  return (
-    <View style={styles.eq}>
-      {bars.map((st, i) => (
-        <Animated.View key={i} style={[styles.eqBar, { height: 5 + i * 2 }, st]} />
-      ))}
-    </View>
-  );
-};
 
 export const DiscoverScreen: React.FC<Props> = ({
   tracks = FALLBACK,
@@ -417,6 +381,9 @@ export const DiscoverScreen: React.FC<Props> = ({
 
         {/* タイトル＋情景 */}
         <View style={[styles.texts, { top: 58 + chromeShift }]} pointerEvents="none">
+          {active?.eye && (
+            <Text style={styles.eyeCopy} numberOfLines={1}>{active.eye}</Text>
+          )}
           <Text style={styles.title} numberOfLines={1}>{active?.title}</Text>
           {active?.subtitle && (
             <Text style={styles.subt} numberOfLines={2}>{active.subtitle}</Text>
@@ -503,10 +470,9 @@ const styles = StyleSheet.create({
     position: 'absolute', top: -1, right: -1,
     width: 6, height: 6, borderRadius: 3, backgroundColor: C.badge,
   },
-  eq: { flexDirection: 'row', alignItems: 'flex-end', gap: 2, height: 14 },
-  eqBar: { width: 2, borderRadius: 1, backgroundColor: C.cyan },
-
   texts: { position: 'absolute', left: 22, right: 120, top: 58 },
+  // 一行コピー（v98_FIX data/cards.json の eye）。タイトルより控えめな小さな前置き
+  eyeCopy: { fontSize: 10, letterSpacing: 1, color: 'rgba(174,180,214,0.65)', marginBottom: 3 },
   // .title: 18px / 字間.05em / text-shadow 0 1px 10px rgba(0,0,0,.5)
   title: {
     fontSize: 18,
