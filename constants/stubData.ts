@@ -19,7 +19,7 @@ const img = (seed: string) => `https://picsum.photos/seed/${seed}/600/900`;
 // アートは assets/art/ の実ファイル（683×1024・2:3）。
 export const STUB_TRACKS: Track[] = [
   {
-    id: 'blue', title: '冬明け', subtitle: '夜明け前の青',
+    id: 'blue', title: '冬明け', eye: '冬明け の出会い', subtitle: '夜明け前の青',
     artistName: '岡ナオキ', artworkUrl: artUri('blue'), audioKey: 'blue',
     previewUrl: null, priceLabel: buyLabel(),
     glowColor: 'rgba(96,206,224,.42)', glowColor2: 'rgba(70,132,224,.16)',
@@ -32,7 +32,7 @@ export const STUB_TRACKS: Track[] = [
     },
   },
   {
-    id: 'white', title: '薄明', subtitle: '色の決まらない時間',
+    id: 'white', title: '薄明', eye: '薄明 の出会い', subtitle: '色の決まらない時間',
     artistName: '岡ナオキ', artworkUrl: artUri('white'), audioKey: 'white',
     previewUrl: null, priceLabel: buyLabel(),
     glowColor: 'rgba(180,200,230,.4)', glowColor2: 'rgba(150,170,210,.16)',
@@ -45,7 +45,7 @@ export const STUB_TRACKS: Track[] = [
     },
   },
   {
-    id: 'mesh', title: '白鉛筆 I（仮）', subtitle: '骨子のねじれ',
+    id: 'mesh', title: '白鉛筆 I（仮）', eye: '白鉛筆 の出会い', subtitle: '骨子のねじれ',
     artistName: '岡ナオキ', artworkUrl: artUri('mesh'), audioKey: 'mesh',
     previewUrl: null, priceLabel: buyLabel(),
     glowColor: 'rgba(232,226,210,.40)', glowColor2: 'rgba(180,174,158,.16)',
@@ -58,7 +58,7 @@ export const STUB_TRACKS: Track[] = [
     },
   },
   {
-    id: 'kite', title: '白鉛筆 II（仮）', subtitle: '細密な網',
+    id: 'kite', title: '白鉛筆 II（仮）', eye: '白鉛筆 の出会い', subtitle: '細密な網',
     artistName: '岡ナオキ', artworkUrl: artUri('kite'), audioKey: 'kite',
     previewUrl: null, priceLabel: buyLabel(),
     glowColor: 'rgba(214,218,226,.40)', glowColor2: 'rgba(160,164,176,.16)',
@@ -71,7 +71,7 @@ export const STUB_TRACKS: Track[] = [
     },
   },
   {
-    id: 'bloom', title: '白鉛筆 III（仮）', subtitle: '花の格子',
+    id: 'bloom', title: '白鉛筆 III（仮）', eye: '白鉛筆 の出会い', subtitle: '花の格子',
     artistName: '岡ナオキ', artworkUrl: artUri('bloom'), audioKey: 'bloom',
     previewUrl: null, priceLabel: buyLabel(),
     glowColor: 'rgba(196,210,228,.40)', glowColor2: 'rgba(146,160,186,.16)',

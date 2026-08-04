@@ -30,6 +30,7 @@ import { useSharedValue, useDerivedValue } from 'react-native-reanimated';
 import { CardGL } from '../components/CardGL';
 import { NebulaGL } from '../components/NebulaGL';
 import { CardBackdrop } from '../components/CardBackdrop';
+import { EqBars } from '../components/EqBars';
 import { PlayMark, PauseMark, LoopIcon, ShareIcon, SkipIcon, SkipPrevIcon } from '../components/icons';
 import { COLOR, SPACE, TRANSPORT } from '../constants/design-tokens';
 import { formatTime } from '../lib/audio';
@@ -306,35 +307,40 @@ export const PlayerScreen: React.FC<Props> = ({ track, onBackHome, onPrevTrack, 
           <Text style={styles.time}>{formatTime(position)}</Text>
           <Text style={styles.time}>{formatTime(duration)}</Text>
         </View>
-        {/* コントロール: 戻し / 再生・停止 / 送り / ループ。
+        {/* コントロール: EQ(再生中) / 戻し・再生停止・送り / ループ。
             曲送り・戻しは所有が2曲以上のときだけ有効（親が渡すかで決まる）。 */}
         <View style={styles.controls}>
-          <Pressable
-            style={[styles.skipBtn, !onPrevTrack && styles.skipDisabled]}
-            onPress={onPrevTrack}
-            disabled={!onPrevTrack}
-            hitSlop={12}
-            accessibilityLabel="前の曲"
-          >
-            <SkipPrevIcon size={16} />
-          </Pressable>
-          <Pressable
-            style={styles.playBtn}
-            onPress={togglePlay}
-            hitSlop={10}
-            accessibilityLabel={playing ? '一時停止' : '再生'}
-          >
-            {playing ? <PauseMark size={19} /> : <PlayMark size={19} />}
-          </Pressable>
-          <Pressable
-            style={[styles.skipBtn, !onNextTrack && styles.skipDisabled]}
-            onPress={onNextTrack}
-            disabled={!onNextTrack}
-            hitSlop={12}
-            accessibilityLabel="次の曲"
-          >
-            <SkipIcon size={16} />
-          </Pressable>
+          <View style={styles.eqSlot}>
+            <EqBars active={playing} />
+          </View>
+          <View style={styles.navGroup}>
+            <Pressable
+              style={[styles.skipBtn, !onPrevTrack && styles.skipDisabled]}
+              onPress={onPrevTrack}
+              disabled={!onPrevTrack}
+              hitSlop={12}
+              accessibilityLabel="前の曲"
+            >
+              <SkipPrevIcon size={16} />
+            </Pressable>
+            <Pressable
+              style={styles.playBtn}
+              onPress={togglePlay}
+              hitSlop={10}
+              accessibilityLabel={playing ? '一時停止' : '再生'}
+            >
+              {playing ? <PauseMark size={19} /> : <PlayMark size={19} />}
+            </Pressable>
+            <Pressable
+              style={[styles.skipBtn, !onNextTrack && styles.skipDisabled]}
+              onPress={onNextTrack}
+              disabled={!onNextTrack}
+              hitSlop={12}
+              accessibilityLabel="次の曲"
+            >
+              <SkipIcon size={16} />
+            </Pressable>
+          </View>
           <Pressable
             style={styles.loopBtn}
             onPress={() => setLoop((l) => !l)}
@@ -430,8 +436,10 @@ const styles = StyleSheet.create({
   // 再生時間＝数字表記
   // .ptimes: 9.5px / 字間.06em / #98A2C4
   time: { color: '#98A2C4', fontSize: 9.5, letterSpacing: 0.57, fontFamily: NUM_FONT },
-  // 戻し/再生/送り/ループの4つが並ぶため gap は xl(32) → lg 相当に詰める
-  controls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACE.lg },
+  // EQ(左) / 戻し・再生・送り(中央) / ループ(右)。左右を同じ幅で揃えて中央グループを視覚的に中央へ
+  controls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  eqSlot: { width: 32, alignItems: 'flex-start', justifyContent: 'center' },
+  navGroup: { flexDirection: 'row', alignItems: 'center', gap: SPACE.lg },
   skipBtn: { width: 32, alignItems: 'center', justifyContent: 'center' },
   // 1曲しか持っていないときは押せないことが分かる淡さにする
   skipDisabled: { opacity: 0.28 },
