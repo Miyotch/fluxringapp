@@ -29,7 +29,8 @@ type TabIcon = React.FC<{ size?: number; color?: string }>;
 type TabDef = { key: TabKey; labelKey: string; Icon?: TabIcon; glyph?: string };
 
 // アイコンは assets/icons/tab_*.svg を icons.tsx へ移植したもの。
-// VIP のみ原本に対応する svg が無いため、従来のグリフ（✦）を維持する。
+// VIP は未成約時、他タブと同じ大きさの南京錠1つに差し替える（重ねバッジは廃止）。
+// 成約後（vipLocked=false）は従来どおりグリフ（✦）のまま。
 const TABS: TabDef[] = [
   { key: 'home',       labelKey: 'tab.home',       Icon: TabHomeIcon },
   { key: 'collection', labelKey: 'tab.collection', Icon: TabCollectionIcon },
@@ -76,13 +77,10 @@ export const Footer: React.FC<FooterProps> = ({ active, onChange, vipLocked = tr
             <View style={styles.glyphWrap}>
               {tab.Icon ? (
                 <tab.Icon size={20} color={tint} />
+              ) : isVip && vipLocked ? (
+                <LockIcon size={20} color={tint} />
               ) : (
                 <Text style={[styles.glyph, { color: tint }]}>{tab.glyph}</Text>
-              )}
-              {isVip && vipLocked && (
-                <View style={styles.lock} accessibilityLabel="ロック">
-                  <LockIcon size={11} color={COLOR.auraCyan} />
-                </View>
               )}
             </View>
             <Text
@@ -125,11 +123,6 @@ const styles = StyleSheet.create({
   glyph: {
     fontSize: 18,
     lineHeight: 20,
-  },
-  lock: {
-    position: 'absolute',
-    top: -4,
-    right: -10,
   },
   // .tb: 9px / weight 500
   label: {
