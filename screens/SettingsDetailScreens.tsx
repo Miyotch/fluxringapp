@@ -648,10 +648,6 @@ const TEXT_DOCS: Record<'terms' | 'privacy', TextDoc> = {
 const TOKUSHOHO: TableDoc = {
   title: '特定商取引法に基づく表記',
   rows: [
-    { label: '販売事業者名（社名）', value: '株式会社Numéro.8' },
-    { label: '代表者名', value: '岡 直樹' },
-    { label: '所在地', value: '〒145-0071 東京都大田区田園調布4-44-8' },
-    { label: 'お問い合わせ先', value: 'support@numero8.jp' },
     { label: '販売価格', value: '本サービス（アプリ内）または公式サイトのプラン購入ページに表示する価格（消費税込み）' },
     { label: '商品代金以外の必要料金', value: '本サービスを利用するためのインターネット通信料・パケット通信料等は、お客様のご負担となります。' },
     { label: 'お支払方法', value: 'App Store決済（Apple ID）、Google Play決済、クレジットカード決済' },
@@ -659,6 +655,11 @@ const TOKUSHOHO: TableDoc = {
     { label: '役務の提供時期', value: 'お支払手続き完了後、直ちにご利用いただけます。' },
     { label: 'キャンセル・返品（返金）について', value: 'デジタルコンテンツの特性上、購入確定後、および有料プラン登録期間中のキャンセル・返金は一切お受けできません。翌月以降の自動更新の停止（解約）については、いつでもお手続きが可能です。' },
     { label: '動作環境', value: '推奨環境の詳細は、ストア等のアプリ配信ページをご確認ください。' },
+    // 会社情報は下部にまとめる
+    { label: '販売事業者名（社名）', value: '株式会社Numéro.8' },
+    { label: '代表者名', value: '岡 直樹' },
+    { label: '所在地', value: '〒145-0071 東京都大田区田園調布4-44-8' },
+    { label: 'お問い合わせ先', value: 'support@numero8.jp' },
   ],
 };
 
