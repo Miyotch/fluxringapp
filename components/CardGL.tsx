@@ -101,10 +101,10 @@ const CARD_RETURN_STIFFNESS = 1.0;
 const CARD_BACK_ANGY = Math.PI + CARD_INIT_ANGY;
 // タップ判定のしきい値（|dx|+|dy| px）。これ以下の移動はタップ扱いにして
 //   ・flip（ホーム）: 表⇔裏のトグルを確実に拾う（4px では指の微動でドラッグ扱いになり
-//                     タップで戻れないことがあった）
+//                     タップで戻れないことがあった。12px でも再発報告があり16pxへ）
 //   ・spin（プレイヤー）: 離した瞬間の慣性を与えない（軽いタップで card が
 //                     大きく回り、裏返ったように見えるのを防ぐ）
-const TAP_SLOP = 12;
+const TAP_SLOP = 16;
 
 // ── トラックボール回転の状態（JS スレッドで共有する ref） ──
 export type SpinState = {
@@ -485,13 +485,20 @@ const CardMesh: React.FC<{
         s.vy = 0;
       }
       // 重力オートリターン（コレクション/プレイヤーの spin モードと同じ仕様・
-      // 同じ時定数）: 指を離すと弱いバネで裏面の元の姿勢（Q_BACK）へ戻す。
+      // 同じ時定数）: 指を離すと弱いバネで静止姿勢へ戻す。
       // この分岐は isFlip かつ rotationEnabled（=flipped）のときだけ通るので、
-      // 対象は常に「裏面」——表面はタップ以外で動かないためここには来ない。
+      // 自由回転できるのは常に「裏面から」——表面はタップ以外で動かないため
+      // ここには来ない。ただし裏面のまま自由回転している間に表向きまで
+      // 回した場合、常に Q_BACK 固定で戻すと表を向いた直後にまた裏へ
+      // 引き戻ってしまう（spin モードには無い挙動）。spin モードと同じく
+      // 「いま見えている面」で戻り先を決め、表向きなら Q_FRONT・裏向きなら
+      // Q_BACK に収束させる（表面法線の world Z 成分の符号で判定）。
       // 慣性が乗っているあいだは speed 側が優勢、慣性が減衰するとこの項が
-      // 効いて最終的に裏の定位置へ収束する（残差 exp(-K*T)・95%収束 ≒3秒）。
+      // 効いて最終的にどちらかの定位置へ収束する（残差 exp(-K*T)・95%収束 ≒3秒）。
+      TMP_FRONT.set(0, 0, 1).applyQuaternion(s.q);
+      const target = TMP_FRONT.z >= 0 ? Q_FRONT : Q_BACK;
       const kRet = 1 - Math.exp(-dt * CARD_RETURN_STIFFNESS);
-      s.q.slerp(Q_BACK, kRet);
+      s.q.slerp(target, kRet);
     }
     if (groupRef.current) groupRef.current.quaternion.copy(s.q);
     if (rotationOut) {
@@ -706,6 +713,13 @@ export const CardGL: React.FC<CardGLProps> = ({
           const ddx = g.dx - last.current.x;
           const ddy = g.dy - last.current.y;
           last.current = { x: g.dx, y: g.dy };
+          // TAP_SLOP を超えて「ドラッグ」と確定するまでは回転を適用しない
+          // （デッドゾーン）。裏面はここが常時回転可なので、以前はタップの
+          // つもりの指の微動でも毎フレーム回っており、それ自体が「タップした
+          // 感覚と実際の見た目が合わない」原因になっていた。last.current は
+          // 上で毎回更新しているので、しきい値を超えた瞬間の ddx/ddy は
+          // 直前フレームからの増分のみ＝回転が飛ばない。
+          if (!moved.current) return;
           const s = spin.current;
           if (isFlip) {
             // flip モード（裏面）: 従来のトラックボール（横=Y軸 / 縦=X軸 / 斜め=合成軸）
