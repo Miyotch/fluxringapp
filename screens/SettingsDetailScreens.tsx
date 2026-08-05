@@ -26,7 +26,7 @@ import {
 } from 'react-native';
 import Svg, { Defs, LinearGradient as SvgLinear, RadialGradient as SvgRadial, Stop, Rect, Circle, Path } from 'react-native-svg';
 import { COLOR, SPACE, RADIUS } from '../constants/design-tokens';
-import { NUM_FONT } from '../constants/fonts';
+import { NUM_FONT, JP_SERIF_FONT } from '../constants/fonts';
 import { useT, useI18n, Lang } from '../lib/i18n';
 import { useAuthUser } from '../lib/useAuthUser';
 import { useTopInset, useBottomInset } from '../lib/safeArea';
@@ -102,7 +102,7 @@ export const AccountScreen: React.FC<{
         <Text style={s.acctSectionLabel}>{t('account.sec.registration')}</Text>
         <View style={s.acctCard}>
           <Text style={s.acctLabel}>{t('account.emailLabel')}</Text>
-          <Text style={s.acctValue}>{email}</Text>
+          <Text style={[s.acctValue, s.acctValueMono]}>{email}</Text>
         </View>
         <View style={s.acctCard}>
           <Text style={s.acctLabel}>{t('account.plan')}</Text>
@@ -824,7 +824,7 @@ const tk = StyleSheet.create({
   root: { flex: 1, backgroundColor: TK.bg },
   body: { paddingHorizontal: 24, paddingBottom: 96 },
   row: { paddingVertical: 19, borderBottomWidth: 1, borderBottomColor: TK.line },
-  dt: { fontSize: 12, color: TK.sub, letterSpacing: 0.6, marginBottom: 6 },
+  dt: { fontSize: 12, color: TK.sub, letterSpacing: 0.6, marginBottom: 6, fontFamily: JP_SERIF_FONT },
   dd: { gap: 4 },
   // 数字が並ぶため EB Garamond（等幅寄りの数字グリフ）を当てる。和文はOSフォールバック。
   ddText: { fontSize: 14, color: TK.ink, lineHeight: 26.6, fontFamily: NUM_FONT },
@@ -1142,7 +1142,14 @@ const s = StyleSheet.create({
     borderColor: COLOR.border,
     backgroundColor: 'rgba(34,36,69,0.30)',
   },
-  infoLabel: { color: COLOR.textPrimary, fontSize: 14, letterSpacing: 1.6, flex: 1, paddingRight: SPACE.sm },
+  infoLabel: {
+    color: COLOR.textPrimary,
+    fontSize: 14,
+    letterSpacing: 0.28,
+    flex: 1,
+    paddingRight: SPACE.sm,
+    fontFamily: JP_SERIF_FONT,
+  },
   // バージョン番号＝数字表記
   version: {
     fontFamily: NUM_FONT,
@@ -1167,7 +1174,16 @@ const s = StyleSheet.create({
   backBtn: { width: 28 },
   // 見出し(h1: 16px)と同じ大きさに揃える（12pxだと小さく見づらいとの指摘対応）
   back: { color: COLOR.textBack, fontSize: 16, letterSpacing: 0.6 },
-  h1: { flex: 1, textAlign: 'center', color: COLOR.textPrimary, fontSize: 16, fontWeight: '600', letterSpacing: 1 },
+  // 和文＝明朝（OS標準）/ letterSpacing = fontSize×0.02
+  h1: {
+    flex: 1,
+    textAlign: 'center',
+    color: COLOR.textPrimary,
+    fontSize: 16,
+    fontWeight: '600',
+    letterSpacing: 0.32,
+    fontFamily: JP_SERIF_FONT,
+  },
   body: { paddingHorizontal: SPACE.lg, paddingBottom: 48, gap: SPACE.md },
 
   // ── アカウント画面専用（モック準拠の2段ヘッダー＋カード型リスト）──
@@ -1176,12 +1192,19 @@ const s = StyleSheet.create({
     color: COLOR.textPrimary,
     fontSize: 24,
     fontWeight: '700',
-    letterSpacing: 0.5,
+    letterSpacing: 0.48,
     paddingHorizontal: SPACE.lg,
     marginTop: SPACE.md,
     marginBottom: SPACE.md,
+    fontFamily: JP_SERIF_FONT,
   },
-  acctSectionLabel: { color: COLOR.textSecondary, fontSize: 11, letterSpacing: 1.2, marginTop: SPACE.xs },
+  acctSectionLabel: {
+    color: COLOR.textSecondary,
+    fontSize: 11,
+    letterSpacing: 0.22,
+    marginTop: SPACE.xs,
+    fontFamily: JP_SERIF_FONT,
+  },
   // 情報行（メールアドレス/ご利用プラン）と遷移行（購入の復元/削除）で共通の枠
   acctCard: {
     flexDirection: 'row',
@@ -1195,16 +1218,19 @@ const s = StyleSheet.create({
     backgroundColor: 'rgba(34,36,69,0.30)',
   },
   acctCardDanger: { borderColor: 'rgba(255,59,48,0.35)' },
-  acctLabel: { color: COLOR.textPrimary, fontSize: 14, letterSpacing: 0.5 },
+  acctLabel: { color: COLOR.textPrimary, fontSize: 14, letterSpacing: 0.28, fontFamily: JP_SERIF_FONT },
   acctLabelDanger: { color: COLOR.badge },
-  acctValue: { color: COLOR.textSecondary, fontSize: 13, letterSpacing: 0.3 },
+  // 既定は和文（ご利用プラン等）。メールアドレスは acctValueMono を重ねて欧文にする
+  acctValue: { color: COLOR.textSecondary, fontSize: 13, letterSpacing: 0.26, fontFamily: JP_SERIF_FONT },
+  acctValueMono: { fontFamily: NUM_FONT, letterSpacing: 0 },
   acctFootnote: {
     color: COLOR.textSecondary,
     fontSize: 12,
     lineHeight: 19,
-    letterSpacing: 0.2,
+    letterSpacing: 0.24,
     opacity: 0.85,
     marginTop: SPACE.xs,
+    fontFamily: JP_SERIF_FONT,
   },
 
   row: {
@@ -1216,17 +1242,25 @@ const s = StyleSheet.create({
     borderBottomColor: COLOR.border,
   },
   rowText: { flex: 1, gap: 3 },
-  rowLabel: { color: COLOR.textPrimary, fontSize: 15, letterSpacing: 0.3 },
-  rowSub: { color: COLOR.textSecondary, fontSize: 12 },
+  rowLabel: { color: COLOR.textPrimary, fontSize: 15, letterSpacing: 0.3, fontFamily: JP_SERIF_FONT },
+  // メールアドレス表示のみに使う欧文行（SupportScreen）
+  rowSub: { color: COLOR.textSecondary, fontSize: 12, letterSpacing: 0.24, fontFamily: NUM_FONT },
   chevron: { color: COLOR.textSecondary, fontSize: 18 },
   check: { color: COLOR.auraCyan, fontSize: 16 },
 
-  paragraph: { color: COLOR.textSecondary, fontSize: 14, lineHeight: 23, letterSpacing: 0.3 },
-  docLead: { color: COLOR.textSecondary, fontSize: 13, lineHeight: 22, letterSpacing: 0.3, marginBottom: SPACE.xs },
+  paragraph: { color: COLOR.textSecondary, fontSize: 14, lineHeight: 23, letterSpacing: 0.28, fontFamily: JP_SERIF_FONT },
+  docLead: {
+    color: COLOR.textSecondary,
+    fontSize: 13,
+    lineHeight: 22,
+    letterSpacing: 0.26,
+    marginBottom: SPACE.xs,
+    fontFamily: JP_SERIF_FONT,
+  },
   docSection: { gap: 6 },
-  docHeading: { color: COLOR.textPrimary, fontSize: 14, fontWeight: '700', letterSpacing: 0.3 },
-  docBody: { color: COLOR.textPrimary, fontSize: 14, lineHeight: 26, letterSpacing: 0.3 },
-  note: { color: COLOR.auraCyan, fontSize: 13, textAlign: 'center' },
+  docHeading: { color: COLOR.textPrimary, fontSize: 14, fontWeight: '700', letterSpacing: 0.28, fontFamily: JP_SERIF_FONT },
+  docBody: { color: COLOR.textPrimary, fontSize: 14, lineHeight: 26, letterSpacing: 0.28, fontFamily: JP_SERIF_FONT },
+  note: { color: COLOR.auraCyan, fontSize: 13, textAlign: 'center', letterSpacing: 0.26, fontFamily: JP_SERIF_FONT },
 
   primaryBtn: {
     paddingVertical: 15,
@@ -1236,7 +1270,7 @@ const s = StyleSheet.create({
     backgroundColor: 'rgba(96,206,224,0.08)',
     alignItems: 'center',
   },
-  primaryLabel: { color: COLOR.textPrimary, fontSize: 15, fontWeight: '600', letterSpacing: 0.5 },
+  primaryLabel: { color: COLOR.textPrimary, fontSize: 15, fontWeight: '600', letterSpacing: 0.3, fontFamily: JP_SERIF_FONT },
 
   // ── 退会確認モーダル ──
   modalScrim: {
@@ -1256,9 +1290,23 @@ const s = StyleSheet.create({
     padding: SPACE.lg,
     gap: SPACE.sm,
   },
-  modalTitle: { color: COLOR.textPrimary, fontSize: 17, fontWeight: '700', letterSpacing: 0.5, textAlign: 'center' },
-  modalBody: { color: COLOR.textSecondary, fontSize: 13, lineHeight: 20, textAlign: 'center' },
-  modalError: { color: COLOR.badge, fontSize: 12, textAlign: 'center' },
+  modalTitle: {
+    color: COLOR.textPrimary,
+    fontSize: 17,
+    fontWeight: '700',
+    letterSpacing: 0.34,
+    textAlign: 'center',
+    fontFamily: JP_SERIF_FONT,
+  },
+  modalBody: {
+    color: COLOR.textSecondary,
+    fontSize: 13,
+    lineHeight: 20,
+    textAlign: 'center',
+    letterSpacing: 0.26,
+    fontFamily: JP_SERIF_FONT,
+  },
+  modalError: { color: COLOR.badge, fontSize: 12, textAlign: 'center', letterSpacing: 0.24, fontFamily: JP_SERIF_FONT },
   modalDeleteBtn: {
     marginTop: SPACE.sm,
     paddingVertical: 14,
@@ -1268,9 +1316,9 @@ const s = StyleSheet.create({
     backgroundColor: 'rgba(255,59,48,0.12)',
     alignItems: 'center',
   },
-  modalDeleteLabel: { color: COLOR.badge, fontSize: 15, fontWeight: '700', letterSpacing: 1 },
+  modalDeleteLabel: { color: COLOR.badge, fontSize: 15, fontWeight: '700', letterSpacing: 0.3, fontFamily: JP_SERIF_FONT },
   modalCancelBtn: { paddingVertical: 12, alignItems: 'center' },
-  modalCancelLabel: { color: COLOR.textPrimary, fontSize: 14, letterSpacing: 0.5 },
+  modalCancelLabel: { color: COLOR.textPrimary, fontSize: 14, letterSpacing: 0.28, fontFamily: JP_SERIF_FONT },
 });
 
 export default DocumentScreen;
