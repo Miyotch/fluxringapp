@@ -27,7 +27,6 @@ import { COLOR, SPACE, RADIUS } from '../constants/design-tokens';
 import { NUM_FONT } from '../constants/fonts';
 import { useT, useI18n, Lang } from '../lib/i18n';
 import { useAuthUser } from '../lib/useAuthUser';
-import { StarField } from '../components/StarField';
 import { useTopInset, useBottomInset } from '../lib/safeArea';
 
 // ─────────────────────────────────────────────
@@ -678,20 +677,14 @@ const TOKUSHOHO: TableDoc = {
 
 // CREDITS 画面（Special Thanks）: 星背景＋中央見出し＋役職/名前の縦積み
 const CreditsScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
-  const headerTop = useTopInset(8);              // 従来 52px（=44+8）
+  const t = useT();
   const footerBottom = useBottomInset(28, 8);    // 従来 28px を下回らない
   return (
-  <View style={s.creditsRoot}>
+  <View style={s.root}>
     <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
-    <StarField />
-
-    {/* 上部: 戻る矢印（左）＋ CREDITS 見出し（中央） */}
-    <View style={[s.creditsHeader, { paddingTop: headerTop }]}>
-      <Pressable onPress={onBack} hitSlop={14} style={s.creditsBack}>
-        <Text style={s.creditsChevron}>‹</Text>
-      </Pressable>
-      <Text style={s.creditsTitle}>CREDITS</Text>
-    </View>
+    {/* 他の設定末端画面と同じ SubHeader（‹戻る＋中央タイトル）・地の背景に統一。
+        以前は StarField（星空）＋独自ヘッダーで、設定内で唯一浮いた見た目だった。 */}
+    <SubHeader title={t('settings.thanks')} onBack={onBack} />
 
     <ScrollView
       contentContainerStyle={s.creditsBody}
@@ -844,26 +837,10 @@ const s = StyleSheet.create({
     opacity: 0.7,
   },
 
-  // ── CREDITS（Special Thanks）──
-  creditsRoot: { flex: 1, backgroundColor: COLOR.bg },
-  creditsHeader: {
-    // paddingTop は SafeArea を加味して JSX 側で上書き
-    paddingTop: 52,
-    paddingHorizontal: SPACE.lg,
-    paddingBottom: SPACE.md,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  creditsBack: { position: 'absolute', left: SPACE.lg, top: 46, padding: 6 },
-  creditsChevron: { color: COLOR.textPrimary, fontSize: 26, lineHeight: 26 },
-  creditsTitle: {
-    color: COLOR.textPrimary,
-    fontSize: 14,
-    letterSpacing: 6,
-    fontWeight: '400',
-  },
+  // ── CREDITS（Special Thanks）── ヘッダー・地の背景は他の設定末端画面と共通
+  // （s.root / SubHeader）。本文コンテナだけこの画面固有。
   creditsBody: {
-    paddingHorizontal: SPACE.xl,
+    paddingHorizontal: SPACE.lg,
     paddingTop: SPACE.xl,
     paddingBottom: 72,
     alignItems: 'stretch',
