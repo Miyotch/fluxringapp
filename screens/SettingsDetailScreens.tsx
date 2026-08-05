@@ -22,7 +22,9 @@ import {
   StatusBar,
   Linking,
   Modal,
+  useWindowDimensions,
 } from 'react-native';
+import Svg, { Defs, LinearGradient as SvgLinear, RadialGradient as SvgRadial, Stop, Rect, Circle, Path } from 'react-native-svg';
 import { COLOR, SPACE, RADIUS } from '../constants/design-tokens';
 import { NUM_FONT } from '../constants/fonts';
 import { useT, useI18n, Lang } from '../lib/i18n';
@@ -675,46 +677,205 @@ const TOKUSHOHO: TableDoc = {
   ],
 };
 
-// CREDITS 画面（Special Thanks）: 星背景＋中央見出し＋役職/名前の縦積み
+// CREDITS 画面固有のカラー定義（添付デザイン仕様に準拠。他画面のトンマナとは独立）
+const CR = {
+  page: '#0E0C20',
+  deepest: '#05040c',
+  text: '#ECEEF7',
+  sub: '#9498BE',
+  tertiary: 'rgba(236, 238, 247, 0.30)',
+  cyan: '#60CEE0',
+  violet: '#7C62D6',
+  border: '#3A3D72',
+} as const;
+
+// 背景: 中央上部が明るい放射状グラデーション＋3つのソフトなオーラ（blur近似はエッジが
+// 透明に落ちる radial gradient で代替。RN には CSS の filter:blur 相当がないため）
+const CreditsBackdrop: React.FC<{ w: number; h: number }> = ({ w, h }) => (
+  <View style={StyleSheet.absoluteFill} pointerEvents="none">
+    <Svg width={w} height={h} style={StyleSheet.absoluteFill}>
+      <Defs>
+        <SvgRadial id="crbg" cx="50%" cy="0%" r="85%">
+          <Stop offset="0.28" stopColor="#15132e" />
+          <Stop offset="0.55" stopColor="#0c0a1f" />
+          <Stop offset="1" stopColor="#07060f" />
+        </SvgRadial>
+      </Defs>
+      <Rect x={0} y={0} width={w} height={h} fill="url(#crbg)" />
+    </Svg>
+    <Svg width={300} height={300} style={{ position: 'absolute', left: -80, top: -60 }}>
+      <Defs>
+        <SvgRadial id="crb1" cx="50%" cy="50%" r="50%">
+          <Stop offset="0" stopColor="#5868E2" stopOpacity={0.2} />
+          <Stop offset="1" stopColor="#5868E2" stopOpacity={0} />
+        </SvgRadial>
+      </Defs>
+      <Circle cx={150} cy={150} r={150} fill="url(#crb1)" />
+    </Svg>
+    <Svg width={260} height={260} style={{ position: 'absolute', right: -90, top: 280 }}>
+      <Defs>
+        <SvgRadial id="crb2" cx="50%" cy="50%" r="50%">
+          <Stop offset="0" stopColor={CR.cyan} stopOpacity={0.1} />
+          <Stop offset="1" stopColor={CR.cyan} stopOpacity={0} />
+        </SvgRadial>
+      </Defs>
+      <Circle cx={130} cy={130} r={130} fill="url(#crb2)" />
+    </Svg>
+    <Svg width={220} height={220} style={{ position: 'absolute', left: 20, bottom: -80 }}>
+      <Defs>
+        <SvgRadial id="crb3" cx="50%" cy="50%" r="50%">
+          <Stop offset="0" stopColor={CR.violet} stopOpacity={0.14} />
+          <Stop offset="1" stopColor={CR.violet} stopOpacity={0} />
+        </SvgRadial>
+      </Defs>
+      <Circle cx={110} cy={110} r={110} fill="url(#crb3)" />
+    </Svg>
+  </View>
+);
+
+// 両端が透明にフェードする水平線（Founderブロック下のシアン光条／区切り線に共用）
+const FadeLine: React.FC<{ w: number; h: number; color: string; style?: object }> = ({
+  w,
+  h,
+  color,
+  style,
+}) => (
+  <Svg width={w} height={h} style={style}>
+    <Defs>
+      <SvgLinear id={`crfade-${color}-${w}`} x1="0" y1="0" x2="1" y2="0">
+        <Stop offset="0" stopColor={color} stopOpacity={0} />
+        <Stop offset="0.5" stopColor={color} stopOpacity={1} />
+        <Stop offset="1" stopColor={color} stopOpacity={0} />
+      </SvgLinear>
+    </Defs>
+    <Rect x={0} y={0} width={w} height={h} fill={`url(#crfade-${color}-${w})`} />
+  </Svg>
+);
+
+// 16x16 の矢印アイコン（‹ の代わり。添付仕様: strokeWidth 1.5 / color --sub）
+const CreditsBackArrow: React.FC = () => (
+  <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+    <Path d="M15 4L7 12L15 20" stroke={CR.sub} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+  </Svg>
+);
+
+// CREDITS 画面（Special Thanks）: 添付デザイン準拠の独自トンマナ
+// （放射状グラデーション背景＋オーラ・中央のFounderブロック＋左寄せのクルーリスト）
 const CreditsScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const t = useT();
-  const footerBottom = useBottomInset(28, 8);    // 従来 28px を下回らない
+  const { width: screenW, height: screenH } = useWindowDimensions();
+  // 従来の固定値からの換算（header 70px ≒ 44pt想定+26, body paddingTop 118px ≒ 44pt想定+74）
+  const navTop = useTopInset(26);
+  const bodyTop = useTopInset(74);
+  const contentW = screenW - SPACE.xl * 2; // paddingHorizontal 34相当 = SPACE.xl
+
+  const [founder, ...crew] = CREDITS;
+
   return (
-  <View style={s.root}>
-    <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
-    {/* 他の設定末端画面と同じ SubHeader（‹戻る＋中央タイトル）・地の背景に統一。
-        以前は StarField（星空）＋独自ヘッダーで、設定内で唯一浮いた見た目だった。 */}
-    <SubHeader title={t('settings.thanks')} onBack={onBack} />
+    <View style={cs.root}>
+      <StatusBar barStyle="light-content" backgroundColor={CR.deepest} />
+      <CreditsBackdrop w={screenW} h={screenH} />
 
-    <ScrollView
-      contentContainerStyle={s.creditsBody}
-      showsVerticalScrollIndicator={false}
-    >
-      {CREDITS.map((c, i) => (
-        <View
-          key={`${c.role}-${c.name}-${i}`}
-          style={[c.hero ? s.creditHeroItem : s.creditItem]}
-        >
-          <Text style={c.hero ? s.creditHeroRole : s.creditRole}>{c.role}</Text>
-          <Text style={c.hero ? s.creditHeroName : s.creditName}>{c.name}</Text>
-          {c.hero && (
-            <>
-              <View style={s.creditHeroGlow} />
-              <View style={s.creditDivider} />
-            </>
-          )}
+      <View style={[cs.header, { paddingTop: navTop }]}>
+        <Pressable onPress={onBack} hitSlop={12} style={cs.backBtn}>
+          <CreditsBackArrow />
+        </Pressable>
+        <Text style={cs.htitle}>{t('settings.thanks')}</Text>
+        <View style={cs.backBtn} />
+      </View>
+
+      <ScrollView
+        contentContainerStyle={[cs.body, { paddingTop: bodyTop }]}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={cs.founderBlock}>
+          <Text style={cs.roleLabel}>{founder.role}</Text>
+          <Text style={cs.personName}>{founder.name}</Text>
+          <FadeLine w={20} h={1} color={CR.cyan} style={cs.founderLine} />
         </View>
-      ))}
-    </ScrollView>
 
-    {/* 下部: FLUX RING ＋ Powered by */}
-    <View style={[s.creditsFooterWrap, { paddingBottom: footerBottom }]}>
-      <Text style={s.creditsFooter}>FLUX RING</Text>
-      <Text style={s.creditsPoweredBy}>Powered by Numéro.8</Text>
+        <FadeLine w={contentW} h={1} color={CR.border} style={cs.rule} />
+
+        <View style={cs.crewList}>
+          {crew.map((c, i) => (
+            <View key={`${c.role}-${c.name}-${i}`} style={cs.crewRow}>
+              <Text style={cs.roleLabel}>{c.role}</Text>
+              <Text style={cs.personName}>{c.name}</Text>
+            </View>
+          ))}
+        </View>
+
+        <View style={cs.footerWrap}>
+          <Text style={cs.footerMark}>FLUX RING</Text>
+          <Text style={[cs.footerMark, cs.footerMarkDim]}>Operated by Numéro.8</Text>
+        </View>
+      </ScrollView>
     </View>
-  </View>
   );
 };
+
+// CREDITS 専用スタイル（他画面の s とは独立。フォントは欧文名の並びのため EB Garamond 統一）
+const cs = StyleSheet.create({
+  root: { flex: 1, backgroundColor: CR.deepest },
+  header: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: SPACE.xl,
+    paddingBottom: 14,
+    zIndex: 10,
+  },
+  backBtn: { width: 24, alignItems: 'flex-start', justifyContent: 'center' },
+  // htitle: 12px / 字間.34em(=4.08) / --sub / uppercase / weight400
+  htitle: {
+    flex: 1,
+    textAlign: 'center',
+    color: CR.sub,
+    fontSize: 12,
+    letterSpacing: 4.08,
+    textTransform: 'uppercase',
+    fontWeight: '400',
+    fontFamily: NUM_FONT,
+  },
+  body: { paddingHorizontal: SPACE.xl, paddingBottom: 80 },
+  founderBlock: { alignItems: 'center', marginBottom: 46 },
+  founderLine: { marginTop: 16, opacity: 0.6 },
+  rule: { marginBottom: 42, opacity: 0.5 },
+  crewList: { gap: 26, alignItems: 'flex-start' },
+  crewRow: { alignItems: 'flex-start' },
+  // role-label: 10px / 字間.2em(=2.0) / --sub / uppercase / weight400
+  roleLabel: {
+    color: CR.sub,
+    fontSize: 10,
+    letterSpacing: 2.0,
+    textTransform: 'uppercase',
+    fontWeight: '400',
+    fontFamily: NUM_FONT,
+  },
+  // person-name: 15px / 字間.04em(=0.6) / --text / weight400 / marginTop 6
+  personName: {
+    color: CR.text,
+    fontSize: 15,
+    letterSpacing: 0.6,
+    fontWeight: '400',
+    marginTop: 6,
+    fontFamily: NUM_FONT,
+  },
+  footerWrap: { alignItems: 'center', marginTop: 46, gap: 6 },
+  // footer-mark: 9px / 字間.3em(=2.7) / --tertiary / uppercase。2行目のみ opacity 0.55
+  footerMark: {
+    color: CR.tertiary,
+    fontSize: 9,
+    letterSpacing: 2.7,
+    textTransform: 'uppercase',
+    fontFamily: NUM_FONT,
+  },
+  footerMarkDim: { opacity: 0.55 },
+});
 
 export const DocumentScreen: React.FC<{ kind: DocKind; onBack: () => void }> = ({
   kind,
@@ -837,81 +998,6 @@ const s = StyleSheet.create({
     opacity: 0.7,
   },
 
-  // ── CREDITS（Special Thanks）── ヘッダー・地の背景は他の設定末端画面と共通
-  // （s.root / SubHeader）。本文コンテナだけこの画面固有。
-  creditsBody: {
-    paddingHorizontal: SPACE.lg,
-    paddingTop: SPACE.xl,
-    paddingBottom: 72,
-    alignItems: 'stretch',
-  },
-  // ファウンダー（上部の大きな中央寄せブロック）
-  creditHeroItem: { alignItems: 'center', marginBottom: SPACE.lg },
-  // eyebrow見出し: 10px / 字間.28em / Gold #E9C879 / weight600 / 大文字
-  creditHeroRole: {
-    color: '#E9C879',
-    fontSize: 10,
-    fontWeight: '600',
-    letterSpacing: 2.8,
-    textTransform: 'uppercase',
-    marginBottom: 10,
-    textAlign: 'center',
-  },
-  creditHeroName: {
-    color: COLOR.textPrimary,
-    fontSize: 19,
-    letterSpacing: 0.5,
-    fontWeight: '500',
-    textAlign: 'center',
-  },
-  // 名前下の淡いシアングロー（小さな光の線）
-  creditHeroGlow: {
-    width: 26,
-    height: 3,
-    borderRadius: 2,
-    marginTop: 14,
-    backgroundColor: 'rgba(96,206,224,0.55)',
-  },
-  creditDivider: {
-    height: StyleSheet.hairlineWidth,
-    alignSelf: 'stretch',
-    backgroundColor: 'rgba(150,152,190,0.25)',
-    marginTop: SPACE.xl,
-  },
-  // 一般クレジット（左寄せの縦積み）
-  creditItem: { marginBottom: SPACE.lg, alignItems: 'flex-start' },
-  // eyebrow見出し: 10px / 字間.28em / Gold #E9C879 / weight600 / 大文字
-  creditRole: {
-    color: '#E9C879',
-    fontSize: 10,
-    fontWeight: '600',
-    letterSpacing: 2.8,
-    textTransform: 'uppercase',
-    marginBottom: 8,
-  },
-  creditName: {
-    color: COLOR.textPrimary,
-    fontSize: 18,
-    letterSpacing: 0.4,
-    fontWeight: '500',
-  },
-  // 下部フッター。paddingBottom は SafeArea の bottom を加算して実機で上書きする
-  creditsFooterWrap: { paddingBottom: 28, gap: 6 },
-  creditsFooter: {
-    textAlign: 'center',
-    color: COLOR.textSecondary,
-    fontSize: 10,
-    letterSpacing: 4,
-    opacity: 0.7,
-  },
-  creditsPoweredBy: {
-    textAlign: 'center',
-    color: COLOR.textSecondary,
-    fontSize: 9,
-    letterSpacing: 1.6,
-    opacity: 0.5,
-  },
-
   header: {
     paddingTop: 52,
     paddingHorizontal: SPACE.lg,
@@ -923,8 +1009,8 @@ const s = StyleSheet.create({
   // 戻るは「‹」のみに統一。左右を同幅にしてタイトルを中央に保つ
   // （左は実タップ領域、右は見えないバランサー）。
   backBtn: { width: 28 },
-  // .skback: 12px / 字間.05em / #AEB4D6
-  back: { color: COLOR.textBack, fontSize: 12, letterSpacing: 0.6 },
+  // 見出し(h1: 16px)と同じ大きさに揃える（12pxだと小さく見づらいとの指摘対応）
+  back: { color: COLOR.textBack, fontSize: 16, letterSpacing: 0.6 },
   h1: { flex: 1, textAlign: 'center', color: COLOR.textPrimary, fontSize: 16, fontWeight: '600', letterSpacing: 1 },
   body: { paddingHorizontal: SPACE.lg, paddingBottom: 48, gap: SPACE.md },
 

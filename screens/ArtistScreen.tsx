@@ -191,8 +191,8 @@ const styles = StyleSheet.create({
   // 戻るは「‹」のみに統一。左右を同幅にしてタイトルを中央に保つ
   // （左は実タップ領域、右は見えないバランサー）。
   backBtn: { width: 28 },
-  // .skback: 12px / 字間.05em / #AEB4D6
-  back: { color: COLOR.textBack, fontSize: 12, letterSpacing: 0.6 },
+  // 見出し(h1: 16px)と同じ大きさに揃える（12pxだと小さく見づらいとの指摘対応）
+  back: { color: COLOR.textBack, fontSize: 16, letterSpacing: 0.6 },
   h1: { flex: 1, textAlign: 'center', color: COLOR.textPrimary, fontSize: 16, fontWeight: '600', letterSpacing: 1 },
   chevron: { color: COLOR.textSecondary, fontSize: 18 },
 
