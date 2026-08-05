@@ -29,6 +29,7 @@ import { useSharedValue, useDerivedValue } from 'react-native-reanimated';
 import { CardGL } from '../components/CardGL';
 import { NebulaGL } from '../components/NebulaGL';
 import { CardBackdrop } from '../components/CardBackdrop';
+import { CardAfterimage, CardOrigin } from '../components/CardAfterimage';
 import { EqBars } from '../components/EqBars';
 import { PlayMark, PauseMark, LoopIcon, ShareIcon, SkipIcon, SkipPrevIcon } from '../components/icons';
 import { COLOR, SPACE, TRANSPORT } from '../constants/design-tokens';
@@ -56,6 +57,8 @@ export type PlayerTrack = {
 
 type Props = {
   track: PlayerTrack;
+  /** コレクションでタップされたタイルの画面絶対座標（指定時のみ残像を一瞬表示） */
+  origin?: CardOrigin;
   onBackHome: () => void; // コレクションへ戻る
   onOpenStory?: () => void; // 未使用（ストーリー導線は廃止）
   /**
@@ -67,11 +70,15 @@ type Props = {
   onNextTrack?: () => void;
 };
 
-export const PlayerScreen: React.FC<Props> = ({ track, onBackHome, onPrevTrack, onNextTrack }) => {
+export const PlayerScreen: React.FC<Props> = ({ track, origin, onBackHome, onPrevTrack, onNextTrack }) => {
   const { width: screenW, height: screenH } = useWindowDimensions();
   const navTop = useTopInset(8);            // 従来 52px（=44+8）
   const transportBottom = useBottomInset(40, 12); // ホームインジケータ回避（従来 40px を下回らない）
   const cardW = Math.min(screenW - 96, 240);
+
+  // 残像は「開いた瞬間」だけ。曲送り／戻しで track が変わっても再表示しない。
+  const [afterimageOrigin] = useState(origin ?? null);
+  const [afterimageDone, setAfterimageDone] = useState(false);
 
   // ベール（再生前）→ 再生 の2フェーズ。初回はいきなり再生しない。
   const [phase, setPhase] = useState<'veil' | 'playing'>('veil');
@@ -200,6 +207,16 @@ export const PlayerScreen: React.FC<Props> = ({ track, onBackHome, onPrevTrack, 
           中央の再生ボタンを引き立てる（魔法陣は出さない）。 */}
       <NebulaGL />
       {phase === 'veil' && <View style={styles.veilScrim} />}
+
+      {/* 残像（テンポラリー）: コレクションのタイルがあった場所に、ぼやけた
+          薄い跡を一瞬だけ残す。origin が無い（ホーム等から開いた）ときは出さない。 */}
+      {afterimageOrigin && !afterimageDone && (
+        <CardAfterimage
+          uri={track.artworkUrl}
+          origin={afterimageOrigin}
+          onDone={() => setAfterimageDone(true)}
+        />
+      )}
 
       {/* 上部導線: コレクションへ戻る / 共有（ストーリー導線は廃止） */}
       <View style={[styles.topNav, { paddingTop: navTop }]}>
