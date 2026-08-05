@@ -22,8 +22,16 @@ import {
 import { COLOR, SPACE, RADIUS } from '../constants/design-tokens';
 import { useTopInset } from '../lib/safeArea';
 import { NUM_FONT } from '../constants/fonts';
+import { XIcon } from '../components/icons';
 
-type Sns = { key: string; label: string; url: string; icon?: ImageSourcePropType };
+type Sns = {
+  key: string;
+  label: string;
+  url: string;
+  icon?: ImageSourcePropType;
+  /** ベクターアイコン（指定時は icon より優先。X はこちらでバッジを描く） */
+  IconComponent?: React.FC<{ size?: number }>;
+};
 type Article = {
   id: string;
   title: string;
@@ -49,7 +57,7 @@ const DEFAULT_SNS: Sns[] = [
   },
   {
     key: 'x', label: 'X', url: 'https://x.com',
-    icon: require('../components/x.png'),
+    IconComponent: XIcon,
   },
 ];
 
@@ -88,7 +96,9 @@ export const MediaScreen: React.FC<Props> = ({
             onPress={() => Linking.openURL(s.url).catch(() => {})}
             accessibilityLabel={s.label}
           >
-            {s.icon ? (
+            {s.IconComponent ? (
+              <s.IconComponent size={26} />
+            ) : s.icon ? (
               <Image source={s.icon} style={styles.snsIcon} resizeMode="contain" />
             ) : (
               <Text style={styles.snsLabel}>{s.label}</Text>
