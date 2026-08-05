@@ -40,6 +40,7 @@ import {
   type PurchaseFailReason,
   type PurchaseOutcome,
 } from './iap'
+import { isPurchasableTrack } from '../constants/iapProducts'
 import { onUserChanged } from './firebaseAuth'
 import {
   clearCachedOwnedIds,
@@ -59,6 +60,16 @@ import {
  * 発火後に本来のイベントが遅れて届いても、成功なら通常どおり所有化される。
  */
 const PURCHASE_WATCHDOG_MS = 120000
+
+/**
+ * 【一時措置】実IAP（expo-iap／OS課金シート）を通さず、購入操作を
+ * 即座に成功扱いにする。実機の課金シート・サンドボックスが無い環境で
+ * 購入**後**の挙動（所有化・完了演出・コレクション反映等）を確認するため。
+ * 本番のIAP動線を復活させるときは false に戻す（lib/iap.ts 側は無改変）。
+ */
+const MOCK_PURCHASES = true
+/** モック購入で「busy」表示を見せる時間(ms)。0だと演出前に一瞬で完了してしまう */
+const MOCK_PURCHASE_DELAY_MS = 700
 
 /** PurchaseModal の見た目とそのまま対応する状態 */
 export type PurchaseUiState = 'idle' | 'busy' | 'failed' | 'cancelled' | 'pending'
@@ -187,7 +198,9 @@ export function usePurchaseFlow(): PurchaseFlow {
   applyOutcomeRef.current = applyOutcome
 
   // ── 起動時: 接続 → 購読 → 未完了の引き取り → 価格取得 ──
+  // MOCK_PURCHASES 中は実IAPに一切触れない（connect/listener/価格取得すべて省略）。
   useEffect(() => {
+    if (MOCK_PURCHASES) return
     let alive = true
 
     const removeListeners = addPurchaseListeners({
@@ -288,6 +301,21 @@ export function usePurchaseFlow(): PurchaseFlow {
       setReason(undefined)
 
       clearWatchdog()
+
+      if (MOCK_PURCHASES) {
+        // 実IAPを介さず、busy を少し見せてから成功扱いにする
+        // （購入完了演出・所有化・コレクション反映など「購入後」の確認用）。
+        watchdogRef.current = setTimeout(() => {
+          watchdogRef.current = null
+          applyOutcomeRef.current(
+            isPurchasableTrack(trackId)
+              ? { kind: 'success', trackId, verified: false }
+              : { kind: 'failed', reason: 'not_registered' },
+          )
+        }, MOCK_PURCHASE_DELAY_MS)
+        return
+      }
+
       watchdogRef.current = setTimeout(() => {
         watchdogRef.current = null
         applyOutcomeRef.current({ kind: 'failed', reason: 'failed' })
