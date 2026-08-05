@@ -52,15 +52,19 @@ const SubHeader: React.FC<{ title: string; onBack: () => void }> = ({ title, onB
 
 export const AccountScreen: React.FC<{
   onBack: () => void;
-  onSignOut: () => void;
+  /** 「購入」欄の「購入の復元」タップで遷移 */
+  onOpenRestore: () => void;
+  /** 「ご利用プラン」欄の表示に使う（VIP＝年間ライセンス契約中なら「有料」） */
+  vipUnlocked: boolean;
   /** 退会（確認後に実行）。設定リストがカード型7項目になったため、
    *  退会導線はこの画面に集約する（App Store の審査要件で、アカウントを
    *  作れるアプリはアプリ内に削除導線が必要）。 */
   onDeleteAccount?: () => void | Promise<void>;
-}> = ({ onBack, onSignOut, onDeleteAccount }) => {
+}> = ({ onBack, onOpenRestore, vipUnlocked, onDeleteAccount }) => {
   const t = useT();
   const user = useAuthUser();
   const email = user?.email ?? t('settings.notLoggedIn');
+  const navTop = useTopInset(8);
 
   // 退会の確認ポップアップ
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -84,40 +88,50 @@ export const AccountScreen: React.FC<{
   return (
     <View style={s.root}>
       <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
-      <SubHeader title={t('account.title')} onBack={onBack} />
       <ScrollView contentContainerStyle={s.body} showsVerticalScrollIndicator={false}>
-        <View style={s.card}>
-          <Text style={s.fieldLabel}>{t('account.emailLabel')}</Text>
-          <Text style={s.fieldValue}>{email}</Text>
+        {/* この画面だけ「‹」単体の戻る行＋大見出しの2段構成（モック準拠）。
+            他の設定末端画面は SubHeader（戻る＋タイトルを同じ行に中央配置）のまま。 */}
+        <View style={[s.acctNav, { paddingTop: navTop }]}>
+          <Pressable onPress={onBack} hitSlop={12}>
+            <Text style={s.back}>‹</Text>
+          </Pressable>
+        </View>
+        <Text style={s.acctTitle}>{t('account.title')}</Text>
+
+        <Text style={s.acctSectionLabel}>{t('account.sec.registration')}</Text>
+        <View style={s.acctCard}>
+          <Text style={s.acctLabel}>{t('account.emailLabel')}</Text>
+          <Text style={s.acctValue}>{email}</Text>
+        </View>
+        <View style={s.acctCard}>
+          <Text style={s.acctLabel}>{t('account.plan')}</Text>
+          <Text style={s.acctValue}>
+            {vipUnlocked ? t('account.plan.paid') : t('account.plan.free')}
+          </Text>
         </View>
 
-        {/* TODO: パスワード変更・メール変更（Firebase Auth） */}
-        <Pressable style={s.row} onPress={() => {}}>
-          <Text style={s.rowLabel}>{t('account.changePassword')}</Text>
+        <Text style={s.acctSectionLabel}>{t('account.sec.purchases')}</Text>
+        <Pressable
+          style={({ pressed }) => [s.acctCard, pressed && { opacity: 0.7 }]}
+          onPress={onOpenRestore}
+        >
+          <Text style={s.acctLabel}>{t('settings.restore')}</Text>
           <Text style={s.chevron}>›</Text>
         </Pressable>
 
-        <Pressable
-          style={({ pressed }) => [s.outlineBtn, pressed && { opacity: 0.7 }]}
-          onPress={onSignOut}
-        >
-          <Text style={s.outlineLabel}>{t('settings.signout')}</Text>
-        </Pressable>
-
         {onDeleteAccount && (
-          <>
-            <Pressable
-              style={({ pressed }) => [s.dangerRow, pressed && { opacity: 0.7 }]}
-              onPress={() => {
-                setDeleteError(null);
-                setConfirmDelete(true);
-              }}
-            >
-              <Text style={s.dangerLabel}>{t('settings.deleteAccount')}</Text>
-            </Pressable>
-            <Text style={s.dangerHint}>{t('settings.deleteAccount.sub')}</Text>
-          </>
+          <Pressable
+            style={({ pressed }) => [s.acctCard, s.acctCardDanger, pressed && { opacity: 0.7 }]}
+            onPress={() => {
+              setDeleteError(null);
+              setConfirmDelete(true);
+            }}
+          >
+            <Text style={[s.acctLabel, s.acctLabelDanger]}>{t('settings.deleteAccount')}</Text>
+            <Text style={[s.chevron, s.acctLabelDanger]}>›</Text>
+          </Pressable>
         )}
+        <Text style={s.acctFootnote}>{t('account.planNote')}</Text>
       </ScrollView>
 
       {/* 退会の確認ポップアップ（購入情報など全消去の確認・戻る/削除する） */}
@@ -937,16 +951,42 @@ const s = StyleSheet.create({
   h1: { flex: 1, textAlign: 'center', color: COLOR.textPrimary, fontSize: 16, fontWeight: '600', letterSpacing: 1 },
   body: { paddingHorizontal: SPACE.lg, paddingBottom: 48, gap: SPACE.md },
 
-  card: {
+  // ── アカウント画面専用（モック準拠の2段ヘッダー＋カード型リスト）──
+  acctNav: { paddingHorizontal: SPACE.lg, paddingBottom: 2 },
+  acctTitle: {
+    color: COLOR.textPrimary,
+    fontSize: 24,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    paddingHorizontal: SPACE.lg,
+    marginTop: SPACE.md,
+    marginBottom: SPACE.md,
+  },
+  acctSectionLabel: { color: COLOR.textSecondary, fontSize: 11, letterSpacing: 1.2, marginTop: SPACE.xs },
+  // 情報行（メールアドレス/ご利用プラン）と遷移行（購入の復元/削除）で共通の枠
+  acctCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 17,
+    paddingHorizontal: SPACE.md,
     borderRadius: RADIUS.lg,
     borderWidth: 1,
     borderColor: COLOR.border,
     backgroundColor: 'rgba(34,36,69,0.30)',
-    padding: SPACE.md,
-    gap: 4,
   },
-  fieldLabel: { color: COLOR.textSecondary, fontSize: 11, letterSpacing: 1 },
-  fieldValue: { color: COLOR.textPrimary, fontSize: 16, letterSpacing: 0.3 },
+  acctCardDanger: { borderColor: 'rgba(255,59,48,0.35)' },
+  acctLabel: { color: COLOR.textPrimary, fontSize: 14, letterSpacing: 0.5 },
+  acctLabelDanger: { color: COLOR.badge },
+  acctValue: { color: COLOR.textSecondary, fontSize: 13, letterSpacing: 0.3 },
+  acctFootnote: {
+    color: COLOR.textSecondary,
+    fontSize: 12,
+    lineHeight: 19,
+    letterSpacing: 0.2,
+    opacity: 0.85,
+    marginTop: SPACE.xs,
+  },
 
   row: {
     flexDirection: 'row',
@@ -988,32 +1028,6 @@ const s = StyleSheet.create({
     alignItems: 'center',
   },
   primaryLabel: { color: COLOR.textPrimary, fontSize: 15, fontWeight: '600', letterSpacing: 0.5 },
-  outlineBtn: {
-    marginTop: SPACE.sm,
-    paddingVertical: 14,
-    borderRadius: RADIUS.lg,
-    borderWidth: 1,
-    borderColor: COLOR.border,
-    alignItems: 'center',
-  },
-  outlineLabel: { color: COLOR.textSecondary, fontSize: 14, letterSpacing: 1 },
-  dangerRow: {
-    marginTop: SPACE.lg,
-    paddingVertical: 14,
-    borderRadius: RADIUS.lg,
-    borderWidth: 1,
-    borderColor: 'rgba(255,59,48,0.55)',
-    backgroundColor: 'rgba(255,59,48,0.06)',
-    alignItems: 'center',
-  },
-  dangerLabel: { color: COLOR.badge, fontSize: 14, letterSpacing: 1, fontWeight: '600' },
-  dangerHint: {
-    marginTop: SPACE.xs,
-    color: COLOR.textSecondary,
-    fontSize: 11,
-    textAlign: 'center',
-    opacity: 0.8,
-  },
 
   // ── 退会確認モーダル ──
   modalScrim: {

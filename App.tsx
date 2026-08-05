@@ -325,10 +325,8 @@ function AppInner() {
         return (
           <AccountScreen
             onBack={back}
-            onSignOut={async () => {
-              try { await signOut(); } catch {}
-              restartLaunch();
-            }}
+            onOpenRestore={() => setSettingsDetail('restore')}
+            vipUnlocked={vipUnlocked}
             onDeleteAccount={async () => {
               // 退会: Firebase のアカウントを削除（未ログイン/スタブ時は no-op）→
               // 起動フローへ戻す（ログイン画面に落ちる）。失敗時は例外を投げて
