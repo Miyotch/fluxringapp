@@ -35,14 +35,13 @@ import { useTopInset, useBottomInset } from '../lib/safeArea';
 // ─────────────────────────────────────────────
 
 const SubHeader: React.FC<{ title: string; onBack: () => void }> = ({ title, onBack }) => {
-  const t = useT();
   return (
     <View style={s.header}>
-      <Pressable onPress={onBack} hitSlop={12}>
-        <Text style={s.back}>‹ {t('settings.title')}</Text>
+      <Pressable onPress={onBack} hitSlop={12} style={s.backBtn}>
+        <Text style={s.back}>‹</Text>
       </Pressable>
       <Text style={s.h1}>{title}</Text>
-      <View style={{ width: 60 }} />
+      <View style={s.backBtn} />
     </View>
   );
 };
@@ -930,9 +929,12 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
+  // 戻るは「‹」のみに統一。左右を同幅にしてタイトルを中央に保つ
+  // （左は実タップ領域、右は見えないバランサー）。
+  backBtn: { width: 28 },
   // .skback: 12px / 字間.05em / #AEB4D6
   back: { color: COLOR.textBack, fontSize: 12, letterSpacing: 0.6 },
-  h1: { color: COLOR.textPrimary, fontSize: 16, fontWeight: '600', letterSpacing: 1 },
+  h1: { flex: 1, textAlign: 'center', color: COLOR.textPrimary, fontSize: 16, fontWeight: '600', letterSpacing: 1 },
   body: { paddingHorizontal: SPACE.lg, paddingBottom: 48, gap: SPACE.md },
 
   card: {
