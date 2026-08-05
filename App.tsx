@@ -129,18 +129,26 @@ function AppInner() {
   );
 
   // 再生画面が扱うトラック一覧（＝マイコレの並び順）。曲送り／戻しはこの並びを辿る。
+  // カード裏面（アルミ刻印）にホームと同じ内容を出すため、CollectionItem
+  // （表示専用・裏面情報を持たない）ではなく STUB_TRACKS から直接引く。
   const playerTracks = useMemo<PlayerTrack[]>(
     () =>
-      ownedItems.map((o) => ({
-        id: o.id,
-        title: o.title,
-        artworkUrl: o.artworkUrl,
-        audioKey: o.audioKey ?? o.id,
+      STUB_TRACKS.filter((tr) => ownedTrackIds.has(tr.id)).map((tr) => ({
+        id: tr.id,
+        title: tr.title,
+        subtitle: tr.subtitle,
+        artworkUrl: tr.artworkUrl,
+        audioKey: tr.audioKey,
         durationSec: 220,
-        glowColor: o.glowColor,
-        glowColor2: o.glowColor2,
+        glowColor: tr.glowColor,
+        glowColor2: tr.glowColor2,
+        serial: tr.back?.serial,
+        story: tr.back?.story,
+        tuning: tr.back?.tuning,
+        frequencies: tr.back?.frequencies,
+        artist: tr.back?.artist,
       })),
-    [ownedItems],
+    [ownedTrackIds],
   );
   const playerIndex = playerTracks.findIndex((t) => t.id === playerTrackId);
   const playerTrack = playerIndex >= 0 ? playerTracks[playerIndex] : null;
