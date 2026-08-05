@@ -231,9 +231,10 @@ export const RestoreScreen: React.FC<{
 // 言語
 // ─────────────────────────────────────────────
 
+// English はまだ翻訳未確定のため選択肢に出さない（英訳確定後に追加）。
+// lib/i18n.tsx 側の 'en' 辞書・Lang 型はそのまま残し、切替の受け皿だけ用意しておく。
 const LANGUAGES: { code: Lang; label: string }[] = [
   { code: 'ja', label: '日本語' },
-  { code: 'en', label: 'English' },
 ];
 
 export const LanguageScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
