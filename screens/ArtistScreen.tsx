@@ -25,6 +25,7 @@ import {
 import Animated, { FadeInUp } from 'react-native-reanimated';
 import { ArtworkCard } from '../components/ArtworkCard';
 import { COLOR, SPACE, RADIUS } from '../constants/design-tokens';
+import { NUM_FONT, JP_SERIF_FONT } from '../constants/fonts';
 import { useTopInset } from '../lib/safeArea';
 
 export type Artist = {
@@ -90,7 +91,10 @@ export const ArtistScreen: React.FC<Props> = ({
               <View style={styles.avatarSm} />
               <View style={styles.artistRowText}>
                 <Text style={styles.artistRowName}>{a.name}</Text>
-                <Text style={styles.artistRowSub}>{a.nameEn} ／ {a.role}</Text>
+                <Text style={styles.artistRowSub}>
+                  <Text style={styles.artistRowSubEn}>{a.nameEn}</Text>
+                  <Text style={styles.artistRowSubJa}> ／ {a.role}</Text>
+                </Text>
               </View>
               <Text style={styles.chevron}>›</Text>
             </Pressable>
@@ -191,9 +195,18 @@ const styles = StyleSheet.create({
   // 戻るは「‹」のみに統一。左右を同幅にしてタイトルを中央に保つ
   // （左は実タップ領域、右は見えないバランサー）。
   backBtn: { width: 28 },
-  // .skback: 12px / 字間.05em / #AEB4D6
-  back: { color: COLOR.textBack, fontSize: 12, letterSpacing: 0.6 },
-  h1: { flex: 1, textAlign: 'center', color: COLOR.textPrimary, fontSize: 16, fontWeight: '600', letterSpacing: 1 },
+  // 見出し(h1: 16px)と同じ大きさに揃える（12pxだと小さく見づらいとの指摘対応）
+  back: { color: COLOR.textBack, fontSize: 16, letterSpacing: 0.6 },
+  // 和文＝明朝（OS標準）/ letterSpacing = fontSize×0.02
+  h1: {
+    flex: 1,
+    textAlign: 'center',
+    color: COLOR.textPrimary,
+    fontSize: 16,
+    fontWeight: '600',
+    letterSpacing: 0.32,
+    fontFamily: JP_SERIF_FONT,
+  },
   chevron: { color: COLOR.textSecondary, fontSize: 18 },
 
   // list
@@ -215,8 +228,17 @@ const styles = StyleSheet.create({
     borderColor: COLOR.border,
   },
   artistRowText: { flex: 1, gap: 3 },
-  artistRowName: { color: COLOR.textPrimary, fontSize: 15, fontWeight: '600' },
+  artistRowName: {
+    color: COLOR.textPrimary,
+    fontSize: 15,
+    fontWeight: '600',
+    letterSpacing: 0.3,
+    fontFamily: JP_SERIF_FONT,
+  },
   artistRowSub: { color: COLOR.textSecondary, fontSize: 12 },
+  // nameEn（欧文）＋役職（和文）が同じ行に混在するため、TextをネストしてfontFamilyを分ける
+  artistRowSubEn: { fontFamily: NUM_FONT, letterSpacing: 0.24 },
+  artistRowSubJa: { fontFamily: JP_SERIF_FONT, letterSpacing: 0.24 },
 
   // profile
   profileBody: { paddingHorizontal: SPACE.xl, paddingBottom: 48, alignItems: 'center' },
@@ -229,15 +251,23 @@ const styles = StyleSheet.create({
     borderColor: COLOR.border,
     marginVertical: SPACE.lg,
   },
-  profileName: { color: COLOR.textPrimary, fontSize: 22, fontWeight: '700', letterSpacing: 1 },
-  profileNameEn: { color: COLOR.textSecondary, fontSize: 12, letterSpacing: 3, marginTop: 4 },
+  profileName: {
+    color: COLOR.textPrimary,
+    fontSize: 22,
+    fontWeight: '700',
+    letterSpacing: 0.44,
+    fontFamily: JP_SERIF_FONT,
+  },
+  // 欧文の大文字表記（selected.nameEn.toUpperCase()）
+  profileNameEn: { color: COLOR.textSecondary, fontSize: 12, letterSpacing: 0.24, marginTop: 4, fontFamily: NUM_FONT },
   profileBio: {
     color: COLOR.textPrimary,
     fontSize: 14,
     lineHeight: 26,
-    letterSpacing: 0.4,
+    letterSpacing: 0.28,
     marginTop: SPACE.lg,
     textAlign: 'left',
+    fontFamily: JP_SERIF_FONT,
   },
   tracksBtn: {
     marginTop: SPACE.xl,
@@ -252,15 +282,15 @@ const styles = StyleSheet.create({
     borderColor: COLOR.border,
     backgroundColor: 'rgba(34,36,69,0.30)',
   },
-  tracksBtnLabel: { color: COLOR.textPrimary, fontSize: 15, letterSpacing: 0.5 },
-  tracksBtnSub: { color: COLOR.textSecondary, fontSize: 12 },
+  tracksBtnLabel: { color: COLOR.textPrimary, fontSize: 15, letterSpacing: 0.3, fontFamily: JP_SERIF_FONT },
+  tracksBtnSub: { color: COLOR.textSecondary, fontSize: 12, letterSpacing: 0.24, fontFamily: JP_SERIF_FONT },
 
   // tracks
   tracksGrid: { paddingHorizontal: SPACE.lg, paddingBottom: 40 },
   gridRow: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.md },
   gridCell: { marginBottom: SPACE.md },
-  gridTitle: { color: COLOR.textPrimary, fontSize: 13, marginTop: SPACE.sm },
-  gridState: { color: COLOR.textSecondary, fontSize: 11, marginTop: 2 },
+  gridTitle: { color: COLOR.textPrimary, fontSize: 13, marginTop: SPACE.sm, letterSpacing: 0.26, fontFamily: JP_SERIF_FONT },
+  gridState: { color: COLOR.textSecondary, fontSize: 11, marginTop: 2, letterSpacing: 0.22, fontFamily: JP_SERIF_FONT },
 });
 
 export default ArtistScreen;

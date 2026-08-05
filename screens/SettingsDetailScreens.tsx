@@ -22,9 +22,11 @@ import {
   StatusBar,
   Linking,
   Modal,
+  useWindowDimensions,
 } from 'react-native';
+import Svg, { Defs, LinearGradient as SvgLinear, RadialGradient as SvgRadial, Stop, Rect, Circle, Path } from 'react-native-svg';
 import { COLOR, SPACE, RADIUS } from '../constants/design-tokens';
-import { NUM_FONT } from '../constants/fonts';
+import { NUM_FONT, JP_SERIF_FONT } from '../constants/fonts';
 import { useT, useI18n, Lang } from '../lib/i18n';
 import { useAuthUser } from '../lib/useAuthUser';
 import { useTopInset, useBottomInset } from '../lib/safeArea';
@@ -100,7 +102,7 @@ export const AccountScreen: React.FC<{
         <Text style={s.acctSectionLabel}>{t('account.sec.registration')}</Text>
         <View style={s.acctCard}>
           <Text style={s.acctLabel}>{t('account.emailLabel')}</Text>
-          <Text style={s.acctValue}>{email}</Text>
+          <Text style={[s.acctValue, s.acctValueMono]}>{email}</Text>
         </View>
         <View style={s.acctCard}>
           <Text style={s.acctLabel}>{t('account.plan')}</Text>
@@ -314,9 +316,6 @@ export type DocKind = 'thanks' | 'terms' | 'privacy' | 'tokushoho';
 // 条文形式（利用規約・プライバシーポリシー）: 前文＋条ごとの見出し・本文
 type DocSection = { heading?: string; body: string };
 type TextDoc = { title: string; lead?: string; sections: DocSection[] };
-
-// 表形式（特定商取引法に基づく表記）
-type TableDoc = { title: string; rows: { label: string; value: string }[] };
 
 // CREDITS（Special Thanks）: 役職ラベル＋名前の縦積み。
 // hero=true は上部の大きな枠（ファウンダー）で、下に区切り線を引く。
@@ -657,64 +656,392 @@ const TEXT_DOCS: Record<'terms' | 'privacy', TextDoc> = {
   },
 };
 
-const TOKUSHOHO: TableDoc = {
-  title: '特定商取引法に基づく表記',
-  rows: [
-    { label: '販売価格', value: '本サービス（アプリ内）または公式サイトのプラン購入ページに表示する価格（消費税込み）' },
-    { label: '商品代金以外の必要料金', value: '本サービスを利用するためのインターネット通信料・パケット通信料等は、お客様のご負担となります。' },
-    { label: 'お支払方法', value: 'App Store決済（Apple ID）、Google Play決済、クレジットカード決済' },
-    { label: '代金の支払時期', value: '各決済方法の提供会社の定める課金基準・支払時期に基づきます（原則として、購入確定時または定期購読の更新時に課金されます）。' },
-    { label: '役務の提供時期', value: 'お支払手続き完了後、直ちにご利用いただけます。' },
-    { label: 'キャンセル・返品（返金）について', value: 'デジタルコンテンツの特性上、購入確定後、および有料プラン登録期間中のキャンセル・返金は一切お受けできません。翌月以降の自動更新の停止（解約）については、いつでもお手続きが可能です。' },
-    { label: '動作環境', value: '推奨環境の詳細は、ストア等のアプリ配信ページをご確認ください。' },
-    // 会社情報は下部にまとめる
-    { label: '販売事業者名（社名）', value: '株式会社Numéro.8' },
-    { label: '代表者名', value: '岡 直樹' },
-    { label: '所在地', value: '〒145-0071 東京都大田区田園調布4-44-8' },
-    { label: 'お問い合わせ先', value: 'support@numero8.jp' },
-  ],
+// ─────────────────────────────────────────────
+// 特定商取引法に基づく表記（専用データ・専用トンマナ）
+// ─────────────────────────────────────────────
+
+// list項目は文字列（バッジなし）または { text, badge } の混在を許容する。
+// badge/badgeInText は同じ意味（項目末尾に添えるバッジ）の別名として扱う。
+type TokushoListItem = string | { text: string; badge?: string; badgeInText?: string };
+
+type TokushoRow = {
+  label: string;
+  value?: string;
+  /** value の直後に添えるバッジ（例: 仮置きのメールアドレス） */
+  badge?: string;
+  list?: TokushoListItem[];
+  note?: string;
+  /** note の直後に添えるバッジ */
+  badgeInNote?: string;
 };
 
-// CREDITS 画面（Special Thanks）: 星背景＋中央見出し＋役職/名前の縦積み
-const CreditsScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
-  const t = useT();
-  const footerBottom = useBottomInset(28, 8);    // 従来 28px を下回らない
-  return (
-  <View style={s.root}>
-    <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
-    {/* 他の設定末端画面と同じ SubHeader（‹戻る＋中央タイトル）・地の背景に統一。
-        以前は StarField（星空）＋独自ヘッダーで、設定内で唯一浮いた見た目だった。 */}
-    <SubHeader title={t('settings.thanks')} onBack={onBack} />
+export const tokushoData: TokushoRow[] = [
+  { label: '販売業者', value: '株式会社Numéro.8' },
+  { label: '代表者・販売責任者', value: '岡 直樹' },
+  { label: '所在地', value: '〒145-0071 東京都大田区田園調布4-44-8' },
+  {
+    label: '電話番号',
+    value: 'ご請求があった場合、遅滞なく開示いたします。お問い合わせは下記メールアドレスまでお願いいたします。',
+  },
+  { label: 'メールアドレス', value: 'support@fluxring.example', badge: '仮置き' },
+  {
+    label: '販売価格',
+    list: [
+      '楽曲作品（通常）：2,500円（税込）',
+      'コラボレーション限定版：6,000円（税込）',
+      '商業ライセンス（法人向け・年間）：42,000円（税込）',
+      'カスタム制作：500,000円（税込）〜（個別お見積り）',
+    ],
+    note: '各作品・各プランの販売価格は、アプリ内および各販売ページに表示します。',
+  },
+  {
+    label: '商品代金以外の必要料金',
+    value: 'アプリのダウンロードおよびご利用に必要な通信料は、お客様のご負担となります。',
+    note: 'カスタム制作に付随する物理カードの配送料は、お見積り時に個別にご案内します。',
+    badgeInNote: '要確認',
+  },
+  {
+    label: '支払方法',
+    list: [
+      {
+        text: '楽曲作品・コラボレーション限定版・商業ライセンス：App Store／Google Play のアプリ内課金（各プラットフォームが提供する決済手段）。商業ライセンスは自動更新のサブスクリプションです。',
+      },
+      {
+        text: 'カスタム制作：当社との個別契約に基づく銀行振込',
+        badge: '仮置き',
+      },
+    ],
+  },
+  {
+    label: '支払時期',
+    list: [
+      {
+        text: '楽曲作品・コラボレーション限定版：購入手続き完了時にお支払いが確定します。',
+      },
+      {
+        text: '商業ライセンス：初回お申し込み時に課金され、以後は1年ごとの更新日に自動的に課金されます。',
+      },
+      {
+        text: 'カスタム制作：個別契約に定める時期（請求書発行後14日以内）',
+        badgeInText: '仮置き',
+      },
+    ],
+  },
+  {
+    label: '引渡時期',
+    list: [
+      'アプリ内購入：決済完了後、直ちにアプリ内でご利用いただけます。',
+      'カスタム制作：個別契約に定める納期によります。',
+    ],
+  },
+  {
+    label: '商業ライセンスの\n契約期間・解約',
+    value:
+      '契約期間は1年間で、解約のお手続きがない限り、同一条件で自動的に更新されます。更新を停止する場合は、更新日の24時間前までに、ご利用の端末のOS（App Store／Google Play）のサブスクリプション設定から解約のお手続きを行ってください。解約後も、既にお支払いいただいた契約期間の満了日まではご利用いただけます。',
+  },
+  {
+    label: '返品・キャンセル',
+    value:
+      'デジタルコンテンツという商品の性質上、購入手続き完了後の返品・キャンセル・返金はお受けできません。商業ライセンスの中途解約による残期間の日割返金も行いません。アプリ内課金に関する返金の取り扱いは、App Store／Google Play 各プラットフォームの規約に準じます。',
+    note: 'カスタム制作の解約・キャンセルについては、個別契約の定めによります。',
+  },
+  { label: '動作環境', value: '対応OSおよび推奨環境は、App Store／Google Play の各ストアページに記載します。' },
+  { label: '特別な販売条件', value: '一部の作品は、販売期間または提供数を限定する場合があります。条件は各販売ページに表示します。' },
+];
 
-    <ScrollView
-      contentContainerStyle={s.creditsBody}
-      showsVerticalScrollIndicator={false}
-    >
-      {CREDITS.map((c, i) => (
-        <View
-          key={`${c.role}-${c.name}-${i}`}
-          style={[c.hero ? s.creditHeroItem : s.creditItem]}
-        >
-          <Text style={c.hero ? s.creditHeroRole : s.creditRole}>{c.role}</Text>
-          <Text style={c.hero ? s.creditHeroName : s.creditName}>{c.name}</Text>
-          {c.hero && (
-            <>
-              <View style={s.creditHeroGlow} />
-              <View style={s.creditDivider} />
-            </>
-          )}
+export const footerCompany = '株式会社Numéro.8';
+
+// 「仮置き / 要確認」バッジ
+const TokushoBadge: React.FC<{ label: string }> = ({ label }) => (
+  <View style={tk.badge}>
+    <Text style={tk.badgeText}>{label}</Text>
+  </View>
+);
+
+const TokushoRowView: React.FC<{ row: TokushoRow }> = ({ row }) => (
+  <View style={tk.row}>
+    <Text style={tk.dt}>{row.label}</Text>
+    <View style={tk.dd}>
+      {row.value != null && (
+        <View style={tk.valueLine}>
+          <Text style={tk.ddText}>{row.value}</Text>
+          {row.badge && <TokushoBadge label={row.badge} />}
         </View>
-      ))}
-    </ScrollView>
-
-    {/* 下部: FLUX RING ＋ Powered by */}
-    <View style={[s.creditsFooterWrap, { paddingBottom: footerBottom }]}>
-      <Text style={s.creditsFooter}>FLUX RING</Text>
-      <Text style={s.creditsPoweredBy}>Powered by Numéro.8</Text>
+      )}
+      {row.list && (
+        <View style={tk.list}>
+          {row.list.map((raw, i) => {
+            const item = typeof raw === 'string' ? { text: raw } : raw;
+            const badge = item.badge ?? item.badgeInText;
+            return (
+              <View key={i} style={tk.listItem}>
+                <Text style={tk.ddText}>{item.text}</Text>
+                {badge && <TokushoBadge label={badge} />}
+              </View>
+            );
+          })}
+        </View>
+      )}
+      {row.note && (
+        <View style={tk.noteLine}>
+          <Text style={tk.note}>{row.note}</Text>
+          {row.badgeInNote && <TokushoBadge label={row.badgeInNote} />}
+        </View>
+      )}
     </View>
   </View>
+);
+
+// 特定商取引法に基づく表記（添付仕様準拠の独自トンマナ。ヘッダーは共通 SubHeader を流用）
+const TokushohoScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
+  const t = useT();
+  return (
+    <View style={tk.root}>
+      <StatusBar barStyle="light-content" backgroundColor={TK.bg} />
+      <SubHeader title={t('doc.tokushoho')} onBack={onBack} />
+      <ScrollView contentContainerStyle={tk.body} showsVerticalScrollIndicator={false}>
+        {tokushoData.map((row, i) => (
+          <TokushoRowView key={`${row.label}-${i}`} row={row} />
+        ))}
+        <Text style={tk.foot}>{footerCompany}</Text>
+      </ScrollView>
+    </View>
   );
 };
+
+// 特定商取引法画面固有のカラー定義（他画面のトンマナとは独立）
+const TK = {
+  bg: '#0B0E1E',
+  ink: '#ECEEF7',
+  sub: 'rgba(236, 238, 247, 0.62)',
+  line: 'rgba(236, 238, 247, 0.12)',
+  accent: '#60CEE0',
+  pending: '#F0C674',
+  pendingBorder: 'rgba(240, 198, 116, 0.4)',
+} as const;
+
+const tk = StyleSheet.create({
+  root: { flex: 1, backgroundColor: TK.bg },
+  body: { paddingHorizontal: 24, paddingBottom: 96 },
+  row: { paddingVertical: 19, borderBottomWidth: 1, borderBottomColor: TK.line },
+  dt: { fontSize: 12, color: TK.sub, letterSpacing: 0.6, marginBottom: 6, fontFamily: JP_SERIF_FONT },
+  dd: { gap: 4 },
+  // 数字が並ぶため EB Garamond（等幅寄りの数字グリフ）を当てる。和文はOSフォールバック。
+  ddText: { fontSize: 14, color: TK.ink, lineHeight: 26.6, fontFamily: NUM_FONT },
+  valueLine: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 },
+  list: { gap: 2 },
+  listItem: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: 6, paddingVertical: 2 },
+  noteLine: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginTop: 6 },
+  note: { fontSize: 12, color: TK.sub, lineHeight: 20, fontFamily: NUM_FONT },
+  badge: {
+    borderWidth: 1,
+    borderColor: TK.pendingBorder,
+    borderRadius: 3,
+    paddingHorizontal: 6,
+  },
+  badgeText: { fontSize: 12, color: TK.pending, fontFamily: NUM_FONT },
+  foot: { marginTop: 48, fontSize: 11, color: TK.sub, letterSpacing: 0.55, fontFamily: NUM_FONT },
+});
+
+// CREDITS 画面固有のカラー定義（添付デザイン仕様に準拠。他画面のトンマナとは独立）
+const CR = {
+  page: '#0E0C20',
+  deepest: '#05040c',
+  text: '#ECEEF7',
+  sub: '#9498BE',
+  tertiary: 'rgba(236, 238, 247, 0.30)',
+  cyan: '#60CEE0',
+  violet: '#7C62D6',
+  border: '#3A3D72',
+} as const;
+
+// 背景: 中央上部が明るい放射状グラデーション＋3つのソフトなオーラ（blur近似はエッジが
+// 透明に落ちる radial gradient で代替。RN には CSS の filter:blur 相当がないため）
+const CreditsBackdrop: React.FC<{ w: number; h: number }> = ({ w, h }) => (
+  <View style={StyleSheet.absoluteFill} pointerEvents="none">
+    <Svg width={w} height={h} style={StyleSheet.absoluteFill}>
+      <Defs>
+        <SvgRadial id="crbg" cx="50%" cy="0%" r="85%">
+          <Stop offset="0.28" stopColor="#15132e" />
+          <Stop offset="0.55" stopColor="#0c0a1f" />
+          <Stop offset="1" stopColor="#07060f" />
+        </SvgRadial>
+      </Defs>
+      <Rect x={0} y={0} width={w} height={h} fill="url(#crbg)" />
+    </Svg>
+    <Svg width={300} height={300} style={{ position: 'absolute', left: -80, top: -60 }}>
+      <Defs>
+        <SvgRadial id="crb1" cx="50%" cy="50%" r="50%">
+          <Stop offset="0" stopColor="#5868E2" stopOpacity={0.2} />
+          <Stop offset="1" stopColor="#5868E2" stopOpacity={0} />
+        </SvgRadial>
+      </Defs>
+      <Circle cx={150} cy={150} r={150} fill="url(#crb1)" />
+    </Svg>
+    <Svg width={260} height={260} style={{ position: 'absolute', right: -90, top: 280 }}>
+      <Defs>
+        <SvgRadial id="crb2" cx="50%" cy="50%" r="50%">
+          <Stop offset="0" stopColor={CR.cyan} stopOpacity={0.1} />
+          <Stop offset="1" stopColor={CR.cyan} stopOpacity={0} />
+        </SvgRadial>
+      </Defs>
+      <Circle cx={130} cy={130} r={130} fill="url(#crb2)" />
+    </Svg>
+    <Svg width={220} height={220} style={{ position: 'absolute', left: 20, bottom: -80 }}>
+      <Defs>
+        <SvgRadial id="crb3" cx="50%" cy="50%" r="50%">
+          <Stop offset="0" stopColor={CR.violet} stopOpacity={0.14} />
+          <Stop offset="1" stopColor={CR.violet} stopOpacity={0} />
+        </SvgRadial>
+      </Defs>
+      <Circle cx={110} cy={110} r={110} fill="url(#crb3)" />
+    </Svg>
+  </View>
+);
+
+// 両端が透明にフェードする水平線（Founderブロック下のシアン光条／区切り線に共用）
+const FadeLine: React.FC<{ w: number; h: number; color: string; style?: object }> = ({
+  w,
+  h,
+  color,
+  style,
+}) => (
+  <Svg width={w} height={h} style={style}>
+    <Defs>
+      <SvgLinear id={`crfade-${color}-${w}`} x1="0" y1="0" x2="1" y2="0">
+        <Stop offset="0" stopColor={color} stopOpacity={0} />
+        <Stop offset="0.5" stopColor={color} stopOpacity={1} />
+        <Stop offset="1" stopColor={color} stopOpacity={0} />
+      </SvgLinear>
+    </Defs>
+    <Rect x={0} y={0} width={w} height={h} fill={`url(#crfade-${color}-${w})`} />
+  </Svg>
+);
+
+// 16x16 の矢印アイコン（‹ の代わり。添付仕様: strokeWidth 1.5 / color --sub）
+const CreditsBackArrow: React.FC = () => (
+  <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+    <Path d="M15 4L7 12L15 20" stroke={CR.sub} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+  </Svg>
+);
+
+// CREDITS 画面（Special Thanks）: 添付デザイン準拠の独自トンマナ
+// （放射状グラデーション背景＋オーラ・中央のFounderブロック＋左寄せのクルーリスト）
+const CreditsScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
+  const t = useT();
+  const { width: screenW, height: screenH } = useWindowDimensions();
+  // 従来の固定値からの換算（header 70px ≒ 44pt想定+26, body paddingTop 118px ≒ 44pt想定+74）
+  const navTop = useTopInset(26);
+  const bodyTop = useTopInset(74);
+  const contentW = screenW - SPACE.xl * 2; // paddingHorizontal 34相当 = SPACE.xl
+
+  const [founder, ...crew] = CREDITS;
+
+  return (
+    <View style={cs.root}>
+      <StatusBar barStyle="light-content" backgroundColor={CR.deepest} />
+      <CreditsBackdrop w={screenW} h={screenH} />
+
+      <View style={[cs.header, { paddingTop: navTop }]}>
+        <Pressable onPress={onBack} hitSlop={12} style={cs.backBtn}>
+          <CreditsBackArrow />
+        </Pressable>
+        <Text style={cs.htitle}>{t('settings.thanks')}</Text>
+        <View style={cs.backBtn} />
+      </View>
+
+      <ScrollView
+        contentContainerStyle={[cs.body, { paddingTop: bodyTop }]}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={cs.founderBlock}>
+          <Text style={cs.roleLabel}>{founder.role}</Text>
+          <Text style={cs.personName}>{founder.name}</Text>
+          <FadeLine w={20} h={1} color={CR.cyan} style={cs.founderLine} />
+        </View>
+
+        <FadeLine w={contentW} h={1} color={CR.border} style={cs.rule} />
+
+        <View style={cs.crewList}>
+          {crew.map((c, i) => (
+            <View key={`${c.role}-${c.name}-${i}`} style={cs.crewRow}>
+              <Text style={cs.roleLabel}>{c.role}</Text>
+              <Text style={cs.personName}>{c.name}</Text>
+            </View>
+          ))}
+        </View>
+
+        <View style={cs.footerWrap}>
+          <Text style={cs.footerMark}>FLUX RING</Text>
+          <Text style={[cs.footerMark, cs.footerMarkDim]}>Operated by Numéro.8</Text>
+        </View>
+      </ScrollView>
+    </View>
+  );
+};
+
+// CREDITS 専用スタイル（他画面の s とは独立。フォントは欧文名の並びのため EB Garamond 統一）
+const cs = StyleSheet.create({
+  root: { flex: 1, backgroundColor: CR.deepest },
+  header: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: SPACE.xl,
+    paddingBottom: 14,
+    zIndex: 10,
+  },
+  backBtn: { width: 24, alignItems: 'flex-start', justifyContent: 'center' },
+  // htitle: 12px / 字間.34em(=4.08) / --sub / uppercase / weight400
+  htitle: {
+    flex: 1,
+    textAlign: 'center',
+    color: CR.sub,
+    fontSize: 12,
+    letterSpacing: 4.08,
+    textTransform: 'uppercase',
+    fontWeight: '400',
+    fontFamily: NUM_FONT,
+  },
+  body: { paddingHorizontal: SPACE.xl, paddingBottom: 80 },
+  founderBlock: { alignItems: 'center', marginBottom: 46 },
+  founderLine: { marginTop: 16, opacity: 0.6 },
+  rule: { marginBottom: 42, opacity: 0.5 },
+  crewList: { gap: 26, alignItems: 'flex-start' },
+  crewRow: { alignItems: 'flex-start' },
+  // role-label: 10px / 字間.2em(=2.0) / --sub / uppercase / weight400
+  roleLabel: {
+    color: CR.sub,
+    fontSize: 10,
+    letterSpacing: 2.0,
+    textTransform: 'uppercase',
+    fontWeight: '400',
+    fontFamily: NUM_FONT,
+  },
+  // person-name: 15px / 字間.04em(=0.6) / --text / weight400 / marginTop 6
+  personName: {
+    color: CR.text,
+    fontSize: 15,
+    letterSpacing: 0.6,
+    fontWeight: '400',
+    marginTop: 6,
+    fontFamily: NUM_FONT,
+  },
+  footerWrap: { alignItems: 'center', marginTop: 46, gap: 6 },
+  // footer-mark: 9px / 字間.3em(=2.7) / --tertiary / uppercase。2行目のみ opacity 0.55
+  footerMark: {
+    color: CR.tertiary,
+    fontSize: 9,
+    letterSpacing: 2.7,
+    textTransform: 'uppercase',
+    fontFamily: NUM_FONT,
+  },
+  footerMarkDim: { opacity: 0.55 },
+});
 
 export const DocumentScreen: React.FC<{ kind: DocKind; onBack: () => void }> = ({
   kind,
@@ -725,32 +1052,22 @@ export const DocumentScreen: React.FC<{ kind: DocKind; onBack: () => void }> = (
   // Special Thanks は専用の CREDITS 画面
   if (kind === 'thanks') return <CreditsScreen onBack={onBack} />;
 
+  // 特定商取引法に基づく表記も専用画面（独自データ構造・独自トンマナ）
+  if (kind === 'tokushoho') return <TokushohoScreen onBack={onBack} />;
+
   // タイトルは i18n。本文（法務）は現状 日本語のまま（別途英訳予定）。
   return (
     <View style={s.root}>
       <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
       <SubHeader title={t(`doc.${kind}`)} onBack={onBack} />
       <ScrollView contentContainerStyle={s.body} showsVerticalScrollIndicator={false}>
-        {kind === 'tokushoho' ? (
-          <View style={s.table}>
-            {TOKUSHOHO.rows.map((row) => (
-              <View key={row.label} style={s.tableRow}>
-                <Text style={s.tableLabel}>{row.label}</Text>
-                <Text style={s.tableValue}>{row.value}</Text>
-              </View>
-            ))}
+        {TEXT_DOCS[kind].lead && <Text style={s.docLead}>{TEXT_DOCS[kind].lead}</Text>}
+        {TEXT_DOCS[kind].sections.map((sec, i) => (
+          <View key={sec.heading ?? i} style={s.docSection}>
+            {sec.heading && <Text style={s.docHeading}>{sec.heading}</Text>}
+            <Text style={s.docBody}>{sec.body}</Text>
           </View>
-        ) : (
-          <>
-            {TEXT_DOCS[kind].lead && <Text style={s.docLead}>{TEXT_DOCS[kind].lead}</Text>}
-            {TEXT_DOCS[kind].sections.map((sec, i) => (
-              <View key={sec.heading ?? i} style={s.docSection}>
-                {sec.heading && <Text style={s.docHeading}>{sec.heading}</Text>}
-                <Text style={s.docBody}>{sec.body}</Text>
-              </View>
-            ))}
-          </>
-        )}
+        ))}
       </ScrollView>
     </View>
   );
@@ -825,7 +1142,14 @@ const s = StyleSheet.create({
     borderColor: COLOR.border,
     backgroundColor: 'rgba(34,36,69,0.30)',
   },
-  infoLabel: { color: COLOR.textPrimary, fontSize: 14, letterSpacing: 1.6, flex: 1, paddingRight: SPACE.sm },
+  infoLabel: {
+    color: COLOR.textPrimary,
+    fontSize: 14,
+    letterSpacing: 0.28,
+    flex: 1,
+    paddingRight: SPACE.sm,
+    fontFamily: JP_SERIF_FONT,
+  },
   // バージョン番号＝数字表記
   version: {
     fontFamily: NUM_FONT,
@@ -835,81 +1159,6 @@ const s = StyleSheet.create({
     textAlign: 'center',
     letterSpacing: 0.5,
     opacity: 0.7,
-  },
-
-  // ── CREDITS（Special Thanks）── ヘッダー・地の背景は他の設定末端画面と共通
-  // （s.root / SubHeader）。本文コンテナだけこの画面固有。
-  creditsBody: {
-    paddingHorizontal: SPACE.lg,
-    paddingTop: SPACE.xl,
-    paddingBottom: 72,
-    alignItems: 'stretch',
-  },
-  // ファウンダー（上部の大きな中央寄せブロック）
-  creditHeroItem: { alignItems: 'center', marginBottom: SPACE.lg },
-  // eyebrow見出し: 10px / 字間.28em / Gold #E9C879 / weight600 / 大文字
-  creditHeroRole: {
-    color: '#E9C879',
-    fontSize: 10,
-    fontWeight: '600',
-    letterSpacing: 2.8,
-    textTransform: 'uppercase',
-    marginBottom: 10,
-    textAlign: 'center',
-  },
-  creditHeroName: {
-    color: COLOR.textPrimary,
-    fontSize: 19,
-    letterSpacing: 0.5,
-    fontWeight: '500',
-    textAlign: 'center',
-  },
-  // 名前下の淡いシアングロー（小さな光の線）
-  creditHeroGlow: {
-    width: 26,
-    height: 3,
-    borderRadius: 2,
-    marginTop: 14,
-    backgroundColor: 'rgba(96,206,224,0.55)',
-  },
-  creditDivider: {
-    height: StyleSheet.hairlineWidth,
-    alignSelf: 'stretch',
-    backgroundColor: 'rgba(150,152,190,0.25)',
-    marginTop: SPACE.xl,
-  },
-  // 一般クレジット（左寄せの縦積み）
-  creditItem: { marginBottom: SPACE.lg, alignItems: 'flex-start' },
-  // eyebrow見出し: 10px / 字間.28em / Gold #E9C879 / weight600 / 大文字
-  creditRole: {
-    color: '#E9C879',
-    fontSize: 10,
-    fontWeight: '600',
-    letterSpacing: 2.8,
-    textTransform: 'uppercase',
-    marginBottom: 8,
-  },
-  creditName: {
-    color: COLOR.textPrimary,
-    fontSize: 18,
-    letterSpacing: 0.4,
-    fontWeight: '500',
-  },
-  // 下部フッター。paddingBottom は SafeArea の bottom を加算して実機で上書きする
-  creditsFooterWrap: { paddingBottom: 28, gap: 6 },
-  creditsFooter: {
-    textAlign: 'center',
-    color: COLOR.textSecondary,
-    fontSize: 10,
-    letterSpacing: 4,
-    opacity: 0.7,
-  },
-  creditsPoweredBy: {
-    textAlign: 'center',
-    color: COLOR.textSecondary,
-    fontSize: 9,
-    letterSpacing: 1.6,
-    opacity: 0.5,
   },
 
   header: {
@@ -923,9 +1172,18 @@ const s = StyleSheet.create({
   // 戻るは「‹」のみに統一。左右を同幅にしてタイトルを中央に保つ
   // （左は実タップ領域、右は見えないバランサー）。
   backBtn: { width: 28 },
-  // .skback: 12px / 字間.05em / #AEB4D6
-  back: { color: COLOR.textBack, fontSize: 12, letterSpacing: 0.6 },
-  h1: { flex: 1, textAlign: 'center', color: COLOR.textPrimary, fontSize: 16, fontWeight: '600', letterSpacing: 1 },
+  // 見出し(h1: 16px)と同じ大きさに揃える（12pxだと小さく見づらいとの指摘対応）
+  back: { color: COLOR.textBack, fontSize: 16, letterSpacing: 0.6 },
+  // 和文＝明朝（OS標準）/ letterSpacing = fontSize×0.02
+  h1: {
+    flex: 1,
+    textAlign: 'center',
+    color: COLOR.textPrimary,
+    fontSize: 16,
+    fontWeight: '600',
+    letterSpacing: 0.32,
+    fontFamily: JP_SERIF_FONT,
+  },
   body: { paddingHorizontal: SPACE.lg, paddingBottom: 48, gap: SPACE.md },
 
   // ── アカウント画面専用（モック準拠の2段ヘッダー＋カード型リスト）──
@@ -934,12 +1192,19 @@ const s = StyleSheet.create({
     color: COLOR.textPrimary,
     fontSize: 24,
     fontWeight: '700',
-    letterSpacing: 0.5,
+    letterSpacing: 0.48,
     paddingHorizontal: SPACE.lg,
     marginTop: SPACE.md,
     marginBottom: SPACE.md,
+    fontFamily: JP_SERIF_FONT,
   },
-  acctSectionLabel: { color: COLOR.textSecondary, fontSize: 11, letterSpacing: 1.2, marginTop: SPACE.xs },
+  acctSectionLabel: {
+    color: COLOR.textSecondary,
+    fontSize: 11,
+    letterSpacing: 0.22,
+    marginTop: SPACE.xs,
+    fontFamily: JP_SERIF_FONT,
+  },
   // 情報行（メールアドレス/ご利用プラン）と遷移行（購入の復元/削除）で共通の枠
   acctCard: {
     flexDirection: 'row',
@@ -953,16 +1218,19 @@ const s = StyleSheet.create({
     backgroundColor: 'rgba(34,36,69,0.30)',
   },
   acctCardDanger: { borderColor: 'rgba(255,59,48,0.35)' },
-  acctLabel: { color: COLOR.textPrimary, fontSize: 14, letterSpacing: 0.5 },
+  acctLabel: { color: COLOR.textPrimary, fontSize: 14, letterSpacing: 0.28, fontFamily: JP_SERIF_FONT },
   acctLabelDanger: { color: COLOR.badge },
-  acctValue: { color: COLOR.textSecondary, fontSize: 13, letterSpacing: 0.3 },
+  // 既定は和文（ご利用プラン等）。メールアドレスは acctValueMono を重ねて欧文にする
+  acctValue: { color: COLOR.textSecondary, fontSize: 13, letterSpacing: 0.26, fontFamily: JP_SERIF_FONT },
+  acctValueMono: { fontFamily: NUM_FONT, letterSpacing: 0 },
   acctFootnote: {
     color: COLOR.textSecondary,
     fontSize: 12,
     lineHeight: 19,
-    letterSpacing: 0.2,
+    letterSpacing: 0.24,
     opacity: 0.85,
     marginTop: SPACE.xs,
+    fontFamily: JP_SERIF_FONT,
   },
 
   row: {
@@ -974,27 +1242,25 @@ const s = StyleSheet.create({
     borderBottomColor: COLOR.border,
   },
   rowText: { flex: 1, gap: 3 },
-  rowLabel: { color: COLOR.textPrimary, fontSize: 15, letterSpacing: 0.3 },
-  rowSub: { color: COLOR.textSecondary, fontSize: 12 },
+  rowLabel: { color: COLOR.textPrimary, fontSize: 15, letterSpacing: 0.3, fontFamily: JP_SERIF_FONT },
+  // メールアドレス表示のみに使う欧文行（SupportScreen）
+  rowSub: { color: COLOR.textSecondary, fontSize: 12, letterSpacing: 0.24, fontFamily: NUM_FONT },
   chevron: { color: COLOR.textSecondary, fontSize: 18 },
   check: { color: COLOR.auraCyan, fontSize: 16 },
 
-  paragraph: { color: COLOR.textSecondary, fontSize: 14, lineHeight: 23, letterSpacing: 0.3 },
-  docLead: { color: COLOR.textSecondary, fontSize: 13, lineHeight: 22, letterSpacing: 0.3, marginBottom: SPACE.xs },
-  docSection: { gap: 6 },
-  docHeading: { color: COLOR.textPrimary, fontSize: 14, fontWeight: '700', letterSpacing: 0.3 },
-  docBody: { color: COLOR.textPrimary, fontSize: 14, lineHeight: 26, letterSpacing: 0.3 },
-  note: { color: COLOR.auraCyan, fontSize: 13, textAlign: 'center' },
-  // 特商法（表形式）
-  table: { gap: 0 },
-  tableRow: {
-    paddingVertical: SPACE.sm,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: COLOR.border,
-    gap: 4,
+  paragraph: { color: COLOR.textSecondary, fontSize: 14, lineHeight: 23, letterSpacing: 0.28, fontFamily: JP_SERIF_FONT },
+  docLead: {
+    color: COLOR.textSecondary,
+    fontSize: 13,
+    lineHeight: 22,
+    letterSpacing: 0.26,
+    marginBottom: SPACE.xs,
+    fontFamily: JP_SERIF_FONT,
   },
-  tableLabel: { color: COLOR.textSecondary, fontSize: 11, letterSpacing: 0.5 },
-  tableValue: { color: COLOR.textPrimary, fontSize: 14, lineHeight: 21, letterSpacing: 0.2 },
+  docSection: { gap: 6 },
+  docHeading: { color: COLOR.textPrimary, fontSize: 14, fontWeight: '700', letterSpacing: 0.28, fontFamily: JP_SERIF_FONT },
+  docBody: { color: COLOR.textPrimary, fontSize: 14, lineHeight: 26, letterSpacing: 0.28, fontFamily: JP_SERIF_FONT },
+  note: { color: COLOR.auraCyan, fontSize: 13, textAlign: 'center', letterSpacing: 0.26, fontFamily: JP_SERIF_FONT },
 
   primaryBtn: {
     paddingVertical: 15,
@@ -1004,7 +1270,7 @@ const s = StyleSheet.create({
     backgroundColor: 'rgba(96,206,224,0.08)',
     alignItems: 'center',
   },
-  primaryLabel: { color: COLOR.textPrimary, fontSize: 15, fontWeight: '600', letterSpacing: 0.5 },
+  primaryLabel: { color: COLOR.textPrimary, fontSize: 15, fontWeight: '600', letterSpacing: 0.3, fontFamily: JP_SERIF_FONT },
 
   // ── 退会確認モーダル ──
   modalScrim: {
@@ -1024,9 +1290,23 @@ const s = StyleSheet.create({
     padding: SPACE.lg,
     gap: SPACE.sm,
   },
-  modalTitle: { color: COLOR.textPrimary, fontSize: 17, fontWeight: '700', letterSpacing: 0.5, textAlign: 'center' },
-  modalBody: { color: COLOR.textSecondary, fontSize: 13, lineHeight: 20, textAlign: 'center' },
-  modalError: { color: COLOR.badge, fontSize: 12, textAlign: 'center' },
+  modalTitle: {
+    color: COLOR.textPrimary,
+    fontSize: 17,
+    fontWeight: '700',
+    letterSpacing: 0.34,
+    textAlign: 'center',
+    fontFamily: JP_SERIF_FONT,
+  },
+  modalBody: {
+    color: COLOR.textSecondary,
+    fontSize: 13,
+    lineHeight: 20,
+    textAlign: 'center',
+    letterSpacing: 0.26,
+    fontFamily: JP_SERIF_FONT,
+  },
+  modalError: { color: COLOR.badge, fontSize: 12, textAlign: 'center', letterSpacing: 0.24, fontFamily: JP_SERIF_FONT },
   modalDeleteBtn: {
     marginTop: SPACE.sm,
     paddingVertical: 14,
@@ -1036,9 +1316,9 @@ const s = StyleSheet.create({
     backgroundColor: 'rgba(255,59,48,0.12)',
     alignItems: 'center',
   },
-  modalDeleteLabel: { color: COLOR.badge, fontSize: 15, fontWeight: '700', letterSpacing: 1 },
+  modalDeleteLabel: { color: COLOR.badge, fontSize: 15, fontWeight: '700', letterSpacing: 0.3, fontFamily: JP_SERIF_FONT },
   modalCancelBtn: { paddingVertical: 12, alignItems: 'center' },
-  modalCancelLabel: { color: COLOR.textPrimary, fontSize: 14, letterSpacing: 0.5 },
+  modalCancelLabel: { color: COLOR.textPrimary, fontSize: 14, letterSpacing: 0.28, fontFamily: JP_SERIF_FONT },
 });
 
 export default DocumentScreen;

@@ -32,6 +32,7 @@ import {
 import Animated, { FadeInUp } from 'react-native-reanimated';
 import Svg, { Defs, LinearGradient as SvgLinear, Stop, Rect, RadialGradient as SvgRadial } from 'react-native-svg';
 import { PurchaseModal } from '../components/PurchaseModal';
+import type { CardOrigin } from '../components/CardAfterimage';
 import { useT } from '../lib/i18n';
 import { useTopInset } from '../lib/safeArea';
 import { formatPrice, TRACK_PRICE_JPY } from '../constants/pricing';
@@ -54,7 +55,8 @@ type Segment = 'mine' | 'wish';
 type Props = {
   owned: CollectionItem[];
   wishlist: CollectionItem[];
-  onOpenTrack: (id: string) => void;     // 所有曲タップ → 再生画面
+  /** 所有曲タップ → 再生画面。origin はタップされたタイルの画面絶対座標（残像の起点） */
+  onOpenTrack: (id: string, origin?: CardOrigin) => void;
   onOpenWish: (id: string) => void;      // ウィッシュ曲タップ → ホームの該当カードへ
   /** 購入が**成立した**ときだけ呼ばれる（キャンセル・失敗では呼ばない） */
   onBuy: (item: CollectionItem) => void;
@@ -189,6 +191,8 @@ export const CollectionScreen: React.FC<Props> = ({
   const { width: screenW, height: screenH } = useWindowDimensions();
   const [seg, setSeg] = useState<Segment>('mine');
   const [purchaseTarget, setPurchaseTarget] = useState<CollectionItem | null>(null);
+  // タップされたタイルの画面絶対座標を測るための参照（再生画面の残像アニメーション用）
+  const tileRefs = useRef<Map<string, View>>(new Map());
 
   // タブの横スワイプ切替。中身は縦スクロールの FlatList なので、
   // Capture 側で「明確に横」のジェスチャだけ先に引き取る。
@@ -247,7 +251,23 @@ export const CollectionScreen: React.FC<Props> = ({
       style={{ width: colW, marginBottom: ROW_GAP }}
     >
       {slot.item ? (
-        <Pressable onPress={() => onOpenTrack(slot.item!.id)}>
+        <Pressable
+          ref={(el) => {
+            if (el) tileRefs.current.set(slot.key, el);
+            else tileRefs.current.delete(slot.key);
+          }}
+          onPress={() => {
+            const id = slot.item!.id;
+            const node = tileRefs.current.get(slot.key);
+            if (node) {
+              node.measureInWindow((x, y, width, height) => {
+                onOpenTrack(id, { x, y, width, height });
+              });
+            } else {
+              onOpenTrack(id);
+            }
+          }}
+        >
           <MetalTile uri={slot.item.artworkUrl} w={colW} h={colH} />
           {/* 所有タイルの番号: 上6px・opacity.65 */}
           <Text style={styles.filledNum}>{slot.no}</Text>

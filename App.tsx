@@ -48,6 +48,7 @@ import { NotificationsScreen } from './screens/NotificationsScreen';
 import { ArtistScreen } from './screens/ArtistScreen';
 import { StoryScreen } from './screens/StoryScreen';
 import { PlayerScreen, PlayerTrack } from './screens/PlayerScreen';
+import type { CardOrigin } from './components/CardAfterimage';
 import { VipScreen } from './screens/VipScreen';
 // import { ComponentGallery } from './screens/ComponentGallery'; // 部品デモを見るとき有効化
 
@@ -98,6 +99,8 @@ function AppInner() {
   // 再生対象は「所有一覧の中の id」で持つ。曲送り／戻しで前後の曲へ移るとき、
   // track オブジェクトを直接持っていると一覧との対応が取れないため。
   const [playerTrackId, setPlayerTrackId] = useState<string | null>(null);
+  // コレクションでタップされたタイルの画面絶対座標（再生画面の残像アニメーションの起点）
+  const [playerOrigin, setPlayerOrigin] = useState<CardOrigin | null>(null);
   // ホーム（ディスカバー）で最初に表示するカード id（ウィッシュから飛んできたとき用）
   const [homeFocusId, setHomeFocusId] = useState<string | null>(null);
 
@@ -270,12 +273,14 @@ function AppInner() {
     return (
       <PlayerScreen
         track={playerTrack}
+        origin={playerOrigin ?? undefined}
         onPrevTrack={canSkip ? () => goTrack(-1) : undefined}
         onNextTrack={canSkip ? () => goTrack(1) : undefined}
         onBackHome={() => {
           // コレクションから開くのでコレクションへ戻す
           setOverlay(null);
           setTab('collection');
+          setPlayerOrigin(null);
         }}
       />
     );
@@ -375,10 +380,11 @@ function AppInner() {
             owned={ownedItems}
             wishlist={wishlistItems}
             purchase={purchase}
-            onOpenTrack={(id) => {
+            onOpenTrack={(id, origin) => {
               // 所有曲タップ → 再生画面（ワイヤーフレーム P3）
               if (playerTracks.some((tr) => tr.id === id)) {
                 setPlayerTrackId(id);
+                setPlayerOrigin(origin ?? null);
                 setOverlay('player');
               } else {
                 setOverlay('story');

@@ -29,6 +29,7 @@ import {
   StatusBar,
 } from 'react-native';
 import { COLOR, SPACE, RADIUS } from '../constants/design-tokens';
+import { JP_SERIF_FONT } from '../constants/fonts';
 import { useT } from '../lib/i18n';
 import { useTopInset } from '../lib/safeArea';
 
@@ -101,8 +102,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACE.lg,
     paddingBottom: 48,
   },
-  // .skh: 18px / 字間.05em / #ECEEF7（コレクションと同じフッタータブ・ルート見出し）
-  h1: { color: COLOR.textPrimary, fontSize: 18, letterSpacing: 0.9, marginBottom: SPACE.lg },
+  // 和文＝明朝（OS標準）/ letterSpacing = fontSize×0.02
+  h1: { color: COLOR.textPrimary, fontSize: 18, letterSpacing: 0.36, marginBottom: SPACE.lg, fontFamily: JP_SERIF_FONT },
 
   // カード型の一列リスト。区切り線ではなく、角丸の枠と余白で1項目ずつ独立させる
   list: { gap: 12 },
@@ -118,7 +119,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(34,36,69,0.30)',
   },
   cardPressed: { opacity: 0.7 },
-  cardLabel: { color: COLOR.textPrimary, fontSize: 14, letterSpacing: 1.6 },
+  cardLabel: { color: COLOR.textPrimary, fontSize: 14, letterSpacing: 0.28, fontFamily: JP_SERIF_FONT },
   chevron: { color: COLOR.textSecondary, fontSize: 16 },
 });
 
