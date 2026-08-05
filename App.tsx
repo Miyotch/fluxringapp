@@ -41,6 +41,7 @@ import {
   RestoreScreen,
   LanguageScreen,
   SupportScreen,
+  InfoScreen,
   DocumentScreen,
 } from './screens/SettingsDetailScreens';
 import { NotificationsScreen } from './screens/NotificationsScreen';
@@ -128,18 +129,26 @@ function AppInner() {
   );
 
   // 再生画面が扱うトラック一覧（＝マイコレの並び順）。曲送り／戻しはこの並びを辿る。
+  // カード裏面（アルミ刻印）にホームと同じ内容を出すため、CollectionItem
+  // （表示専用・裏面情報を持たない）ではなく STUB_TRACKS から直接引く。
   const playerTracks = useMemo<PlayerTrack[]>(
     () =>
-      ownedItems.map((o) => ({
-        id: o.id,
-        title: o.title,
-        artworkUrl: o.artworkUrl,
-        audioKey: o.audioKey ?? o.id,
+      STUB_TRACKS.filter((tr) => ownedTrackIds.has(tr.id)).map((tr) => ({
+        id: tr.id,
+        title: tr.title,
+        subtitle: tr.subtitle,
+        artworkUrl: tr.artworkUrl,
+        audioKey: tr.audioKey,
         durationSec: 220,
-        glowColor: o.glowColor,
-        glowColor2: o.glowColor2,
+        glowColor: tr.glowColor,
+        glowColor2: tr.glowColor2,
+        serial: tr.back?.serial,
+        story: tr.back?.story,
+        tuning: tr.back?.tuning,
+        frequencies: tr.back?.frequencies,
+        artist: tr.back?.artist,
       })),
-    [ownedItems],
+    [ownedTrackIds],
   );
   const playerIndex = playerTracks.findIndex((t) => t.id === playerTrackId);
   const playerTrack = playerIndex >= 0 ? playerTracks[playerIndex] : null;
@@ -316,8 +325,13 @@ function AppInner() {
         return (
           <AccountScreen
             onBack={back}
-            onSignOut={async () => {
-              try { await signOut(); } catch {}
+            onOpenRestore={() => setSettingsDetail('restore')}
+            vipUnlocked={vipUnlocked}
+            onDeleteAccount={async () => {
+              // 退会: Firebase のアカウントを削除（未ログイン/スタブ時は no-op）→
+              // 起動フローへ戻す（ログイン画面に落ちる）。失敗時は例外を投げて
+              // AccountScreen 側で表示。
+              await deleteAccount();
               restartLaunch();
             }}
           />
@@ -328,6 +342,8 @@ function AppInner() {
         return <LanguageScreen onBack={back} />;
       case 'support':
         return <SupportScreen onBack={back} />;
+      case 'info':
+        return <InfoScreen onBack={back} />;
       case 'thanks':
         return <DocumentScreen kind="thanks" onBack={back} />;
       case 'terms':
@@ -403,13 +419,6 @@ function AppInner() {
             }}
             onSignOut={async () => {
               try { await signOut(); } catch {}
-              restartLaunch();
-            }}
-            onDeleteAccount={async () => {
-              // 退会: Firebase のアカウントを削除（未ログイン/スタブ時は no-op）→
-              // 起動フローへ戻す（ログイン画面に落ちる）。失敗時は例外を投げて
-              // SettingsScreen 側で表示。
-              await deleteAccount();
               restartLaunch();
             }}
           />

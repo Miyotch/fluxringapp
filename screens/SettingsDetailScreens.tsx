@@ -21,11 +21,12 @@ import {
   StyleSheet,
   StatusBar,
   Linking,
+  Modal,
 } from 'react-native';
 import { COLOR, SPACE, RADIUS } from '../constants/design-tokens';
+import { NUM_FONT } from '../constants/fonts';
 import { useT, useI18n, Lang } from '../lib/i18n';
 import { useAuthUser } from '../lib/useAuthUser';
-import { StarField } from '../components/StarField';
 import { useTopInset, useBottomInset } from '../lib/safeArea';
 
 // ─────────────────────────────────────────────
@@ -33,14 +34,13 @@ import { useTopInset, useBottomInset } from '../lib/safeArea';
 // ─────────────────────────────────────────────
 
 const SubHeader: React.FC<{ title: string; onBack: () => void }> = ({ title, onBack }) => {
-  const t = useT();
   return (
     <View style={s.header}>
-      <Pressable onPress={onBack} hitSlop={12}>
-        <Text style={s.back}>‹ {t('settings.title')}</Text>
+      <Pressable onPress={onBack} hitSlop={12} style={s.backBtn}>
+        <Text style={s.back}>‹</Text>
       </Pressable>
       <Text style={s.h1}>{title}</Text>
-      <View style={{ width: 60 }} />
+      <View style={s.backBtn} />
     </View>
   );
 };
@@ -51,39 +51,121 @@ const SubHeader: React.FC<{ title: string; onBack: () => void }> = ({ title, onB
 
 export const AccountScreen: React.FC<{
   onBack: () => void;
-  onSignOut: () => void;
-}> = ({ onBack, onSignOut }) => {
+  /** 「購入」欄の「購入の復元」タップで遷移 */
+  onOpenRestore: () => void;
+  /** 「ご利用プラン」欄の表示に使う（VIP＝年間ライセンス契約中なら「有料」） */
+  vipUnlocked: boolean;
+  /** 退会（確認後に実行）。設定リストがカード型7項目になったため、
+   *  退会導線はこの画面に集約する（App Store の審査要件で、アカウントを
+   *  作れるアプリはアプリ内に削除導線が必要）。 */
+  onDeleteAccount?: () => void | Promise<void>;
+}> = ({ onBack, onOpenRestore, vipUnlocked, onDeleteAccount }) => {
   const t = useT();
   const user = useAuthUser();
   const email = user?.email ?? t('settings.notLoggedIn');
+  const navTop = useTopInset(8);
+
+  // 退会の確認ポップアップ
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  const runDelete = async () => {
+    if (!onDeleteAccount) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await onDeleteAccount();
+      setConfirmDelete(false);
+    } catch {
+      setDeleteError(t('settings.delete.failed'));
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   return (
     <View style={s.root}>
       <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
-      <SubHeader title={t('account.title')} onBack={onBack} />
       <ScrollView contentContainerStyle={s.body} showsVerticalScrollIndicator={false}>
-        <View style={s.card}>
-          <Text style={s.fieldLabel}>{t('account.emailLabel')}</Text>
-          <Text style={s.fieldValue}>{email}</Text>
+        {/* この画面だけ「‹」単体の戻る行＋大見出しの2段構成（モック準拠）。
+            他の設定末端画面は SubHeader（戻る＋タイトルを同じ行に中央配置）のまま。 */}
+        <View style={[s.acctNav, { paddingTop: navTop }]}>
+          <Pressable onPress={onBack} hitSlop={12}>
+            <Text style={s.back}>‹</Text>
+          </Pressable>
+        </View>
+        <Text style={s.acctTitle}>{t('account.title')}</Text>
+
+        <Text style={s.acctSectionLabel}>{t('account.sec.registration')}</Text>
+        <View style={s.acctCard}>
+          <Text style={s.acctLabel}>{t('account.emailLabel')}</Text>
+          <Text style={s.acctValue}>{email}</Text>
+        </View>
+        <View style={s.acctCard}>
+          <Text style={s.acctLabel}>{t('account.plan')}</Text>
+          <Text style={s.acctValue}>
+            {vipUnlocked ? t('account.plan.paid') : t('account.plan.free')}
+          </Text>
         </View>
 
-        {/* TODO: パスワード変更・メール変更（Firebase Auth） */}
-        <Pressable style={s.row} onPress={() => {}}>
-          <Text style={s.rowLabel}>{t('account.changePassword')}</Text>
+        <Text style={s.acctSectionLabel}>{t('account.sec.purchases')}</Text>
+        <Pressable
+          style={({ pressed }) => [s.acctCard, pressed && { opacity: 0.7 }]}
+          onPress={onOpenRestore}
+        >
+          <Text style={s.acctLabel}>{t('settings.restore')}</Text>
           <Text style={s.chevron}>›</Text>
         </Pressable>
 
-        <Pressable
-          style={({ pressed }) => [s.outlineBtn, pressed && { opacity: 0.7 }]}
-          onPress={onSignOut}
-        >
-          <Text style={s.outlineLabel}>{t('settings.signout')}</Text>
-        </Pressable>
-
-        {/* TODO: アカウント削除フロー（確認ダイアログ + Firebase 退会処理） */}
-        <Pressable style={s.dangerRow} onPress={() => {}}>
-          <Text style={s.dangerLabel}>{t('account.delete')}</Text>
-        </Pressable>
+        {onDeleteAccount && (
+          <Pressable
+            style={({ pressed }) => [s.acctCard, s.acctCardDanger, pressed && { opacity: 0.7 }]}
+            onPress={() => {
+              setDeleteError(null);
+              setConfirmDelete(true);
+            }}
+          >
+            <Text style={[s.acctLabel, s.acctLabelDanger]}>{t('settings.deleteAccount')}</Text>
+            <Text style={[s.chevron, s.acctLabelDanger]}>›</Text>
+          </Pressable>
+        )}
+        <Text style={s.acctFootnote}>{t('account.planNote')}</Text>
       </ScrollView>
+
+      {/* 退会の確認ポップアップ（購入情報など全消去の確認・戻る/削除する） */}
+      <Modal
+        visible={confirmDelete}
+        transparent
+        animationType="fade"
+        onRequestClose={() => !deleting && setConfirmDelete(false)}
+      >
+        <Pressable style={s.modalScrim} onPress={() => !deleting && setConfirmDelete(false)}>
+          <Pressable style={s.modalCard} onPress={() => {}}>
+            <Text style={s.modalTitle}>{t('settings.delete.title')}</Text>
+            <Text style={s.modalBody}>{t('settings.delete.body')}</Text>
+            {deleteError && <Text style={s.modalError}>{deleteError}</Text>}
+
+            <Pressable
+              style={({ pressed }) => [s.modalDeleteBtn, (pressed || deleting) && { opacity: 0.7 }]}
+              onPress={runDelete}
+              disabled={deleting}
+            >
+              <Text style={s.modalDeleteLabel}>
+                {deleting ? '処理中…' : t('settings.delete.confirm')}
+              </Text>
+            </Pressable>
+
+            <Pressable
+              style={({ pressed }) => [s.modalCancelBtn, pressed && { opacity: 0.7 }]}
+              onPress={() => setConfirmDelete(false)}
+              disabled={deleting}
+            >
+              <Text style={s.modalCancelLabel}>{t('settings.delete.cancel')}</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 };
@@ -161,9 +243,10 @@ export const RestoreScreen: React.FC<{
 // 言語
 // ─────────────────────────────────────────────
 
+// English はまだ翻訳未確定のため選択肢に出さない（英訳確定後に追加）。
+// lib/i18n.tsx 側の 'en' 辞書・Lang 型はそのまま残し、切替の受け皿だけ用意しておく。
 const LANGUAGES: { code: Lang; label: string }[] = [
   { code: 'ja', label: '日本語' },
-  { code: 'en', label: 'English' },
 ];
 
 export const LanguageScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
@@ -577,10 +660,6 @@ const TEXT_DOCS: Record<'terms' | 'privacy', TextDoc> = {
 const TOKUSHOHO: TableDoc = {
   title: '特定商取引法に基づく表記',
   rows: [
-    { label: '販売事業者名（社名）', value: '株式会社Numéro.8' },
-    { label: '代表者名', value: '岡 直樹' },
-    { label: '所在地', value: '〒145-0071 東京都大田区田園調布4-44-8' },
-    { label: 'お問い合わせ先', value: 'support@numero8.jp' },
     { label: '販売価格', value: '本サービス（アプリ内）または公式サイトのプラン購入ページに表示する価格（消費税込み）' },
     { label: '商品代金以外の必要料金', value: '本サービスを利用するためのインターネット通信料・パケット通信料等は、お客様のご負担となります。' },
     { label: 'お支払方法', value: 'App Store決済（Apple ID）、Google Play決済、クレジットカード決済' },
@@ -588,25 +667,24 @@ const TOKUSHOHO: TableDoc = {
     { label: '役務の提供時期', value: 'お支払手続き完了後、直ちにご利用いただけます。' },
     { label: 'キャンセル・返品（返金）について', value: 'デジタルコンテンツの特性上、購入確定後、および有料プラン登録期間中のキャンセル・返金は一切お受けできません。翌月以降の自動更新の停止（解約）については、いつでもお手続きが可能です。' },
     { label: '動作環境', value: '推奨環境の詳細は、ストア等のアプリ配信ページをご確認ください。' },
+    // 会社情報は下部にまとめる
+    { label: '販売事業者名（社名）', value: '株式会社Numéro.8' },
+    { label: '代表者名', value: '岡 直樹' },
+    { label: '所在地', value: '〒145-0071 東京都大田区田園調布4-44-8' },
+    { label: 'お問い合わせ先', value: 'support@numero8.jp' },
   ],
 };
 
 // CREDITS 画面（Special Thanks）: 星背景＋中央見出し＋役職/名前の縦積み
 const CreditsScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
-  const headerTop = useTopInset(8);              // 従来 52px（=44+8）
+  const t = useT();
   const footerBottom = useBottomInset(28, 8);    // 従来 28px を下回らない
   return (
-  <View style={s.creditsRoot}>
+  <View style={s.root}>
     <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
-    <StarField />
-
-    {/* 上部: 戻る矢印（左）＋ CREDITS 見出し（中央） */}
-    <View style={[s.creditsHeader, { paddingTop: headerTop }]}>
-      <Pressable onPress={onBack} hitSlop={14} style={s.creditsBack}>
-        <Text style={s.creditsChevron}>‹</Text>
-      </Pressable>
-      <Text style={s.creditsTitle}>CREDITS</Text>
-    </View>
+    {/* 他の設定末端画面と同じ SubHeader（‹戻る＋中央タイトル）・地の背景に統一。
+        以前は StarField（星空）＋独自ヘッダーで、設定内で唯一浮いた見た目だった。 */}
+    <SubHeader title={t('settings.thanks')} onBack={onBack} />
 
     <ScrollView
       contentContainerStyle={s.creditsBody}
@@ -679,32 +757,90 @@ export const DocumentScreen: React.FC<{ kind: DocKind; onBack: () => void }> = (
 };
 
 // ─────────────────────────────────────────────
+// 情報（規約類のまとめ）
+// ─────────────────────────────────────────────
+
+const APP_VERSION = '1.0.0';
+
+/**
+ * 設定「情報」。CREDITS / 利用規約 / プライバシー / 特商法 を束ねる中間画面。
+ * 設定リストを7項目に保つため、読み物4点はここへ集約する。
+ * 遷移は自前の state で持つ（App 側の settingsDetail を1段に保てるので、
+ * 読み物から戻ったときに設定直下ではなくこの画面へ正しく戻れる）。
+ */
+export const InfoScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
+  const t = useT();
+  const [doc, setDoc] = useState<DocKind | null>(null);
+
+  if (doc) return <DocumentScreen kind={doc} onBack={() => setDoc(null)} />;
+
+  const rows: { kind: DocKind; label: string }[] = [
+    { kind: 'thanks', label: t('settings.thanks') },
+    { kind: 'terms', label: t('settings.terms') },
+    { kind: 'privacy', label: t('settings.privacy') },
+    { kind: 'tokushoho', label: t('settings.tokushoho') },
+  ];
+
+  return (
+    <View style={s.root}>
+      <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
+      <SubHeader title={t('settings.info')} onBack={onBack} />
+      <ScrollView contentContainerStyle={s.body} showsVerticalScrollIndicator={false}>
+        <View style={s.infoList}>
+          {rows.map((r) => (
+            <Pressable
+              key={r.kind}
+              style={({ pressed }) => [s.infoCard, pressed && { opacity: 0.7 }]}
+              onPress={() => setDoc(r.kind)}
+              accessibilityRole="button"
+            >
+              <Text style={s.infoLabel}>{r.label}</Text>
+              <Text style={s.chevron}>›</Text>
+            </Pressable>
+          ))}
+        </View>
+        <Text style={s.version}>{t('settings.version', { v: APP_VERSION })}</Text>
+      </ScrollView>
+    </View>
+  );
+};
+
+// ─────────────────────────────────────────────
 // スタイル
 // ─────────────────────────────────────────────
 
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: COLOR.bg },
 
-  // ── CREDITS（Special Thanks）──
-  creditsRoot: { flex: 1, backgroundColor: COLOR.bg },
-  creditsHeader: {
-    // paddingTop は SafeArea を加味して JSX 側で上書き
-    paddingTop: 52,
-    paddingHorizontal: SPACE.lg,
-    paddingBottom: SPACE.md,
-    justifyContent: 'center',
+  // ── 情報（設定と同じカード型リスト）──
+  infoList: { gap: 12 },
+  infoCard: {
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 17,
+    paddingHorizontal: SPACE.md,
+    borderRadius: RADIUS.lg,
+    borderWidth: 1,
+    borderColor: COLOR.border,
+    backgroundColor: 'rgba(34,36,69,0.30)',
   },
-  creditsBack: { position: 'absolute', left: SPACE.lg, top: 46, padding: 6 },
-  creditsChevron: { color: COLOR.textPrimary, fontSize: 26, lineHeight: 26 },
-  creditsTitle: {
-    color: COLOR.textPrimary,
-    fontSize: 14,
-    letterSpacing: 6,
-    fontWeight: '400',
+  infoLabel: { color: COLOR.textPrimary, fontSize: 14, letterSpacing: 1.6, flex: 1, paddingRight: SPACE.sm },
+  // バージョン番号＝数字表記
+  version: {
+    fontFamily: NUM_FONT,
+    marginTop: SPACE.lg,
+    color: COLOR.textSecondary,
+    fontSize: 11,
+    textAlign: 'center',
+    letterSpacing: 0.5,
+    opacity: 0.7,
   },
+
+  // ── CREDITS（Special Thanks）── ヘッダー・地の背景は他の設定末端画面と共通
+  // （s.root / SubHeader）。本文コンテナだけこの画面固有。
   creditsBody: {
-    paddingHorizontal: SPACE.xl,
+    paddingHorizontal: SPACE.lg,
     paddingTop: SPACE.xl,
     paddingBottom: 72,
     alignItems: 'stretch',
@@ -784,21 +920,50 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
+  // 戻るは「‹」のみに統一。左右を同幅にしてタイトルを中央に保つ
+  // （左は実タップ領域、右は見えないバランサー）。
+  backBtn: { width: 28 },
   // .skback: 12px / 字間.05em / #AEB4D6
   back: { color: COLOR.textBack, fontSize: 12, letterSpacing: 0.6 },
-  h1: { color: COLOR.textPrimary, fontSize: 16, fontWeight: '600', letterSpacing: 1 },
+  h1: { flex: 1, textAlign: 'center', color: COLOR.textPrimary, fontSize: 16, fontWeight: '600', letterSpacing: 1 },
   body: { paddingHorizontal: SPACE.lg, paddingBottom: 48, gap: SPACE.md },
 
-  card: {
+  // ── アカウント画面専用（モック準拠の2段ヘッダー＋カード型リスト）──
+  acctNav: { paddingHorizontal: SPACE.lg, paddingBottom: 2 },
+  acctTitle: {
+    color: COLOR.textPrimary,
+    fontSize: 24,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    paddingHorizontal: SPACE.lg,
+    marginTop: SPACE.md,
+    marginBottom: SPACE.md,
+  },
+  acctSectionLabel: { color: COLOR.textSecondary, fontSize: 11, letterSpacing: 1.2, marginTop: SPACE.xs },
+  // 情報行（メールアドレス/ご利用プラン）と遷移行（購入の復元/削除）で共通の枠
+  acctCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 17,
+    paddingHorizontal: SPACE.md,
     borderRadius: RADIUS.lg,
     borderWidth: 1,
     borderColor: COLOR.border,
     backgroundColor: 'rgba(34,36,69,0.30)',
-    padding: SPACE.md,
-    gap: 4,
   },
-  fieldLabel: { color: COLOR.textSecondary, fontSize: 11, letterSpacing: 1 },
-  fieldValue: { color: COLOR.textPrimary, fontSize: 16, letterSpacing: 0.3 },
+  acctCardDanger: { borderColor: 'rgba(255,59,48,0.35)' },
+  acctLabel: { color: COLOR.textPrimary, fontSize: 14, letterSpacing: 0.5 },
+  acctLabelDanger: { color: COLOR.badge },
+  acctValue: { color: COLOR.textSecondary, fontSize: 13, letterSpacing: 0.3 },
+  acctFootnote: {
+    color: COLOR.textSecondary,
+    fontSize: 12,
+    lineHeight: 19,
+    letterSpacing: 0.2,
+    opacity: 0.85,
+    marginTop: SPACE.xs,
+  },
 
   row: {
     flexDirection: 'row',
@@ -840,17 +1005,40 @@ const s = StyleSheet.create({
     alignItems: 'center',
   },
   primaryLabel: { color: COLOR.textPrimary, fontSize: 15, fontWeight: '600', letterSpacing: 0.5 },
-  outlineBtn: {
+
+  // ── 退会確認モーダル ──
+  modalScrim: {
+    flex: 1,
+    backgroundColor: 'rgba(8,7,20,0.72)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: SPACE.xl,
+  },
+  modalCard: {
+    width: '100%',
+    maxWidth: 340,
+    borderRadius: RADIUS.lg,
+    borderWidth: 1,
+    borderColor: 'rgba(255,59,48,0.30)',
+    backgroundColor: '#1B1838',
+    padding: SPACE.lg,
+    gap: SPACE.sm,
+  },
+  modalTitle: { color: COLOR.textPrimary, fontSize: 17, fontWeight: '700', letterSpacing: 0.5, textAlign: 'center' },
+  modalBody: { color: COLOR.textSecondary, fontSize: 13, lineHeight: 20, textAlign: 'center' },
+  modalError: { color: COLOR.badge, fontSize: 12, textAlign: 'center' },
+  modalDeleteBtn: {
     marginTop: SPACE.sm,
     paddingVertical: 14,
     borderRadius: RADIUS.lg,
     borderWidth: 1,
-    borderColor: COLOR.border,
+    borderColor: 'rgba(255,59,48,0.55)',
+    backgroundColor: 'rgba(255,59,48,0.12)',
     alignItems: 'center',
   },
-  outlineLabel: { color: COLOR.textSecondary, fontSize: 14, letterSpacing: 1 },
-  dangerRow: { marginTop: SPACE.lg, alignItems: 'center', paddingVertical: SPACE.sm },
-  dangerLabel: { color: COLOR.badge, fontSize: 13, letterSpacing: 0.5 },
+  modalDeleteLabel: { color: COLOR.badge, fontSize: 15, fontWeight: '700', letterSpacing: 1 },
+  modalCancelBtn: { paddingVertical: 12, alignItems: 'center' },
+  modalCancelLabel: { color: COLOR.textPrimary, fontSize: 14, letterSpacing: 0.5 },
 });
 
 export default DocumentScreen;

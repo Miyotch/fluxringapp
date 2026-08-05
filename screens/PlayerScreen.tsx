@@ -47,6 +47,12 @@ export type PlayerTrack = {
   durationSec?: number;     // フォールバック表示用（実尺は音源から自動算出）
   glowColor?: string;
   glowColor2?: string;
+  // カード裏面（アルミ刻印）用。ホーム（ディスカバー）の Track.back と同じ内容。
+  serial?: string;           // 'No. 001'
+  story?: string;            // 裏面の本文（未指定なら subtitle を使う）
+  tuning?: string;           // 調律名（例: '純正律'）
+  frequencies?: string[];    // 周波数のみ（例: ['432 Hz', '7.83 Hz']）
+  artist?: string;           // 'NAOKI OKA'
 };
 
 type Props = {
@@ -255,10 +261,11 @@ export const PlayerScreen: React.FC<Props> = ({ track, onBackHome, onPrevTrack, 
           depthRatio={0.016}
           backData={{
             title: track.title,
-            story: track.subtitle,
-            tuning: '純正律',
-            frequencies: ['432 Hz', '7.83 Hz'],
-            artist: 'NAOKI OKA',
+            serial: track.serial,
+            story: track.story ?? track.subtitle,
+            tuning: track.tuning,
+            frequencies: track.frequencies,
+            artist: track.artist ?? 'NAOKI OKA',
           }}
           rotationOut={rotationSV}
           dragXOut={dragXSV}

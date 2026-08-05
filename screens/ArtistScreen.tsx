@@ -71,11 +71,11 @@ export const ArtistScreen: React.FC<Props> = ({
       <View style={styles.root}>
         <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
         <View style={[styles.header, { paddingTop: headerTop }]}>
-          <Pressable onPress={onBackToSettings} hitSlop={12}>
-            <Text style={styles.back}>‹ 設定</Text>
+          <Pressable onPress={onBackToSettings} hitSlop={12} style={styles.backBtn}>
+            <Text style={styles.back}>‹</Text>
           </Pressable>
           <Text style={styles.h1}>作家一覧</Text>
-          <View style={{ width: 50 }} />
+          <View style={styles.backBtn} />
         </View>
         <ScrollView contentContainerStyle={styles.listBody} showsVerticalScrollIndicator={false}>
           {artists.map((a) => (
@@ -106,11 +106,11 @@ export const ArtistScreen: React.FC<Props> = ({
       <View style={styles.root}>
         <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
         <View style={[styles.header, { paddingTop: headerTop }]}>
-          <Pressable onPress={() => setStage('list')} hitSlop={12}>
-            <Text style={styles.back}>‹ 作家一覧</Text>
+          <Pressable onPress={() => setStage('list')} hitSlop={12} style={styles.backBtn}>
+            <Text style={styles.back}>‹</Text>
           </Pressable>
           <Text style={styles.h1}>作家</Text>
-          <View style={{ width: 70 }} />
+          <View style={styles.backBtn} />
         </View>
         <ScrollView contentContainerStyle={styles.profileBody} showsVerticalScrollIndicator={false}>
           {/* 円ポートレート（人物は円） */}
@@ -138,11 +138,11 @@ export const ArtistScreen: React.FC<Props> = ({
     <View style={styles.root}>
       <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
       <View style={[styles.header, { paddingTop: headerTop }]}>
-        <Pressable onPress={() => setStage('profile')} hitSlop={12}>
-          <Text style={styles.back}>‹ 作家</Text>
+        <Pressable onPress={() => setStage('profile')} hitSlop={12} style={styles.backBtn}>
+          <Text style={styles.back}>‹</Text>
         </Pressable>
         <Text style={styles.h1}>楽曲一覧</Text>
-        <View style={{ width: 50 }} />
+        <View style={styles.backBtn} />
       </View>
       <ScrollView contentContainerStyle={styles.tracksGrid} showsVerticalScrollIndicator={false}>
         <View style={styles.gridRow}>
@@ -188,9 +188,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
+  // 戻るは「‹」のみに統一。左右を同幅にしてタイトルを中央に保つ
+  // （左は実タップ領域、右は見えないバランサー）。
+  backBtn: { width: 28 },
   // .skback: 12px / 字間.05em / #AEB4D6
   back: { color: COLOR.textBack, fontSize: 12, letterSpacing: 0.6 },
-  h1: { color: COLOR.textPrimary, fontSize: 16, fontWeight: '600', letterSpacing: 1 },
+  h1: { flex: 1, textAlign: 'center', color: COLOR.textPrimary, fontSize: 16, fontWeight: '600', letterSpacing: 1 },
   chevron: { color: COLOR.textSecondary, fontSize: 18 },
 
   // list

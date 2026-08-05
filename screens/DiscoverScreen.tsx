@@ -375,10 +375,11 @@ export const DiscoverScreen: React.FC<Props> = ({
         {/* ブランド */}
         <Text style={[styles.brand, { top: 26 + chromeShift }]}>Flux Ring</Text>
 
-        {/* 右上: EQ+ベル(1段目) / 試聴(2段目) */}
+        {/* 右上: EQ+ベル(1段目) / 試聴(2段目)。EQは常時表示・常時アニメーション
+            （試聴中インジケーターではなく、モック準拠の常設の意匠として扱う） */}
         <View style={[styles.topRight, { top: topRightY }]} pointerEvents="box-none">
           <View style={styles.iconsRow1}>
-            <EqBars active={isPreviewing} />
+            <EqBars active />
             <Pressable onPress={onOpenNotifications} hitSlop={10} style={styles.bell}>
               <BellIcon size={17} />
               {hasUnread && <View style={styles.bdot} />}

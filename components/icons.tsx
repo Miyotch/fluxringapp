@@ -155,6 +155,14 @@ export const TabSettingsIcon: React.FC<IconProps> = ({ size = 20, color = COLOR.
   </Svg>
 );
 
+// X（旧Twitter）。角丸スクエアの白枠バッジ＋白いXマーク（添付リファレンス準拠）。
+export const XIcon: React.FC<IconProps> = ({ size = 26 }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+    <Rect x={1.6} y={1.6} width={20.8} height={20.8} rx={7} fill="#000000" stroke="#FFFFFF" strokeWidth={1.4} />
+    <Path d="M7.6 7.6l8.8 8.8M16.4 7.6l-8.8 8.8" stroke="#FFFFFF" strokeWidth={1.7} strokeLinecap="square" />
+  </Svg>
+);
+
 // ウィッシュリスト星。on で塗り。assets/icons/wishstar.svg
 export const StarIcon: React.FC<IconProps & { filled?: boolean }> = ({
   size = 19,
