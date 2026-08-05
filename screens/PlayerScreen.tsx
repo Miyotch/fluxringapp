@@ -1,11 +1,11 @@
 /**
  * PlayerScreen.tsx — 再生画面（コレクションから開く）
  * ------------------------------------------------------------------
- * コレクションのカードをタップして開く再生画面。2フェーズ構成:
- *   ・ベール(veil): いきなり再生せず、コレクションをぼかしたような暗い背景に
+ * コレクション・ホーム（購入済み）どちらから開いても同じこの画面。2フェーズ構成:
+ *   ・ベール(veil): いきなり再生せず、星雲（NebulaGL）の上に薄い暗幕を重ねた背景に
  *                   カードと大きな再生ボタンだけを出す（魔法陣は出さない）
- *   ・再生(playing): 再生ボタンで開始。背景は星雲（NebulaGL）に切替、
- *                    下部にフロストのトランスポート（シーク・時間・再生/停止・ループ）
+ *   ・再生(playing): 再生ボタンで開始。背景は星雲（NebulaGL）のまま暗幕だけ外れる。
+ *                    下部に枠なしのトランスポート（シーク・時間・再生/停止・ループ）
  *   ・上部左「コレクションへ戻る」／右に共有（旧ストーリー導線は廃止）
  *   ・EQ なし。曲送り／戻しは所有が2曲以上のときだけ有効（1曲なら淡色の無効表示）
  *   ・フッター非表示・縦画面固定。総時間は音源から自動算出
@@ -16,7 +16,6 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
-  Image,
   Pressable,
   StyleSheet,
   StatusBar,
@@ -36,7 +35,7 @@ import { COLOR, SPACE, TRANSPORT } from '../constants/design-tokens';
 import { formatTime } from '../lib/audio';
 import { useTopInset, useBottomInset } from '../lib/safeArea';
 import { fullAudioUrl, previewUrl } from '../lib/r2';
-import { NUM_FONT } from '../constants/fonts';
+import { NUM_FONT, JP_SERIF_FONT } from '../constants/fonts';
 
 export type PlayerTrack = {
   id: string;
@@ -195,23 +194,12 @@ export const PlayerScreen: React.FC<Props> = ({ track, onBackHome, onPrevTrack, 
 
   return (
     <View style={styles.root}>
-      <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
+      <StatusBar barStyle="light-content" backgroundColor="#05040C" />
 
-      {/* 背景（コレクション再生画面・魔法陣は出さない）:
-          ・ベール中 = コレクションをぼかしたような暗い背景（作品画像を強ブラー）
-          ・再生中   = 星雲（NebulaGL） */}
-      {phase === 'veil' ? (
-        <>
-          <Image
-            source={{ uri: track.artworkUrl }}
-            style={styles.veilImage}
-            blurRadius={40}
-          />
-          <View style={styles.veilScrim} />
-        </>
-      ) : (
-        <NebulaGL />
-      )}
+      {/* 背景: 星屑＋星雲（NebulaGL）を常時表示。ベール中は上に薄い暗幕を重ねて
+          中央の再生ボタンを引き立てる（魔法陣は出さない）。 */}
+      <NebulaGL />
+      {phase === 'veil' && <View style={styles.veilScrim} />}
 
       {/* 上部導線: コレクションへ戻る / 共有（ストーリー導線は廃止） */}
       <View style={[styles.topNav, { paddingTop: navTop }]}>
@@ -221,6 +209,14 @@ export const PlayerScreen: React.FC<Props> = ({ track, onBackHome, onPrevTrack, 
         <Pressable onPress={onShare} hitSlop={10} accessibilityLabel="共有">
           <ShareIcon />
         </Pressable>
+      </View>
+
+      {/* 曲名・情景（カードの上・左寄せ） */}
+      <View style={styles.meta}>
+        <Text style={styles.title} numberOfLines={1}>{track.title}</Text>
+        {track.subtitle && <Text style={styles.subtitle} numberOfLines={1}>{track.subtitle}</Text>}
+        {phase === 'playing' && loading && <Text style={styles.subtitle}>読み込み中…</Text>}
+        {error && <Text style={styles.err}>{error}</Text>}
       </View>
 
       {/* 共有カード（指でなぞって全方向360°回転・厚みつき） */}
@@ -272,14 +268,6 @@ export const PlayerScreen: React.FC<Props> = ({ track, onBackHome, onPrevTrack, 
         />
       </View>
 
-      {/* 曲名・情景 */}
-      <View style={styles.meta}>
-        <Text style={styles.title} numberOfLines={1}>{track.title}</Text>
-        {track.subtitle && <Text style={styles.subtitle} numberOfLines={1}>{track.subtitle}</Text>}
-        {phase === 'playing' && loading && <Text style={styles.subtitle}>読み込み中…</Text>}
-        {error && <Text style={styles.err}>{error}</Text>}
-      </View>
-
       {/* ベール（再生前）: 再生ボタンだけを大きく置く */}
       {phase === 'veil' && (
         <View style={styles.veilControls}>
@@ -295,7 +283,7 @@ export const PlayerScreen: React.FC<Props> = ({ track, onBackHome, onPrevTrack, 
         </View>
       )}
 
-      {/* フロストのトランスポート（再生フェーズのみ） */}
+      {/* トランスポート（再生フェーズのみ・星空の上に直接配置） */}
       {phase === 'playing' && (
       <View style={[styles.transport, { marginBottom: transportBottom }]}>
         {/* シークバー（上下拡張の当たり領域でタップシーク） */}
@@ -306,7 +294,6 @@ export const PlayerScreen: React.FC<Props> = ({ track, onBackHome, onPrevTrack, 
         >
           <View style={styles.seekTrack}>
             <View style={[styles.seekFill, { width: `${progress * 100}%` }]} />
-            <View style={[styles.seekKnob, { left: `${progress * 100}%` }]} />
           </View>
         </Pressable>
         {/* 時間 */}
@@ -336,6 +323,7 @@ export const PlayerScreen: React.FC<Props> = ({ track, onBackHome, onPrevTrack, 
               hitSlop={10}
               accessibilityLabel={playing ? '一時停止' : '再生'}
             >
+              <View style={styles.playBtnGlow} />
               {playing ? <PauseMark size={19} /> : <PlayMark size={19} />}
             </Pressable>
             <Pressable
@@ -364,25 +352,29 @@ export const PlayerScreen: React.FC<Props> = ({ track, onBackHome, onPrevTrack, 
 };
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: COLOR.bg },
+  root: { flex: 1, backgroundColor: '#05040C' },
   topNav: {
     // 既定値。実機では SafeArea の top を加味して JSX 側で上書き
     paddingTop: 52,
     paddingHorizontal: SPACE.lg,
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'flex-start',
   },
-  // .skback: 12px / 字間.05em / #AEB4D6
-  navText: { color: COLOR.textBack, fontSize: 12, letterSpacing: 0.6 },
+  // ‹ コレクションへ戻る: 12px / 字間2.0 / rgba(236,238,247,.55) / 明朝
+  navText: {
+    color: 'rgba(236,238,247,0.55)',
+    fontSize: 12,
+    letterSpacing: 2.0,
+    fontFamily: JP_SERIF_FONT,
+  },
   cardArea: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   backLayer: { position: 'absolute', top: 0, left: 0 },
-  // ベール背景（コレクションをぼかしたような暗い面）
-  // 作品画像を強ブラーした背景。もやが強くカードの背景がうるさかったため 0.32→0.18 に抑制
-  veilImage: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, opacity: 0.18 },
+  // ベール中に星雲の上へ重ねる薄い暗幕（中央の再生ボタンを引き立てる）
   veilScrim: {
     position: 'absolute',
     top: 0, left: 0, right: 0, bottom: 0,
-    backgroundColor: 'rgba(8,7,20,0.78)',
+    backgroundColor: 'rgba(5,4,12,0.55)',
   },
   // ベールの再生ボタン（大きめ・シアングロー）
   veilControls: { alignItems: 'center', justifyContent: 'center', marginBottom: 72 },
@@ -403,46 +395,39 @@ const styles = StyleSheet.create({
     borderRadius: 38,
     backgroundColor: 'rgba(96,206,224,0.14)',
   },
-  meta: { alignItems: 'center', paddingHorizontal: SPACE.xl, gap: 4, marginBottom: SPACE.lg },
-  title: { color: COLOR.textPrimary, fontSize: 20, fontWeight: '700', letterSpacing: 0.5 },
-  subtitle: { color: COLOR.textSecondary, fontSize: 13, letterSpacing: 0.3 },
-  err: { color: COLOR.badge, fontSize: 12, marginTop: 4, textAlign: 'center' },
+  // 曲名（カード上・左寄せ）
+  meta: { alignItems: 'flex-start', paddingHorizontal: SPACE.lg, gap: 4, marginTop: 12, marginBottom: 24 },
+  // 白鉛筆 III（仮）: 22px / 字間1.5 / #ECEEF7 / 明朝・太字すぎない
+  title: { color: COLOR.textPrimary, fontSize: 22, fontWeight: '500', letterSpacing: 1.5, fontFamily: JP_SERIF_FONT },
+  subtitle: { color: COLOR.textSecondary, fontSize: 13, letterSpacing: 0.3, fontFamily: JP_SERIF_FONT },
+  err: { color: COLOR.badge, fontSize: 12, marginTop: 4, fontFamily: JP_SERIF_FONT },
+  // フロスト枠は廃止。星空の上に直接コントロールを置く（余白のみ）
   transport: {
     marginHorizontal: SPACE.lg,
     // 既定値。実機では SafeArea の bottom を加味して JSX 側で上書き
     marginBottom: 40,
-    padding: SPACE.md,
-    borderRadius: TRANSPORT.radius,
-    borderWidth: 1,
-    borderColor: TRANSPORT.borderColor,
-    backgroundColor: TRANSPORT.bg,
-    // TODO: 実機では Skia の BackdropBlur で blur(14px) saturate(1.3) を表現する
   },
   // 上下拡張のタップ当たり領域（見た目バーは中央）
   seekHit: { height: 24, justifyContent: 'center', marginBottom: SPACE.xs },
   seekTrack: {
-    height: TRANSPORT.seekBarHeight,
-    borderRadius: TRANSPORT.seekBarHeight / 2,
-    backgroundColor: 'rgba(148,152,190,0.25)',
+    height: 2,
+    borderRadius: 1,
+    backgroundColor: 'rgba(236,238,247,0.15)',
     justifyContent: 'center',
   },
   seekFill: {
-    height: TRANSPORT.seekBarHeight,
-    borderRadius: TRANSPORT.seekBarHeight / 2,
-    backgroundColor: TRANSPORT.seekBarColor,
+    height: 2,
+    borderRadius: 1,
+    backgroundColor: COLOR.auraCyan,
+    shadowColor: COLOR.auraCyan,
+    shadowOpacity: 0.8,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 0 },
   },
-  seekKnob: {
-    position: 'absolute',
-    width: TRANSPORT.seekKnobSize,
-    height: TRANSPORT.seekKnobSize,
-    borderRadius: TRANSPORT.seekKnobSize / 2,
-    backgroundColor: '#FFFFFF',
-    marginLeft: -TRANSPORT.seekKnobSize / 2,
-  },
-  timeRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: SPACE.md },
+  timeRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: SPACE.sm, marginBottom: SPACE.md },
   // 再生時間＝数字表記
-  // .ptimes: 9.5px / 字間.06em / #98A2C4
-  time: { color: '#98A2C4', fontSize: 9.5, letterSpacing: 0.57, fontFamily: NUM_FONT },
+  // 11px / rgba(236,238,247,.6)
+  time: { color: 'rgba(236,238,247,0.6)', fontSize: 11, letterSpacing: 0.3, fontFamily: NUM_FONT },
   // EQ(左) / 戻し・再生・送り(中央) / ループ(右)。左右を同じ幅で揃えて中央グループを視覚的に中央へ
   controls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   eqSlot: { width: 32, alignItems: 'flex-start', justifyContent: 'center' },
@@ -458,6 +443,14 @@ const styles = StyleSheet.create({
     borderColor: TRANSPORT.playBtnBorder,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  // 再生ボタンの背後にほんのりシアン光
+  playBtnGlow: {
+    position: 'absolute',
+    width: TRANSPORT.playBtnSize + 20,
+    height: TRANSPORT.playBtnSize + 20,
+    borderRadius: (TRANSPORT.playBtnSize + 20) / 2,
+    backgroundColor: 'rgba(96,206,224,0.16)',
   },
   loopBtn: { width: 32, alignItems: 'center', justifyContent: 'center' },
 });
