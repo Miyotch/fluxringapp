@@ -181,11 +181,28 @@ export const DiscoverScreen: React.FC<Props> = ({
   ).current;
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 60 }).current;
 
-  // 曲切替で試聴を止める
+  // カードが表示されたら、その曲の試聴を自動再生する。
+  // previewUrl（Firestore sound.r2_preview。空なら null 相当）が無い曲は
+  // 何もしない。曲を切り替えると、前の曲を止めて次の曲の試聴が流れる。
   useEffect(() => {
-    preview.pause();
-    setPlayingId(null);
-  }, [activeIndex, preview]);
+    if (!active) {
+      preview.pause();
+      setPlayingId(null);
+      return;
+    }
+    const url = active.previewUrl || previewUrl(active.audioKey);
+    if (!url) {
+      preview.pause();
+      setPlayingId(null);
+      return;
+    }
+    preview.replace({ uri: url });
+    preview.play();
+    setPlayingId(active.id);
+    // active は tracks[activeIndex] から毎回導出されるだけの参照なので、
+    // 実際の再評価は activeIndex（＝表示中のカード）が変わったときだけでよい
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeIndex, active, preview]);
 
   const togglePreview = useCallback(() => {
     if (!active) return;
