@@ -76,9 +76,8 @@ export const PlayerScreen: React.FC<Props> = ({ track, origin, onBackHome, onPre
   const transportBottom = useBottomInset(40, 12); // ホームインジケータ回避（従来 40px を下回らない）
   const cardW = Math.min(screenW - 96, 240);
 
-  // 残像は「開いた瞬間」だけ。曲送り／戻しで track が変わっても再表示しない。
+  // 残像の起点は「開いた瞬間」の座標に固定。曲送り／戻しで track が変わっても動かさない。
   const [afterimageOrigin] = useState(origin ?? null);
-  const [afterimageDone, setAfterimageDone] = useState(false);
 
   // ベール（再生前）→ 再生 の2フェーズ。初回はいきなり再生しない。
   const [phase, setPhase] = useState<'veil' | 'playing'>('veil');
@@ -208,15 +207,10 @@ export const PlayerScreen: React.FC<Props> = ({ track, origin, onBackHome, onPre
       <NebulaGL />
       {phase === 'veil' && <View style={styles.veilScrim} />}
 
-      {/* 残像（テンポラリー）: コレクションのタイルがあった場所に、ぼやけた
-          薄い跡を一瞬だけ残す。origin が無い（ホーム等から開いた）ときは出さない。 */}
-      {afterimageOrigin && !afterimageDone && (
-        <CardAfterimage
-          uri={track.artworkUrl}
-          origin={afterimageOrigin}
-          onDone={() => setAfterimageDone(true)}
-        />
-      )}
+      {/* 残像: コレクションのタイルがあった場所に、ぼやけた薄い跡を残す
+          （自然には消さない・この画面を離れるまで表示し続ける）。
+          origin が無い（ホーム等から開いた）ときは出さない。 */}
+      {afterimageOrigin && <CardAfterimage uri={track.artworkUrl} origin={afterimageOrigin} />}
 
       {/* 上部導線: コレクションへ戻る / 共有（ストーリー導線は廃止） */}
       <View style={[styles.topNav, { paddingTop: navTop }]}>

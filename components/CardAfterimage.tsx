@@ -1,43 +1,33 @@
 /**
- * CardAfterimage.tsx — カードの残像（テンポラリー）
+ * CardAfterimage.tsx — カードの残像
  * ------------------------------------------------------------------
  * コレクションのカードをタップして再生画面へ遷移した直後、そのカードが
- * 元々あった場所（グリッド上の座標）に、ぼやけた薄い残像を一瞬だけ残す。
+ * 元々あった場所（グリッド上の座標）に、ぼやけた薄い残像を残す。
  * ・座標は呼び出し側が事前に measureInWindow() で取得した画面絶対座標
- * ・フェードイン→ブラーが強まりながらフェードアウトして自動消滅（onDone）
+ * ・フェードイン＋ブラーで現れた後は自然に消さず、そのまま残す
+ *   （画面を離れる＝このコンポーネントがアンマウントされるまで表示し続ける）
  */
 
 import React, { useEffect } from 'react';
 import { StyleSheet } from 'react-native';
 import { Canvas, Image, Blur, Group, useImage } from '@shopify/react-native-skia';
-import { useSharedValue, useDerivedValue, withTiming, withSequence, Easing, runOnJS } from 'react-native-reanimated';
+import { useSharedValue, useDerivedValue, withTiming, Easing } from 'react-native-reanimated';
 
 export type CardOrigin = { x: number; y: number; width: number; height: number };
 
 type Props = {
   uri: string;
   origin: CardOrigin;
-  /** アニメーション完了後に呼ばれる（親はこれで自身をアンマウントする想定） */
-  onDone?: () => void;
 };
 
-export const CardAfterimage: React.FC<Props> = ({ uri, origin, onDone }) => {
+export const CardAfterimage: React.FC<Props> = ({ uri, origin }) => {
   const image = useImage(uri);
   const opacity = useSharedValue(0);
   const blur = useSharedValue(6);
 
   useEffect(() => {
-    // ふっと現れてから、ぼやけを強めながらゆっくり消える（残像＝テンポラリー）
-    opacity.value = withSequence(
-      withTiming(0.5, { duration: 200, easing: Easing.out(Easing.quad) }),
-      withTiming(
-        0,
-        { duration: 1400, easing: Easing.in(Easing.quad) },
-        (finished) => {
-          if (finished && onDone) runOnJS(onDone)();
-        },
-      ),
-    );
+    // ふっと現れて、ぼやけたまま留まる（消えない）
+    opacity.value = withTiming(0.5, { duration: 200, easing: Easing.out(Easing.quad) });
     blur.value = withTiming(24, { duration: 1600, easing: Easing.out(Easing.quad) });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
