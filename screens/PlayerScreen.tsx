@@ -16,6 +16,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
+  Image,
   Pressable,
   StyleSheet,
   StatusBar,
@@ -24,12 +25,20 @@ import {
   LayoutChangeEvent,
   GestureResponderEvent,
 } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useDerivedValue,
+  useAnimatedStyle,
+  withTiming,
+  withDelay,
+  Easing,
+} from 'react-native-reanimated';
 import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
-import { useSharedValue, useDerivedValue } from 'react-native-reanimated';
 import { CardGL } from '../components/CardGL';
 import { NebulaGL } from '../components/NebulaGL';
 import { CardBackdrop } from '../components/CardBackdrop';
 import { CardAfterimage, CardOrigin } from '../components/CardAfterimage';
+import { PurchaseCardGlow } from '../components/PurchaseCardGlow';
 import { EqBars } from '../components/EqBars';
 import { PlayMark, PauseMark, LoopIcon, ShareIcon, SkipIcon, SkipPrevIcon } from '../components/icons';
 import { COLOR, SPACE, TRANSPORT } from '../constants/design-tokens';
@@ -74,14 +83,22 @@ export const PlayerScreen: React.FC<Props> = ({ track, origin, onBackHome, onPre
   const { width: screenW, height: screenH } = useWindowDimensions();
   const navTop = useTopInset(8);            // 従来 52px（=44+8）
   const transportBottom = useBottomInset(40, 12); // ホームインジケータ回避（従来 40px を下回らない）
+  // CardGL 自体の実サイズは常にこの「再生時の最終サイズ」で固定（3Dシーンの再初期化を避ける）。
+  // ベール（フォーカス）時はこれより一回り小さく見せたいので、下の cardWrapStyle で
+  // wrapper に scale をかけて視覚上だけ縮小する。
   const cardW = Math.min(screenW - 96, 240);
+  const cardH = Math.round(cardW * 1.5);
+  // フォーカス時（ベール）の見かけサイズ＝再生時の 1/1.08（＝再生開始で 1.08倍に育つ）
+  const FOCUS_SCALE = 1 / 1.08;
 
-  // 残像は「開いた瞬間」だけ。曲送り／戻しで track が変わっても再表示しない。
+  // 残像の起点は「開いた瞬間」の座標に固定。曲送り／戻しで track が変わっても動かさない。
   const [afterimageOrigin] = useState(origin ?? null);
-  const [afterimageDone, setAfterimageDone] = useState(false);
 
   // ベール（再生前）→ 再生 の2フェーズ。初回はいきなり再生しない。
   const [phase, setPhase] = useState<'veil' | 'playing'>('veil');
+  // 再生ボタンの見た目。phaseは音声の開始判定にすぐ使うため即切替するが、
+  // ボタン自体は自分のフェードアウト演出が終わるまで少し長く表示を残す。
+  const [veilButtonVisible, setVeilButtonVisible] = useState(true);
   const [sourceUri, setSourceUri] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loop, setLoop] = useState(false);
@@ -90,7 +107,6 @@ export const PlayerScreen: React.FC<Props> = ({ track, origin, onBackHome, onPre
 
   // 背面レイヤー（StarSeal / CardBackdrop）用。x/y は root 内でのカード領域位置
   const [cardArea, setCardArea] = useState({ x: 0, y: 0, w: 0, h: 0 });
-  const cardH = Math.round(cardW * 1.5);
   // CardGL の回転角（度）・ドラッグ量を購読して背面を追従させる
   const rotationSV = useSharedValue(0);
   const dragXSV = useSharedValue(0);
@@ -104,6 +120,90 @@ export const PlayerScreen: React.FC<Props> = ({ track, origin, onBackHome, onPre
     () => (Math.cos((rotationSV.value * Math.PI) / 180) + 1) / 2,
     [rotationSV],
   );
+
+  // ── コレクション→再生 の画面遷移演出 ──────────────────────────
+  // ①カードがコレクションのグリッド位置から中央フォーカス位置へ拡大しながら移動
+  // ②再生ボタンを押すと、背景が星雲へクロスフェード＋カードがさらに一回り拡大＋
+  //   淡いシアングローが灯り＋ヘッダー/コントロールが遅延フェードインする。
+  const flightDone = useRef(false);
+  const cardTX = useSharedValue(0);
+  const cardTY = useSharedValue(0);
+  const cardScale = useSharedValue(FOCUS_SCALE);
+  const cardGlow = useSharedValue(0);
+  const veilBgOpacity = useSharedValue(1); // ブラー背景（1）→星雲が透けて見える（0）
+  const playBtnOpacity = useSharedValue(0);
+  const playBtnTY = useSharedValue(10);
+  const headerOpacity = useSharedValue(0);
+  const headerTY = useSharedValue(-10);
+  const controlsOpacity = useSharedValue(0);
+  const controlsTY = useSharedValue(15);
+
+  const cardWrapStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: cardTX.value },
+      { translateY: cardTY.value },
+      { scale: cardScale.value },
+    ],
+  }));
+  const veilBgStyle = useAnimatedStyle(() => ({ opacity: veilBgOpacity.value }));
+  const playBtnAnimStyle = useAnimatedStyle(() => ({
+    opacity: playBtnOpacity.value,
+    transform: [{ translateY: playBtnTY.value }],
+  }));
+  const headerAnimStyle = useAnimatedStyle(() => ({
+    opacity: headerOpacity.value,
+    transform: [{ translateY: headerTY.value }],
+  }));
+  const controlsAnimStyle = useAnimatedStyle(() => ({
+    opacity: controlsOpacity.value,
+    transform: [{ translateY: controlsTY.value }],
+  }));
+
+  // ①カードのフライトイン。コレクションのタイル座標（origin）が分かっていて、かつ
+  // カード領域のレイアウトが確定したら一度だけ実行する（origin が無ければ最初から
+  // フォーカスサイズで静止表示＝ホーム等から開いたとき）。
+  useEffect(() => {
+    if (flightDone.current || cardArea.w === 0) return;
+    flightDone.current = true;
+    const targetCenterX = cardArea.x + cardArea.w / 2;
+    const targetCenterY = cardArea.y + cardArea.h / 2;
+    const flight = { duration: 400, easing: Easing.out(Easing.cubic) };
+
+    if (afterimageOrigin) {
+      // 起点＝グリッドのタイル矩形の中心に、そのタイルと同じ見かけサイズで重なるよう
+      // 初期値を即値セットしてから、フォーカス位置/サイズへアニメーションする。
+      const originCenterX = afterimageOrigin.x + afterimageOrigin.width / 2;
+      const originCenterY = afterimageOrigin.y + afterimageOrigin.height / 2;
+      cardTX.value = originCenterX - targetCenterX;
+      cardTY.value = originCenterY - targetCenterY;
+      cardScale.value = afterimageOrigin.width / cardW;
+      cardTX.value = withTiming(0, flight);
+      cardTY.value = withTiming(0, flight);
+      cardScale.value = withTiming(FOCUS_SCALE, flight);
+    }
+
+    // 再生ボタンは、カードが着地する頃にふわっと出す
+    playBtnOpacity.value = withDelay(afterimageOrigin ? 250 : 0, withTiming(1, { duration: 300 }));
+    playBtnTY.value = withDelay(afterimageOrigin ? 250 : 0, withTiming(0, { duration: 300 }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cardArea.w, cardArea.h, cardArea.x, cardArea.y, afterimageOrigin]);
+
+  // ②再生ボタン tap → 背景クロスフェード・カード追加拡大・グロー・UIの遅延フェードイン
+  const runPlayingTransition = useCallback(() => {
+    // 再生ボタン自身は即フェードアウト
+    playBtnOpacity.value = withTiming(0, { duration: 150 });
+    // 背景: ブラー幕がふっと薄れて、下の星雲（常時マウント）が透けて見える＝クロスフェード
+    veilBgOpacity.value = withTiming(0, { duration: 700, easing: Easing.inOut(Easing.quad) });
+    // カード: フォーカスサイズ→再生サイズへもう一段拡大＋淡いシアングローを灯す
+    cardScale.value = withTiming(1, { duration: 700, easing: Easing.out(Easing.cubic) });
+    cardGlow.value = withTiming(0.5, { duration: 700, easing: Easing.out(Easing.quad) });
+    // ヘッダー（戻る／曲名）: 200ms遅れて上からフェードイン
+    headerOpacity.value = withDelay(200, withTiming(1, { duration: 500 }));
+    headerTY.value = withDelay(200, withTiming(0, { duration: 500 }));
+    // トランスポート（シーク・時間・操作）: 350ms遅れて下からフェードイン
+    controlsOpacity.value = withDelay(350, withTiming(1, { duration: 500 }));
+    controlsTY.value = withDelay(350, withTiming(0, { duration: 500 }));
+  }, [playBtnOpacity, veilBgOpacity, cardScale, cardGlow, headerOpacity, headerTY, controlsOpacity, controlsTY]);
 
   // expo-audio プレイヤー（ソースをフックに渡して確実に読み込ませる）
   const player = useAudioPlayer(sourceUri ?? undefined);
@@ -183,9 +283,18 @@ export const PlayerScreen: React.FC<Props> = ({ track, origin, onBackHome, onPre
     else player.play();
   }, [playing, player]);
 
-  // ベールの再生ボタン → 再生フェーズへ（読み込み後に上の effect が play する）
+  // ベールの再生ボタン → 再生フェーズへ（読み込み後に上の effect が play する）。
+  // 見た目のボタンは自分のフェードアウトが終わるまで少し長く残す（即アンマウントすると
+  // アニメーションが切れて見えるため、phaseとは別のフラグで畳む）。
+  const veilButtonTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startPlayback = useCallback(() => {
+    runPlayingTransition();
     setPhase('playing');
+    veilButtonTimer.current = setTimeout(() => setVeilButtonVisible(false), 200);
+  }, [runPlayingTransition]);
+
+  useEffect(() => () => {
+    if (veilButtonTimer.current) clearTimeout(veilButtonTimer.current);
   }, []);
 
   const onShare = useCallback(() => {
@@ -203,38 +312,38 @@ export const PlayerScreen: React.FC<Props> = ({ track, origin, onBackHome, onPre
     <View style={styles.root}>
       <StatusBar barStyle="light-content" backgroundColor="#05040C" />
 
-      {/* 背景: 星屑＋星雲（NebulaGL）を常時表示。ベール中は上に薄い暗幕を重ねて
-          中央の再生ボタンを引き立てる（魔法陣は出さない）。 */}
+      {/* 背景: 星屑＋星雲（NebulaGL）は常時マウント。その上に「コレクションを
+          ぼかしたような暗いブラー幕」を重ねておき、再生ボタンのタップで
+          この幕をふっと透明化する＝星雲へのクロスフェードとして見せる。 */}
       <NebulaGL />
-      {phase === 'veil' && <View style={styles.veilScrim} />}
+      <Animated.View style={[styles.veilBgLayer, veilBgStyle]} pointerEvents="none">
+        <Image source={{ uri: track.artworkUrl }} style={styles.veilBgImage} blurRadius={40} />
+        <View style={styles.veilScrim} />
+      </Animated.View>
 
-      {/* 残像（テンポラリー）: コレクションのタイルがあった場所に、ぼやけた
-          薄い跡を一瞬だけ残す。origin が無い（ホーム等から開いた）ときは出さない。 */}
-      {afterimageOrigin && !afterimageDone && (
-        <CardAfterimage
-          uri={track.artworkUrl}
-          origin={afterimageOrigin}
-          onDone={() => setAfterimageDone(true)}
-        />
-      )}
+      {/* 残像: コレクションのタイルがあった場所に、ぼやけた薄い跡を残す
+          （自然には消さない・この画面を離れるまで表示し続ける）。
+          origin が無い（ホーム等から開いた）ときは出さない。 */}
+      {afterimageOrigin && <CardAfterimage uri={track.artworkUrl} origin={afterimageOrigin} />}
 
-      {/* 上部導線: コレクションへ戻る / 共有（ストーリー導線は廃止） */}
-      <View style={[styles.topNav, { paddingTop: navTop }]}>
+      {/* 上部導線: コレクションへ戻る / 共有（旧ストーリー導線は廃止）。
+          再生ボタンのタップから200ms遅れて上からフェードイン。 */}
+      <Animated.View style={[styles.topNav, { paddingTop: navTop }, headerAnimStyle]}>
         <Pressable onPress={onBackHome} hitSlop={10}>
           <Text style={styles.navText}>‹ コレクションへ戻る</Text>
         </Pressable>
         <Pressable onPress={onShare} hitSlop={10} accessibilityLabel="共有">
           <ShareIcon />
         </Pressable>
-      </View>
+      </Animated.View>
 
-      {/* 曲名・情景（カードの上・左寄せ） */}
-      <View style={styles.meta}>
+      {/* 曲名・情景（カードの上・左寄せ）。ヘッダーと同じタイミングでフェードイン */}
+      <Animated.View style={[styles.meta, headerAnimStyle]}>
         <Text style={styles.title} numberOfLines={1}>{track.title}</Text>
         {track.subtitle && <Text style={styles.subtitle} numberOfLines={1}>{track.subtitle}</Text>}
         {phase === 'playing' && loading && <Text style={styles.subtitle}>読み込み中…</Text>}
         {error && <Text style={styles.err}>{error}</Text>}
-      </View>
+      </Animated.View>
 
       {/* 共有カード（指でなぞって全方向360°回転・厚みつき） */}
       <View
@@ -266,28 +375,41 @@ export const PlayerScreen: React.FC<Props> = ({ track, origin, onBackHome, onPre
             style={styles.backLayer}
           />
         )}
-        {/* 実3D（WebGL）カード: 指ドラッグで全方向360°回転・厚み1mm */}
-        <CardGL
-          frontUri={track.artworkUrl}
-          width={cardW}
-          height={cardH}
-          depthRatio={0.016}
-          backData={{
-            title: track.title,
-            serial: track.serial,
-            story: track.story ?? track.subtitle,
-            tuning: track.tuning,
-            frequencies: track.frequencies,
-            artist: track.artist ?? 'NAOKI OKA',
-          }}
-          rotationOut={rotationSV}
-          dragXOut={dragXSV}
-        />
+        {/* コレクションのグリッド位置から中央フォーカス位置へ拡大しながら移動し、
+            再生ボタンのタップでさらに一回り拡大＋淡いシアングローが灯る。
+            CardGL自体のサイズは固定し、wrapperのtranslate/scaleで見かけを変える
+            （3Dシーンの再初期化を避けるため）。 */}
+        <Animated.View style={[{ width: cardW, height: cardH }, cardWrapStyle]}>
+          <PurchaseCardGlow
+            width={cardW}
+            height={cardH}
+            radius={Math.round(0.085 * cardW)}
+            glow={cardGlow}
+          />
+          {/* 実3D（WebGL）カード: 指ドラッグで全方向360°回転・厚み1mm */}
+          <CardGL
+            frontUri={track.artworkUrl}
+            width={cardW}
+            height={cardH}
+            depthRatio={0.016}
+            backData={{
+              title: track.title,
+              serial: track.serial,
+              story: track.story ?? track.subtitle,
+              tuning: track.tuning,
+              frequencies: track.frequencies,
+              artist: track.artist ?? 'NAOKI OKA',
+            }}
+            rotationOut={rotationSV}
+            dragXOut={dragXSV}
+          />
+        </Animated.View>
       </View>
 
-      {/* ベール（再生前）: 再生ボタンだけを大きく置く */}
-      {phase === 'veil' && (
-        <View style={styles.veilControls}>
+      {/* ベール（再生前）: 再生ボタンだけを大きく置く。カードが着地する頃に
+          ふわっと出現し、タップで即フェードアウトする */}
+      {veilButtonVisible && (
+        <Animated.View style={[styles.veilControls, playBtnAnimStyle]}>
           <Pressable
             style={({ pressed }) => [styles.veilPlay, pressed && { opacity: 0.8 }]}
             onPress={startPlayback}
@@ -297,12 +419,13 @@ export const PlayerScreen: React.FC<Props> = ({ track, origin, onBackHome, onPre
             <View style={styles.veilPlayGlow} />
             <PlayMark size={26} />
           </Pressable>
-        </View>
+        </Animated.View>
       )}
 
-      {/* トランスポート（再生フェーズのみ・星空の上に直接配置） */}
+      {/* トランスポート（再生フェーズのみ・星空の上に直接配置）。
+          再生ボタンのタップから350ms遅れて下からフェードイン。 */}
       {phase === 'playing' && (
-      <View style={[styles.transport, { marginBottom: transportBottom }]}>
+      <Animated.View style={[styles.transport, { marginBottom: transportBottom }, controlsAnimStyle]}>
         {/* シークバー（上下拡張の当たり領域でタップシーク） */}
         <Pressable
           style={styles.seekHit}
@@ -362,7 +485,7 @@ export const PlayerScreen: React.FC<Props> = ({ track, origin, onBackHome, onPre
             <LoopIcon size={16} on={loop} />
           </Pressable>
         </View>
-      </View>
+      </Animated.View>
       )}
     </View>
   );
@@ -387,11 +510,14 @@ const styles = StyleSheet.create({
   },
   cardArea: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   backLayer: { position: 'absolute', top: 0, left: 0 },
-  // ベール中に星雲の上へ重ねる薄い暗幕（中央の再生ボタンを引き立てる）
+  // ベール中に星雲(NebulaGL)の上へ重ねる「コレクションをぼかしたような暗い幕」。
+  // 再生ボタンのタップで veilBgOpacity が 1→0 になり、透けて星雲が見える＝クロスフェード。
+  veilBgLayer: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
+  veilBgImage: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, opacity: 0.18 },
   veilScrim: {
     position: 'absolute',
     top: 0, left: 0, right: 0, bottom: 0,
-    backgroundColor: 'rgba(5,4,12,0.55)',
+    backgroundColor: 'rgba(8,7,20,0.78)',
   },
   // ベールの再生ボタン（大きめ・シアングロー）
   veilControls: { alignItems: 'center', justifyContent: 'center', marginBottom: 72 },

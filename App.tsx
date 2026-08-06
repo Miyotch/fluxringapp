@@ -28,6 +28,7 @@ import { loadNumTypeface } from './lib/skiaFonts';
 import { LanguageProvider } from './lib/i18n';
 import { onUserChanged, deleteAccount, signOut } from './lib/firebaseAuth';
 import { usePurchaseFlow } from './lib/usePurchaseFlow';
+import { useSoundPreviews } from './lib/useSoundPreviews';
 import { prefetchArtwork } from './constants/artwork';
 
 import { Footer, TabKey } from './components/Footer';
@@ -107,6 +108,20 @@ function AppInner() {
   // アプリ内課金と所有権。アプリ全体で1つだけ持つ（ストア接続・購入イベントの
   // 購読・未完了トランザクションの引き取りが二重に走らないようにするため）。
   const { controller: purchase, ownedIds, restore } = usePurchaseFlow();
+
+  // ホームの試聴URL。カード一覧そのものはまだ STUB_TRACKS（Firestore 未接続）だが、
+  // 試聴リンクだけは Firestore の sound/{id}.r2_preview（artworksと同一ID）から
+  // リアルタイムに取得し、上書きする。
+  const trackIds = useMemo(() => STUB_TRACKS.map((t) => t.id), []);
+  const soundPreviews = useSoundPreviews(trackIds);
+  const discoverTracks = useMemo(
+    () =>
+      STUB_TRACKS.map((t) => ({
+        ...t,
+        previewUrl: soundPreviews.get(t.id) ?? t.previewUrl,
+      })),
+    [soundPreviews],
+  );
 
   // 所有集合。STUB_OWNED は Firestore を繋ぐまでの土台（デモの見え方を保つため）で、
   // 購入で増えたぶんを足し込む。**Firestore 接続後はこの seed を外すこと**——
@@ -366,7 +381,7 @@ function AppInner() {
       <View style={styles.body}>
         {tab === 'home' && (
           <DiscoverScreen
-            tracks={STUB_TRACKS}
+            tracks={discoverTracks}
             hasUnread
             focusTrackId={homeFocusId}
             onOpenNotifications={() => setOverlay('notifications')}

@@ -220,7 +220,7 @@ export const CollectionScreen: React.FC<Props> = ({
     purchase?.displayPriceOf(item.id) ?? formatPrice(TRACK_PRICE_JPY);
 
   // 購入成立でモーダルを閉じ、成立したときだけ onBuy を通知する。
-  // コレクション側では泡演出を出さない（ホームの購入完了演出＝RisingBubbles が正）。
+  // コレクション側では演出を出さない（ホームの購入完了演出＝PurchaseParticles が正）。
   useEffect(() => {
     if (!purchase) return;
     return purchase.onSuccess((trackId) => {

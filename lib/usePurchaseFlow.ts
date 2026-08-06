@@ -87,8 +87,8 @@ export type PurchaseController = {
   /** モーダルを閉じるときに呼ぶ（状態を idle へ戻す） */
   dismiss: () => void
   /**
-   * 購入成功の購読。演出（RisingBubbles）の起点を画面側に置くため、
-   * フック側では所有集合を更新するだけで演出には関与しない。
+   * 購入成功の購読。演出（PurchaseParticles / PurchaseCardGlow）の起点を
+   * 画面側に置くため、フック側では所有集合を更新するだけで演出には関与しない。
    */
   onSuccess: (cb: (trackId: string) => void) => () => void
 }
