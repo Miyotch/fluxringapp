@@ -38,7 +38,6 @@ import { CardGL } from '../components/CardGL';
 import { NebulaGL } from '../components/NebulaGL';
 import { CardBackdrop } from '../components/CardBackdrop';
 import { CardAfterimage, CardOrigin } from '../components/CardAfterimage';
-import { PurchaseCardGlow } from '../components/PurchaseCardGlow';
 import { EqBars } from '../components/EqBars';
 import { PlayMark, PauseMark, LoopIcon, ShareIcon, SkipIcon, SkipPrevIcon } from '../components/icons';
 import { COLOR, SPACE, TRANSPORT } from '../constants/design-tokens';
@@ -124,13 +123,12 @@ export const PlayerScreen: React.FC<Props> = ({ track, origin, onBackHome, onPre
   // ── コレクション→再生 の画面遷移演出 ──────────────────────────
   // ①カードがコレクションのグリッド位置から中央フォーカス位置へ拡大しながら移動
   // ②再生ボタンを押すと、背景が星雲へクロスフェード＋カードがさらに一回り拡大＋
-  //   淡いシアングローが灯り＋ヘッダー/コントロールが遅延フェードインする。
+  //   ヘッダー/コントロールが遅延フェードインする。
   const flightDone = useRef(false);
   const cardTX = useSharedValue(0);
   const cardTY = useSharedValue(0);
   const cardScale = useSharedValue(FOCUS_SCALE);
-  const cardGlow = useSharedValue(0);
-  const veilBgOpacity = useSharedValue(1); // ブラー背景（1）→星雲が透けて見える（0）
+  const veilBgOpacity = useSharedValue(1); // ブラー背景＋残像（1）→星雲のみ（0）
   const playBtnOpacity = useSharedValue(0);
   const playBtnTY = useSharedValue(10);
   const headerOpacity = useSharedValue(0);
@@ -188,22 +186,22 @@ export const PlayerScreen: React.FC<Props> = ({ track, origin, onBackHome, onPre
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cardArea.w, cardArea.h, cardArea.x, cardArea.y, afterimageOrigin]);
 
-  // ②再生ボタン tap → 背景クロスフェード・カード追加拡大・グロー・UIの遅延フェードイン
+  // ②再生ボタン tap → 背景クロスフェード・カード追加拡大・UIの遅延フェードイン
   const runPlayingTransition = useCallback(() => {
     // 再生ボタン自身は即フェードアウト
     playBtnOpacity.value = withTiming(0, { duration: 150 });
-    // 背景: ブラー幕がふっと薄れて、下の星雲（常時マウント）が透けて見える＝クロスフェード
+    // 背景: ブラー幕（＋残像）がふっと薄れて、下の星雲（常時マウント）だけが見える状態へ
+    // 完全に切り替わる＝クロスフェード。ホームの再生時と同じ「星雲のみ」の背景にする。
     veilBgOpacity.value = withTiming(0, { duration: 700, easing: Easing.inOut(Easing.quad) });
-    // カード: フォーカスサイズ→再生サイズへもう一段拡大＋淡いシアングローを灯す
+    // カード: フォーカスサイズ→再生サイズへもう一段拡大
     cardScale.value = withTiming(1, { duration: 700, easing: Easing.out(Easing.cubic) });
-    cardGlow.value = withTiming(0.5, { duration: 700, easing: Easing.out(Easing.quad) });
     // ヘッダー（戻る／曲名）: 200ms遅れて上からフェードイン
     headerOpacity.value = withDelay(200, withTiming(1, { duration: 500 }));
     headerTY.value = withDelay(200, withTiming(0, { duration: 500 }));
     // トランスポート（シーク・時間・操作）: 350ms遅れて下からフェードイン
     controlsOpacity.value = withDelay(350, withTiming(1, { duration: 500 }));
     controlsTY.value = withDelay(350, withTiming(0, { duration: 500 }));
-  }, [playBtnOpacity, veilBgOpacity, cardScale, cardGlow, headerOpacity, headerTY, controlsOpacity, controlsTY]);
+  }, [playBtnOpacity, veilBgOpacity, cardScale, headerOpacity, headerTY, controlsOpacity, controlsTY]);
 
   // expo-audio プレイヤー（ソースをフックに渡して確実に読み込ませる）
   const player = useAudioPlayer(sourceUri ?? undefined);
@@ -321,10 +319,15 @@ export const PlayerScreen: React.FC<Props> = ({ track, origin, onBackHome, onPre
         <View style={styles.veilScrim} />
       </Animated.View>
 
-      {/* 残像: コレクションのタイルがあった場所に、ぼやけた薄い跡を残す
-          （自然には消さない・この画面を離れるまで表示し続ける）。
+      {/* 残像: コレクションのタイルがあった場所に、ぼやけた薄い跡を残す（ベール中は
+          自然には消さない）。再生ボタンのタップでブラー背景と同じタイミングでふっと
+          消え、星雲だけの画面に切り替わる（ホームの再生時と同じ背景にする）。
           origin が無い（ホーム等から開いた）ときは出さない。 */}
-      {afterimageOrigin && <CardAfterimage uri={track.artworkUrl} origin={afterimageOrigin} />}
+      {afterimageOrigin && (
+        <Animated.View style={[styles.veilBgLayer, veilBgStyle]} pointerEvents="none">
+          <CardAfterimage uri={track.artworkUrl} origin={afterimageOrigin} />
+        </Animated.View>
+      )}
 
       {/* 上部導線: コレクションへ戻る / 共有（旧ストーリー導線は廃止）。
           再生ボタンのタップから200ms遅れて上からフェードイン。 */}
@@ -376,16 +379,9 @@ export const PlayerScreen: React.FC<Props> = ({ track, origin, onBackHome, onPre
           />
         )}
         {/* コレクションのグリッド位置から中央フォーカス位置へ拡大しながら移動し、
-            再生ボタンのタップでさらに一回り拡大＋淡いシアングローが灯る。
-            CardGL自体のサイズは固定し、wrapperのtranslate/scaleで見かけを変える
-            （3Dシーンの再初期化を避けるため）。 */}
+            再生ボタンのタップでさらに一回り拡大する。CardGL自体のサイズは固定し、
+            wrapperのtranslate/scaleで見かけを変える（3Dシーンの再初期化を避けるため）。 */}
         <Animated.View style={[{ width: cardW, height: cardH }, cardWrapStyle]}>
-          <PurchaseCardGlow
-            width={cardW}
-            height={cardH}
-            radius={Math.round(0.085 * cardW)}
-            glow={cardGlow}
-          />
           {/* 実3D（WebGL）カード: 指ドラッグで全方向360°回転・厚み1mm */}
           <CardGL
             frontUri={track.artworkUrl}
