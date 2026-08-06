@@ -1,12 +1,13 @@
 /**
  * PurchaseParticles.tsx — 購入時の光粒子（パーティクル）エフェクト
  * ------------------------------------------------------------------
- * 「購入する」確定タップの直後、画面下部から無数の微小な光の粒が
- * ふわっと舞い上がって消える。旧 RisingBubbles（シャンパンの泡）を
+ * 「購入する」確定タップの直後、画面下部から天の川のように無数の光の粒が
+ * びっしりと舞い上がって消える。旧 RisingBubbles（シャンパンの泡）を
  * 差し替え、以下の仕様に合わせて再実装:
- *   ・粒子数: 40〜60（画面幅いっぱいにランダム配置）
- *   ・サイズ: 直径1.5〜4px、色は シアン:明るいシアン:白 = 7:2:1
- *   ・Y: 下から -120〜-260px 上昇 / X: ±20px の揺らぎ
+ *   ・粒子数: 180〜250（画面幅いっぱいにランダム配置・高密度）
+ *   ・サイズ: 極小1.0-1.5px(60%) / 中小2.0-3.0px(30%) / 大3.5-4.5px(10%)
+ *   ・色: 明るいシアン#A0ECF7(50%) / 白#FFFFFF(30%) / シアン#60CEE0(20%)
+ *   ・Y: 下から -180〜-320px 上昇 / X: ±20px の揺らぎ
  *   ・不透明度: フェードイン(200ms)→上昇中チラつき→上端でフェードアウト
  *   ・各粒子は 0〜300ms のランダム遅延で発生し、連続感を出す
  * 総尺は約1.6秒（呼び出し側のカード発光・浮遊と同時に開始する想定）。
@@ -32,29 +33,37 @@ import {
   SharedValue,
 } from 'react-native-reanimated';
 
-const PARTICLE_COUNT = 50;
-const RISE_MIN = 120;
-const RISE_MAX = 260;
+const PARTICLE_COUNT = 220;
+const RISE_MIN = 180;
+const RISE_MAX = 320;
 const WOBBLE_MAX = 20;
 const DELAY_MAX = 300;
 const RISE_DURATION_MIN = 900;
 const RISE_DURATION_MAX = 1400;
 
-// シアン7 : 明るいシアン2 : 白1
+// 明るいシアン5 : 白3 : シアン2（＝50% / 30% / 20%）
 const COLORS = [
-  ...Array(7).fill('#60CEE0'),
-  ...Array(2).fill('#A0ECF7'),
-  ...Array(1).fill('#FFFFFF'),
+  ...Array(5).fill('#A0ECF7'),
+  ...Array(3).fill('#FFFFFF'),
+  ...Array(2).fill('#60CEE0'),
 ];
+
+// 半径(px)。極小60% / 中小30% / 大10%（直径ベースの仕様値を半径に換算）
+function randomRadius(): number {
+  const r = Math.random();
+  if (r < 0.6) return 0.5 + Math.random() * 0.25;   // 極小: 直径1.0〜1.5px
+  if (r < 0.9) return 1.0 + Math.random() * 0.5;     // 中小: 直径2.0〜3.0px
+  return 1.75 + Math.random() * 0.5;                 // 大: 直径3.5〜4.5px
+}
 
 type Particle = {
   x0: number;       // 発生X（画面幅いっぱいにランダム）
   y0: number;       // 発生Y（画面下部エリア内でランダム）
-  rise: number;      // 上昇距離（-120〜-260px）
+  rise: number;      // 上昇距離（-180〜-320px）
   wobble: number;    // 横揺れ振幅（〜±20px）
   wobbleSpeed: number;
   wobblePhase: number;
-  size: number;      // 半径（0.75〜2px＝直径1.5〜4px）
+  size: number;      // 半径
   color: string;
   delay: number;     // 発生遅延（0〜300ms）
   duration: number;  // 上昇にかける時間
@@ -71,7 +80,7 @@ function makeParticles(n: number, w: number, h: number): Particle[] {
       wobble: Math.random() * WOBBLE_MAX,
       wobbleSpeed: 1.5 + Math.random() * 2.5,
       wobblePhase: Math.random() * Math.PI * 2,
-      size: 0.75 + Math.random() * 1.25,
+      size: randomRadius(),
       color: COLORS[Math.floor(Math.random() * COLORS.length)],
       delay: Math.random() * DELAY_MAX,
       duration: RISE_DURATION_MIN + Math.random() * (RISE_DURATION_MAX - RISE_DURATION_MIN),

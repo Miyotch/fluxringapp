@@ -27,16 +27,15 @@ import {
 } from 'react-native';
 import Animated, {
   useSharedValue,
-  useDerivedValue,
   useAnimatedStyle,
   withTiming,
   withDelay,
+  runOnJS,
   Easing,
 } from 'react-native-reanimated';
 import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import { CardGL } from '../components/CardGL';
 import { NebulaGL } from '../components/NebulaGL';
-import { CardBackdrop } from '../components/CardBackdrop';
 import { CardAfterimage, CardOrigin } from '../components/CardAfterimage';
 import { EqBars } from '../components/EqBars';
 import { PlayMark, PauseMark, LoopIcon, ShareIcon, SkipIcon, SkipPrevIcon } from '../components/icons';
@@ -104,21 +103,8 @@ export const PlayerScreen: React.FC<Props> = ({ track, origin, onBackHome, onPre
   const [seekW, setSeekW] = useState(1);
   const startedFor = useRef<string | null>(null);
 
-  // 背面レイヤー（StarSeal / CardBackdrop）用。x/y は root 内でのカード領域位置
+  // カード領域のレイアウト（x/y は root 内での位置。フライトインの着地座標に使う）
   const [cardArea, setCardArea] = useState({ x: 0, y: 0, w: 0, h: 0 });
-  // CardGL の回転角（度）・ドラッグ量を購読して背面を追従させる
-  const rotationSV = useSharedValue(0);
-  const dragXSV = useSharedValue(0);
-  const slideFadeSV = useSharedValue(1);
-  // 裏返り進捗（0=表, 1=裏）・表面度（1=表, 0=裏）を回転角から導出
-  const aProgSV = useDerivedValue(
-    () => (1 - Math.cos((rotationSV.value * Math.PI) / 180)) / 2,
-    [rotationSV],
-  );
-  const foreSV = useDerivedValue(
-    () => (Math.cos((rotationSV.value * Math.PI) / 180) + 1) / 2,
-    [rotationSV],
-  );
 
   // ── コレクション→再生 の画面遷移演出 ──────────────────────────
   // ①カードがコレクションのグリッド位置から中央フォーカス位置へ拡大しながら移動
@@ -135,6 +121,9 @@ export const PlayerScreen: React.FC<Props> = ({ track, origin, onBackHome, onPre
   const headerTY = useSharedValue(-10);
   const controlsOpacity = useSharedValue(0);
   const controlsTY = useSharedValue(15);
+  // 背景タップでコレクションへ戻るときの、画面全体のフェードアウト＋縮小
+  const rootOpacity = useSharedValue(1);
+  const rootScale = useSharedValue(1);
 
   const cardWrapStyle = useAnimatedStyle(() => ({
     transform: [
@@ -155,6 +144,10 @@ export const PlayerScreen: React.FC<Props> = ({ track, origin, onBackHome, onPre
   const controlsAnimStyle = useAnimatedStyle(() => ({
     opacity: controlsOpacity.value,
     transform: [{ translateY: controlsTY.value }],
+  }));
+  const rootExitStyle = useAnimatedStyle(() => ({
+    opacity: rootOpacity.value,
+    transform: [{ scale: rootScale.value }],
   }));
 
   // ①カードのフライトイン。コレクションのタイル座標（origin）が分かっていて、かつ
@@ -299,6 +292,21 @@ export const PlayerScreen: React.FC<Props> = ({ track, origin, onBackHome, onPre
     Share.share({ message: `FLUX RING — ${track.title}` }).catch(() => {});
   }, [track.title]);
 
+  // カード以外の背景をタップ → フェードアウト＋縮小しながらコレクションへ戻る
+  // （ベール中・再生中どちらでも有効。カード自体はCardGLが自分のジェスチャを
+  //   先に処理するので、ここに落ちてくるのは本当に「背景」をタップしたときだけ）
+  const handleBackgroundTap = useCallback(() => {
+    rootOpacity.value = withTiming(0, { duration: 300, easing: Easing.in(Easing.quad) });
+    rootScale.value = withTiming(
+      0.92,
+      { duration: 300, easing: Easing.in(Easing.quad) },
+      (finished) => {
+        'worklet';
+        if (finished) runOnJS(onBackHome)();
+      },
+    );
+  }, [rootOpacity, rootScale, onBackHome]);
+
   // タップ位置でシーク
   const onSeekPress = useCallback((e: GestureResponderEvent) => {
     if (duration <= 0) return;
@@ -307,7 +315,7 @@ export const PlayerScreen: React.FC<Props> = ({ track, origin, onBackHome, onPre
   }, [duration, seekW, player]);
 
   return (
-    <View style={styles.root}>
+    <Animated.View style={[styles.root, rootExitStyle]}>
       <StatusBar barStyle="light-content" backgroundColor="#05040C" />
 
       {/* 背景: 星屑＋星雲（NebulaGL）は常時マウント。その上に「コレクションを
@@ -328,6 +336,15 @@ export const PlayerScreen: React.FC<Props> = ({ track, origin, onBackHome, onPre
           <CardAfterimage uri={track.artworkUrl} origin={afterimageOrigin} />
         </Animated.View>
       )}
+
+      {/* 背景タップでコレクションへ戻る。カード自身はCardGLが自分のジェスチャを
+          先に処理するため、ここに落ちるのは本当に背景をタップしたときだけ。
+          ヘッダー/カード/コントロールより先に描画し、それらの手前には出さない。 */}
+      <Pressable
+        style={StyleSheet.absoluteFill}
+        onPress={handleBackgroundTap}
+        accessibilityLabel="コレクションへ戻る"
+      />
 
       {/* 上部導線: コレクションへ戻る / 共有（旧ストーリー導線は廃止）。
           再生ボタンのタップから200ms遅れて上からフェードイン。 */}
@@ -360,27 +377,10 @@ export const PlayerScreen: React.FC<Props> = ({ track, origin, onBackHome, onPre
           })
         }
       >
-        {/* カード直下：発光・影レイヤー（ドラッグ追従） */}
-        {cardArea.w > 0 && (
-          <CardBackdrop
-            width={cardArea.w}
-            height={cardArea.h}
-            centerX={cardArea.w / 2}
-            centerY={cardArea.h / 2}
-            cardW={cardW}
-            cardH={cardH}
-            auraA={track.glowColor}
-            auraB={track.glowColor2}
-            dragX={dragXSV}
-            slideFade={slideFadeSV}
-            aProg={aProgSV}
-            fore={foreSV}
-            style={styles.backLayer}
-          />
-        )}
         {/* コレクションのグリッド位置から中央フォーカス位置へ拡大しながら移動し、
             再生ボタンのタップでさらに一回り拡大する。CardGL自体のサイズは固定し、
-            wrapperのtranslate/scaleで見かけを変える（3Dシーンの再初期化を避けるため）。 */}
+            wrapperのtranslate/scaleで見かけを変える（3Dシーンの再初期化を避けるため）。
+            背後の靄（発光・影レイヤー）は廃止し、カードの縁がくっきり見えるようにする。 */}
         <Animated.View style={[{ width: cardW, height: cardH }, cardWrapStyle]}>
           {/* 実3D（WebGL）カード: 指ドラッグで全方向360°回転・厚み1mm */}
           <CardGL
@@ -396,8 +396,6 @@ export const PlayerScreen: React.FC<Props> = ({ track, origin, onBackHome, onPre
               frequencies: track.frequencies,
               artist: track.artist ?? 'NAOKI OKA',
             }}
-            rotationOut={rotationSV}
-            dragXOut={dragXSV}
           />
         </Animated.View>
       </View>
@@ -483,7 +481,7 @@ export const PlayerScreen: React.FC<Props> = ({ track, origin, onBackHome, onPre
         </View>
       </Animated.View>
       )}
-    </View>
+    </Animated.View>
   );
 };
 
@@ -505,7 +503,6 @@ const styles = StyleSheet.create({
     fontFamily: JP_SERIF_FONT,
   },
   cardArea: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  backLayer: { position: 'absolute', top: 0, left: 0 },
   // ベール中に星雲(NebulaGL)の上へ重ねる「コレクションをぼかしたような暗い幕」。
   // 再生ボタンのタップで veilBgOpacity が 1→0 になり、透けて星雲が見える＝クロスフェード。
   veilBgLayer: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },

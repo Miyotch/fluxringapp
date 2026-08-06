@@ -548,7 +548,8 @@ export type CardGLProps = {
   mode?: 'spin' | 'flip';
   /** 裏面デザイン。aluminum=アルミ刻印（既定・ホーム / プレイヤー） / story=フロストのストーリー面（v98） */
   backStyle?: 'aluminum' | 'story';
-  /** カード周囲のオーラ（card-aura）。指定時のみ描画（プレイヤーは CardBackdrop 側で描くため未指定） */
+  /** カード周囲のオーラ（card-aura）。指定時のみ描画（プレイヤーはカードの縁を
+      くっきり見せる方針のため未指定＝靄なし） */
   aura?: { a?: string; b?: string };
   /** 厚み比（対カード幅）。既定は v98 の 6.5/188.6。プレイヤーは 1mm 相当 0.016 を指定 */
   depthRatio?: number;
