@@ -39,6 +39,7 @@ import {
 } from '../constants/authConfig';
 import { signUp, signIn, signInWithGoogleToken } from '../lib/firebaseAuth';
 import { AppleButton } from '../components/AppleButton';
+import { useFormWidthStyle } from '../lib/responsive';
 
 // OAuth リダイレクト後にブラウザセッションを閉じる（expo-auth-session 必須）
 WebBrowser.maybeCompleteAuthSession();
@@ -104,6 +105,8 @@ export const AuthScreen: React.FC<Props> = ({ mode, onSwitchMode, onAuthenticate
   const [error, setError] = useState<string | null>(null);
 
   const isSignup = mode === 'signup';
+  // タブレット幅では横いっぱいに広がると間延びするため、フォーム幅を画面の60%に制限
+  const formWidthStyle = useFormWidthStyle();
 
   // NOTE: Apple サインインは provisioning profile が「Sign In with Apple」機能
   // 未対応のため一時的に無効化（expo-apple-authentication を依存から除外）。
@@ -135,7 +138,7 @@ export const AuthScreen: React.FC<Props> = ({ mode, onSwitchMode, onAuthenticate
     >
       <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
 
-      <View style={styles.body}>
+      <View style={[styles.body, formWidthStyle]}>
         {/* アプリアイコン（ブランド名の真上・角丸のアプリアイコン風） */}
         <Image source={require('../icon.png')} style={styles.logo} resizeMode="cover" />
         <Text style={styles.brand}>FLUX RING</Text>
