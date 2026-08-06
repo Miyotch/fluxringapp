@@ -25,6 +25,14 @@ import {
   LayoutChangeEvent,
   useWindowDimensions,
 } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  withSequence,
+  withDelay,
+  Easing,
+} from 'react-native-reanimated';
 import { useAudioPlayer } from 'expo-audio';
 import { previewUrl } from '../lib/r2';
 import { CardFace } from '../components/CardFace';
@@ -38,7 +46,8 @@ import { PurchaseModal } from '../components/PurchaseModal';
 import { EqBars } from '../components/EqBars';
 import { BellIcon, PreviewIcon } from '../components/icons';
 import { useTopInset } from '../lib/safeArea';
-import { RisingBubbles } from '../components/RisingBubbles';
+import { PurchaseParticles } from '../components/PurchaseParticles';
+import { PurchaseCardGlow } from '../components/PurchaseCardGlow';
 import { PURCHASE } from '../constants/design-tokens';
 import { formatPrice, TRACK_PRICE_JPY } from '../constants/pricing';
 import type { PurchaseController } from '../lib/usePurchaseFlow';
@@ -128,12 +137,12 @@ export const DiscoverScreen: React.FC<Props> = ({
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [wishlist, setWishlist] = useState<Set<string>>(new Set());
 
-  // 購入の泡演出（元のカード位置で下から立ち上る）
-  const [showBubbles, setShowBubbles] = useState(false);
+  // 購入の光粒子演出（元のカード位置から下部いっぱいに舞い上がる）
+  const [showPurchaseFx, setShowPurchaseFx] = useState(false);
   // 購入確認ポップアップの対象（null=非表示）
   const [purchaseTarget, setPurchaseTarget] = useState<Track | null>(null);
   // 購入は成立したが、まだ「再生」表示に切り替えていない trackId。
-  // 泡が立ち切る前にボタンが変わると、演出が事後報告に見えるため一拍待たせる。
+  // 演出が立ち切る前にボタンが変わると、事後報告に見えるため一拍待たせる。
   const [pendingReveal, setPendingReveal] = useState<Set<string>>(new Set());
 
   const { width: screenW } = useWindowDimensions();
@@ -141,6 +150,25 @@ export const DiscoverScreen: React.FC<Props> = ({
   // v98 カルーセル確定値 BASE_W = 164 × 1.15 = 188.6（調律陣のスケールも参照と1:1になる）
   const cardW = 189;
   const cardH = Math.round(cardW * 1.5);
+  const cardRadius = Math.round(0.085 * cardW); // CardAura と同じ角丸比率
+
+  // 購入確定時のカード発光・浮遊（PurchaseCardGlow ＋ このカード自身のtranslate/scale）
+  const cardGlow = useSharedValue(0);
+  const cardTranslateY = useSharedValue(0);
+  const cardScale = useSharedValue(1);
+  const cardFloatStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: cardTranslateY.value }, { scale: cardScale.value }],
+  }));
+
+  // フェーズ1(0-400ms)発光イン＋持ち上げ／フェーズ2(400-1000ms)微浮遊のまま保持／
+  // フェーズ3(1000-1600ms)発光・位置ともに元へ収束
+  const triggerCardGlow = useCallback(() => {
+    const rise = { duration: 400, easing: Easing.out(Easing.quad) };
+    const settle = { duration: 600, easing: Easing.inOut(Easing.quad) };
+    cardGlow.value = withSequence(withTiming(1, rise), withDelay(600, withTiming(0, settle)));
+    cardTranslateY.value = withSequence(withTiming(-10, rise), withDelay(600, withTiming(0, settle)));
+    cardScale.value = withSequence(withTiming(1.02, rise), withDelay(600, withTiming(1, settle)));
+  }, [cardGlow, cardTranslateY, cardScale]);
 
   // 試聴プレイヤー（30秒・公開URL）
   const preview = useAudioPlayer();
@@ -265,14 +293,14 @@ export const DiscoverScreen: React.FC<Props> = ({
 
   // ── 購入成立後の順序 ──
   // (1) モーダルを fade out → (2) PURCHASE.sheetSettleMs 待つ（Modal の消え際と
-  // OS 課金シートの dismiss に演出を重ねない）→ (3) 泡をマウント →
-  // (4) PURCHASE.ownedRevealDelayMs 後に所有済み化して購入ボタンを「再生」へ →
-  // (5) onDone で泡をアンマウント、画面遷移はしない（ホームに留まる）。
+  // OS 課金シートの dismiss に演出を重ねない）→ (3) 光粒子をマウント＋カード発光/浮遊を
+  // トリガー → (4) PURCHASE.ownedRevealDelayMs 後に所有済み化して購入ボタンを「再生」へ →
+  // (5) onDone で光粒子をアンマウント、画面遷移はしない（ホームに留まる）。
   //
   // PurchaseTransition（拡大＋星点火＋トランスポート）はここでは使わない。
-  // ホームの完了演出は RisingBubbles を正とする（元のカード位置で下から立ち上る・
-  // 複製カードは出さない方針を維持するため）。PurchaseTransition は
-  // ComponentGallery の部品デモとして据え置き。
+  // ホームの完了演出は PurchaseParticles＋PurchaseCardGlow を正とする（元のカード位置
+  // で光粒子が舞い上がり、カード自身がふわっと発光・浮遊する。複製カードは出さない
+  // 方針を維持するため）。PurchaseTransition は ComponentGallery の部品デモとして据え置き。
   const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const onBuyRef = useRef(onBuy);
   onBuyRef.current = onBuy;
@@ -288,7 +316,8 @@ export const DiscoverScreen: React.FC<Props> = ({
 
       timersRef.current.push(
         setTimeout(() => {
-          setShowBubbles(true);
+          setShowPurchaseFx(true);
+          triggerCardGlow();
           timersRef.current.push(
             setTimeout(() => {
               setPendingReveal((prev) => {
@@ -301,7 +330,7 @@ export const DiscoverScreen: React.FC<Props> = ({
         }, PURCHASE.sheetSettleMs),
       );
     });
-  }, [purchase, tracks]);
+  }, [purchase, tracks, triggerCardGlow]);
 
   // アンマウント時に演出タイマーを止める（解放後の setState を防ぐ）
   useEffect(
@@ -362,16 +391,22 @@ export const DiscoverScreen: React.FC<Props> = ({
                 // 表面=角丸の作品画像＋タップで180°横回転で裏返し / 裏面=
                 // アルミ刻印面（再生画面と同一デザイン）＋全方向360°回転。
                 // タップ→フリップは内部完結（FlatList のセル再レンダーに依存しない）。
-                <CardGL
-                  mode="flip"
-                  backStyle="aluminum"
-                  frontUri={item.artworkUrl}
-                  width={cardW}
-                  height={cardH}
-                  aura={{ a: item.glowColor, b: item.glowColor2 }}
-                  onFlipChange={setFlipped}
-                  backData={backDataById.get(item.id)}
-                />
+                // Animated.View でラップし、購入確定時だけ浮遊(translateY/scale)させる。
+                <Animated.View style={[{ width: cardW, height: cardH }, cardFloatStyle]}>
+                  {showPurchaseFx && (
+                    <PurchaseCardGlow width={cardW} height={cardH} radius={cardRadius} glow={cardGlow} />
+                  )}
+                  <CardGL
+                    mode="flip"
+                    backStyle="aluminum"
+                    frontUri={item.artworkUrl}
+                    width={cardW}
+                    height={cardH}
+                    aura={{ a: item.glowColor, b: item.glowColor2 }}
+                    onFlipChange={setFlipped}
+                    backData={backDataById.get(item.id)}
+                  />
+                </Animated.View>
               ) : (
                 // 非アクティブは軽量な静止カード（角丸＋オーラ・v98の表面と同一デザイン）
                 <CardFace
@@ -438,12 +473,12 @@ export const DiscoverScreen: React.FC<Props> = ({
         </View>
       </View>
 
-      {/* 購入の泡（元のカード位置で下から立ち上る・複製カードは出さない） */}
-      {showBubbles && slideH > 0 && (
-        <RisingBubbles
+      {/* 購入の光粒子（画面下部から舞い上がる・複製カードは出さない） */}
+      {showPurchaseFx && slideH > 0 && (
+        <PurchaseParticles
           width={screenW}
           height={slideH}
-          onDone={() => setShowBubbles(false)}
+          onDone={() => setShowPurchaseFx(false)}
         />
       )}
 
