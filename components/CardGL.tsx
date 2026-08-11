@@ -1,17 +1,20 @@
 /**
- * CardGL.tsx — 実3D（WebGL）カード（card_parts v98 準拠 + シェーダーライティング）
+ * CardGL.tsx — 実3D（WebGL）カード（v99-tsubasa 準拠 + シェーダーライティング）
  * ------------------------------------------------------------------
  * react-three-fiber（/native = expo-gl＝実 WebGL）で角丸（0.085w）の薄いカードを描く。
- *   ・表面: 作品画像＋GLSLライティング（拡散・フレネル・リム・傾きで動く光の帯）。
- *           lib/cardShaders.ts の ART_FRAGMENT_SHADER（Web版リファレンス移植）
- *   ・側面: 明色スチール（edgeLayer #D8E2F1→#9AA8BE 系）・厚み 6.5/188.6
+ *   ・表面: 作品画像＋GLSLライティング（拡散・フレネル・リム・傾きで動く光の帯）
+ *           ＋ v99-tsubasa の重厚化オーバーレイ（面内減光・金の内枠ヘアライン・
+ *           下端の内側シャドウ）。lib/cardShaders.ts の ART_FRAGMENT_SHADER。
+ *           静止時は同じ絵を Skia（components/CardSurface.tsx）で重ねている
+ *           ——フリップ中は GL 面が見えるので両方に同じ作図が要る
+ *   ・側面: 暗色の削り出し金属（edgeLayer #7C889E→#1B2030）・厚み 8.5/188.6
  *   ・裏面: backStyle='aluminum' = GLSLで procedural に描く削り出しアルミ
  *           （ヘアライン異方性・疑似スカイ反射・二段スペキュラ）＋
  *           lib/cardBackTexture.ts の刻印テクスチャ（3層彫り込み陰影）を
  *           アルファ合成。lib/cardShaders.ts の ALUMINUM_FRAGMENT_SHADER
  *           backStyle='story' = 従来のフラットテクスチャ（現状呼び出し元
  *           なし・後方互換のため維持）
- *   ・オーラ: aura 指定時に card-aura（2層グロー＋落影）を Skia で重ねる
+ *   ・落影: shadow 指定時に card-aura（v99-tsubasa: 黒3層）を Skia で重ねる
  * ジオメトリは 角丸Shape の表裏プレート＋ExtrudeGeometry の側面リング。
  *
  * 回転（トラックボール方式）:
@@ -53,21 +56,30 @@ import {
 } from '../lib/cardBackTexture';
 import { CARD_VERTEX_SHADER, ART_FRAGMENT_SHADER, ALUMINUM_FRAGMENT_SHADER } from '../lib/cardShaders';
 import { CardAura } from './CardAura';
+import { CardSurface } from './CardSurface';
+import { PurchaseGlow } from './PurchaseGlow';
 import type { CardBackData } from './CardBack';
 
 // カードの見かけ比率は 2:3。ワールド単位で W×H×D（D=厚み）。
 const W = 1.3;
 const H = W * 1.5;
-// 厚み: card_parts v98 の確定値 thk=6.5 / カード幅188.6 ≈ 0.0345
-const DEPTH_RATIO = 6.5 / 188.6;
+// 厚み: v99-tsubasa の確定値 P.thk=8.5 / カード幅188.6 ≈ 0.0451
+// （v98 の 6.5 から増量。暗色の側面と合わせて「重い板」の見えを作る）
+const DEPTH_RATIO = 8.5 / 188.6;
 // 角丸: --cr = 0.085 × カード幅（v98・全レイヤー共通）
 const CORNER_RATIO = 0.085;
 const SENS = 0.55; // 1px ドラッグあたりの回転角（度）
 const DECAY = 3.0; // 慣性の指数減衰（大きいほど早く止まる・実機調整ポイント）
 const STOP_DEG_PER_SEC = 2; // これ未満の角速度で停止
 const FRONT_SCALE = 1;
-// 裏面（フリップ後）の表示倍率。参照 v99 `_dv3d.open()` の window.__dvScale=1.28。
-const BACK_SCALE = 1.28;
+// 裏面（フリップ後＝3D）の表示倍率。
+// 参照 v99 `_dv3d.open()` は 1.28（拡大）だが、実機では画面幅を圧迫して
+// 調律陣が隠れるため「タップ＝一回り小さくなって浮く」へ変更（0.88）。
+const BACK_SCALE = 0.88;
+/** 接地影など外側のレイヤーが同じ縮小に追従できるよう公開する */
+export const CARD_BACK_SCALE = BACK_SCALE;
+// キャンバス確保用の最大倍率（BACK_SCALE<1 でも回転時の対角線は縮まないので 1 を下回らせない）
+const MAX_SCALE = Math.max(1, BACK_SCALE);
 // フリップ後の持ち上げ量（カード高さ比）。参照は枠高の3%（Hc*0.03）を上へ。
 // 参照のデバイス枠 760px / カード高 188.6*1.5=283px なので 0.03*760/283 = 0.0806。
 // キャンバスがカード基準なのでカード高比へ換算して保持する。
@@ -78,12 +90,29 @@ const FOV = 28;
 const FLIP_K = 10;
 // オーラのフェード時間（ms）。参照 fadeAura(0,160)。
 const AURA_FADE_MS = 160;
+// 2D（表面オーバーレイ）復帰時のクロスフェード（ms）。GL 面との差をならす。
+const OVERLAY_FADE_MS = 140;
+
+// ── 購入トランジション「シアンの呼吸」（DESIGN.md PURCHASE） ──
+// box-shadow: 0 0 66px 16px rgba(120,232,255,.78)
+//             0 0 124px 34px rgba(96,206,224,.5)
+//             inset 0 0 0 1px rgba(120,232,255,.5)
+// 立ち上がり約0.6秒 → 約700ms で戻す
+export const PURCHASE_RISE_MS = 600;
+export const PURCHASE_FALL_MS = 700;
 
 // ── flip モードの角度駆動パラメータ（参照 _dv3d 1849-1892行の値そのまま） ──
 const FLIP_DRAG_SENS = 0.012; // rad/px（参照: tAngY += dx*0.012）
-const FLIP_PITCH_MAX = 1.25;  // ピッチ上限（参照: tAngX clamp ±1.25 rad）
-const FLIP_VEL_MAX = 6;       // フリック角速度上限（参照: vel clamp ±6 rad/s）
+const FLIP_PITCH_MAX = 0.38;  // ピッチ上限（参照 v101: ±0.38 rad = ±22°）
+const FLIP_VEL_MAX = 6;       // ヨーのフリック角速度上限（参照: vel clamp ±6 rad/s）
 const FLIP_VEL_DECAY = 0.94;  // 慣性減衰（参照: pow(0.94, dt*60)）
+// ── ピッチ（縦なぞり）だけ弱める。参照 v101 ──
+// 旧値は ±1.25 rad（±71.6°）まで倒れてカードがエッジオンになり、絵柄も
+// 裏面テキストも読めない姿勢で止まっていた。上限・感度・慣性を抑え、指を
+// 離したらゆっくり正面へ戻す。ヨー（横スピン＝裏返し）は従来どおり無制限。
+const FLIP_PITCH_SENS = 0.006;   // rad/px（参照 v101: tAngX += dy*0.006）
+const FLIP_PITCH_VEL_MAX = 2;    // ピッチのフリック角速度上限（参照 v101: ±2 rad/s）
+const FLIP_PITCH_RECENTER = 2.0; // 正面への復帰レート（参照 v101: exp(-dt*2.0)）
 
 // ── トラックボール回転の状態（JS スレッドで共有する ref） ──
 export type SpinState = {
@@ -105,7 +134,7 @@ export type SpinState = {
   // 違う回り込み方をして不安定に見える。参照は angY/angX の2角度を明示的に
   // 動かすので毎回同じ回り方になる。flip モードでは q をこの2角度から合成する。
   fy: number;       // ヨー angY（ラジアン・0=表 / π=裏）
-  fx: number;       // ピッチ angX（ラジアン・±1.25 clamp）
+  fx: number;       // ピッチ angX（ラジアン・±0.38 clamp）
   tfy: number;      // ヨー目標
   tfx: number;      // ピッチ目標
   fvy: number;      // ヨー角速度（rad/s・フリック慣性）
@@ -141,26 +170,45 @@ function hash(x: number): number {
 }
 
 /**
- * 側面（edgeLayer）の縦グラデーション: #D8E2F1 0% → #BCC9DC 55% → #9AA8BE 100%
- * （v98 verbatim）。1×64 の DataTexture（行0 = v0 = カード下端）。
+ * 側面（edgeLayer）の縦グラデーション（v99-tsubasa・参照 37-39行）:
+ *   #7C889E 0% → #4A5266 34% → #2C3244 62% → #1B2030 100%
+ *   + inset 0  1px 0 rgba(255,255,255,.55)  ← 上辺の白ヘアライン反射
+ *   + inset 0 -1px 0 rgba(0,0,0,.35)        ← 下辺の陰り
+ *
+ * v98 の明色スチール（#D8E2F1→#9AA8BE）から暗色へ反転させている。
+ * 明るい側面は「光る板」に見えてしまい、暗くすると「透けない重い素材＝
+ * 削り出し金属」になる。角から明色が覗く問題もこれで消える。
+ *
+ * 1×N の DataTexture（行0 = v0 = カード下端）。上下 1px 相当のヘアラインを
+ * 焼き込むため N=256（カード高 283px ≒ 1.1px/texel）。
  */
 function makeEdgeGradientTexture(): THREE.DataTexture {
-  const N = 64;
-  const c1 = [0xd8, 0xe2, 0xf1]; // 上端
-  const c2 = [0xbc, 0xc9, 0xdc]; // 55%
-  const c3 = [0x9a, 0xa8, 0xbe]; // 下端
+  const N = 256;
+  // [位置, RGB] — CSS 180deg（0=上端 → 1=下端）
+  const stops: [number, number[]][] = [
+    [0.0, [0x7c, 0x88, 0x9e]],
+    [0.34, [0x4a, 0x52, 0x66]],
+    [0.62, [0x2c, 0x32, 0x44]],
+    [1.0, [0x1b, 0x20, 0x30]],
+  ];
   const data = new Uint8Array(N * 4);
   for (let i = 0; i < N; i++) {
-    const v = i / (N - 1);      // 0=下端(v0) → 1=上端
-    const t = 1 - v;            // CSS 180deg（上→下）に合わせる
-    let c: number[];
-    if (t <= 0.55) {
-      const k = t / 0.55;
-      c = c1.map((a, j) => a + (c2[j] - a) * k);
-    } else {
-      const k = (t - 0.55) / 0.45;
-      c = c2.map((a, j) => a + (c3[j] - a) * k);
+    const v = i / (N - 1); // 0=下端(v0) → 1=上端
+    const t = 1 - v;       // CSS 180deg（上→下）に合わせる
+    let c = stops[stops.length - 1][1];
+    for (let k = 0; k < stops.length - 1; k++) {
+      const [p0, c0] = stops[k];
+      const [p1, c1] = stops[k + 1];
+      if (t <= p1) {
+        const m = (t - p0) / (p1 - p0);
+        c = c0.map((a, j) => a + (c1[j] - a) * m);
+        break;
+      }
     }
+    // 上辺 1px の白ヘアライン反射 / 下辺 1px の陰り（inset box-shadow 相当）
+    if (i === N - 1) c = c.map((a) => a + (255 - a) * 0.55);
+    else if (i === 0) c = c.map((a) => a * (1 - 0.35));
+
     data[i * 4] = c[0];
     data[i * 4 + 1] = c[1];
     data[i * 4 + 2] = c[2];
@@ -241,12 +289,20 @@ const CardMesh: React.FC<{
   backStyle: 'aluminum' | 'story';
   depthRatio: number;
   rotationEnabled: boolean;
+  /** カードの見かけ寸法(px)。表面オーバーレイを px 基準で描くため */
+  cardPx: { width: number; height: number };
   /** true = flip モード（参照 _dv3d の角度駆動）/ false = spin モード（トラックボール） */
   flipDrive?: boolean;
   rotationOut?: SharedValue<number>;
+  flipProgressOut?: SharedValue<number>;
   onFrontLoaded?: () => void;
-}> = ({ spin, frontUri, backData, backStyle, depthRatio, rotationEnabled, flipDrive, rotationOut, onFrontLoaded }) => {
+  /** flip モードで「表へ戻り切った」瞬間（closing のスナップ成立時）に一度だけ呼ぶ */
+  onClosed?: () => void;
+}> = ({ spin, frontUri, backData, backStyle, depthRatio, rotationEnabled, cardPx, flipDrive, rotationOut, flipProgressOut, onFrontLoaded, onClosed }) => {
   const groupRef = useRef<THREE.Group>(null);
+  // useFrame の中から最新のコールバックを呼ぶ（依存で useFrame を張り直さない）
+  const onClosedRef = useRef(onClosed);
+  onClosedRef.current = onClosed;
   const [frontTex, setFrontTex] = useState<THREE.Texture | null>(null);
   const [backTex, setBackTex] = useState<THREE.DataTexture | null>(null); // backStyle='story' 用
   const [inkTex, setInkTex] = useState<THREE.DataTexture | null>(null);  // backStyle='aluminum' の刻印
@@ -260,15 +316,22 @@ const CardMesh: React.FC<{
       new THREE.ShaderMaterial({
         vertexShader: CARD_VERTEX_SHADER,
         fragmentShader: ART_FRAGMENT_SHADER,
-        uniforms: { map: { value: null }, uHasMap: { value: 0 }, uLight: { value: uLightVec } },
+        uniforms: {
+          map: { value: null },
+          uHasMap: { value: 0 },
+          uLight: { value: uLightVec },
+          // 表面オーバーレイ（金の内枠・下端シャドウ）を px 基準で描くための実寸
+          uCardPx: { value: new THREE.Vector2(cardPx.width, cardPx.height) },
+        },
       }),
-    [uLightVec],
+    [uLightVec, cardPx.width, cardPx.height],
   );
   useEffect(() => {
     frontMaterial.uniforms.map.value = frontTex;
     frontMaterial.uniforms.uHasMap.value = frontTex ? 1 : 0;
+    frontMaterial.uniforms.uCardPx.value.set(cardPx.width, cardPx.height);
     frontMaterial.uniformsNeedUpdate = true;
-  }, [frontTex, frontMaterial]);
+  }, [frontTex, frontMaterial, cardPx.width, cardPx.height]);
 
   // 裏面（aluminum）: procedural金属＋ヘアライン＋スカイ反射（優先項目②）
   //   ＋刻印テクスチャのアルファ合成（優先項目③）。'story' は従来どおり
@@ -388,6 +451,8 @@ const CardMesh: React.FC<{
         const df = Math.pow(FLIP_VEL_DECAY, dt * 60);
         s.fvx *= df;
         s.fvy *= df;
+        // 指を離したらピッチだけ正面へ戻す（参照 v101）。倒れたまま止まらない
+        s.tfx *= Math.exp(-dt * FLIP_PITCH_RECENTER);
       }
       // 参照と同じ平滑化 sm = 1 - exp(-dt·10)
       const sm = 1 - Math.exp(-dt * FLIP_K);
@@ -400,6 +465,10 @@ const CardMesh: React.FC<{
         s.fx = 0;
         s.qq = 0;
         s.closing = false;
+        // 2D（表面オーバーレイ）への復帰は「見た目が正面に戻り切った瞬間」に行う。
+        // 固定 550ms タイマーだと復帰がアニメの途中／終了後に飛び込んで
+        // カードが一段跳ねて見えるため、実際の着地でのみ通知する。
+        onClosedRef.current?.();
       }
       // 姿勢 = RotY(angY)·RotX(angX)。拡大・持ち上げは進捗 q で補間（参照 1895-1897行）
       TMP_EULER.set(s.fx, s.fy, 0, 'YXZ');
@@ -412,6 +481,8 @@ const CardMesh: React.FC<{
       }
       s.scale = scaleVal;
       s.lift = liftVal;
+      // 接地影など外側のレイヤーが同じ縮小へ追従できるよう進捗を流す
+      if (flipProgressOut) flipProgressOut.value = s.qq;
     } else if (s.animating && s.target) {
       // 目標姿勢へスラープ（フリップの回り込み演出）。近づいたら確定。
       const k = Math.min(1, dt * FLIP_K);
@@ -502,15 +573,26 @@ export type CardGLProps = {
   mode?: 'spin' | 'flip';
   /** 裏面デザイン。aluminum=アルミ刻印（既定・ホーム / プレイヤー） / story=フロストのストーリー面（v98） */
   backStyle?: 'aluminum' | 'story';
-  /** カード周囲のオーラ（card-aura）。指定時のみ描画（プレイヤーは CardBackdrop 側で描くため未指定） */
-  aura?: { a?: string; b?: string };
-  /** 厚み比（対カード幅）。既定は v98 の 6.5/188.6。プレイヤーは 1mm 相当 0.016 を指定 */
+  /**
+   * カード背後の落影（card-aura）を描くか。
+   * プレイヤーは CardBackdrop 側で描くため false（既定）。
+   * v99-tsubasa で色指定は廃止（黒3層固定）。光は面側 CardSurface が担う。
+   */
+  shadow?: boolean;
+  /** 厚み比（対カード幅）。既定は v99-tsubasa の 8.5/188.6。プレイヤーは 1mm 相当 0.016 を指定 */
   depthRatio?: number;
   /** flip モードで表↔裏が切り替わったとき（親が横スクロール可否を切替える用） */
   onFlipChange?: (flipped: boolean) => void;
   /** 背面レイヤー追従用（任意・度 / px） */
   rotationOut?: SharedValue<number>;
+  /** フリップ進捗 0=表(2D) / 1=裏(3D)。接地影の縮小追従などに使う */
+  flipProgressOut?: SharedValue<number>;
   dragXOut?: SharedValue<number>;
+  /**
+   * 購入トランジションの「シアンの呼吸」進捗（0=平常 / 1=ピーク）。
+   * カード枠（内側1pxのシアン）と靄（外周のシアングロー2層）が同時に灯る。
+   */
+  purchaseGlow?: SharedValue<number>;
   style?: StyleProp<ViewStyle>;
 };
 
@@ -521,11 +603,13 @@ export const CardGL: React.FC<CardGLProps> = ({
   backData,
   mode = 'spin',
   backStyle = 'aluminum',
-  aura,
+  shadow = false,
   depthRatio = DEPTH_RATIO,
   onFlipChange,
   rotationOut,
+  flipProgressOut,
   dragXOut,
+  purchaseGlow,
   style,
 }) => {
   const spin = useRef<SpinState>({
@@ -570,23 +654,51 @@ export const CardGL: React.FC<CardGLProps> = ({
   // 表面のあいだは実体のあるオーバーレイ（作品画像そのもの＝v98の表面と同一の
   // 見た目）を Pressable で重ね、これをタップ受けにする。
   //   タップ → オーバーレイを外して GL のフリップ（表→裏）を見せる
-  //   裏面タップ → GL が表向きへ戻るアニメーション（約0.5秒）後に復帰
+  //   裏面タップ → GL が正面へ戻り切った瞬間（CardMesh の onClosed）に復帰
+  //
+  // 復帰タイミングを固定タイマー（旧 550ms）から実測の着地へ変えている。
+  // タイマーだと端末の描画速度で早すぎ／遅すぎが起き、GL カードと
+  // オーバーレイの二重表示や一瞬の抜けが「戻りのガタつき」に見えていた。
+  // タイマーは着地イベントが来なかった場合の保険としてのみ残す。
   const [overlayVisible, setOverlayVisible] = useState(isFlip);
   const overlayTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (overlayTimer.current) clearTimeout(overlayTimer.current); }, []);
 
-  const flipToBack = () => {
+  // 復帰時の短いクロスフェード（GL 面 → オーバーレイの差をならす）
+  const overlayOpacity = useSharedValue(1);
+  const overlayStyle = useAnimatedStyle(() => ({ opacity: overlayOpacity.value }));
+
+  const clearOverlayTimer = () => {
     if (overlayTimer.current) { clearTimeout(overlayTimer.current); overlayTimer.current = null; }
+  };
+
+  // 着地イベントと保険タイマーの二重発火を防ぐ（フェードのやり直しを起こさない）
+  const overlayShown = useRef(isFlip);
+  const showOverlay = () => {
+    clearOverlayTimer();
+    if (overlayShown.current) return;
+    overlayShown.current = true;
+    overlayOpacity.value = withTiming(1, { duration: OVERLAY_FADE_MS });
+    setOverlayVisible(true);
+  };
+
+  const flipToBack = () => {
+    clearOverlayTimer();
+    overlayOpacity.value = 1; // 次回の復帰に備えて初期値へ
+    overlayShown.current = false;
     setOverlayVisible(false); // 実体オーバーレイを外して GL のフリップを見せる
     setFlipped(true);
     onFlipChange?.(true);
   };
   const flipToFront = () => {
     setFlipped(false);
+    // 横スワイプ（曲切替）は戻り始めた時点で解禁する。戻り切るまで待つと
+    // 「2Dに戻ったのにスワイプが効かない」空白が出る。
     onFlipChange?.(false);
-    // 表向きへ戻るアニメーションが落ち着いてからオーバーレイ復帰
-    if (overlayTimer.current) clearTimeout(overlayTimer.current);
-    overlayTimer.current = setTimeout(() => setOverlayVisible(true), 550);
+    overlayOpacity.value = 0;
+    // 保険: 着地イベントが来ないまま 900ms 経ったら強制復帰
+    clearOverlayTimer();
+    overlayTimer.current = setTimeout(showOverlay, 900);
   };
 
   // flipped の変化でフリップ演出を仕込む（参照 _dv3d の open() / close() 移植）。
@@ -650,10 +762,10 @@ export const CardGL: React.FC<CardGLProps> = ({
           const ddy = g.dy - last.current.y;
           last.current = { x: g.dx, y: g.dy };
           if (isFlip) {
-            // flip モード: 参照 move()（1849-1851行）。横=ヨー / 縦=ピッチ(±1.25)
+            // flip モード: 参照 move()。横=ヨー / 縦=ピッチ(±0.38・感度は横の半分)
             const s = spin.current;
             s.tfy += ddx * FLIP_DRAG_SENS;
-            s.tfx = Math.max(-FLIP_PITCH_MAX, Math.min(FLIP_PITCH_MAX, s.tfx + ddy * FLIP_DRAG_SENS));
+            s.tfx = Math.max(-FLIP_PITCH_MAX, Math.min(FLIP_PITCH_MAX, s.tfx + ddy * FLIP_PITCH_SENS));
           } else {
             // spin モード: 指の移動ベクトルどおりに回す（横=Y軸 / 縦=X軸 / 斜め=合成軸）
             applySpin(spin.current.q, ddy * SENS, ddx * SENS);
@@ -673,9 +785,9 @@ export const CardGL: React.FC<CardGLProps> = ({
             else flipToBack();
           } else if (!isTap && canRotate) {
             if (isFlip) {
-              // flip モード: 参照 up()（1877-1878行）。px/ms → rad/s、±6 clamp
+              // flip モード: 参照 up()。px/ms → rad/s。ピッチは感度半減＋±2 clamp
               s.fvy = Math.max(-FLIP_VEL_MAX, Math.min(FLIP_VEL_MAX, g.vx * 1000 * FLIP_DRAG_SENS));
-              s.fvx = Math.max(-FLIP_VEL_MAX, Math.min(FLIP_VEL_MAX, g.vy * 1000 * FLIP_DRAG_SENS));
+              s.fvx = Math.max(-FLIP_PITCH_VEL_MAX, Math.min(FLIP_PITCH_VEL_MAX, g.vy * 1000 * FLIP_PITCH_SENS));
             } else {
               // spin モード: 離した瞬間の速度（px/ms → 度/秒）で慣性回転
               s.vx = g.vy * 1000 * SENS;
@@ -700,7 +812,7 @@ export const CardGL: React.FC<CardGLProps> = ({
   // 拡大（BACK_SCALE）と持ち上げを含めて、回転中の対角線が切れないだけの
   // 正方形キャンバスを確保する。
   const liftPx = height * BACK_LIFT_RATIO;
-  const D = Math.ceil(Math.hypot(width, height) * BACK_SCALE + liftPx * 2) + 8;
+  const D = Math.ceil(Math.hypot(width, height) * MAX_SCALE + liftPx * 2) + 8;
 
   // カメラ距離は幾何から逆算する。
   //   見かけのカード高(px) = D * (H_world / 可視world高)、可視world高 = 2*camZ*tan(FOV/2)
@@ -718,13 +830,21 @@ export const CardGL: React.FC<CardGLProps> = ({
   // GL テクスチャ生成完了までのつなぎ表示（表面の作品画像を RN Image で即時に出す）
   const [frontReady, setFrontReady] = useState(false);
 
+  // 表面オーバーレイ（金の内枠・下端シャドウ）を px 基準で描くための実寸
+  const cardPx = useMemo(() => ({ width, height }), [width, height]);
+
   return (
     <View style={[{ width, height }, style]} {...handlers}>
-      {/* card-aura（box-shadow 2層＋落影）。指定時のみ */}
-      {aura && (
+      {/* card-aura（v99-tsubasa: 黒3層の落影）。指定時のみ */}
+      {shadow && (
         <Animated.View style={[StyleSheet.absoluteFill, auraStyle]} pointerEvents="none">
-          <CardAura width={width} height={height} auraA={aura.a} auraB={aura.b} />
+          <CardAura width={width} height={height} />
         </Animated.View>
+      )}
+
+      {/* 購入時の靄（外周シアングロー2層）。カードより背面 */}
+      {purchaseGlow && (
+        <PurchaseGlow layer="haze" width={width} height={height} progress={purchaseGlow} />
       )}
 
       <Canvas
@@ -750,9 +870,12 @@ export const CardGL: React.FC<CardGLProps> = ({
           backStyle={backStyle}
           depthRatio={depthRatio}
           rotationEnabled={canRotate}
+          cardPx={cardPx}
           flipDrive={isFlip}
           rotationOut={rotationOut}
+          flipProgressOut={flipProgressOut}
           onFrontLoaded={() => setFrontReady(true)}
+          onClosed={showOverlay}
         />
       </Canvas>
 
@@ -761,30 +884,42 @@ export const CardGL: React.FC<CardGLProps> = ({
           ＝実機で確実に反応する（794793f で実証済みの方式）。
           RN Image は即時表示されるため、GL テクスチャ生成待ちの無地も隠れる */}
       {isFlip && overlayVisible && (
-        <Pressable style={StyleSheet.absoluteFill} onPress={flipToBack}>
-          <Image
-            source={{ uri: frontUri }}
-            style={{ width, height, borderRadius: CORNER_RATIO * width }}
-            resizeMode="cover"
-          />
-        </Pressable>
+        <Animated.View style={[StyleSheet.absoluteFill, overlayStyle]}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={flipToBack}>
+            <Image
+              source={{ uri: frontUri }}
+              style={{ width, height, borderRadius: CORNER_RATIO * width }}
+              resizeMode="cover"
+            />
+            {/* v99-tsubasa の表面オーバーレイ（面内減光・金の内枠・下端の内側シャドウ） */}
+            <CardSurface width={width} height={height} />
+          </Pressable>
+        </Animated.View>
+      )}
+
+      {/* 購入時のカード枠（内側1pxのシアン）。カード面・オーバーレイより前面 */}
+      {purchaseGlow && (
+        <PurchaseGlow layer="frame" width={width} height={height} progress={purchaseGlow} />
       )}
 
       {/* spin モード（プレイヤー）: GL テクスチャの読込・アップロード完了までは
           RN Image を重ねて作品画像を即時表示（GL 側はプレースホルダ色のため） */}
       {!isFlip && !frontReady && (
-        <Image
-          source={{ uri: frontUri }}
-          style={{
-            position: 'absolute',
-            left: 0,
-            top: 0,
-            width,
-            height,
-            borderRadius: CORNER_RATIO * width,
-          }}
-          resizeMode="cover"
-        />
+        <>
+          <Image
+            source={{ uri: frontUri }}
+            style={{
+              position: 'absolute',
+              left: 0,
+              top: 0,
+              width,
+              height,
+              borderRadius: CORNER_RATIO * width,
+            }}
+            resizeMode="cover"
+          />
+          <CardSurface width={width} height={height} />
+        </>
       )}
     </View>
   );

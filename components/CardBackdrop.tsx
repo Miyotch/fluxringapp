@@ -1,10 +1,19 @@
 /**
- * CardBackdrop.tsx — 再生カード背後の発光・影レイヤー（Skia）
+ * CardBackdrop.tsx — 再生カード背後の影レイヤー（Skia）
  * ------------------------------------------------------------------
- * カード直下に、下から順に3層を描く。カードのドラッグ(dragX)に追従する。
- *   ① card-halo  : 外周減光ハロ（発光面と暗背景の境界をなだらかに）
- *   ② card-ground: 接地影（カード下端の楕円ソフトシャドウ）
- *   ③ card-aura  : 色付きオーラ（v86 で -30% 調整済み）
+ * カード直下に、下から順に2層を描く。カードのドラッグ(dragX)に追従する。
+ *   ① card-ground: 接地影（カード下端の楕円ソフトシャドウ）
+ *   ② card-aura  : 落影（v99-tsubasa: 黒3層。色付きグローは廃止）
+ *
+ * v90 にあった halo（外周減光）は v99 では削除済み（参照 HTML に .card-halo は
+ * 1 件も存在しない）。残すとカード周りが二重に沈んで滲むため取り除いた。
+ *
+ * ── 単位変換（HTML → Skia）──────────────────────────────
+ * CSS の「ぼかし」は 2 系統あって、同じ数値でも意味が違う:
+ *   ・filter: blur(N)          … N が標準偏差 σ そのもの  → Skia に N
+ *   ・box-shadow の blur-radius … σ の 2 倍              → Skia に blur/2
+ * ground は filter: blur(3px) なので σ=3（旧実装は 2 で 33% シャープだった）。
+ * aura は box-shadow なので blur/2。
  *
  * dragX / slideFade / aProg(裏返り進捗) / fore(表面度) は Reanimated の
  * SharedValue を購読（Skia は SharedValue を直接受け取れる）。
@@ -13,18 +22,21 @@
 
 import React from 'react';
 import { StyleProp, ViewStyle } from 'react-native';
-import {
-  Canvas,
-  Group,
-  Circle,
-  RoundedRect,
-  RadialGradient,
-  Blur,
-  rrect,
-  rect,
-  vec,
-} from '@shopify/react-native-skia';
+import { Canvas, Group, RoundedRect, Blur, rrect, rect } from '@shopify/react-native-skia';
 import { useDerivedValue, SharedValue } from 'react-native-reanimated';
+import { CardGround } from './CardGround';
+
+/** 参照実装のカード幅（CSS の px 値はこの幅で定義されている） */
+const REF_W = 188.6;
+
+/** .card-aura の落影3層 [dy, blur-radius(=2σ), color]（参照 709行） */
+const SHADOWS: [number, number, string][] = [
+  [4, 10, 'rgba(0,0,0,0.55)'],
+  [16, 34, 'rgba(0,0,0,0.44)'],
+  [34, 66, 'rgba(0,0,0,0.34)'],
+];
+/** .card-aura { border-radius: 22px } */
+const AURA_RADIUS = 22;
 
 export type CardBackdropProps = {
   /** キャンバスサイズ */
@@ -36,16 +48,13 @@ export type CardBackdropProps = {
   /** 見かけのカード寸法 */
   cardW: number;
   cardH: number;
-  /** オーラ色（作品ごと） */
-  auraA?: string; // 内側（例 rgba(96,206,224,0.42)）
-  auraB?: string; // 外側（例 rgba(70,132,224,0.16)）
   /** 追従・状態（SharedValue） */
   dragX: SharedValue<number>;
   slideFade: SharedValue<number>; // 0..1 スライドのフェード
   aProg: SharedValue<number>;     // 0..1 裏返り進捗
   fore: SharedValue<number>;      // 0..1 表面度（1=表, 0=裏）
-  /** オーラ強度（0..1）。動的 blur/spread 計算に使用 */
-  auraIntensity?: number;
+  /** アイドルフロート量 lift = floatY/3.0（-1..1・負が浮上）。接地影が逆相で反応する */
+  lift?: SharedValue<number>;
   style?: StyleProp<ViewStyle>;
 };
 
@@ -56,124 +65,71 @@ export const CardBackdrop: React.FC<CardBackdropProps> = ({
   centerY,
   cardW,
   cardH,
-  auraA = 'rgba(96,206,224,0.42)',
-  auraB = 'rgba(70,132,224,0.16)',
   dragX,
   slideFade,
   aProg,
   fore,
-  auraIntensity = 1,
+  lift,
   style,
 }) => {
-  const aI = auraIntensity;
+  const s = cardW / REF_W;
 
   // dragX 追従（横移動）
   const follow = useDerivedValue(() => [{ translateX: dragX.value }], [dragX]);
 
-  // ── ① halo ──
-  const haloW = cardW * 1.9;
-  const haloH = cardH * 1.55;
-  const haloOpacity = useDerivedValue(
-    () => 0.9 * slideFade.value * (1 - aProg.value * 0.6),
-    [slideFade, aProg],
-  );
-
-  // ── ② ground ──
-  const groundW = cardW * 0.86;
-  const groundH = cardH * 0.16;
-  const groundCY = centerY + cardH * 0.42; // カード下端やや上
-  const groundOpacity = useDerivedValue(
-    () => 0.78 * slideFade.value * fore.value,
+  // ── ① ground：接地影（CardGround に委譲・不透明度は slideFade × fore） ──
+  const groundFade = useDerivedValue(
+    () => slideFade.value * fore.value,
     [slideFade, fore],
   );
 
-  // ── ③ aura（v86: 内 39/6・外 84/21 を基準。動的計算） ──
-  // 内 blur=(32+aI*28) spread=(4+aI*7)、外 blur=(70+aI*42) spread=(15+aI*13)
-  const inBlur = 32 + aI * 28;
-  const inSpread = 4 + aI * 7;
-  const outBlur = 70 + aI * 42;
-  const outSpread = 15 + aI * 13;
-  const auraOpacity = useDerivedValue(() => slideFade.value, [slideFade]);
-
-  const radius = Math.round(cardW * 0.118);
+  // ── ② aura：黒3層の落影（裏返り中は面がつぶれるので横に縮む） ──
+  const auraR = AURA_RADIUS * s;
   const left = centerX - cardW / 2;
   const top = centerY - cardH / 2;
+  const auraTransform = useDerivedValue(
+    () => [
+      { translateX: centerX },
+      { scaleX: Math.max(0.02, fore.value) },
+      { translateX: -centerX },
+    ],
+    [fore],
+  );
+  const auraOpacity = useDerivedValue(() => slideFade.value, [slideFade]);
 
   return (
-    <Canvas style={[{ width, height }, style]} pointerEvents="none">
-      <Group transform={follow}>
-        {/* ① halo：暗い放射ハロ（楕円 62%x58% を scale で近似） */}
-        <Group opacity={haloOpacity}>
-          <Group
-            transform={[
-              { translateX: centerX },
-              { translateY: centerY },
-              { scaleY: haloH / haloW },
-              { translateX: -centerX },
-              { translateY: -centerY },
-            ]}
-          >
-            <Circle cx={centerX} cy={centerY} r={haloW / 2}>
-              <RadialGradient
-                c={vec(centerX, centerY)}
-                r={haloW / 2}
-                positions={[0, 0.46, 0.72]}
-                colors={['rgba(3,4,12,0.42)', 'rgba(3,4,12,0.24)', 'rgba(3,4,12,0)']}
-              />
-            </Circle>
+    <>
+      {/* ① ground：接地影。dragX 追従のため同じ移動量を transform で与える */}
+      <CardGround
+        width={width}
+        height={height}
+        centerX={centerX}
+        centerY={centerY}
+        cardW={cardW}
+        cardH={cardH}
+        fade={groundFade}
+        lift={lift}
+        dragX={dragX}
+        style={style}
+      />
+
+      {/* ② aura：黒3層（広い環境影 → 中景 → 接触の順に重ねる） */}
+      <Canvas style={[{ width, height }, style]} pointerEvents="none">
+        <Group transform={follow}>
+          <Group opacity={auraOpacity} transform={auraTransform}>
+            {[...SHADOWS].reverse().map(([dy, blur, color], i) => (
+              <RoundedRect
+                key={i}
+                rect={rrect(rect(left, top + dy * s, cardW, cardH), auraR, auraR)}
+                color={color}
+              >
+                <Blur blur={(blur / 2) * s} />
+              </RoundedRect>
+            ))}
           </Group>
         </Group>
-
-        {/* ② ground：接地影（楕円ソフトシャドウ・blur 2） */}
-        <Group opacity={groundOpacity}>
-          <Group
-            transform={[
-              { translateX: centerX },
-              { translateY: groundCY },
-              { scaleY: groundH / groundW },
-              { translateX: -centerX },
-              { translateY: -groundCY },
-            ]}
-          >
-            <Circle cx={centerX} cy={groundCY} r={groundW / 2}>
-              <RadialGradient
-                c={vec(centerX, groundCY)}
-                r={groundW / 2}
-                positions={[0, 0.4, 0.78]}
-                colors={['rgba(0,0,0,0.55)', 'rgba(0,0,0,0.32)', 'rgba(0,0,0,0)']}
-              />
-              <Blur blur={2} />
-            </Circle>
-          </Group>
-        </Group>
-
-        {/* ③ aura：色付きグロー（内 auraA / 外 auraB・rim 光なし） */}
-        <Group opacity={auraOpacity}>
-          {/* 外側（広く薄い） */}
-          <RoundedRect
-            rect={rrect(
-              rect(left - outSpread, top - outSpread, cardW + outSpread * 2, cardH + outSpread * 2),
-              radius + outSpread,
-              radius + outSpread,
-            )}
-            color={auraB}
-          >
-            <Blur blur={outBlur / 2} />
-          </RoundedRect>
-          {/* 内側（濃い） */}
-          <RoundedRect
-            rect={rrect(
-              rect(left - inSpread, top - inSpread, cardW + inSpread * 2, cardH + inSpread * 2),
-              radius + inSpread,
-              radius + inSpread,
-            )}
-            color={auraA}
-          >
-            <Blur blur={inBlur / 2} />
-          </RoundedRect>
-        </Group>
-      </Group>
-    </Canvas>
+      </Canvas>
+    </>
   );
 };
 

@@ -27,20 +27,24 @@ import {
 } from 'react-native';
 import Animated, {
   useSharedValue,
+  useDerivedValue,
   useAnimatedStyle,
   withRepeat,
   withSequence,
   withTiming,
   Easing,
 } from 'react-native-reanimated';
+import { useIdleFloat } from '../lib/useIdleFloat';
 import { useAudioPlayer } from 'expo-audio';
 import { previewUrl } from '../lib/r2';
 import { BackdropDim } from '../components/BackdropDim';
 import { CardFace } from '../components/CardFace';
 import { NebulaBand } from '../components/NebulaBand';
 import { StarField } from '../components/StarField';
+import { FilmGrain } from '../components/FilmGrain';
+import { CardGround } from '../components/CardGround';
 import { StarSeal } from '../components/StarSeal';
-import { CardGL } from '../components/CardGL';
+import { CardGL, CARD_BACK_SCALE, PURCHASE_RISE_MS, PURCHASE_FALL_MS } from '../components/CardGL';
 import { BuyButton } from '../components/BuyButton';
 import { WishlistStar } from '../components/WishlistStar';
 import { BellIcon, PreviewIcon } from '../components/icons';
@@ -146,12 +150,41 @@ export const DiscoverScreen: React.FC<Props> = ({
 
   // 購入の泡演出（元のカード位置で下から立ち上る）
   const [showBubbles, setShowBubbles] = useState(false);
+  // 購入の「シアンの呼吸」（DESIGN.md: 立ち上がり約0.6秒 → 約700ms で戻す）。
+  // カード枠（内側1px）と靄（外周グロー2層）が同時に灯る。
+  const purchaseGlow = useSharedValue(0);
 
   const { width: screenW } = useWindowDimensions();
   const active = tracks[activeIndex] ?? tracks[0];
   // v98 カルーセル確定値 BASE_W = 164 × 1.15 = 188.6（調律陣のスケールも参照と1:1になる）
   const cardW = 189;
   const cardH = Math.round(cardW * 1.5);
+
+  // ── アイドルフロート（v99-tsubasa）──────────────────────────
+  // 参照は dragging / carouselActive / 裏返し中(aProg>0.02) で 0 へ収束させる。
+  // アプリはページャが FlatList なので「スクロール中」を減衰条件に使う。
+  const scrolling = useSharedValue(0);
+  const damp = useDerivedValue<number>(() => {
+    const aProg = Math.abs(cardRotation.value) / 180;
+    return scrolling.value > 0.5 || aProg > 0.02 ? 0 : 1;
+  }, [scrolling, cardRotation]);
+  const floatY = useIdleFloat(damp);
+  // 接地影は床に留めたまま、フロートと逆相で反応させる（lift = floatY/3.0）
+  const lift = useDerivedValue(() => floatY.value / 3.0, [floatY]);
+  // 表面度 fore = |cos(回転角)|。裏返り中は接地影を弱める
+  const groundFade = useDerivedValue(
+    () => Math.abs(Math.cos((cardRotation.value * Math.PI) / 180)),
+    [cardRotation],
+  );
+  // 3D（裏返し）でカードが一回り縮むぶん、接地影も同じ倍率へ追従させる
+  const flipProgress = useSharedValue(0);
+  const groundScale = useDerivedValue(
+    () => 1 + (CARD_BACK_SCALE - 1) * flipProgress.value,
+    [flipProgress],
+  );
+  const floatStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: floatY.value }],
+  }));
 
   // 試聴プレイヤー（30秒・公開URL）
   const preview = useAudioPlayer();
@@ -167,6 +200,9 @@ export const DiscoverScreen: React.FC<Props> = ({
         setFlipped(false);
         // 旧カードの回転角が残ると背景暗転が消えないためリセット
         cardRotation.value = 0;
+        flipProgress.value = 0;
+        // 購入の呼吸が途中でも、曲が変わったら消す（次のカードへ持ち越さない）
+        purchaseGlow.value = 0;
       }
     },
   ).current;
@@ -213,7 +249,12 @@ export const DiscoverScreen: React.FC<Props> = ({
     // 所有済みにして購入ボタンを「再生」へ。
     setOwnedIds((prev) => new Set(prev).add(active.id));
     setShowBubbles(true);
-  }, [active, ownedIds, onBuy]);
+    // シアンの呼吸を一度だけ深く脈打たせる（DESIGN.md の実装値）
+    purchaseGlow.value = withSequence(
+      withTiming(1, { duration: PURCHASE_RISE_MS, easing: Easing.inOut(Easing.ease) }),
+      withTiming(0, { duration: PURCHASE_FALL_MS, easing: Easing.inOut(Easing.ease) }),
+    );
+  }, [active, ownedIds, onBuy, purchaseGlow]);
 
   const isPreviewing = playingId != null && playingId === active?.id;
 
@@ -245,6 +286,27 @@ export const DiscoverScreen: React.FC<Props> = ({
         <BackdropDim width={screenW} height={slideH} rotationDeg={cardRotation} />
       )}
 
+      {/* 空気の粒（#bggrain）。参照の z 順は bgvig の上・カードより下。
+          極暗部のバンディングを消す層で、無いと実機 OLED で階調が縞になる */}
+      {slideH > 0 && <FilmGrain width={screenW} height={slideH} />}
+
+      {/* 接地影（card-ground）。カードは floatY で浮くが影は床に留め、
+          逆相で「浮くと薄く広く／沈むと濃く狭く」反応させる */}
+      {slideH > 0 && (
+        <CardGround
+          width={screenW}
+          height={slideH}
+          centerX={screenW / 2}
+          centerY={slideH / 2}
+          cardW={cardW}
+          cardH={cardH}
+          fade={groundFade}
+          lift={lift}
+          scale={groundScale}
+          style={styles.sealLayer}
+        />
+      )}
+
       {/* カードページャ。表面=横スワイプで曲切替＋タップで裏返し、
           裏面=全方向360°回転（横スワイプは無効） */}
       {slideH > 0 && (
@@ -261,8 +323,19 @@ export const DiscoverScreen: React.FC<Props> = ({
           windowSize={3}
           maxToRenderPerBatch={2}
           getItemLayout={(_, index) => ({ length: screenW, offset: screenW * index, index })}
+          onScrollBeginDrag={() => { scrolling.value = 1; }}
+          onScrollEndDrag={() => { scrolling.value = 0; }}
+          onMomentumScrollBegin={() => { scrolling.value = 1; }}
+          onMomentumScrollEnd={() => { scrolling.value = 0; }}
           renderItem={({ item, index }) => (
-            <View style={[styles.slide, { width: screenW, height: slideH }]}>
+            <Animated.View
+              style={[
+                styles.slide,
+                { width: screenW, height: slideH },
+                // アイドルフロートはアクティブ面だけ（隣接カードは静止）
+                index === activeIndex ? floatStyle : null,
+              ]}
+            >
               {index === activeIndex ? (
                 // アクティブ面: v98準拠の実3Dカード（角丸・厚み・オーラ）。
                 // 表面=角丸の作品画像＋タップで180°横回転で裏返し / 裏面=
@@ -274,9 +347,11 @@ export const DiscoverScreen: React.FC<Props> = ({
                   frontUri={item.artworkUrl}
                   width={cardW}
                   height={cardH}
-                  aura={{ a: item.glowColor, b: item.glowColor2 }}
+                  shadow
                   onFlipChange={setFlipped}
                   rotationOut={cardRotation}
+                  flipProgressOut={flipProgress}
+                  purchaseGlow={purchaseGlow}
                   backData={{
                     title: item.title,
                     serial: item.back?.serial,
@@ -292,11 +367,9 @@ export const DiscoverScreen: React.FC<Props> = ({
                   uri={item.artworkUrl}
                   width={cardW}
                   height={cardH}
-                  auraA={item.glowColor}
-                  auraB={item.glowColor2}
                 />
               )}
-            </View>
+            </Animated.View>
           )}
         />
       )}

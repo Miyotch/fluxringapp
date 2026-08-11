@@ -54,6 +54,20 @@ const REF_CARD_W = 188.59; // 参照のカード幅（この比で実寸へス�
 const CYAN = 'rgba(96,206,224,1)';
 const N_SPARKS = 24;
 
+// ── 六芒星の線（デザイン修正）────────────────────────────────
+// ① 色  : DESIGN.md のアクセント シアン #60CEE0（= rgba(96,206,224) と同値）
+// ② 太さ: 1.0（参照単位・実寸は ×s）。従来は 1.3 で、しかも blur 4px の
+//         発光層だけで描いていたため線が白くにじんで太く見えていた。
+// ③ 種類: 実線・丸キャップ。ブラーなしのシャープ層を主役にし、
+//         発光層は薄いハロー（太め・低不透明）に降格して二枚重ねにする。
+//         破線にする場合は HEX_DASH に [4,3] のような配列を入れる。
+const HEX_COLOR = '#60CEE0';
+const HEX_WIDTH = 1.0;
+const HEX_OPACITY = 0.62;
+const HEX_DASH = null as number[] | null;
+const HEX_HALO_WIDTH = 2.6;
+const HEX_HALO_OPACITY = 0.2;
+
 const ink = (a: number) => `rgba(150,190,210,${a})`;
 const lab = (a: number) => `rgba(178,198,216,${a})`;
 
@@ -89,6 +103,8 @@ type Geometry = {
   texts: TxtItem[];
   glowCircles: GlowCircle[];
   glowSegs: GlowSeg[];
+  /** 六芒星の6辺（専用の実線レイヤーで描く） */
+  hexSegs: GlowSeg[];
   glowNodes: GlowNode[];
   sparkPool: number[]; // [x,y,...]
   cars: CarParam[];
@@ -405,7 +421,10 @@ function buildGeometry(cx: number, cy: number, s: number, W: number, H: number):
     [VA[0], VA[1]], [VA[1], VA[2]], [VA[2], VA[0]],
     [VB[0], VB[1]], [VB[1], VB[2]], [VB[2], VB[0]],
   ];
-  hexPairs.forEach(([a, b]) => glowSegs.push({ x1: a[0], y1: a[1], x2: b[0], y2: b[1], op: 0.38 }));
+  // 六芒星の6辺は専用レイヤー（シャープ層＋ハロー）で描くので glowSegs には入れない
+  const hexSegs: GlowSeg[] = hexPairs.map(([a, b]) => ({
+    x1: a[0], y1: a[1], x2: b[0], y2: b[1], op: HEX_OPACITY,
+  }));
   glowSegs.push({ x1: pol(R_IN, 90)[0], y1: pol(R_IN, 90)[1], x2: SCHU[0], y2: SCHU[1], op: 0.09 });
 
   const glowNodes: GlowNode[] = [];
@@ -505,6 +524,7 @@ function buildGeometry(cx: number, cy: number, s: number, W: number, H: number):
     texts,
     glowCircles,
     glowSegs,
+    hexSegs,
     glowNodes,
     sparkPool,
     cars,
@@ -728,6 +748,18 @@ export const StarSeal: React.FC<StarSealProps> = ({
             opacity={sg.op}
           />
         ))}
+        {/* 六芒星のハロー（太め・低不透明。線そのものは下のシャープ層が描く） */}
+        {geo.hexSegs.map((sg, i) => (
+          <Line
+            key={`hh${i}`}
+            p1={vec(sg.x1, sg.y1)}
+            p2={vec(sg.x2, sg.y2)}
+            color={HEX_COLOR}
+            style="stroke"
+            strokeWidth={HEX_HALO_WIDTH * s}
+            opacity={HEX_HALO_OPACITY}
+          />
+        ))}
         {geo.glowNodes.map((n, i) => (
           <React.Fragment key={`gn${i}`}>
             <Circle cx={n.x} cy={n.y} r={n.r * 1.9} color={n.main ? CYAN : '#F3F8FF'} opacity={0.85} />
@@ -754,6 +786,21 @@ export const StarSeal: React.FC<StarSealProps> = ({
           星の光のようにくっきり見せる。にじみは②の同位置ハローが担う。
           光条長・コア径・不透明度は実機調整ポイント */}
       <Group opacity={glowOpacity} layer={<Paint blendMode="screen" />}>
+        {/* 六芒星の実線（ブラーなし・丸キャップ）。ここが線の主役 */}
+        {geo.hexSegs.map((sg, i) => (
+          <Line
+            key={`hx${i}`}
+            p1={vec(sg.x1, sg.y1)}
+            p2={vec(sg.x2, sg.y2)}
+            color={HEX_COLOR}
+            style="stroke"
+            strokeWidth={HEX_WIDTH * s}
+            strokeCap="round"
+            opacity={sg.op}
+          >
+            {HEX_DASH ? <DashPathEffect intervals={HEX_DASH.map((d) => d * s)} /> : null}
+          </Line>
+        ))}
         {geo.glowNodes.map((n, i) => {
           const col = n.main ? CYAN : '#FFFFFF';
           const spike = Math.max(n.r * 5.5, 4 * s); // 十字光条の長さ
