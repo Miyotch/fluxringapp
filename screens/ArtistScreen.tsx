@@ -26,7 +26,7 @@ import Animated, { FadeInUp } from 'react-native-reanimated';
 import { ArtworkCard } from '../components/ArtworkCard';
 import { COLOR, SPACE, RADIUS } from '../constants/design-tokens';
 import { NUM_FONT, JP_SERIF_FONT } from '../constants/fonts';
-import { useTopInset } from '../lib/safeArea';
+import { SubHeader } from './SettingsDetailScreens';
 
 export type Artist = {
   id: string;
@@ -61,7 +61,6 @@ export const ArtistScreen: React.FC<Props> = ({
   onOpenStory,
 }) => {
   const { width: screenW } = useWindowDimensions();
-  const headerTop = useTopInset(8); // 従来 52px（=44+8）
   const [stage, setStage] = useState<Stage>('list');
   const [selected, setSelected] = useState<Artist | null>(null);
   const colW = (screenW - SPACE.lg * 2 - SPACE.md) / 2;
@@ -71,13 +70,7 @@ export const ArtistScreen: React.FC<Props> = ({
     return (
       <View style={styles.root}>
         <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
-        <View style={[styles.header, { paddingTop: headerTop }]}>
-          <Pressable onPress={onBackToSettings} hitSlop={12} style={styles.backBtn}>
-            <Text style={styles.back}>‹</Text>
-          </Pressable>
-          <Text style={styles.h1}>作家一覧</Text>
-          <View style={styles.backBtn} />
-        </View>
+        <SubHeader title="作家一覧" onBack={onBackToSettings} />
         <ScrollView contentContainerStyle={styles.listBody} showsVerticalScrollIndicator={false}>
           {artists.map((a) => (
             <Pressable
@@ -109,13 +102,7 @@ export const ArtistScreen: React.FC<Props> = ({
     return (
       <View style={styles.root}>
         <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
-        <View style={[styles.header, { paddingTop: headerTop }]}>
-          <Pressable onPress={() => setStage('list')} hitSlop={12} style={styles.backBtn}>
-            <Text style={styles.back}>‹</Text>
-          </Pressable>
-          <Text style={styles.h1}>作家</Text>
-          <View style={styles.backBtn} />
-        </View>
+        <SubHeader title="作家" onBack={() => setStage('list')} />
         <ScrollView contentContainerStyle={styles.profileBody} showsVerticalScrollIndicator={false}>
           {/* 円ポートレート（人物は円） */}
           <View style={styles.avatarLg} />
@@ -141,13 +128,7 @@ export const ArtistScreen: React.FC<Props> = ({
   return (
     <View style={styles.root}>
       <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
-      <View style={[styles.header, { paddingTop: headerTop }]}>
-        <Pressable onPress={() => setStage('profile')} hitSlop={12} style={styles.backBtn}>
-          <Text style={styles.back}>‹</Text>
-        </Pressable>
-        <Text style={styles.h1}>楽曲一覧</Text>
-        <View style={styles.backBtn} />
-      </View>
+      <SubHeader title="楽曲一覧" onBack={() => setStage('profile')} />
       <ScrollView contentContainerStyle={styles.tracksGrid} showsVerticalScrollIndicator={false}>
         <View style={styles.gridRow}>
           {tracks.map((t, index) => (
@@ -184,29 +165,7 @@ export const ArtistScreen: React.FC<Props> = ({
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: COLOR.bg },
-  header: {
-    paddingTop: 52,
-    paddingHorizontal: SPACE.lg,
-    paddingBottom: SPACE.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  // 戻るは「‹」のみに統一。左右を同幅にしてタイトルを中央に保つ
-  // （左は実タップ領域、右は見えないバランサー）。
-  backBtn: { width: 28 },
-  // 見出し(h1: 16px)と同じ大きさに揃える（12pxだと小さく見づらいとの指摘対応）
-  back: { color: COLOR.textBack, fontSize: 16, letterSpacing: 0.6 },
-  // 和文＝明朝（OS標準）/ letterSpacing = fontSize×0.02
-  h1: {
-    flex: 1,
-    textAlign: 'center',
-    color: COLOR.textPrimary,
-    fontSize: 16,
-    fontWeight: '600',
-    letterSpacing: 0.32,
-    fontFamily: JP_SERIF_FONT,
-  },
+  // ヘッダーは共通の SubHeader（SettingsDetailScreens）に統一
   chevron: { color: COLOR.textSecondary, fontSize: 18 },
 
   // list

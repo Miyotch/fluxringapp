@@ -342,7 +342,10 @@ export function renderAluminumInkPixels(
     const font = makeFont(fs, '300', INK_FONT);
     const zoneTop = 470;
     const zoneBottom = H - 460;
-    const lines = wrap(data.story, fs, maxW, font, Math.floor((zoneBottom - zoneTop) / lh));
+    // Story本文は最大4行まで（詰まりすぎ防止のミーティング指摘）。
+    // ゾーン高さから計算される行数がそれより多くても4行で打ち切る。
+    const maxLines = Math.min(4, Math.floor((zoneBottom - zoneTop) / lh));
+    const lines = wrap(data.story, fs, maxW, font, maxLines);
     const mid = (zoneTop + zoneBottom) / 2;
     let y = Math.max(zoneTop, mid - (lines.length * lh) / 2);
     for (const ln of lines) {

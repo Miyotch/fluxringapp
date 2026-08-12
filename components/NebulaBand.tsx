@@ -34,7 +34,7 @@ import { useSharedValue, useDerivedValue, SharedValue } from 'react-native-reani
 
 // ── 参照実装の定数 ──
 const BANDY = 0.49;  // 帯の中心（縦%）
-const BANDH = 0.16;  // 帯の広がり
+const BANDH = 0.115; // 帯の広がり（表示範囲を絞るため 0.16 から縮小）
 const CLOUD_COLORS: [number, number, number][] = [
   [68, 90, 224], [84, 102, 218], [58, 100, 230], [98, 108, 214], [74, 96, 226],
 ];
@@ -66,9 +66,9 @@ function buildClouds(): Cloud[] {
   const out: Cloud[] = [];
   for (let i = 0; i < N_CLOUDS; i++) {
     out.push({
-      bx: rnd(i * 3.1 + 0.7, -6, 106),
+      bx: rnd(i * 3.1 + 0.7, 4, 96),
       by: (BANDY + gauss(i * 5.3 + 2.1) * BANDH) * 100,
-      r: rnd(i * 7.7 + 1.3, 70, 190),
+      r: rnd(i * 7.7 + 1.3, 58, 150),
       c: CLOUD_COLORS[i % CLOUD_COLORS.length],
       a: rnd(i * 11.3 + 4.9, 0.16, 0.3),
       ph: rnd(i * 13.7 + 3.3, 0, 6),
@@ -217,7 +217,7 @@ export const NebulaBand: React.FC<NebulaBandProps> = ({ paused = false }) => {
       <Group
         layer={
           <Paint blendMode="screen">
-            <Blur blur={13 * scale} />
+            <Blur blur={8 * scale} />
           </Paint>
         }
       >

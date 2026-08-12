@@ -121,7 +121,9 @@ export const CardBack: React.FC<Props> = ({ width, data }) => {
         <Text style={styles.title} numberOfLines={1}>{data.title}</Text>
 
         {data.story && (
-          <Text style={styles.story} numberOfLines={6}>{data.story}</Text>
+          // 6行だと詰まりすぎるため4行までに制限（ミーティング指摘）。
+          // 行数を減らした分、フォントサイズを上げて読みやすくする。
+          <Text style={styles.story} numberOfLines={4}>{data.story}</Text>
         )}
 
         <View style={styles.rule} />
@@ -163,9 +165,10 @@ const styles = StyleSheet.create({
   body: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, paddingHorizontal: 4 },
   title: { fontSize: 22, letterSpacing: 2, color: '#22262C', fontWeight: '500' },
   story: {
-    fontSize: 12.5,
-    lineHeight: 21,
-    letterSpacing: 0.4,
+    // 4行制限化に合わせてサイズアップ（fontSize×0.02 の字間規約）
+    fontSize: 14,
+    lineHeight: 24,
+    letterSpacing: 0.28,
     color: '#33383F',
     textAlign: 'left',
     alignSelf: 'stretch',

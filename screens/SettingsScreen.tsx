@@ -62,6 +62,8 @@ export const SettingsScreen: React.FC<Props> = ({ onSelect, onSignOut }) => {
     { key: 'artist', label: t('settings.artist') },
     { key: 'language', label: t('settings.language') },
     { key: 'support', label: t('settings.support') },
+    // CREDITS は「情報」の下ではなく、利用規約・プライバシーと同じ扱いで第1階層に置く
+    { key: 'thanks', label: t('settings.thanks') },
     { key: 'info', label: t('settings.info') },
     { key: 'signout', label: t('settings.signout') },
   ];
