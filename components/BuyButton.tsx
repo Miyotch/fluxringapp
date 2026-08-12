@@ -44,49 +44,61 @@ export const BuyButton: React.FC<Props> = ({
       hitSlop={8}
       accessibilityRole="button"
       accessibilityLabel={owned ? t('buy.play') : `${t('buy.label')} ${price}`}
-      style={({ pressed }) => [styles.btn, pressed && styles.pressed]}
+      style={styles.btn}
     >
-      {owned ? (
-        <PlayMark size={19} />
-      ) : (
-        <View style={styles.labelRow}>
-          <Text style={styles.label}>{t('buy.label')}</Text>
-          <Text style={styles.price}>{price}</Text>
-        </View>
-      )}
+      {({ pressed }) =>
+        owned ? (
+          <PlayMark size={24} />
+        ) : (
+          <View style={styles.labelRow}>
+            <Text style={[styles.label, pressed && styles.labelPressed]}>{t('buy.label')}</Text>
+            <Text style={[styles.price, pressed && styles.pricePressed]}>{price}</Text>
+          </View>
+        )
+      }
     </Pressable>
   );
 };
 
 const styles = StyleSheet.create({
   btn: {
-    width: 128,
-    height: 44,
-    borderRadius: 22,
+    // モック比で小さすぎたため拡大（128×44 → 176×56）
+    width: 176,
+    height: 56,
+    borderRadius: 28,
     alignItems: 'center',
     justifyContent: 'center',
     // 枠・塗りなし
   },
-  pressed: { transform: [{ scale: 0.97 }] },
-  labelRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  // 押下時に文字が縮む挙動は不要（発光だけを強める）
+  pressed: {},
+  labelRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   label: {
     // 芯を半透明にして輪郭を隠し、textShadow（同形状のぼかし）だけを見せることで
-    // 「少しぼやけた」見え方にする。芯を不透明のままにすると輪郭が固く残ってしまう。
-    color: 'rgba(244,254,255,0.55)',
-    fontSize: 13,
-    letterSpacing: 2.6, // .2em（tonmana_typography_reference .buy 準拠）
-    textShadowColor: 'rgba(96,206,224,0.9)',
+    // 「文字自体が光る」見え方にする。芯を不透明のままにすると輪郭が固く残ってしまう。
+    color: 'rgba(244,254,255,0.62)',
+    fontSize: 16,
+    letterSpacing: 3.2, // .2em（tonmana_typography_reference .buy 準拠）
+    textShadowColor: 'rgba(96,206,224,1)',
     textShadowOffset: { width: 0, height: 0 },
-    textShadowRadius: 4, // 実機調整ポイント: 大きいほどぼやける
+    textShadowRadius: 9, // 実機調整ポイント: 大きいほどぼやける
+  },
+  // 押下時は芯を明るく・グローを強めて「押した」ことを伝える
+  labelPressed: {
+    color: 'rgba(250,255,255,0.95)',
+    textShadowRadius: 14,
   },
   price: {
     color: '#8FD4DE',
-    fontSize: 11,
-    letterSpacing: 1,
+    fontSize: 13,
+    letterSpacing: 1.2,
     fontFamily: NUM_FONT, // 価格＝数字表記
-    marginLeft: 6, // .buy small { margin-left:6px }（.buy の gap:7px に加算）
-    // グローなし
+    marginLeft: 7, // .buy small { margin-left:6px }（.buy の gap に加算）
+    textShadowColor: 'rgba(96,206,224,0.75)',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 6,
   },
+  pricePressed: { textShadowRadius: 10 },
 });
 
 export default BuyButton;

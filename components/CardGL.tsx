@@ -39,7 +39,7 @@
  * 注意: expo-gl / three はネイティブ依存。反映には EAS 再ビルドが必要。
  */
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Image, Pressable, PanResponder, StyleSheet, StyleProp, ViewStyle } from 'react-native';
 import { Canvas, useFrame } from '@react-three/fiber/native';
 import * as THREE from 'three';
@@ -85,17 +85,19 @@ const FRAME_MAX_DT = FLIP_MAX_STEP_MS / 1000;
 //   angX/angY(現在角)・tAngX/tAngY(目標角)・velX/velY(角速度)。
 //   感度 0.008 rad/px・縦クランプ ±1.25rad・慣性 VMAX=6.0・減衰 pow(0.94,dt*60)・
 //   スムージング sm=1-exp(-dt*14)・モデル行列 RotY(angY)*RotX(angX)・初期姿勢 (-0.05,0.20)。
-const CARD_DRAG_SENS = 0.008; // rad/px（参照 move: tAngY+=dx*0.008）
-const CARD_ANG_CLAMP = 1.25;  // 縦回転クランプ（rad）
+// 感度は 0.008 だと過敏で扱いづらかったため半分へ（FPS のセンシ設定と同じ考え方）
+const CARD_DRAG_SENS = 0.004; // rad/px
+// 縦回転クランプ。1.25rad(≈71.6°) はひっくり返って見えるため ±22° に制限する
+const CARD_ANG_CLAMP = 0.384; // 22° = 22*π/180 ≒ 0.384 rad
 const CARD_VMAX = 6.0;        // 慣性の角速度上限（rad/s）
 const CARD_INIT_ANGX = -0.05; // 初期姿勢（正面やや傾き）
 const CARD_INIT_ANGY = 0.20;
 // 重力オートリターン: 手を離すと弱いバネで静止姿勢へ戻す。
 // カード下部が重い（＝下を向きたがる）ように、慣性が収まると立った姿勢へ落ち着く。
 // 残差は exp(-K*T)。95%戻るまでの時間 T ≒ ln(20)/K なので、
-//   K=1.0 → 約3秒（指定値）／ K=0.15 → 約20秒 ／ K=1.6 → 約2秒
+//   K=2.0 → 約1.5秒（指定値）／ K=1.0 → 約3秒 ／ K=0.15 → 約20秒
 // 小さいほど戻りが遅い。ドラッグ中は無効。
-const CARD_RETURN_STIFFNESS = 1.0;
+const CARD_RETURN_STIFFNESS = 2.0;
 // 復帰先の姿勢。裏面を見ているときは「裏面のまま」立った姿勢（Y+180°）へ戻す。
 // 表向きの初期姿勢へ引き戻すと、裏を眺めている最中に勝手に表返ってしまう。
 const CARD_BACK_ANGY = Math.PI + CARD_INIT_ANGY;
@@ -105,6 +107,12 @@ const CARD_BACK_ANGY = Math.PI + CARD_INIT_ANGY;
 //   ・spin（プレイヤー）: 離した瞬間の慣性を与えない（軽いタップで card が
 //                     大きく回り、裏返ったように見えるのを防ぐ）
 const TAP_SLOP = 16;
+// 素早いフリックと判定する横速度（px/ms）。これを超え、かつ横優位のときは
+// 縦の回転成分を与えず「水平回転をキープ」する（斜めに転ばないようにする）。
+// ゆっくりした長押しスワイプはこの条件を満たさないので従来どおり自由に回せる。
+const FLICK_VX = 0.5;
+// 2回目のタップをダブルタップとみなす間隔（ms）
+const DOUBLE_TAP_MS = 300;
 
 // ── トラックボール回転の状態（JS スレッドで共有する ref） ──
 export type SpinState = {
@@ -690,6 +698,29 @@ export const CardGL: React.FC<CardGLProps> = ({
   //   表面: 開始のみ主張（タップ検出）。移動は主張しない＝横スワイプは
   //         FlatList（曲切替）が奪える（terminationRequest も許可）。
   //   裏面: 移動も主張して全方向回転。スクロールへは明け渡さない。
+  // 直前のタップ時刻（ダブルタップ判定用）
+  const lastTapAt = useRef(0);
+
+  /**
+   * カードを定位置へ戻す（ダブルタップ）。回転してどこを向いていても、
+   * flip モードは表向きへ、spin モードは初期姿勢へ収束させる。
+   */
+  const recenterCard = useCallback(() => {
+    const s = spin.current;
+    s.vx = 0;
+    s.vy = 0;
+    s.velX = 0;
+    s.velY = 0;
+    if (isFlip) {
+      // flipped=false にすると下の effect が s.target=Q_FRONT を張って戻り始める
+      flipToFront();
+    } else {
+      s.tAngX = CARD_INIT_ANGX;
+      s.tAngY = CARD_INIT_ANGY;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isFlip]);
+
   const pan = useMemo(
     () =>
       PanResponder.create({
@@ -739,21 +770,37 @@ export const CardGL: React.FC<CardGLProps> = ({
         onPanResponderRelease: (_e, g) => {
           const s = spin.current;
           s.dragging = false;
-          if (!moved.current && isFlip) {
-            // ほぼ動いていない＝タップ → 表⇔裏をトグル
-            if (flipped) flipToFront();
-            else flipToBack();
+          if (!moved.current) {
+            // ほぼ動いていない＝タップ。
+            //   ダブルタップ: どの向きからでも定位置へ戻す
+            //   シングルタップ: 従来どおり flip モードだけ表⇔裏をトグル
+            const now = Date.now();
+            const isDouble = now - lastTapAt.current < DOUBLE_TAP_MS;
+            lastTapAt.current = isDouble ? 0 : now; // 3回目以降が連鎖しないよう畳む
+            if (isDouble) {
+              recenterCard();
+            } else if (isFlip) {
+              if (flipped) flipToFront();
+              else flipToBack();
+            }
           } else if (moved.current && canRotate) {
+            // 素早い横フリックは水平回転だけを残す（縦成分を与えない）。
+            // 長押しスワイプ相当のゆっくりした操作は従来の自由回転のまま。
+            const isFlick = Math.abs(g.vx) >= FLICK_VX && Math.abs(g.vx) > Math.abs(g.vy);
             if (isFlip) {
               // 離した瞬間の速度（px/ms → 度/秒）で慣性回転（トラックボール）
-              s.vx = g.vy * 1000 * SENS;
+              s.vx = isFlick ? 0 : g.vy * 1000 * SENS;
               s.vy = g.vx * 1000 * SENS;
             } else {
               // spin モード: 参照 up の verbatim（px/ms → rad/s・VMAX クランプ）
-              //   velY=dx速度*0.008 / velX=dy速度*0.008
+              //   velY=dx速度*sens / velX=dy速度*sens
               s.velY = Math.max(-CARD_VMAX, Math.min(CARD_VMAX, g.vx * 1000 * CARD_DRAG_SENS));
               // 慣性の縦成分もドラッグと同じ符号にする（離した瞬間に逆へ跳ねないように）
-              s.velX = Math.max(-CARD_VMAX, Math.min(CARD_VMAX, g.vy * 1000 * CARD_DRAG_SENS * s.vSign));
+              s.velX = isFlick
+                ? 0
+                : Math.max(-CARD_VMAX, Math.min(CARD_VMAX, g.vy * 1000 * CARD_DRAG_SENS * s.vSign));
+              // フリック中は縦の目標角も直立へ寄せて、斜めに転んだまま回らないようにする
+              if (isFlick) s.tAngX = CARD_INIT_ANGX;
             }
           }
           if (dragXOut) dragXOut.value = withSpring(0, { damping: 16, stiffness: 120 });
@@ -764,7 +811,7 @@ export const CardGL: React.FC<CardGLProps> = ({
         },
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [canRotate, dragXOut, isFlip, flipped],
+    [canRotate, dragXOut, isFlip, flipped, recenterCard],
   );
 
   // 描画キャンバスはカードの対角線サイズの正方形にし、レイアウト枠から

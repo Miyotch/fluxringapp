@@ -35,9 +35,17 @@ import { useTopInset, useBottomInset } from '../lib/safeArea';
 // 共通サブヘッダー（戻る＋タイトル）
 // ─────────────────────────────────────────────
 
-const SubHeader: React.FC<{ title: string; onBack: () => void }> = ({ title, onBack }) => {
+/**
+ * 設定配下・作家画面で共通のヘッダーテンプレート。
+ * 余白・フォント・中央揃え・戻る矢印のサイズはすべてここ（と s.header 系）に集約し、
+ * 各画面でヘッダーを直書きしない。上端は SafeArea 実測 + 8px（従来の固定 52px は
+ * ステータスバー44pt想定の値なので、44pt機では同じ見た目のまま Dynamic Island 機で
+ * 自動的に下がる）。
+ */
+export const SubHeader: React.FC<{ title: string; onBack: () => void }> = ({ title, onBack }) => {
+  const top = useTopInset(8);
   return (
-    <View style={s.header}>
+    <View style={[s.header, { paddingTop: top }]}>
       <Pressable onPress={onBack} hitSlop={12} style={s.backBtn}>
         <Text style={s.back}>‹</Text>
       </Pressable>
@@ -676,14 +684,6 @@ type TokushoRow = {
 };
 
 export const tokushoData: TokushoRow[] = [
-  { label: '販売業者', value: '株式会社Numéro.8' },
-  { label: '代表者・販売責任者', value: '岡 直樹' },
-  { label: '所在地', value: '〒145-0071 東京都大田区田園調布4-44-8' },
-  {
-    label: '電話番号',
-    value: 'ご請求があった場合、遅滞なく開示いたします。お問い合わせは下記メールアドレスまでお願いいたします。',
-  },
-  { label: 'メールアドレス', value: 'support@fluxring.example', badge: '仮置き' },
   {
     label: '販売価格',
     list: [
@@ -747,6 +747,15 @@ export const tokushoData: TokushoRow[] = [
   },
   { label: '動作環境', value: '対応OSおよび推奨環境は、App Store／Google Play の各ストアページに記載します。' },
   { label: '特別な販売条件', value: '一部の作品は、販売期間または提供数を限定する場合があります。条件は各販売ページに表示します。' },
+  // 会社情報は取引条件のあとに置く（上部に出るデグレの再発防止）
+  { label: '販売業者', value: '株式会社Numéro.8' },
+  { label: '代表者・販売責任者', value: '岡 直樹' },
+  { label: '所在地', value: '〒145-0071 東京都大田区田園調布4-44-8' },
+  {
+    label: '電話番号',
+    value: 'ご請求があった場合、遅滞なく開示いたします。お問い合わせは下記メールアドレスまでお願いいたします。',
+  },
+  { label: 'メールアドレス', value: 'support@fluxring.example', badge: '仮置き' },
 ];
 
 export const footerCompany = '株式会社Numéro.8';
@@ -824,15 +833,16 @@ const tk = StyleSheet.create({
   root: { flex: 1, backgroundColor: TK.bg },
   body: { paddingHorizontal: 24, paddingBottom: 96 },
   row: { paddingVertical: 19, borderBottomWidth: 1, borderBottomColor: TK.line },
-  dt: { fontSize: 12, color: TK.sub, letterSpacing: 0.6, marginBottom: 6, fontFamily: JP_SERIF_FONT },
+  dt: { fontSize: 13, color: TK.sub, letterSpacing: 0.6, marginBottom: 6, fontFamily: JP_SERIF_FONT },
   dd: { gap: 4 },
   // 数字が並ぶため EB Garamond（等幅寄りの数字グリフ）を当てる。和文はOSフォールバック。
-  ddText: { fontSize: 14, color: TK.ink, lineHeight: 26.6, fontFamily: NUM_FONT },
+  // 視認性向上のため 14 → 16（lineHeight は 1.9 倍のまま）
+  ddText: { fontSize: 16, color: TK.ink, lineHeight: 30.4, fontFamily: NUM_FONT },
   valueLine: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 },
   list: { gap: 2 },
   listItem: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: 6, paddingVertical: 2 },
   noteLine: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginTop: 6 },
-  note: { fontSize: 12, color: TK.sub, lineHeight: 20, fontFamily: NUM_FONT },
+  note: { fontSize: 13, color: TK.sub, lineHeight: 22, fontFamily: NUM_FONT },
   badge: {
     borderWidth: 1,
     borderColor: TK.pendingBorder,
@@ -918,21 +928,12 @@ const FadeLine: React.FC<{ w: number; h: number; color: string; style?: object }
   </Svg>
 );
 
-// 16x16 の矢印アイコン（‹ の代わり。添付仕様: strokeWidth 1.5 / color --sub）
-const CreditsBackArrow: React.FC = () => (
-  <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
-    <Path d="M15 4L7 12L15 20" stroke={CR.sub} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
-  </Svg>
-);
-
-// CREDITS 画面（Special Thanks）: 添付デザイン準拠の独自トンマナ
-// （放射状グラデーション背景＋オーラ・中央のFounderブロック＋左寄せのクルーリスト）
+// CREDITS 画面（Special Thanks）: 背景と本文は添付デザイン準拠の独自トンマナ
+// （放射状グラデーション背景＋オーラ・中央のFounderブロック＋左寄せのクルーリスト）。
+// ヘッダーだけは他の設定画面と揃えるため共通の SubHeader を使う。
 const CreditsScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const t = useT();
   const { width: screenW, height: screenH } = useWindowDimensions();
-  // 従来の固定値からの換算（header 70px ≒ 44pt想定+26, body paddingTop 118px ≒ 44pt想定+74）
-  const navTop = useTopInset(26);
-  const bodyTop = useTopInset(74);
   const contentW = screenW - SPACE.xl * 2; // paddingHorizontal 34相当 = SPACE.xl
 
   const [founder, ...crew] = CREDITS;
@@ -942,16 +943,10 @@ const CreditsScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       <StatusBar barStyle="light-content" backgroundColor={CR.deepest} />
       <CreditsBackdrop w={screenW} h={screenH} />
 
-      <View style={[cs.header, { paddingTop: navTop }]}>
-        <Pressable onPress={onBack} hitSlop={12} style={cs.backBtn}>
-          <CreditsBackArrow />
-        </Pressable>
-        <Text style={cs.htitle}>{t('settings.thanks')}</Text>
-        <View style={cs.backBtn} />
-      </View>
+      <SubHeader title={t('settings.thanks')} onBack={onBack} />
 
       <ScrollView
-        contentContainerStyle={[cs.body, { paddingTop: bodyTop }]}
+        contentContainerStyle={cs.body}
         showsVerticalScrollIndicator={false}
       >
         <View style={cs.founderBlock}>
@@ -983,31 +978,9 @@ const CreditsScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
 // CREDITS 専用スタイル（他画面の s とは独立。フォントは欧文名の並びのため EB Garamond 統一）
 const cs = StyleSheet.create({
   root: { flex: 1, backgroundColor: CR.deepest },
-  header: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    top: 0,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: SPACE.xl,
-    paddingBottom: 14,
-    zIndex: 10,
-  },
-  backBtn: { width: 24, alignItems: 'flex-start', justifyContent: 'center' },
-  // htitle: 12px / 字間.34em(=4.08) / --sub / uppercase / weight400
-  htitle: {
-    flex: 1,
-    textAlign: 'center',
-    color: CR.sub,
-    fontSize: 12,
-    letterSpacing: 4.08,
-    textTransform: 'uppercase',
-    fontWeight: '400',
-    fontFamily: NUM_FONT,
-  },
-  body: { paddingHorizontal: SPACE.xl, paddingBottom: 80 },
+  // ヘッダーは共通の SubHeader に統一したので、この画面固有のヘッダー定義は持たない。
+  // paddingTop 48 は「クレジット〜岡氏のブロックを2〜3行分下げる」ための余白。
+  body: { paddingHorizontal: SPACE.xl, paddingTop: 48, paddingBottom: 80 },
   founderBlock: { alignItems: 'center', marginBottom: 46 },
   founderLine: { marginTop: 16, opacity: 0.6 },
   rule: { marginBottom: 42, opacity: 0.5 },
@@ -1091,8 +1064,8 @@ export const InfoScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
 
   if (doc) return <DocumentScreen kind={doc} onBack={() => setDoc(null)} />;
 
+  // CREDITS は設定の第1階層へ移したのでここには置かない（規約類3点のみ）
   const rows: { kind: DocKind; label: string }[] = [
-    { kind: 'thanks', label: t('settings.thanks') },
     { kind: 'terms', label: t('settings.terms') },
     { kind: 'privacy', label: t('settings.privacy') },
     { kind: 'tokushoho', label: t('settings.tokushoho') },
@@ -1251,15 +1224,16 @@ const s = StyleSheet.create({
   paragraph: { color: COLOR.textSecondary, fontSize: 14, lineHeight: 23, letterSpacing: 0.28, fontFamily: JP_SERIF_FONT },
   docLead: {
     color: COLOR.textSecondary,
-    fontSize: 13,
-    lineHeight: 22,
+    fontSize: 15,
+    lineHeight: 25,
     letterSpacing: 0.26,
     marginBottom: SPACE.xs,
     fontFamily: JP_SERIF_FONT,
   },
   docSection: { gap: 6 },
-  docHeading: { color: COLOR.textPrimary, fontSize: 14, fontWeight: '700', letterSpacing: 0.28, fontFamily: JP_SERIF_FONT },
-  docBody: { color: COLOR.textPrimary, fontSize: 14, lineHeight: 26, letterSpacing: 0.28, fontFamily: JP_SERIF_FONT },
+  docHeading: { color: COLOR.textPrimary, fontSize: 16, fontWeight: '700', letterSpacing: 0.32, fontFamily: JP_SERIF_FONT },
+  // 視認性向上のため 14 → 16
+  docBody: { color: COLOR.textPrimary, fontSize: 16, lineHeight: 29, letterSpacing: 0.32, fontFamily: JP_SERIF_FONT },
   note: { color: COLOR.auraCyan, fontSize: 13, textAlign: 'center', letterSpacing: 0.26, fontFamily: JP_SERIF_FONT },
 
   primaryBtn: {

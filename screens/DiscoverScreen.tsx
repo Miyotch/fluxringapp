@@ -50,6 +50,7 @@ import { PurchaseParticles } from '../components/PurchaseParticles';
 import { PurchaseCardGlow } from '../components/PurchaseCardGlow';
 import { PURCHASE } from '../constants/design-tokens';
 import { formatPrice, TRACK_PRICE_JPY } from '../constants/pricing';
+import { JP_SERIF_FONT } from '../constants/fonts';
 import type { PurchaseController } from '../lib/usePurchaseFlow';
 
 const C = {
@@ -147,8 +148,11 @@ export const DiscoverScreen: React.FC<Props> = ({
 
   const { width: screenW } = useWindowDimensions();
   const active = tracks[activeIndex] ?? tracks[0];
-  // v98 カルーセル確定値 BASE_W = 164 × 1.15 = 188.6（調律陣のスケールも参照と1:1になる）
-  const cardW = 189;
+  // 調律陣（StarSeal）のスケール基準。v98 カルーセル確定値 BASE_W = 164 × 1.15 = 188.6 で、
+  // この値のとき陣が参照実装と 1:1 になる。陣は検証済みの確定値なのでここは動かさない。
+  const SEAL_REF_W = 189;
+  // カードだけを陣より一回り小さくして、陣とカードのバランスをモック寄りにする
+  const cardW = 172;
   const cardH = Math.round(cardW * 1.5);
   const cardRadius = Math.round(0.085 * cardW); // CardAura と同じ角丸比率
 
@@ -209,28 +213,13 @@ export const DiscoverScreen: React.FC<Props> = ({
   ).current;
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 60 }).current;
 
-  // カードが表示されたら、その曲の試聴を自動再生する。
-  // previewUrl（Firestore sound.r2_preview。空なら null 相当）が無い曲は
-  // 何もしない。曲を切り替えると、前の曲を止めて次の曲の試聴が流れる。
+  // 試聴は自動開始しない（スピーカーボタンの押下だけをトリガーにする）。
+  // 曲を切り替えたら再生中の試聴は止める。
+  // ※フェードインは音源ファイル側で定義する方針のため、アプリ側では行わない。
   useEffect(() => {
-    if (!active) {
-      preview.pause();
-      setPlayingId(null);
-      return;
-    }
-    const url = active.previewUrl || previewUrl(active.audioKey);
-    if (!url) {
-      preview.pause();
-      setPlayingId(null);
-      return;
-    }
-    preview.replace({ uri: url });
-    preview.play();
-    setPlayingId(active.id);
-    // active は tracks[activeIndex] から毎回導出されるだけの参照なので、
-    // 実際の再評価は activeIndex（＝表示中のカード）が変わったときだけでよい
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeIndex, active, preview]);
+    preview.pause();
+    setPlayingId(null);
+  }, [activeIndex, preview]);
 
   const togglePreview = useCallback(() => {
     if (!active) return;
@@ -360,7 +349,7 @@ export const DiscoverScreen: React.FC<Props> = ({
         <StarSeal
           width={screenW}
           height={slideH}
-          cardWidth={cardW}
+          cardWidth={SEAL_REF_W}
           centerX={screenW / 2}
           centerY={slideH / 2}
           style={styles.sealLayer}
@@ -427,28 +416,28 @@ export const DiscoverScreen: React.FC<Props> = ({
         {/* ブランド */}
         <Text style={[styles.brand, { top: 26 + chromeShift }]}>Flux Ring</Text>
 
-        {/* 右上: EQ+ベル(1段目) / 試聴(2段目)。EQは常時表示・常時アニメーション
-            （試聴中インジケーターではなく、モック準拠の常設の意匠として扱う） */}
+        {/* 右上: EQ+ベル(1段目) / 試聴(2段目)。EQ は試聴中だけ動く
+            （試聴を止めたらボリュームアニメーションも消える） */}
         <View style={[styles.topRight, { top: topRightY }]} pointerEvents="box-none">
           <View style={styles.iconsRow1}>
-            <EqBars active />
+            <EqBars active={isPreviewing} />
             <Pressable onPress={onOpenNotifications} hitSlop={10} style={styles.bell}>
-              <BellIcon size={17} />
+              <BellIcon size={22} />
               {hasUnread && <View style={styles.bdot} />}
             </Pressable>
           </View>
           <Pressable onPress={togglePreview} hitSlop={10} style={styles.iconsRow2}>
-            <PreviewIcon size={17} on={isPreviewing} />
+            <PreviewIcon size={22} on={isPreviewing} />
           </Pressable>
         </View>
 
         {/* タイトル（1行のみ。eyeコピー・情景サブタイトルはモック確定値により非表示） */}
-        <View style={[styles.texts, { top: 75 + chromeShift }]} pointerEvents="none">
+        <View style={[styles.texts, { top: 41 + chromeShift }]} pointerEvents="none">
           <Text style={styles.title} numberOfLines={1}>{active?.title}</Text>
         </View>
 
         {/* 下部: 購入ボタン ＋ ウィッシュ星 */}
-        <View style={[styles.bottom, { bottom: 92 + slideH * 0.02 }]} pointerEvents="box-none">
+        <View style={[styles.bottom, { bottom: 109 + slideH * 0.02 }]} pointerEvents="box-none">
           {(() => {
             const owned = isOwned(active);
             return (
@@ -532,8 +521,9 @@ const styles = StyleSheet.create({
   // .title: 18px / 字間.05em / text-shadow 0 1px 10px rgba(0,0,0,.5)
   title: {
     fontSize: 18,
-    letterSpacing: 0.9,
+    letterSpacing: 0.36, // fontSize×0.02
     color: C.text,
+    fontFamily: JP_SERIF_FONT, // 和文＝明朝（ゴシックで出ていたのを修正）
     textShadowColor: 'rgba(0,0,0,0.5)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 10,

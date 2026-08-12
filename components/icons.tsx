@@ -11,7 +11,7 @@
  */
 
 import React from 'react';
-import Svg, { Path, Rect, Circle } from 'react-native-svg';
+import Svg, { Path, Rect, Circle, Defs, RadialGradient, Stop } from 'react-native-svg';
 import { COLOR } from '../constants/design-tokens';
 
 type IconProps = { size?: number; color?: string };
@@ -160,6 +160,27 @@ export const XIcon: React.FC<IconProps> = ({ size = 26 }) => (
   <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
     <Rect x={1.6} y={1.6} width={20.8} height={20.8} rx={7} fill="#000000" stroke="#FFFFFF" strokeWidth={1.4} />
     <Path d="M7.6 7.6l8.8 8.8M16.4 7.6l-8.8 8.8" stroke="#FFFFFF" strokeWidth={1.7} strokeLinecap="square" />
+  </Svg>
+);
+
+// Instagram（公式グリフ）。非公式画像(instagram.png)の代替。
+// 角丸スクエア背景（公式のグラデーション: #FEDA75→#D62976→#4F5BD5）
+// ＋白線画のカメラ本体（角丸枠＋レンズ円＋右上フラッシュ点）。
+export const InstagramIcon: React.FC<IconProps> = ({ size = 26 }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+    <Defs>
+      <RadialGradient id="igGrad" cx="30%" cy="107%" r="150%">
+        <Stop offset="0%" stopColor="#FEDA75" />
+        <Stop offset="18%" stopColor="#FA7E1E" />
+        <Stop offset="42%" stopColor="#D62976" />
+        <Stop offset="68%" stopColor="#962FBE" />
+        <Stop offset="100%" stopColor="#4F5BD5" />
+      </RadialGradient>
+    </Defs>
+    <Rect x={1.6} y={1.6} width={20.8} height={20.8} rx={7} fill="url(#igGrad)" />
+    <Rect x={7} y={7} width={10} height={10} rx={3} stroke="#FFFFFF" strokeWidth={1.6} {...STROKE} />
+    <Circle cx={12} cy={12} r={2.9} stroke="#FFFFFF" strokeWidth={1.6} />
+    <Circle cx={16.1} cy={7.9} r={1} fill="#FFFFFF" />
   </Svg>
 );
 

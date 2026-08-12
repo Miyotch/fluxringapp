@@ -132,11 +132,13 @@ void main() {
   vec3 base = mix(vec3(0.60, 0.63, 0.70), vec3(0.80, 0.83, 0.90), envG) + vec3((line - 0.5) * 0.032);
 
   // 二段スペキュラ: 鋭い(pow64) + 広い(pow14)
+  // 刻印文字が白飛びして読みづらいとの指摘のため、裏面のみ反射率を抑制
+  // （表面 ART_FRAGMENT_SHADER・共通の uLight は変更しない）。
   float spec = pow(max(dot(N, H), 0.0), 64.0) * 0.6;
   float spec2 = pow(max(dot(N, H), 0.0), 14.0) * 0.32;
 
-  vec3 col = base * (0.42 + 0.58 * diff) + envC * 0.20 + vec3(spec) * 0.55 + vec3(spec2) * 0.5
-    + fres * vec3(0.50, 0.55, 0.66) * 0.20;
+  vec3 col = base * (0.42 + 0.58 * diff) + envC * 0.14 + vec3(spec) * 0.40 + vec3(spec2) * 0.35
+    + fres * vec3(0.50, 0.55, 0.66) * 0.14;
 
   // 刻印（3層彫り込み・lib/cardBackTexture.ts の carve）を金属の上に合成
   if (uHasInk > 0.5) {
