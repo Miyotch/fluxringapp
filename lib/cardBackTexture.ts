@@ -51,6 +51,17 @@ function estWidth(text: string, fs: number, font: SkFont | null): number {
   return w;
 }
 
+// 文字数固定の折り返し（幅ではなく「1行20文字・最大4行=80文字」で機械的に区切る）。
+// 改行は考慮せず、文字数だけで maxLines 行に分割し、超過分は切り捨てる。
+function wrapFixedChars(text: string, charsPerLine: number, maxLines: number): string[] {
+  const chars = [...text];
+  const lines: string[] = [];
+  for (let i = 0; i < chars.length && lines.length < maxLines; i += charsPerLine) {
+    lines.push(chars.slice(i, i + charsPerLine).join(''));
+  }
+  return lines;
+}
+
 // 全角/半角の概算幅で折り返し（日本語は文字単位で折る）
 function wrap(text: string, fs: number, maxW: number, font: SkFont | null, maxLines: number): string[] {
   const lines: string[] = [];
@@ -333,19 +344,20 @@ export function renderAluminumInkPixels(
   // タイトル 52px / weight600 / 字間2px（0だと詰まって見えるため気持ち空ける）
   printAlum(c, data.title, cx, 368, 52, '600', alum(1), 2, 'c');
 
-  // Story 40px / weight300 / lh72 / 字間2px / 左寄せ x=112 / 最大幅800
+  // Story 40px / weight300 / lh72 / 字間2px / 左寄せ x=112。
+  // 最大4行・1行20文字・合計80文字までの固定文字数で折り返す
+  // （幅ベースだと半角文字混じりで1行の文字数がぶれるため、文字数優先の指定）。
   // ゾーン[470, H-460]の中央に文字ブロックを配置（__dvMakeInk 準拠）。
   if (data.story) {
     const fs = 40;
     const lh = 72;
-    const maxW = 800;
-    const font = makeFont(fs, '300', INK_FONT);
+    const CHARS_PER_LINE = 20;
     const zoneTop = 470;
     const zoneBottom = H - 460;
     // Story本文は最大4行まで（詰まりすぎ防止のミーティング指摘）。
     // ゾーン高さから計算される行数がそれより多くても4行で打ち切る。
     const maxLines = Math.min(4, Math.floor((zoneBottom - zoneTop) / lh));
-    const lines = wrap(data.story, fs, maxW, font, maxLines);
+    const lines = wrapFixedChars(data.story, CHARS_PER_LINE, maxLines);
     const mid = (zoneTop + zoneBottom) / 2;
     let y = Math.max(zoneTop, mid - (lines.length * lh) / 2);
     for (const ln of lines) {
