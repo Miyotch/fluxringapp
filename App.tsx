@@ -102,6 +102,8 @@ function AppInner() {
   const [playerTrackId, setPlayerTrackId] = useState<string | null>(null);
   // コレクションでタップされたタイルの画面絶対座標（再生画面の残像アニメーションの起点）
   const [playerOrigin, setPlayerOrigin] = useState<CardOrigin | null>(null);
+  // 再生画面をどのタブから開いたか（「戻る」の遷移先とラベル文言の出し分けに使う）
+  const [playerReturnTab, setPlayerReturnTab] = useState<'home' | 'collection'>('collection');
   // ホーム（ディスカバー）で最初に表示するカード id（ウィッシュから飛んできたとき用）
   const [homeFocusId, setHomeFocusId] = useState<string | null>(null);
 
@@ -289,12 +291,13 @@ function AppInner() {
       <PlayerScreen
         track={playerTrack}
         origin={playerOrigin ?? undefined}
+        backLabel={playerReturnTab === 'home' ? '‹ ホームへ戻る' : '‹ コレクションへ戻る'}
         onPrevTrack={canSkip ? () => goTrack(-1) : undefined}
         onNextTrack={canSkip ? () => goTrack(1) : undefined}
         onBackHome={() => {
-          // コレクションから開くのでコレクションへ戻す
+          // 開いたタブへ戻す（ホーム再生ならホームへ、コレクションならコレクションへ）
           setOverlay(null);
-          setTab('collection');
+          setTab(playerReturnTab);
           setPlayerOrigin(null);
         }}
       />
@@ -387,6 +390,16 @@ function AppInner() {
             onOpenNotifications={() => setOverlay('notifications')}
             ownedIds={ownedTrackIds}
             purchase={purchase}
+            onPlay={(id) => {
+              // 所有済みカードの「再生」押下 → 再生画面へ（コレクションのタイル起点が
+              // 無いので残像演出は出さない＝origin は null のまま）
+              if (playerTracks.some((tr) => tr.id === id)) {
+                setPlayerTrackId(id);
+                setPlayerOrigin(null);
+                setPlayerReturnTab('home');
+                setOverlay('player');
+              }
+            }}
           />
         )}
 
@@ -400,6 +413,7 @@ function AppInner() {
               if (playerTracks.some((tr) => tr.id === id)) {
                 setPlayerTrackId(id);
                 setPlayerOrigin(origin ?? null);
+                setPlayerReturnTab('collection');
                 setOverlay('player');
               } else {
                 setOverlay('story');

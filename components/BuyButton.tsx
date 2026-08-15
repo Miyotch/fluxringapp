@@ -16,7 +16,7 @@ import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { PlayMark } from './icons';
 import { formatPrice, TRACK_PRICE_JPY } from '../constants/pricing';
 import { useT } from '../lib/i18n';
-import { NUM_FONT } from '../constants/fonts';
+import { NUM_FONT, JP_SERIF_FONT } from '../constants/fonts';
 
 type Props = {
   owned?: boolean;
@@ -79,14 +79,15 @@ const styles = StyleSheet.create({
     color: 'rgba(244,254,255,0.62)',
     fontSize: 16,
     letterSpacing: 3.2, // .2em（tonmana_typography_reference .buy 準拠）
+    fontFamily: JP_SERIF_FONT, // 和文＝明朝（ゴシックで出ていたのを修正）
     textShadowColor: 'rgba(96,206,224,1)',
     textShadowOffset: { width: 0, height: 0 },
-    textShadowRadius: 9, // 実機調整ポイント: 大きいほどぼやける
+    textShadowRadius: 11, // 実機調整ポイント: 大きいほどぼやける（文字の後ろを少しだけぼかす指定で9→11）
   },
   // 押下時は芯を明るく・グローを強めて「押した」ことを伝える
   labelPressed: {
     color: 'rgba(250,255,255,0.95)',
-    textShadowRadius: 14,
+    textShadowRadius: 16,
   },
   price: {
     color: '#8FD4DE',
