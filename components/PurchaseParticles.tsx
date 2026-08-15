@@ -33,7 +33,8 @@ import {
   SharedValue,
 } from 'react-native-reanimated';
 
-const PARTICLE_COUNT = 220;
+// 大きさ・数・密度の改善指摘に基づき増量（実機調整ポイント）。
+const PARTICLE_COUNT = 280;
 const RISE_MIN = 180;
 const RISE_MAX = 320;
 const WOBBLE_MAX = 20;
@@ -48,12 +49,12 @@ const COLORS = [
   ...Array(2).fill('#60CEE0'),
 ];
 
-// 半径(px)。極小60% / 中小30% / 大10%（直径ベースの仕様値を半径に換算）
+// 半径(px)。極小55% / 中小30% / 大15%（粒を少し大きく・大粒の比率を上げた改訂値）
 function randomRadius(): number {
   const r = Math.random();
-  if (r < 0.6) return 0.5 + Math.random() * 0.25;   // 極小: 直径1.0〜1.5px
-  if (r < 0.9) return 1.0 + Math.random() * 0.5;     // 中小: 直径2.0〜3.0px
-  return 1.75 + Math.random() * 0.5;                 // 大: 直径3.5〜4.5px
+  if (r < 0.55) return 0.6 + Math.random() * 0.3;    // 極小: 直径1.2〜1.8px
+  if (r < 0.85) return 1.2 + Math.random() * 0.6;     // 中小: 直径2.4〜3.6px
+  return 2.1 + Math.random() * 0.9;                   // 大: 直径4.2〜6.0px
 }
 
 type Particle = {

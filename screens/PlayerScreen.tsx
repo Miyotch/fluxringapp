@@ -6,7 +6,7 @@
  *                   カードと大きな再生ボタンだけを出す（魔法陣は出さない）
  *   ・再生(playing): 再生ボタンで開始。背景は星雲（NebulaGL）のまま暗幕だけ外れる。
  *                    下部に枠なしのトランスポート（シーク・時間・再生/停止・ループ）
- *   ・上部左「コレクションへ戻る」／右に共有（旧ストーリー導線は廃止）
+ *   ・上部左「戻る」（コレクション/ホームどちらから開いたかで文言が変わる）／右に共有（旧ストーリー導線は廃止）
  *   ・EQ なし。曲送り／戻しは所有が2曲以上のときだけ有効（1曲なら淡色の無効表示）
  *   ・フッター非表示・縦画面固定。総時間は音源から自動算出
  *   ・ホーム(ディスカバー)側は従来のまま。この画面のみの挙動
@@ -66,7 +66,10 @@ type Props = {
   track: PlayerTrack;
   /** コレクションでタップされたタイルの画面絶対座標（指定時のみ残像を一瞬表示） */
   origin?: CardOrigin;
-  onBackHome: () => void; // コレクションへ戻る
+  onBackHome: () => void; // コレクション or ホームへ戻る（backLabel と対で親が制御）
+  /** 上部左の戻る導線の文言。コレクションから開いたときは「‹ コレクションへ戻る」、
+   *  ホーム（所有済みカードの再生ボタン）から開いたときは「‹ ホームへ戻る」。 */
+  backLabel?: string;
   onOpenStory?: () => void; // 未使用（ストーリー導線は廃止）
   /**
    * 曲送り／戻し。所有が2曲以上のときだけ親から渡る。
@@ -77,7 +80,14 @@ type Props = {
   onNextTrack?: () => void;
 };
 
-export const PlayerScreen: React.FC<Props> = ({ track, origin, onBackHome, onPrevTrack, onNextTrack }) => {
+export const PlayerScreen: React.FC<Props> = ({
+  track,
+  origin,
+  backLabel = '‹ コレクションへ戻る',
+  onBackHome,
+  onPrevTrack,
+  onNextTrack,
+}) => {
   const { width: screenW, height: screenH } = useWindowDimensions();
   const navTop = useTopInset(8);            // 従来 52px（=44+8）
   const transportBottom = useBottomInset(40, 12); // ホームインジケータ回避（従来 40px を下回らない）
@@ -343,14 +353,14 @@ export const PlayerScreen: React.FC<Props> = ({ track, origin, onBackHome, onPre
       <Pressable
         style={StyleSheet.absoluteFill}
         onPress={handleBackgroundTap}
-        accessibilityLabel="コレクションへ戻る"
+        accessibilityLabel={backLabel.replace(/^[‹\s]+/, '')}
       />
 
-      {/* 上部導線: コレクションへ戻る / 共有（旧ストーリー導線は廃止）。
-          再生ボタンのタップから200ms遅れて上からフェードイン。 */}
+      {/* 上部導線: 戻る（コレクション/ホームどちらから開いたかで文言を出し分け）/ 共有
+          （旧ストーリー導線は廃止）。再生ボタンのタップから200ms遅れて上からフェードイン。 */}
       <Animated.View style={[styles.topNav, { paddingTop: navTop }, headerAnimStyle]}>
         <Pressable onPress={onBackHome} hitSlop={10}>
-          <Text style={styles.navText}>‹ コレクションへ戻る</Text>
+          <Text style={styles.navText}>{backLabel}</Text>
         </Pressable>
         <Pressable onPress={onShare} hitSlop={10} accessibilityLabel="共有">
           <ShareIcon />
@@ -495,10 +505,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'flex-start',
   },
-  // ‹ コレクションへ戻る: 12px / 字間2.0 / rgba(236,238,247,.55) / 明朝
+  // 戻るリンク（backLabel）: 13px（視認性向上のため12→13へ1段階拡大）/ 字間2.0 / rgba(236,238,247,.55) / 明朝
   navText: {
     color: 'rgba(236,238,247,0.55)',
-    fontSize: 12,
+    fontSize: 13,
     letterSpacing: 2.0,
     fontFamily: JP_SERIF_FONT,
   },

@@ -86,10 +86,14 @@ const FRAME_MAX_DT = FLIP_MAX_STEP_MS / 1000;
 //   感度 0.008 rad/px・縦クランプ ±1.25rad・慣性 VMAX=6.0・減衰 pow(0.94,dt*60)・
 //   スムージング sm=1-exp(-dt*14)・モデル行列 RotY(angY)*RotX(angX)・初期姿勢 (-0.05,0.20)。
 // 感度は 0.008 だと過敏で扱いづらかったため半分へ（FPS のセンシ設定と同じ考え方）
+// 横（左右スワイプ＝Y軸回転）はこちらを使う。
 const CARD_DRAG_SENS = 0.004; // rad/px
+// 縦（上下ドラッグ＝X軸回転）専用の感度。実機調整ポイント。
+const CARD_DRAG_SENS_VERT = 0.006; // rad/px
 // 縦回転クランプ。1.25rad(≈71.6°) はひっくり返って見えるため ±22° に制限する
 const CARD_ANG_CLAMP = 0.384; // 22° = 22*π/180 ≒ 0.384 rad
-const CARD_VMAX = 6.0;        // 慣性の角速度上限（rad/s）
+const CARD_VMAX = 6.0;        // 横フリックの慣性・角速度上限（rad/s）
+const CARD_VMAX_VERT = 2.0;   // 縦フリックの慣性・角速度上限（横より抑える）
 const CARD_INIT_ANGX = -0.05; // 初期姿勢（正面やや傾き）
 const CARD_INIT_ANGY = 0.20;
 // 重力オートリターン: 手を離すと弱いバネで静止姿勢へ戻す。
@@ -156,6 +160,23 @@ function applySpin(q: THREE.Quaternion, degX: number, degY: number) {
   TMP_AXIS.set(degX / mag, degY / mag, 0);
   TMP_Q.setFromAxisAngle(TMP_AXIS, (mag * Math.PI) / 180);
   q.premultiply(TMP_Q);
+}
+
+const TMP_Q2 = new THREE.Quaternion();
+
+/**
+ * flip モード裏面のトラックボール回転を、Q_BACK（真裏向き）から
+ * CARD_ANG_CLAMP（±22°）以上は傾かないように抑える。
+ * どの方向にドラッグしても、絵柄・刻印テキストが読める角度で止まる
+ * （spin モードの縦クランプと同じ 22° を、こちらは全方向に適用する）。
+ */
+function clampTiltFromBack(q: THREE.Quaternion) {
+  const dot = Math.max(-1, Math.min(1, Math.abs(q.dot(Q_BACK))));
+  const angle = 2 * Math.acos(dot);
+  if (angle > CARD_ANG_CLAMP) {
+    TMP_Q2.copy(q);
+    q.copy(Q_BACK).slerp(TMP_Q2, CARD_ANG_CLAMP / angle);
+  }
 }
 
 // 決定論ハッシュ（0..1）
@@ -485,6 +506,7 @@ const CardMesh: React.FC<{
       const speed = Math.hypot(s.vx, s.vy);
       if (speed > STOP_DEG_PER_SEC) {
         applySpin(s.q, s.vx * dt, s.vy * dt);
+        clampTiltFromBack(s.q);
         const f = Math.exp(-DECAY * dt);
         s.vx *= f;
         s.vy *= f;
@@ -754,15 +776,18 @@ export const CardGL: React.FC<CardGLProps> = ({
           if (!moved.current) return;
           const s = spin.current;
           if (isFlip) {
-            // flip モード（裏面）: 従来のトラックボール（横=Y軸 / 縦=X軸 / 斜め=合成軸）
+            // flip モード（裏面）: 従来のトラックボール（横=Y軸 / 縦=X軸 / 斜め=合成軸）。
+            // Q_BACK から±22°以上は傾かないようクランプし、絵柄・テキストが
+            // 読めなくなるほど回してしまわないようにする。
             applySpin(s.q, ddy * SENS, ddx * SENS);
+            clampTiltFromBack(s.q);
           } else {
             // spin モード（プレイヤー）: 参照 move の verbatim
             //   tAngY+=dx*0.008 / tAngX+=dy*0.008（縦のみ±1.25rad クランプ）
             s.tAngY += ddx * CARD_DRAG_SENS;
             // 縦は vSign を掛ける。裏向きでは同じ world X 回転で見えている面が
             // 逆に動くため、掛けないと指と上下が逆になる。
-            s.tAngX += ddy * CARD_DRAG_SENS * s.vSign;
+            s.tAngX += ddy * CARD_DRAG_SENS_VERT * s.vSign;
             s.tAngX = Math.max(-CARD_ANG_CLAMP, Math.min(CARD_ANG_CLAMP, s.tAngX));
           }
           if (dragXOut) dragXOut.value = g.dx;
@@ -795,10 +820,14 @@ export const CardGL: React.FC<CardGLProps> = ({
               // spin モード: 参照 up の verbatim（px/ms → rad/s・VMAX クランプ）
               //   velY=dx速度*sens / velX=dy速度*sens
               s.velY = Math.max(-CARD_VMAX, Math.min(CARD_VMAX, g.vx * 1000 * CARD_DRAG_SENS));
-              // 慣性の縦成分もドラッグと同じ符号にする（離した瞬間に逆へ跳ねないように）
+              // 慣性の縦成分もドラッグと同じ符号にする（離した瞬間に逆へ跳ねないように）。
+              // 縦フリックは横より弱く抑える（CARD_VMAX_VERT）。
               s.velX = isFlick
                 ? 0
-                : Math.max(-CARD_VMAX, Math.min(CARD_VMAX, g.vy * 1000 * CARD_DRAG_SENS * s.vSign));
+                : Math.max(
+                    -CARD_VMAX_VERT,
+                    Math.min(CARD_VMAX_VERT, g.vy * 1000 * CARD_DRAG_SENS_VERT * s.vSign),
+                  );
               // フリック中は縦の目標角も直立へ寄せて、斜めに転んだまま回らないようにする
               if (isFlick) s.tAngX = CARD_INIT_ANGX;
             }

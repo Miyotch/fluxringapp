@@ -330,10 +330,10 @@ export function renderAluminumInkPixels(
   // No.（彫り込み・字間6px）※通し番号
   carve(c, data.no ?? data.serial ?? 'No. 001', cx, 266, 38, '500', 6, 'c');
 
-  // タイトル 52px / weight600 / 字間なし
-  printAlum(c, data.title, cx, 368, 52, '600', alum(0.95), 0, 'c');
+  // タイトル 52px / weight600 / 字間2px（0だと詰まって見えるため気持ち空ける）
+  printAlum(c, data.title, cx, 368, 52, '600', alum(1), 2, 'c');
 
-  // Story 40px / weight300 / lh72 / 字間なし / 左寄せ x=112 / 最大幅800
+  // Story 40px / weight300 / lh72 / 字間2px / 左寄せ x=112 / 最大幅800
   // ゾーン[470, H-460]の中央に文字ブロックを配置（__dvMakeInk 準拠）。
   if (data.story) {
     const fs = 40;
@@ -350,31 +350,42 @@ export function renderAluminumInkPixels(
     let y = Math.max(zoneTop, mid - (lines.length * lh) / 2);
     for (const ln of lines) {
       if (y > zoneBottom - lh) break;
-      printAlum(c, ln, 112, y, fs, '300', alum(0.9), 0, 'l');
+      printAlum(c, ln, 112, y, fs, '300', alum(0.97), 2, 'l');
       y += lh;
     }
   }
 
   // 見出しラベル「ー 調律 ー」32px / weight300 / 字間8px
-  printAlum(c, 'ー 調律 ー', cx, H - 372, 32, '300', alum(0.62), 8, 'c');
+  printAlum(c, 'ー 調律 ー', cx, H - 372, 32, '300', alum(0.75), 8, 'c');
 
-  // 調律 40px / weight300 / 字間なし / 単色。調律名＋全角スペース＋周波数群
+  // 調律 40px / weight300 / 字間2px / 単色。調律名＋全角スペース＋周波数群
   // （周波数は data.freqs、無ければ frequencies）。原材料(materials)は
   // このアルミ面には出さない（原材料欄は renderCardBackPixels/StoryBack 側のみ）。
   const tuning = data.tuning ?? '';
   const freqs = (data.freqs ?? data.frequencies ?? []).filter(Boolean);
   if (tuning || freqs.length > 0) {
     const tuneText = tuning + '　' + freqs.join('　');
-    printAlum(c, tuneText, cx, H - 302, 40, '300', alum(0.86), 0, 'c');
+    printAlum(c, tuneText, cx, H - 302, 40, '300', alum(0.95), 2, 'c');
   }
 
-  // Artist名 40px / weight400 / 字間10px / 大文字。直後に '›' を添える
-  // （__dvMakeInk 準拠。位置は NAOKI OKA の実測幅から算出）。
+  // Artist名 40px / weight400 / 字間10px / 大文字。直後に '›' を添える。
+  // 名前＋間隔＋シェブロンの合計幅を先に測ってから cx を中心に配置することで、
+  // 名前だけを中心に置いてシェブロン分だけ右へ余分に伸びる非対称（左に寄って見える
+  // 原因）を避ける（__dvMakeInk の nameX=500 固定値は使わない）。
   const signature = (data.artist ?? 'NAOKI OKA').toUpperCase();
-  const nameX = 500;
   const nameY = H - 190;
-  const nw = printAlum(c, signature, nameX, nameY, 40, '400', alum(0.9), 10, 'c');
-  printAlum(c, '›', nameX + nw / 2 + 26, H - 192, 42, '400', alum(0.62), 0, 'l');
+  const nameFont = makeFont(40, '400', INK_FONT);
+  const nameLetterSpacing = 10;
+  const nameChars = [...signature];
+  const nameWidths = nameChars.map((ch) => estWidth(ch, 40, nameFont));
+  const nw =
+    nameWidths.reduce((a, b) => a + b, 0) + nameLetterSpacing * Math.max(0, nameChars.length - 1);
+  const chevronGap = 26;
+  const chevronW = estWidth('›', 42, makeFont(42, '400', INK_FONT));
+  const groupW = nw + chevronGap + chevronW;
+  const nameX = cx - groupW / 2 + nw / 2;
+  printAlum(c, signature, nameX, nameY, 40, '400', alum(0.97), nameLetterSpacing, 'c');
+  printAlum(c, '›', nameX + nw / 2 + chevronGap, H - 192, 42, '400', alum(0.75), 0, 'l');
 
   const img = surface.makeImageSnapshot();
   // GLSL 側で `mix(metalColor, ink.rgb, ink.a)` とストレートアルファ合成する

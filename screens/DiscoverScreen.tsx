@@ -95,6 +95,8 @@ type Props = {
   ownedIds?: Set<string>;
   /** 購入フロー。未指定なら購入ボタンは押しても何も起きない（ギャラリー表示用） */
   purchase?: PurchaseController;
+  /** 所有済みカードの「再生」ボタン押下 → 再生画面を開く。未指定なら何も起きない */
+  onPlay?: (trackId: string) => void;
 };
 
 // フォールバック用スタブ（App からは stubData を渡す）
@@ -122,6 +124,7 @@ export const DiscoverScreen: React.FC<Props> = ({
   focusTrackId,
   ownedIds,
   purchase,
+  onPlay,
 }) => {
   // ウィッシュから飛んできたときは、その曲のカードを最初に表示する。
   const initialIndex = focusTrackId
@@ -155,6 +158,21 @@ export const DiscoverScreen: React.FC<Props> = ({
   const cardW = 172;
   const cardH = Math.round(cardW * 1.5);
   const cardRadius = Math.round(0.085 * cardW); // CardAura と同じ角丸比率
+
+  // 裏返し時、拡大されたカード（FLIP_BACK_SCALE）が下部の購入ボタン／ウィッシュ星と
+  // 被るため、flipped の間だけ下部コントロールをふっと下へ隠す（値を動かすのはカード
+  // ではなくボタン側。カードの拡大率はStorySeal等と同じく実機調整済みの確定値のため）。
+  const bottomChromeT = useSharedValue(0);
+  useEffect(() => {
+    bottomChromeT.value = withTiming(flipped ? 1 : 0, {
+      duration: 260,
+      easing: Easing.inOut(Easing.quad),
+    });
+  }, [flipped, bottomChromeT]);
+  const bottomChromeStyle = useAnimatedStyle(() => ({
+    opacity: 1 - bottomChromeT.value,
+    transform: [{ translateY: bottomChromeT.value * 40 }],
+  }));
 
   // 購入確定時のカード発光・浮遊（PurchaseCardGlow ＋ このカード自身のtranslate/scale）
   const cardGlow = useSharedValue(0);
@@ -253,16 +271,16 @@ export const DiscoverScreen: React.FC<Props> = ({
     [ownedIds, pendingReveal],
   );
 
-  // 「購入する」押下 → まず購入確認ポップアップを開く（所有済みは再生扱いで何もしない）
+  // 「購入する」押下 → まず購入確認ポップアップを開く（所有済みは再生画面へ）
   const handleBuy = useCallback(() => {
     if (!active) return;
     if (isOwned(active)) {
-      // TODO: 所有済みは再生画面へ。暫定は何もしない
+      onPlay?.(active.id);
       return;
     }
     purchase?.dismiss(); // 前回の失敗表示を持ち越さない
     setPurchaseTarget(active);
-  }, [active, isOwned, purchase]);
+  }, [active, isOwned, purchase, onPlay]);
 
   // ポップアップの金額 or 確定ボタン → OS の課金シートへ。
   // ここでは所有状態も演出も動かさない。成立したかどうかは purchase.onSuccess で受ける
@@ -416,15 +434,16 @@ export const DiscoverScreen: React.FC<Props> = ({
         {/* ブランド */}
         <Text style={[styles.brand, { top: 26 + chromeShift }]}>Flux Ring</Text>
 
-        {/* 右上: EQ+ベル(1段目) / 試聴(2段目)。EQ は試聴中だけ動く
-            （試聴を止めたらボリュームアニメーションも消える） */}
-        <View style={[styles.topRight, { top: topRightY }]} pointerEvents="box-none">
+        {/* 右上: ベル+EQ(1段目) / 試聴(2段目)。EQ は試聴中だけ動く
+            （試聴を止めたらボリュームアニメーションも消える）。
+            1段目はベルを左・EQメーターを右の順で並べる。 */}
+        <View style={[styles.topRight, { top: topRightY + 5 }]} pointerEvents="box-none">
           <View style={styles.iconsRow1}>
-            <EqBars active={isPreviewing} />
             <Pressable onPress={onOpenNotifications} hitSlop={10} style={styles.bell}>
               <BellIcon size={22} />
               {hasUnread && <View style={styles.bdot} />}
             </Pressable>
+            <EqBars active={isPreviewing} />
           </View>
           <Pressable onPress={togglePreview} hitSlop={10} style={styles.iconsRow2}>
             <PreviewIcon size={22} on={isPreviewing} />
@@ -436,8 +455,13 @@ export const DiscoverScreen: React.FC<Props> = ({
           <Text style={styles.title} numberOfLines={1}>{active?.title}</Text>
         </View>
 
-        {/* 下部: 購入ボタン ＋ ウィッシュ星 */}
-        <View style={[styles.bottom, { bottom: 109 + slideH * 0.02 }]} pointerEvents="box-none">
+        {/* 下部: 購入ボタン ＋ ウィッシュ星。
+            裏返し中は拡大されたカードと被るため、フェード＋下スライドで一時的に隠す
+            （flipped→false で戻す。表示位置自体は変えず、見た目の一時退避のみ）。 */}
+        <Animated.View
+          style={[styles.bottom, { bottom: 109 + slideH * 0.02 }, bottomChromeStyle]}
+          pointerEvents={flipped ? 'none' : 'box-none'}
+        >
           {(() => {
             const owned = isOwned(active);
             return (
@@ -459,7 +483,7 @@ export const DiscoverScreen: React.FC<Props> = ({
               </>
             );
           })()}
-        </View>
+        </Animated.View>
       </View>
 
       {/* 購入の光粒子（画面下部から舞い上がる・複製カードは出さない） */}

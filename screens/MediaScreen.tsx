@@ -22,7 +22,7 @@ import {
 import { COLOR, SPACE, RADIUS } from '../constants/design-tokens';
 import { useTopInset } from '../lib/safeArea';
 import { NUM_FONT } from '../constants/fonts';
-import { XIcon, InstagramIcon } from '../components/icons';
+import { InstagramIcon } from '../components/icons';
 
 type Sns = {
   key: string;
@@ -49,7 +49,7 @@ type Props = {
 const DEFAULT_SNS: Sns[] = [
   {
     // 非公式画像(instagram.png)ではなく、正規のInstagramロゴ形状を再現した
-    // ベクターアイコンを使用（XIcon と同じ IconComponent 方式）。
+    // ベクターアイコンを使用。
     key: 'instagram', label: 'Instagram', url: 'https://instagram.com',
     IconComponent: InstagramIcon,
   },
@@ -58,8 +58,9 @@ const DEFAULT_SNS: Sns[] = [
     icon: require('../components/note.png'),
   },
   {
+    // X（旧Twitter）は自前SVGバッジではなく、正規画像(components/twitterx.jpg)を使用
     key: 'x', label: 'X', url: 'https://x.com',
-    IconComponent: XIcon,
+    icon: require('../components/twitterx.jpg'),
   },
 ];
 
