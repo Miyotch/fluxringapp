@@ -289,7 +289,7 @@ export const SupportScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
       <SubHeader title={t('support.title')} onBack={onBack} />
       <ScrollView contentContainerStyle={s.body} showsVerticalScrollIndicator={false}>
-        <Text style={s.paragraph}>{t('support.body')}</Text>
+        <Text style={[s.paragraph, s.supportLead]}>{t('support.body')}</Text>
 
         {/* TODO: 実際の問い合わせ先メール / フォーム URL に差し替え */}
         <Pressable
@@ -1144,9 +1144,9 @@ const s = StyleSheet.create({
   },
   // 戻るは「‹」のみに統一。左右を同幅にしてタイトルを中央に保つ
   // （左は実タップ領域、右は見えないバランサー）。
-  backBtn: { width: 28 },
-  // 見出し(h1: 16px)と同じ大きさに揃える（12pxだと小さく見づらいとの指摘対応）
-  back: { color: COLOR.textBack, fontSize: 16, letterSpacing: 0.6 },
+  backBtn: { width: 32 },
+  // 16px（見出しh1と同大）でもまだ見づらいとの指摘のため、2段階分＋4して20pxへ
+  back: { color: COLOR.textBack, fontSize: 20, letterSpacing: 0.6 },
   // 和文＝明朝（OS標準）/ letterSpacing = fontSize×0.02
   h1: {
     flex: 1,
@@ -1222,6 +1222,8 @@ const s = StyleSheet.create({
   check: { color: COLOR.auraCyan, fontSize: 16 },
 
   paragraph: { color: COLOR.textSecondary, fontSize: 14, lineHeight: 23, letterSpacing: 0.28, fontFamily: JP_SERIF_FONT },
+  // サポート画面: タイトル(SubHeader)と本文の間に2行分（lineHeight23×2）の余白を追加
+  supportLead: { marginTop: 46 },
   docLead: {
     color: COLOR.textSecondary,
     fontSize: 15,
