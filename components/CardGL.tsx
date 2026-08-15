@@ -158,6 +158,23 @@ function applySpin(q: THREE.Quaternion, degX: number, degY: number) {
   q.premultiply(TMP_Q);
 }
 
+const TMP_Q2 = new THREE.Quaternion();
+
+/**
+ * flip モード裏面のトラックボール回転を、Q_BACK（真裏向き）から
+ * CARD_ANG_CLAMP（±22°）以上は傾かないように抑える。
+ * どの方向にドラッグしても、絵柄・刻印テキストが読める角度で止まる
+ * （spin モードの縦クランプと同じ 22° を、こちらは全方向に適用する）。
+ */
+function clampTiltFromBack(q: THREE.Quaternion) {
+  const dot = Math.max(-1, Math.min(1, Math.abs(q.dot(Q_BACK))));
+  const angle = 2 * Math.acos(dot);
+  if (angle > CARD_ANG_CLAMP) {
+    TMP_Q2.copy(q);
+    q.copy(Q_BACK).slerp(TMP_Q2, CARD_ANG_CLAMP / angle);
+  }
+}
+
 // 決定論ハッシュ（0..1）
 function hash(x: number): number {
   const s = Math.sin(x * 12.9898) * 43758.5453;
@@ -485,6 +502,7 @@ const CardMesh: React.FC<{
       const speed = Math.hypot(s.vx, s.vy);
       if (speed > STOP_DEG_PER_SEC) {
         applySpin(s.q, s.vx * dt, s.vy * dt);
+        clampTiltFromBack(s.q);
         const f = Math.exp(-DECAY * dt);
         s.vx *= f;
         s.vy *= f;
@@ -754,8 +772,11 @@ export const CardGL: React.FC<CardGLProps> = ({
           if (!moved.current) return;
           const s = spin.current;
           if (isFlip) {
-            // flip モード（裏面）: 従来のトラックボール（横=Y軸 / 縦=X軸 / 斜め=合成軸）
+            // flip モード（裏面）: 従来のトラックボール（横=Y軸 / 縦=X軸 / 斜め=合成軸）。
+            // Q_BACK から±22°以上は傾かないようクランプし、絵柄・テキストが
+            // 読めなくなるほど回してしまわないようにする。
             applySpin(s.q, ddy * SENS, ddx * SENS);
+            clampTiltFromBack(s.q);
           } else {
             // spin モード（プレイヤー）: 参照 move の verbatim
             //   tAngY+=dx*0.008 / tAngX+=dy*0.008（縦のみ±1.25rad クランプ）
