@@ -34,7 +34,9 @@ import { useSharedValue, useDerivedValue, SharedValue } from 'react-native-reani
 
 // ── 参照実装の定数 ──
 const BANDY = 0.49;  // 帯の中心（縦%）
-const BANDH = 0.115; // 帯の広がり（表示範囲を絞るため 0.16 から縮小）
+// 帯の広がり。一度 0.115 まで絞ったが、実機では星雲が痩せて背景が暗く見えたため
+// 参照実装 v97 の 0.16 へ戻す（雲の半径・横範囲・blur も同時に v97 値へ復帰）。
+const BANDH = 0.16;
 const CLOUD_COLORS: [number, number, number][] = [
   [68, 90, 224], [84, 102, 218], [58, 100, 230], [98, 108, 214], [74, 96, 226],
 ];
@@ -66,9 +68,11 @@ function buildClouds(): Cloud[] {
   const out: Cloud[] = [];
   for (let i = 0; i < N_CLOUDS; i++) {
     out.push({
-      bx: rnd(i * 3.1 + 0.7, 4, 96),
+      // 横は画面外（-6%〜106%）まで置いて左右端まで雲を届かせる。
+      // 半径も v97 値に戻し、雲同士を重ねて screen 合成で明るさを積む。
+      bx: rnd(i * 3.1 + 0.7, -6, 106),
       by: (BANDY + gauss(i * 5.3 + 2.1) * BANDH) * 100,
-      r: rnd(i * 7.7 + 1.3, 58, 150),
+      r: rnd(i * 7.7 + 1.3, 70, 190),
       c: CLOUD_COLORS[i % CLOUD_COLORS.length],
       a: rnd(i * 11.3 + 4.9, 0.16, 0.3),
       ph: rnd(i * 13.7 + 3.3, 0, 6),
@@ -217,7 +221,7 @@ export const NebulaBand: React.FC<NebulaBandProps> = ({ paused = false }) => {
       <Group
         layer={
           <Paint blendMode="screen">
-            <Blur blur={8 * scale} />
+            <Blur blur={13 * scale} />
           </Paint>
         }
       >
