@@ -31,6 +31,10 @@ type Sns = {
   icon?: ImageSourcePropType;
   /** ベクターアイコン（指定時は icon より優先。X はこちらでバッジを描く） */
   IconComponent?: React.FC<{ size?: number }>;
+  /** ボタン背景色の上書き（既定は薄い紺の丸枠）。黒地アイコンは枠色との
+   * コントラストで縁が白っぽく見えるため、Xだけ枠ごと黒で塗りつぶす。 */
+  badgeBg?: string;
+  badgeBorder?: string;
 };
 type Article = {
   id: string;
@@ -58,9 +62,13 @@ const DEFAULT_SNS: Sns[] = [
     icon: require('../components/note.png'),
   },
   {
-    // X（旧Twitter）は自前SVGバッジではなく、正規画像(components/twitterx.jpg)を使用
+    // X（旧Twitter）は自前SVGバッジではなく、正規画像(components/twitterx.jpg)を使用。
+    // アイコン自体が黒地のため、ボタンの丸枠も黒で塗って縁に隙間が
+    // 見えないようにする（薄紺の共通枠のままだと縁が白っぽく浮いて見えた）。
     key: 'x', label: 'X', url: 'https://x.com',
     icon: require('../components/twitterx.jpg'),
+    badgeBg: '#000000',
+    badgeBorder: '#000000',
   },
 ];
 
@@ -95,7 +103,11 @@ export const MediaScreen: React.FC<Props> = ({
         {sns.map((s) => (
           <Pressable
             key={s.key}
-            style={styles.snsBtn}
+            style={[
+              styles.snsBtn,
+              s.badgeBg != null && { backgroundColor: s.badgeBg },
+              s.badgeBorder != null && { borderColor: s.badgeBorder },
+            ]}
             onPress={() => Linking.openURL(s.url).catch(() => {})}
             accessibilityLabel={s.label}
           >
