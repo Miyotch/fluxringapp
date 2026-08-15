@@ -14,13 +14,16 @@
 
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+// 全ページ共通: ヘッダー情報をセーフエリアからさらに下げる余白（指摘対応）
+const HEADER_EXTRA_DROP = 10;
+
 /**
  * 上部固定要素の paddingTop / top に使う値。
  * @param gap セーフエリア下端からの余白（既定 8）
  */
 export function useTopInset(gap = 8): number {
   const insets = useSafeAreaInsets();
-  return insets.top + gap;
+  return insets.top + gap + HEADER_EXTRA_DROP;
 }
 
 /**
