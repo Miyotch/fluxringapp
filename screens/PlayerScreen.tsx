@@ -129,6 +129,11 @@ export const PlayerScreen: React.FC<Props> = ({
   const playBtnTY = useSharedValue(10);
   const headerOpacity = useSharedValue(0);
   const headerTY = useSharedValue(-10);
+  // 戻るボタン（「‹」）は、ベール中（再生前）に戻る手段が背景タップしか無く
+  // 気づきにくかったため、タイトル等（headerOpacity）とは独立に、カードの
+  // 着地と同時に早く出す。
+  const navOpacity = useSharedValue(0);
+  const navTY = useSharedValue(-10);
   const controlsOpacity = useSharedValue(0);
   const controlsTY = useSharedValue(15);
   // 背景タップでコレクションへ戻るときの、画面全体のフェードアウト＋縮小
@@ -150,6 +155,10 @@ export const PlayerScreen: React.FC<Props> = ({
   const headerAnimStyle = useAnimatedStyle(() => ({
     opacity: headerOpacity.value,
     transform: [{ translateY: headerTY.value }],
+  }));
+  const navAnimStyle = useAnimatedStyle(() => ({
+    opacity: navOpacity.value,
+    transform: [{ translateY: navTY.value }],
   }));
   const controlsAnimStyle = useAnimatedStyle(() => ({
     opacity: controlsOpacity.value,
@@ -186,6 +195,9 @@ export const PlayerScreen: React.FC<Props> = ({
     // 再生ボタンは、カードが着地する頃にふわっと出す
     playBtnOpacity.value = withDelay(afterimageOrigin ? 250 : 0, withTiming(1, { duration: 300 }));
     playBtnTY.value = withDelay(afterimageOrigin ? 250 : 0, withTiming(0, { duration: 300 }));
+    // 戻るボタンも同じタイミングで出す（ベール中に戻る手段が無いのを防ぐ）
+    navOpacity.value = withDelay(afterimageOrigin ? 250 : 0, withTiming(1, { duration: 300 }));
+    navTY.value = withDelay(afterimageOrigin ? 250 : 0, withTiming(0, { duration: 300 }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cardArea.w, cardArea.h, cardArea.x, cardArea.y, afterimageOrigin]);
 
@@ -357,8 +369,9 @@ export const PlayerScreen: React.FC<Props> = ({
       />
 
       {/* 上部導線: 戻る（コレクション/ホームどちらから開いたかで文言を出し分け）/ 共有
-          （旧ストーリー導線は廃止）。再生ボタンのタップから200ms遅れて上からフェードイン。 */}
-      <Animated.View style={[styles.topNav, { paddingTop: navTop }, headerAnimStyle]}>
+          （旧ストーリー導線は廃止）。タイトル等（headerAnimStyle）とは切り離し、
+          カードの着地と同時に出す＝ベール中（再生前）でも戻れることが分かるように。 */}
+      <Animated.View style={[styles.topNav, { paddingTop: navTop }, navAnimStyle]}>
         <Pressable onPress={onBackHome} hitSlop={10}>
           <Text style={styles.navText}>{backLabel}</Text>
         </Pressable>

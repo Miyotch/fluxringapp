@@ -48,7 +48,7 @@ import { BellIcon, PreviewIcon } from '../components/icons';
 import { useTopInset } from '../lib/safeArea';
 import { PurchaseParticles } from '../components/PurchaseParticles';
 import { PurchaseCardGlow } from '../components/PurchaseCardGlow';
-import { PURCHASE } from '../constants/design-tokens';
+import { PURCHASE, FLIP_BACK_SCALE } from '../constants/design-tokens';
 import { formatPrice, TRACK_PRICE_JPY } from '../constants/pricing';
 import { JP_SERIF_FONT } from '../constants/fonts';
 import type { PurchaseController } from '../lib/usePurchaseFlow';
@@ -160,8 +160,18 @@ export const DiscoverScreen: React.FC<Props> = ({
   const cardRadius = Math.round(0.085 * cardW); // CardAura と同じ角丸比率
 
   // 裏返し時、拡大されたカード（FLIP_BACK_SCALE）が下部の購入ボタン／ウィッシュ星と
-  // 被るため、flipped の間だけ下部コントロールをふっと下へ隠す（値を動かすのはカード
-  // ではなくボタン側。カードの拡大率はStorySeal等と同じく実機調整済みの確定値のため）。
+  // 被るため、flipped の間は隠すのではなく、拡大後のカード下端よりさらに下へ
+  // スライドさせて「カードの下」に表示する（カードの拡大率はStorySeal等と同じく
+  // 実機調整済みの確定値のためカード側は動かさない）。
+  const BOTTOM_BASE = 109 + slideH * 0.02; // 通常時（表向き）の bottom 値
+  const FLIPPED_GAP = 16; // 拡大カード下端からの余白
+  // カードはスライド内で縦中央に配置される（styles.slide）ため、中心から
+  // 拡大後の半分の高さぶん下が裏面カードの下端。そこに GAP を足した位置まで
+  // 沈める。極端に小さい画面でも張り付きすぎないよう最低16pxは確保する。
+  const flippedBottom = Math.max(
+    16,
+    slideH / 2 - (cardH * FLIP_BACK_SCALE) / 2 - FLIPPED_GAP,
+  );
   const bottomChromeT = useSharedValue(0);
   useEffect(() => {
     bottomChromeT.value = withTiming(flipped ? 1 : 0, {
@@ -170,8 +180,7 @@ export const DiscoverScreen: React.FC<Props> = ({
     });
   }, [flipped, bottomChromeT]);
   const bottomChromeStyle = useAnimatedStyle(() => ({
-    opacity: 1 - bottomChromeT.value,
-    transform: [{ translateY: bottomChromeT.value * 40 }],
+    transform: [{ translateY: bottomChromeT.value * (BOTTOM_BASE - flippedBottom) }],
   }));
 
   // 購入確定時のカード発光・浮遊（PurchaseCardGlow ＋ このカード自身のtranslate/scale）
@@ -456,11 +465,11 @@ export const DiscoverScreen: React.FC<Props> = ({
         </View>
 
         {/* 下部: 購入ボタン ＋ ウィッシュ星。
-            裏返し中は拡大されたカードと被るため、フェード＋下スライドで一時的に隠す
-            （flipped→false で戻す。表示位置自体は変えず、見た目の一時退避のみ）。 */}
+            裏返し中は拡大されたカードと被るため、下スライドして「カードの下」に
+            表示位置を移す（隠さず常に見える・タップも可能なまま）。 */}
         <Animated.View
-          style={[styles.bottom, { bottom: 109 + slideH * 0.02 }, bottomChromeStyle]}
-          pointerEvents={flipped ? 'none' : 'box-none'}
+          style={[styles.bottom, { bottom: BOTTOM_BASE }, bottomChromeStyle]}
+          pointerEvents="box-none"
         >
           {(() => {
             const owned = isOwned(active);
