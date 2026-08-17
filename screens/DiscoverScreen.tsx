@@ -48,7 +48,7 @@ import { BellIcon, PreviewIcon } from '../components/icons';
 import { useTopInset } from '../lib/safeArea';
 import { PurchaseParticles } from '../components/PurchaseParticles';
 import { PurchaseCardGlow } from '../components/PurchaseCardGlow';
-import { PURCHASE, FLIP_BACK_SCALE } from '../constants/design-tokens';
+import { PURCHASE, FLIP_BACK_SCALE, HOME_CARD_W } from '../constants/design-tokens';
 import { formatPrice, TRACK_PRICE_JPY } from '../constants/pricing';
 import { JP_SERIF_FONT } from '../constants/fonts';
 import type { PurchaseController } from '../lib/usePurchaseFlow';
@@ -154,8 +154,10 @@ export const DiscoverScreen: React.FC<Props> = ({
   // 調律陣（StarSeal）のスケール基準。v98 カルーセル確定値 BASE_W = 164 × 1.15 = 188.6 で、
   // この値のとき陣が参照実装と 1:1 になる。陣は検証済みの確定値なのでここは動かさない。
   const SEAL_REF_W = 189;
-  // カードだけを陣より一回り小さくして、陣とカードのバランスをモック寄りにする
-  const cardW = 172;
+  // カードだけを陣より一回り小さくして、陣とカードのバランスをモック寄りにする。
+  // HOME_CARD_W は design-tokens.ts に切り出し済み（PlayerScreen が裏面の
+  // 絶対サイズをホームに揃えるために参照するため）。
+  const cardW = HOME_CARD_W;
   const cardH = Math.round(cardW * 1.5);
   const cardRadius = Math.round(0.085 * cardW); // CardAura と同じ角丸比率
 
