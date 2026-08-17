@@ -39,7 +39,7 @@ import { NebulaGL } from '../components/NebulaGL';
 import { CardAfterimage, CardOrigin } from '../components/CardAfterimage';
 import { EqBars } from '../components/EqBars';
 import { PlayMark, PauseMark, LoopIcon, ShareIcon, SkipIcon, SkipPrevIcon } from '../components/icons';
-import { COLOR, SPACE, TRANSPORT } from '../constants/design-tokens';
+import { COLOR, SPACE, TRANSPORT, FLIP_BACK_SCALE, HOME_CARD_W } from '../constants/design-tokens';
 import { formatTime } from '../lib/audio';
 import { useTopInset, useBottomInset } from '../lib/safeArea';
 import { fullAudioUrl, previewUrl } from '../lib/r2';
@@ -98,15 +98,27 @@ export const PlayerScreen: React.FC<Props> = ({
   const cardH = Math.round(cardW * 1.5);
   // フォーカス時（ベール）の見かけサイズ＝再生時の 1/1.08（＝再生開始で 1.08倍に育つ）
   const FOCUS_SCALE = 1 / 1.08;
+  // 裏面（フリップ後）の絶対サイズをホーム画面と揃える。表面カードはこの画面の
+  // ほうが大きい（cardW=240 前後 vs ホーム172）ため、CardGL 既定の
+  // FLIP_BACK_SCALE をそのまま使うと裏面がホームよりずっと大きく描かれてしまう。
+  // 「ホームの裏面幅(HOME_CARD_W×FLIP_BACK_SCALE)」になるよう、この画面の
+  // cardW 基準で倍率を逆算する。
+  const backScale = (HOME_CARD_W * FLIP_BACK_SCALE) / cardW;
 
   // 残像の起点は「開いた瞬間」の座標に固定。曲送り／戻しで track が変わっても動かさない。
   const [afterimageOrigin] = useState(origin ?? null);
+  // コレクションのタイルから開いた（origin あり）ときだけ、タイル→カードの
+  // フライトインと「ベール（大きな再生ボタンをもう一度押す）」を経由する。
+  // ホームの再生ボタンから開いた（origin なし）ときは、ワンクッション挟まず
+  // 最初から再生状態で表示する（起点となるタイルが無く飛んでくる演出も
+  // 不要なため）。
+  const directPlay = !afterimageOrigin;
 
-  // ベール（再生前）→ 再生 の2フェーズ。初回はいきなり再生しない。
-  const [phase, setPhase] = useState<'veil' | 'playing'>('veil');
+  // ベール（再生前）→ 再生 の2フェーズ。directPlay のときは最初から'playing'。
+  const [phase, setPhase] = useState<'veil' | 'playing'>(directPlay ? 'playing' : 'veil');
   // 再生ボタンの見た目。phaseは音声の開始判定にすぐ使うため即切替するが、
   // ボタン自体は自分のフェードアウト演出が終わるまで少し長く表示を残す。
-  const [veilButtonVisible, setVeilButtonVisible] = useState(true);
+  const [veilButtonVisible, setVeilButtonVisible] = useState(!directPlay);
   const [sourceUri, setSourceUri] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loop, setLoop] = useState(false);
@@ -120,22 +132,24 @@ export const PlayerScreen: React.FC<Props> = ({
   // ①カードがコレクションのグリッド位置から中央フォーカス位置へ拡大しながら移動
   // ②再生ボタンを押すと、背景が星雲へクロスフェード＋カードがさらに一回り拡大＋
   //   ヘッダー/コントロールが遅延フェードインする。
+  // directPlay のときはこの演出をすべて飛ばし、各共有値を最初から「着地後」の
+  // 値で初期化する（ベールの大きな再生ボタンも表示しない）。
   const flightDone = useRef(false);
   const cardTX = useSharedValue(0);
   const cardTY = useSharedValue(0);
-  const cardScale = useSharedValue(FOCUS_SCALE);
-  const veilBgOpacity = useSharedValue(1); // ブラー背景＋残像（1）→星雲のみ（0）
+  const cardScale = useSharedValue(directPlay ? 1 : FOCUS_SCALE);
+  const veilBgOpacity = useSharedValue(directPlay ? 0 : 1); // ブラー背景＋残像（1）→星雲のみ（0）
   const playBtnOpacity = useSharedValue(0);
   const playBtnTY = useSharedValue(10);
-  const headerOpacity = useSharedValue(0);
-  const headerTY = useSharedValue(-10);
+  const headerOpacity = useSharedValue(directPlay ? 1 : 0);
+  const headerTY = useSharedValue(directPlay ? 0 : -10);
   // 戻るボタン（「‹」）は、ベール中（再生前）に戻る手段が背景タップしか無く
   // 気づきにくかったため、タイトル等（headerOpacity）とは独立に、カードの
   // 着地と同時に早く出す。
-  const navOpacity = useSharedValue(0);
-  const navTY = useSharedValue(-10);
-  const controlsOpacity = useSharedValue(0);
-  const controlsTY = useSharedValue(15);
+  const navOpacity = useSharedValue(directPlay ? 1 : 0);
+  const navTY = useSharedValue(directPlay ? 0 : -10);
+  const controlsOpacity = useSharedValue(directPlay ? 1 : 0);
+  const controlsTY = useSharedValue(directPlay ? 0 : 15);
   // 背景タップでコレクションへ戻るときの、画面全体のフェードアウト＋縮小
   const rootOpacity = useSharedValue(1);
   const rootScale = useSharedValue(1);
@@ -170,10 +184,11 @@ export const PlayerScreen: React.FC<Props> = ({
   }));
 
   // ①カードのフライトイン。コレクションのタイル座標（origin）が分かっていて、かつ
-  // カード領域のレイアウトが確定したら一度だけ実行する（origin が無ければ最初から
-  // フォーカスサイズで静止表示＝ホーム等から開いたとき）。
+  // カード領域のレイアウトが確定したら一度だけ実行する。directPlay（ホームの
+  // 再生ボタンから開いた）ときはすべて着地後の値で初期化済みなので、この演出
+  // 自体を丸ごとスキップする。
   useEffect(() => {
-    if (flightDone.current || cardArea.w === 0) return;
+    if (directPlay || flightDone.current || cardArea.w === 0) return;
     flightDone.current = true;
     const targetCenterX = cardArea.x + cardArea.w / 2;
     const targetCenterY = cardArea.y + cardArea.h / 2;
@@ -415,6 +430,7 @@ export const PlayerScreen: React.FC<Props> = ({
             width={cardW}
             height={cardH}
             depthRatio={0.016}
+            backScale={backScale}
             backData={{
               title: track.title,
               serial: track.serial,
@@ -484,8 +500,7 @@ export const PlayerScreen: React.FC<Props> = ({
               hitSlop={10}
               accessibilityLabel={playing ? '一時停止' : '再生'}
             >
-              <View style={styles.playBtnGlow} />
-              {playing ? <PauseMark size={19} /> : <PlayMark size={19} />}
+              {playing ? <PauseMark size={22} /> : <PlayMark size={22} />}
             </Pressable>
             <Pressable
               style={[styles.skipBtn, !onNextTrack && styles.skipDisabled]}
@@ -529,7 +544,10 @@ const styles = StyleSheet.create({
     letterSpacing: 2.0,
     fontFamily: JP_SERIF_FONT,
   },
-  cardArea: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  // overflow:hidden で、CardGL の描画キャンバス（flip裏面ぶん拡大されて
+  // レイアウト枠からはみ出す）がヘッダー領域まで侵食してタップを奪わないよう、
+  // このエリア自身の高さでクリップする（見た目上も裏面は十分収まるサイズ）。
+  cardArea: { flex: 1, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   // ベール中に星雲(NebulaGL)の上へ重ねる「コレクションをぼかしたような暗い幕」。
   // 再生ボタンのタップで veilBgOpacity が 1→0 になり、透けて星雲が見える＝クロスフェード。
   veilBgLayer: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
@@ -598,22 +616,13 @@ const styles = StyleSheet.create({
   skipBtn: { width: 32, alignItems: 'center', justifyContent: 'center' },
   // 1曲しか持っていないときは押せないことが分かる淡さにする
   skipDisabled: { opacity: 0.28 },
+  // 丸い縁取り・グローは廃止し、アイコンだけを表示する（指定デザイン準拠）。
+  // タップ領域はアイコンサイズに hitSlop を足して確保する。
   playBtn: {
     width: TRANSPORT.playBtnSize,
     height: TRANSPORT.playBtnSize,
-    borderRadius: TRANSPORT.playBtnSize / 2,
-    borderWidth: 1,
-    borderColor: TRANSPORT.playBtnBorder,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  // 再生ボタンの背後にほんのりシアン光
-  playBtnGlow: {
-    position: 'absolute',
-    width: TRANSPORT.playBtnSize + 20,
-    height: TRANSPORT.playBtnSize + 20,
-    borderRadius: (TRANSPORT.playBtnSize + 20) / 2,
-    backgroundColor: 'rgba(96,206,224,0.16)',
   },
   loopBtn: { width: 32, alignItems: 'center', justifyContent: 'center' },
 });

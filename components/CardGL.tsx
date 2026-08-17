@@ -578,6 +578,13 @@ export type CardGLProps = {
   mode?: 'spin' | 'flip';
   /** 裏面デザイン。aluminum=アルミ刻印（既定・ホーム / プレイヤー） / story=フロストのストーリー面（v98） */
   backStyle?: 'aluminum' | 'story';
+  /**
+   * flip モードの裏面倍率の上書き（既定は design-tokens.ts の FLIP_BACK_SCALE）。
+   * ホームとプレイヤーのように width/height（表面サイズ）が画面ごとに異なる
+   * 呼び出し元同士で、裏面の**見かけ上の絶対サイズ**を揃えたいときに使う
+   * （表面サイズが違えば同じ倍率でも裏面の絶対サイズは変わってしまうため）。
+   */
+  backScale?: number;
   /** カード周囲のオーラ（card-aura）。指定時のみ描画（プレイヤーはカードの縁を
       くっきり見せる方針のため未指定＝靄なし） */
   aura?: { a?: string; b?: string };
@@ -598,6 +605,7 @@ export const CardGL: React.FC<CardGLProps> = ({
   backData,
   mode = 'spin',
   backStyle = 'aluminum',
+  backScale = FLIP_BACK_SCALE,
   aura,
   depthRatio = DEPTH_RATIO,
   onFlipChange,
@@ -720,8 +728,8 @@ export const CardGL: React.FC<CardGLProps> = ({
     s.vx = 0;
     s.vy = 0;
     s.startScale = s.scale ?? FRONT_SCALE;
-    s.finalScale = flipped ? FLIP_BACK_SCALE : FRONT_SCALE;
-  }, [flipped, isFlip]);
+    s.finalScale = flipped ? backScale : FRONT_SCALE;
+  }, [flipped, isFlip, backScale]);
 
   // spin モード=常時回転可 / flip モード=裏面のときだけ回転可
   const canRotate = isFlip ? flipped : true;
@@ -867,7 +875,7 @@ export const CardGL: React.FC<CardGLProps> = ({
   // （裏面1.75倍の対角は枠189×284pt に対して 471pt。倍率1基準の D=350 では
   //   確実に欠ける）。camZ が D に比例するので、D を増やしても倍率1での
   // 見かけのサイズ（px/world = height/2.475）は変わらず、余白だけが増える。
-  const maxScale = isFlip ? FLIP_BACK_SCALE + FLIP_LIFT : 1;
+  const maxScale = isFlip ? backScale + FLIP_LIFT : 1;
   const D = Math.ceil(Math.hypot(width, height) * maxScale) + 8;
   const camZ = (3.4 * D) / height;
 
