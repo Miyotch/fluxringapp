@@ -242,7 +242,9 @@ const INK_FONT = Platform.select({
 
 // __dvMakeInk はテクスチャ座標系（1024×1536）に直接 px で記述されており、
 // CSS px → テクスチャ px の換算（ipx）は不要（参照が既に 1x で書かれているため）。
-const alum = (a: number) => `rgba(56,61,72,${a})`;
+// 「もう少し濃く」の指摘に合わせて、地の色自体を暗く（rgb(56,61,72) → rgb(28,30,38)）。
+// タイトル等は既に alpha=1（最大）のため、これ以上濃くするには地の色を暗くするしかない。
+const alum = (a: number) => `rgba(28,30,38,${a})`;
 
 export type AluminumInkData = CardBackData & {
   /** 通し番号のみ（'No. ' 込みで CardBackData.serial を渡してもよい） */
@@ -318,6 +320,20 @@ function printAlum(
   return total;
 }
 
+// printAlum と同じ計算で、描画せずに幅だけを測る（ブロック全体を実測幅で
+// 中央に配置するために使う。固定の目安幅だと実際のフォント計量とズレて
+// 左右の余白が揃わないことがあるため）。
+function measureAlumWidth(
+  text: string,
+  fs: number,
+  font: SkFont | null,
+  letterSpacingPx: number,
+): number {
+  const chars = [...text];
+  const widths = chars.map((ch) => estWidth(ch, fs, font));
+  return widths.reduce((a, b) => a + b, 0) + letterSpacingPx * Math.max(0, chars.length - 1);
+}
+
 /**
  * アルミ裏面の刻印のみを透明背景に描画して RGBA ピクセルを返す（失敗時 null）。
  * 金属地・ヘアライン・反射は GLSL シェーダー側が担当する。
@@ -341,10 +357,11 @@ export function renderAluminumInkPixels(
   // No.（彫り込み・字間6px）※通し番号
   carve(c, data.no ?? data.serial ?? 'No. 001', cx, 266, 38, '500', 6, 'c');
 
-  // タイトル 52px / weight600 / 字間2px（0だと詰まって見えるため気持ち空ける）
-  printAlum(c, data.title, cx, 368, 52, '600', alum(1), 2, 'c');
+  // タイトル 52px / weight600 / 字間6px（文字が詰まって見えるとの指摘のため
+  // 2px→6pxへ拡大）
+  printAlum(c, data.title, cx, 368, 52, '600', alum(1), 6, 'c');
 
-  // Story 40px / weight300 / lh72 / 字間2px / 左寄せ x=112。
+  // Story 40px / weight300 / lh72 / 字間8px（同上の理由で2px→8pxへ拡大）。
   // 最大4行・1行20文字・合計80文字までの固定文字数で折り返す
   // （幅ベースだと半角文字混じりで1行の文字数がぶれるため、文字数優先の指定）。
   // ゾーン[470, H-460]の中央に文字ブロックを配置（__dvMakeInk 準拠）。
@@ -352,17 +369,28 @@ export function renderAluminumInkPixels(
     const fs = 40;
     const lh = 72;
     const CHARS_PER_LINE = 20;
+    const STORY_LETTER_SPACING = 8;
+    const storyFont = makeFont(fs, '300', INK_FONT);
     const zoneTop = 470;
     const zoneBottom = H - 460;
     // Story本文は最大4行まで（詰まりすぎ防止のミーティング指摘）。
     // ゾーン高さから計算される行数がそれより多くても4行で打ち切る。
     const maxLines = Math.min(4, Math.floor((zoneBottom - zoneTop) / lh));
     const lines = wrapFixedChars(data.story, CHARS_PER_LINE, maxLines);
+    // 左右の余白を必ず均等にするため、固定x=112ではなく、実測でもっとも
+    // 幅の広い行を基準にブロック全体をカード中央へ配置してから左揃えで描く
+    // （文字数は同じでも半角混じりで実測幅は行ごとに変わりうるため、
+    // 「一番長い行」を基準にすれば短い行だけが自然に右側の余白を持つ
+    // 通常の左揃え段落の見た目のまま、ブロックの左右マージンは揃う）。
+    const blockWidth = lines.length
+      ? Math.max(...lines.map((ln) => measureAlumWidth(ln, fs, storyFont, STORY_LETTER_SPACING)))
+      : 0;
+    const blockX = (W - blockWidth) / 2;
     const mid = (zoneTop + zoneBottom) / 2;
     let y = Math.max(zoneTop, mid - (lines.length * lh) / 2);
     for (const ln of lines) {
       if (y > zoneBottom - lh) break;
-      printAlum(c, ln, 112, y, fs, '300', alum(0.97), 2, 'l');
+      printAlum(c, ln, blockX, y, fs, '300', alum(1), STORY_LETTER_SPACING, 'l');
       y += lh;
     }
   }
@@ -370,14 +398,14 @@ export function renderAluminumInkPixels(
   // 見出しラベル「ー 調律 ー」32px / weight300 / 字間8px
   printAlum(c, 'ー 調律 ー', cx, H - 372, 32, '300', alum(0.75), 8, 'c');
 
-  // 調律 40px / weight300 / 字間2px / 単色。調律名＋全角スペース＋周波数群
-  // （周波数は data.freqs、無ければ frequencies）。原材料(materials)は
+  // 調律 40px / weight300 / 字間6px（2px→6pxへ拡大）/ 単色。調律名＋全角スペース
+  // ＋周波数群（周波数は data.freqs、無ければ frequencies）。原材料(materials)は
   // このアルミ面には出さない（原材料欄は renderCardBackPixels/StoryBack 側のみ）。
   const tuning = data.tuning ?? '';
   const freqs = (data.freqs ?? data.frequencies ?? []).filter(Boolean);
   if (tuning || freqs.length > 0) {
     const tuneText = tuning + '　' + freqs.join('　');
-    printAlum(c, tuneText, cx, H - 302, 40, '300', alum(0.95), 2, 'c');
+    printAlum(c, tuneText, cx, H - 302, 40, '300', alum(1), 6, 'c');
   }
 
   // Artist名 40px / weight400 / 字間10px / 大文字。直後に '›' を添える。
@@ -396,7 +424,7 @@ export function renderAluminumInkPixels(
   const chevronW = estWidth('›', 42, makeFont(42, '400', INK_FONT));
   const groupW = nw + chevronGap + chevronW;
   const nameX = cx - groupW / 2 + nw / 2;
-  printAlum(c, signature, nameX, nameY, 40, '400', alum(0.97), nameLetterSpacing, 'c');
+  printAlum(c, signature, nameX, nameY, 40, '400', alum(1), nameLetterSpacing, 'c');
   printAlum(c, '›', nameX + nw / 2 + chevronGap, H - 192, 42, '400', alum(0.75), 0, 'l');
 
   const img = surface.makeImageSnapshot();
