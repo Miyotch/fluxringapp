@@ -692,6 +692,19 @@ export const CardGL: React.FC<CardGLProps> = ({
     s.dragging = false;
   }, [frontUri, isFlip]);
 
+  // flip モード: 再生画面の曲送り／戻しは CardGL を再マウントせず frontUri だけ
+  // 差し替えるため、前の曲を裏返したまま次の曲へ進むと、新しい曲の裏面が
+  // アニメーションなしでいきなり出てしまう。曲が変わったときに裏面だったら
+  // 表へ戻す（初回マウントでは何もしない）。
+  const prevFrontUriRef = useRef(frontUri);
+  useEffect(() => {
+    if (!isFlip) return;
+    if (prevFrontUriRef.current === frontUri) return;
+    prevFrontUriRef.current = frontUri;
+    if (flipped) flipToFront();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [frontUri, isFlip]);
+
   // flipped の変化でフリップ演出を仕込む（表=正面 / 裏=Y軸180°へスラープ）。
   // 倍率も表(1.0)⇔裏(FLIP_BACK_SCALE=1.1)の間で進捗に合わせて補間する。
   useEffect(() => {

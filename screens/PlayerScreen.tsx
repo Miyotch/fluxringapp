@@ -405,8 +405,12 @@ export const PlayerScreen: React.FC<Props> = ({
             wrapperのtranslate/scaleで見かけを変える（3Dシーンの再初期化を避けるため）。
             背後の靄（発光・影レイヤー）は廃止し、カードの縁がくっきり見えるようにする。 */}
         <Animated.View style={[{ width: cardW, height: cardH }, cardWrapStyle]}>
-          {/* 実3D（WebGL）カード: 指ドラッグで全方向360°回転・厚み1mm */}
+          {/* 実3D（WebGL）カード: ホーム画面と同じ flip モード（タップで表↔裏・
+              裏面のみ指ドラッグで自由回転／±22°クランプ・ダブルタップで表に戻る）。
+              以前の spin モード（常時ドラッグで360°回転・初期姿勢がわずかに傾く）
+              から統一した。厚み1mm。 */}
           <CardGL
+            mode="flip"
             frontUri={track.artworkUrl}
             width={cardW}
             height={cardH}
