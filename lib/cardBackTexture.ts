@@ -366,10 +366,10 @@ export function renderAluminumInkPixels(
   // （幅ベースだと半角文字混じりで1行の文字数がぶれるため、文字数優先の指定）。
   // ゾーン[470, H-460]の中央に文字ブロックを配置（__dvMakeInk 準拠）。
   if (data.story) {
-    const fs = 40;
+    const fs = 42;
     const lh = 72;
     const CHARS_PER_LINE = 20;
-    const STORY_LETTER_SPACING = 8;
+    const STORY_LETTER_SPACING = 10;
     const storyFont = makeFont(fs, '300', INK_FONT);
     const zoneTop = 470;
     const zoneBottom = H - 460;
