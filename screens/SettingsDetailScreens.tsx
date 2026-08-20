@@ -1146,7 +1146,7 @@ const s = StyleSheet.create({
   // （左は実タップ領域、右は見えないバランサー）。
   backBtn: { width: 32 },
   // 16px（見出しh1と同大）でもまだ見づらいとの指摘のため、2段階分＋4して20pxへ
-  back: { color: COLOR.textBack, fontSize: 20, letterSpacing: 0.6 },
+  back: { color: COLOR.textBack, fontSize: 24, letterSpacing: 0.6 },
   // 和文＝明朝（OS標準）/ letterSpacing = fontSize×0.02
   h1: {
     flex: 1,
