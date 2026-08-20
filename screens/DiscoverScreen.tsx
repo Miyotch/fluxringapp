@@ -44,7 +44,7 @@ import { BuyButton } from '../components/BuyButton';
 import { WishlistStar } from '../components/WishlistStar';
 import { PurchaseModal } from '../components/PurchaseModal';
 import { EqBars } from '../components/EqBars';
-import { , PreviewIcon } from '../components/icons';
+import { BellIcon, PreviewIcon } from '../components/icons';
 import { useTopInset } from '../lib/safeArea';
 import { PurchaseParticles } from '../components/PurchaseParticles';
 import { PurchaseCardGlow } from '../components/PurchaseCardGlow';
