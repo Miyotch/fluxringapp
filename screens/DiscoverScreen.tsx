@@ -44,7 +44,7 @@ import { BuyButton } from '../components/BuyButton';
 import { WishlistStar } from '../components/WishlistStar';
 import { PurchaseModal } from '../components/PurchaseModal';
 import { EqBars } from '../components/EqBars';
-import { BellIcon, PreviewIcon } from '../components/icons';
+import { , PreviewIcon } from '../components/icons';
 import { useTopInset } from '../lib/safeArea';
 import { PurchaseParticles } from '../components/PurchaseParticles';
 import { PurchaseCardGlow } from '../components/PurchaseCardGlow';
@@ -451,13 +451,13 @@ export const DiscoverScreen: React.FC<Props> = ({
         <View style={[styles.topRight, { top: topRightY + 5 }]} pointerEvents="box-none">
           <View style={styles.iconsRow1}>
             <Pressable onPress={onOpenNotifications} hitSlop={10} style={styles.bell}>
-              <BellIcon size={22} />
+              <BellIcon size={24} />
               {hasUnread && <View style={styles.bdot} />}
             </Pressable>
             <EqBars active={isPreviewing} />
           </View>
           <Pressable onPress={togglePreview} hitSlop={10} style={styles.iconsRow2}>
-            <PreviewIcon size={22} on={isPreviewing} />
+            <PreviewIcon size={24} on={isPreviewing} />
           </Pressable>
         </View>
 
