@@ -41,7 +41,9 @@ const CLOUD_COLORS: [number, number, number][] = [
 const N_CLOUDS = 36;
 const N_STARS = 520;
 const STAR_GROUPS = 16;
-const REF_W = 380; // 参照実装の内部座標幅（サイズ換算基準）
+export const REF_W = 380; // 参照実装の内部座標幅（サイズ換算基準）
+/** 雲のグラデ停止点（参照 loop(): addColorStop 0 / 0.42 / 1 と同じ） */
+export const CLOUD_GRADIENT_STOPS = [0, 0.42, 1] as const;
 
 // 決定論ハッシュ（0..1）
 function hash(x: number): number {
@@ -57,12 +59,12 @@ function gauss(seed: number): number {
   return Math.sqrt(-2 * Math.log(u)) * Math.cos(6.283 * v);
 }
 
-type Cloud = {
+export type Cloud = {
   bx: number; by: number; r: number; c: [number, number, number];
   a: number; ph: number; dr: number; w1: number; w2: number;
 };
 
-function buildClouds(): Cloud[] {
+export function buildClouds(): Cloud[] {
   const out: Cloud[] = [];
   for (let i = 0; i < N_CLOUDS; i++) {
     out.push({
@@ -80,9 +82,10 @@ function buildClouds(): Cloud[] {
   return out;
 }
 
-type StarGroup = { path: ReturnType<typeof Skia.Path.Make>; f: number; ph: number; b: number };
+export type NebStarGroup = { path: ReturnType<typeof Skia.Path.Make>; f: number; ph: number; b: number };
+type StarGroup = NebStarGroup;
 
-function buildStarGroups(W: number, H: number): StarGroup[] {
+export function buildStarGroups(W: number, H: number): StarGroup[] {
   const scale = W / REF_W;
   const groups: StarGroup[] = Array.from({ length: STAR_GROUPS }, (_, g) => ({
     path: Skia.Path.Make(),
@@ -159,11 +162,16 @@ const StarLayer: React.FC<{
 };
 
 export type NebulaBandProps = {
+  /** 描画領域。省略時はウィンドウ全体（帯の中心 BANDY を実描画域に合わせるため指定推奨） */
+  width?: number;
+  height?: number;
   paused?: boolean;
 };
 
-export const NebulaBand: React.FC<NebulaBandProps> = ({ paused = false }) => {
-  const { width: W, height: H } = useWindowDimensions();
+export const NebulaBand: React.FC<NebulaBandProps> = ({ width, height, paused = false }) => {
+  const win = useWindowDimensions();
+  const W = width ?? win.width;
+  const H = height ?? win.height;
   const scale = W / REF_W;
 
   // reduce-motion → 静止画

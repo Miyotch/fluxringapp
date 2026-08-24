@@ -213,8 +213,6 @@ export const PlayerScreen: React.FC<Props> = ({ track, onBackHome }) => {
             centerY={cardArea.h / 2}
             cardW={cardW}
             cardH={cardH}
-            auraA={track.glowColor}
-            auraB={track.glowColor2}
             dragX={dragXSV}
             slideFade={slideFadeSV}
             aProg={aProgSV}
