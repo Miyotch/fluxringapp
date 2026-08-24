@@ -39,7 +39,7 @@ import { NebulaGL } from '../components/NebulaGL';
 import { CardAfterimage, CardOrigin } from '../components/CardAfterimage';
 import { EqBars } from '../components/EqBars';
 import { PlayMark, PauseMark, LoopIcon, ShareIcon, SkipIcon, SkipPrevIcon } from '../components/icons';
-import { COLOR, SPACE, TRANSPORT, FLIP_BACK_SCALE, HOME_CARD_W } from '../constants/design-tokens';
+import { COLOR, SPACE, TRANSPORT, FLIP_BACK_SCALE, homeCardWidth } from '../constants/design-tokens';
 import { formatTime } from '../lib/audio';
 import { useTopInset, useBottomInset } from '../lib/safeArea';
 import { fullAudioUrl, previewUrl } from '../lib/r2';
@@ -101,9 +101,10 @@ export const PlayerScreen: React.FC<Props> = ({
   // 裏面（フリップ後）の絶対サイズをホーム画面と揃える。表面カードはこの画面の
   // ほうが大きい（cardW=240 前後 vs ホーム172）ため、CardGL 既定の
   // FLIP_BACK_SCALE をそのまま使うと裏面がホームよりずっと大きく描かれてしまう。
-  // 「ホームの裏面幅(HOME_CARD_W×FLIP_BACK_SCALE)」になるよう、この画面の
-  // cardW 基準で倍率を逆算する。
-  const backScale = (HOME_CARD_W * FLIP_BACK_SCALE) / cardW;
+  // 「ホームの裏面幅(ホームのカード幅×FLIP_BACK_SCALE)」になるよう、この画面の
+  // cardW 基準で倍率を逆算する。ホームのカード幅は画面高に連動するので、
+  // 固定値ではなく homeCardWidth(screenH) から取る（両画面で同じ式を使う）。
+  const backScale = (homeCardWidth(screenH) * FLIP_BACK_SCALE) / cardW;
 
   // 残像の起点は「開いた瞬間」の座標に固定。曲送り／戻しで track が変わっても動かさない。
   const [afterimageOrigin] = useState(origin ?? null);

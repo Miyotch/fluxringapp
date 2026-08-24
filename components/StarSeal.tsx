@@ -8,9 +8,9 @@
  *       放射24・モノコード弦＋比率目盛・2/1回帰弧・6弁ロゼット・頂点菱形・
  *       音階星四方点・銘文2帯・Λ数列・音階/倍音/シューマン ラベル
  *   ② glow: 発光層（WebGL screen合成 → Skia screen+Blur・呼吸 0.86+0.14sin）
- *       同心円3・六芒星6辺（シアン・最も明瞭）＋シューマン線・全ノードは
- *       ブラーの効いた柔らかい点（主音のみシアン、他は白系。十字光条は
- *       クロスマークに見えるため使わない）
+ *       同心円3・六芒星6辺＋シューマン線・全ノード。六芒星と交点は
+ *       「ぼかした発光 ＋ ブラーなしの芯」の二重構造（2026-08-18 の
+ *       参照との画素比較で確定。HEX_/NODE_SHARP_LAYER 参照）
  *   ③ sig : 信号層（通電表現）
  *       幾何路（同心円9・放射・六芒星辺・十二芒星弦・弦スポーク）を
  *       尾を引く光点が定速走行（速度・輝度は基準比-30%系の参照値）＋
@@ -23,28 +23,33 @@
  */
 
 import React, { useMemo, useEffect, useState } from 'react';
-import { AccessibilityInfo, Platform, StyleProp, ViewStyle } from 'react-native';
+import { AccessibilityInfo, Platform, PixelRatio, StyleProp, ViewStyle } from 'react-native';
 import {
   Canvas,
   Group,
   Circle,
   Line,
   Path,
-  Fill,
-  Shader,
   Text as SkText,
+  Image as SkiaImage,
   Paint,
   Blur,
   DashPathEffect,
+  PaintStyle,
   vec,
-  useClock,
   matchFont,
+  TileMode,
+  BlendMode,
+  StrokeCap,
   Skia,
   SkPath,
   SkFont,
+  SkImage,
 } from '@shopify/react-native-skia';
 import { numFont } from '../lib/skiaFonts';
 import { useSharedValue, useDerivedValue, SharedValue } from 'react-native-reanimated';
+import { cachedImage } from '../lib/skiaSprites';
+import { useBackdropClock } from '../lib/usePausableClock';
 
 // ── 参照定数（内部単位） ──
 const K = 2.07;
@@ -65,8 +70,75 @@ const CYAN = 'rgba(96,206,224,1)';
 // 09_FS.glsl の NSP（スパーク並行数）と一致
 const N_SPARKS = 36;
 
+// ── 発熱対策: 信号層の密度 ──────────────────────────────
+// 走る光点は 1本につき毎フレーム derived value 2（head/tail）＋描画2
+// （Line/Circle）を消費し、さらに screen 合成＋Blur のレイヤー内にあるため
+// 塗り面積がそのまま GPU 負荷になる。実機が熱くなる件への対応として、
+// 本数を 1/3（45→15）へ、尾の長さを半分へ落とす。
+const PULSE_KEEP_EVERY = 3;   // 生成後に何本おきに残すか（3 = 1/3）
+const PULSE_TAIL_SCALE = 0.5; // 尾の長さ倍率
+
+// 交点のシャープ層。旧値（光条長5.5・光条0.55・コア0.95）は参照より強く、
+// 交点が大きな十字星になっていた。参照は小さな芯＋淡い裾なので抑える。
+// 2026-08-18 画素比較2回目: それでも全交点が白い星として目立っていたため
+// さらに絞る（参照の交点は「点」であって「星」ではない）。
+const NODE_SPIKE_LEN = 2.8;
+const NODE_SPIKE_OPACITY = 0.2;
+const NODE_CORE_OPACITY = 0.5;
+
+// ── 六芒星の線（デザイン修正）────────────────────────────────
+// ① 色  : DESIGN.md のアクセント シアン #60CEE0（= rgba(96,206,224) と同値）
+// ② 太さ: 1.0（参照単位・実寸は ×s）。従来は 1.3 で、しかも blur 4px の
+//         発光層だけで描いていたため線が白くにじんで太く見えていた。
+// ③ 種類: 実線・丸キャップ。ブラーなしのシャープ層を主役にし、
+//         発光層は薄いハロー（太め・低不透明）に降格して二枚重ねにする。
+//         破線にする場合は HEX_DASH に [4,3] のような配列を入れる。
+// 参照の芯を実測した色 RGB(112,131,177) を、加算合成で沈むぶん明るめに寄せた銀青。
+// 旧値 #60CEE0 は彩度が高すぎて線だけシアンに浮いていた。
+const HEX_COLOR = '#9FB8DC';
+const HEX_WIDTH = 1.0;
+const HEX_DASH = null as number[] | null;
+
+// ── 2026-08-18: 実測に基づく再調整 ────────────────────────────
+// 一度「参照はぼかした発光層だけ」と判断してシャープ層を全部切ったが、
+// 実機と参照の同倍率スクリーンショットを画素比較したところ振りすぎだった。
+//
+//   六芒星の辺（水平線）の局所ピーク  参照 +27.0 / +21.5   アプリ +4.8 / +4.1
+//   ＝参照の 1/5〜1/6 しか出ておらず、実質消えていた。
+//   （雲は 中央帯 平均 参照102.3 / アプリ105.6、上位1% 135.9 / 137.4 で一致）
+//
+// 参照の線を実測した断面（1画素≒0.5CSSpx）:
+//   芯 RGB(112,131,177) 輝度130 → 直近背景 76 で +116（最大時）
+//   輝度は芯から ±4px でなだらかに落ちる ＝「細い芯 ＋ 広い裾」の二重構造。
+// つまり参照は「ぼかしだけ」でも「硬い実線だけ」でもなく、両方を重ねている。
+// シャープ層を戻し、色は実測どおり彩度を落とした銀青へ、強度は中間に置く。
+/** true = 六芒星に芯となる実線を重ねる（参照の断面に芯があるため必要） */
+const HEX_SHARP_LAYER = true;
+/** true = 交点にブラーなしのコア＋十字光条を重ねる */
+const NODE_SHARP_LAYER = true;
+/** 発光層で描く六芒星の線幅・不透明度 */
+const HEX_GLOW_WIDTH = 1.3;
+// 2026-08-18 画素比較2回目: 芯の色・明るさは参照と一致（差+163/+95 vs +148/+96）。
+// ただ帯積分（線の総エネルギー）が 1.7〜1.8 倍で、余剰は裾にある。
+// 芯（HEX_WIDTH/HEX_COLOR）は触らず、発光層とハローだけ絞って
+// 参照のピーク +27/+21.5 へ寄せる。
+// 2026-08-18 画素比較3回目: ピーク +32.6/+26.1 vs 参照 +27.0/+21.5（残差+21%）。
+// 収束の最終トリム。推移: +4.8(消滅) → +49.5(過剰) → +32.6 → ここで挟み込む。
+const HEX_OPACITY = 0.28;
+/** シャープ層を使うときのハロー（裾を作る層） */
+const HEX_HALO_WIDTH = 2.6;
+const HEX_HALO_OPACITY = 0.12;
+
 const ink = (a: number) => `rgba(150,190,210,${a})`;
 const lab = (a: number) => `rgba(178,198,216,${a})`;
+
+// 彫刻層を焼くときの最大 DPR。3x 機では全画面 RGBA が約 10MB になるため上限を置く。
+// 髪の毛のような細線が主体なので 2 未満へ落とすと目に見えて甘くなる。
+const INK_BAKE_MAX_DPR = 3;
+
+// 発光層を焼くときの最大 DPR。ぼかし側だけなら 1.5 で足りるが、同じ画像へ
+// シャープ層（0.6*s の十字光条・小さな白コア）も焼くので彫刻層と同じ上限にする。
+const GLOW_BAKE_MAX_DPR = 3;
 
 // 決定論ハッシュ（0..1）
 function hash(x: number): number {
@@ -101,6 +173,8 @@ type Geometry = {
   texts: TxtItem[];
   glowCircles: GlowCircle[];
   glowSegs: GlowSeg[];
+  /** 六芒星の6辺（専用の実線レイヤーで描く） */
+  hexSegs: GlowSeg[];
   glowNodes: GlowNode[];
   sparkPool: number[]; // [x,y,...]
   cars: CarParam[];
@@ -417,10 +491,10 @@ function buildGeometry(cx: number, cy: number, s: number, W: number, H: number):
     [VA[0], VA[1]], [VA[1], VA[2]], [VA[2], VA[0]],
     [VB[0], VB[1]], [VB[1], VB[2]], [VB[2], VB[0]],
   ];
-  // 六芒星の6辺。star_seal_standalone.html のシェーダーでは円・線分とも
-  // 同一の距離減衰式（exp(-d²/0.35)）で描かれ、差は intensity のみ
-  // （六芒星=0.38 / R_IN円=0.34）。太さも円と揃え、参照どおりの強さにする。
-  hexPairs.forEach(([a, b]) => glowSegs.push({ x1: a[0], y1: a[1], x2: b[0], y2: b[1], op: 0.38 }));
+  // 六芒星の6辺は専用レイヤー（シャープ層＋ハロー）で描くので glowSegs には入れない
+  const hexSegs: GlowSeg[] = hexPairs.map(([a, b]) => ({
+    x1: a[0], y1: a[1], x2: b[0], y2: b[1], op: HEX_OPACITY,
+  }));
   glowSegs.push({ x1: pol(R_IN, 90)[0], y1: pol(R_IN, 90)[1], x2: SCHU[0], y2: SCHU[1], op: 0.09 });
 
   const glowNodes: GlowNode[] = [];
@@ -491,7 +565,9 @@ function buildGeometry(cx: number, cy: number, s: number, W: number, H: number):
       vn: (vpx / Math.max(len, 1)) * dir,
       sz: 0.9 + hash(seed * 11.1 + 6.1) * 0.4,
       al: 0.3 + hash(seed * 13.7 + 8.7) * 0.15,
-      tail: Math.min(16 * s, Math.max(6 * s, vpx * 0.28)),
+      // クランプ後に倍率を掛ける（実効 3*s〜8*s）。
+      // 「速い光点ほど尾が長い」という参照の性質はそのまま残る
+      tail: Math.min(16 * s, Math.max(6 * s, vpx * 0.28)) * PULSE_TAIL_SCALE,
     });
   };
   // 同心円（PATHS の cap そのまま: 4,6,6,4,4,3,3,3,3 = 計36台）
@@ -524,87 +600,127 @@ function buildGeometry(cx: number, cy: number, s: number, W: number, H: number):
     texts,
     glowCircles,
     glowSegs,
+    hexSegs,
     glowNodes,
     sparkPool,
-    cars,
+    // 光点は族ごと（同心円→六芒星→放射→十二芒星→弦スポーク）に連続生成
+    // されているので、一定間隔で間引けば族の比率を保ったまま総数だけが 1/3 に
+    // なる（同心円 27→9・六芒星 6→2・放射 6→2・十二芒星 3→1・スポーク 3→1）。
+    // 生成ループ自体は触らないこと: addCar の呼び出し回数を減らすと seed の
+    // 進み方が変わり、hash 由来の速度・向き・輝度・サイズが全部ずれてしまう。
+    // 生成してから捨てるので、残った 15 本は今までと同じ軌道を同じ速さで走る。
+    cars: cars.filter((_, i) => i % PULSE_KEEP_EVERY === 0),
   };
 }
 
-/* ══════ ② 発光層シェーダー（参照 09_FS.glsl の逐語移植） ══════
-   参照実装は円・線分・ノードを「解析的な距離減衰」で1枚のフラグメント
-   シェーダーに焼く。Skia のプリミティブ＋Blur で近似すると、
-   ・線: exp(-d²/0.35) は σ=√(0.35/2)=0.418px の極細ガウス＝ほぼ1pxの鋭線
-         （実測: 理想動画の六芒星辺は FWHM=1px・σ≈0.42px）なのに対し、
-         Blur(σ=4px) を掛けると FWHM≈9.4px まで太く滲む
-   ・星: core(鋭いガウス)+halo+far(なだらかな指数裾) の三層で、
-         硬い円2枚＋Blur では中心の鋭さと長い裾を同時に出せない
-   ・星の明滅（tw）はノードごとに位相 i*0.93・角速度 2.094rad/s で独立
-   と、いずれも別物になる。距離減衰式ごと移植して一致させる。
+/**
+ * ②発光層 ＋ ②'シャープ層を 1 枚の SkImage へ焼く。
+ * ------------------------------------------------------------------
+ * この 2 層は「全体の呼吸（glowOpacity）」以外まったく動かない静止画なのに、
+ * 宣言的に置くと毎フレーム再合成されていた。RN Skia は Canvas 単位でしか
+ * 描画を無効化できないため、同じ Canvas にいる信号層（光点・スパーク）が
+ * 動く限り、この 228 プリミティブも全画面 saveLayer 2 枚＋ガウシアン
+ * Blur(4*s) ごと毎秒 60 回焼き直される。参照 fr_v98-2_FIX は同じ絵を
+ * WebGL の全画面三角形 1 枚（draw call 1 回・ぼかしなし）で出しており、
+ * 発熱差の主因がここだった。
+ *
+ * 焼いたあとの実行時は「screen＋呼吸の透過で画像を 1 枚描く」だけになる。
+ *
+ * 合成の等価性:
+ *   元は screen レイヤー 2 枚を背景へ順に重ねていた。screen は乗算前提の
+ *   r = s + d - s*d なので結合的（screen(D,screen(G,S)) = screen(screen(D,G),S)）、
+ *   透明地へ同じ順で焼いてから screen で 1 枚重ねてよい。
+ *   厳密には呼吸の α が「レイヤーごと」から「合成後まとめて」へ移るぶん、
+ *   2 層が重なる画素だけ α² が α になる差が出るが、α は 0.86〜1.0 の範囲しか
+ *   動かないので目に見えない。
+ */
+function bakeGlowImage(
+  geo: Geometry, W: number, H: number, cx: number, cy: number, s: number, dpr: number,
+): SkImage | null {
+  const surface = Skia.Surface.MakeOffscreen(Math.ceil(W * dpr), Math.ceil(H * dpr));
+  if (!surface) return null;
+  const canvas = surface.getCanvas();
+  canvas.scale(dpr, dpr);
 
-   座標はキャンバス px で渡し、シェーダー内で 1/s して参照単位へ戻す
-   （参照の半径 2.6 / 1.0 などは 380×760 箱の単位で書かれているため）。 */
-function buildGlowShaderSource(nCirc: number, nSeg: number, nNode: number): string {
-  return `
-uniform float uS;
-uniform float uTime;
-uniform float uBreath;
-uniform float4 uCirc[${nCirc}];
-uniform float4 uSegA[${nSeg}];
-uniform float uSegS[${nSeg}];
-uniform float4 uNode[${nNode}];
+  // 宣言版の color + opacity と同じ意味のペイントを作る（width 指定でストローク）
+  const mk = (color: string, alpha: number, width?: number, round = false) => {
+    const paint = Skia.Paint();
+    paint.setAntiAlias(true);
+    paint.setColor(Skia.Color(color));
+    paint.setAlphaf(alpha);
+    if (width != null) {
+      paint.setStyle(PaintStyle.Stroke);
+      paint.setStrokeWidth(width);
+      if (round) paint.setStrokeCap(StrokeCap.Round);
+    }
+    return paint;
+  };
 
-const float3 CYAN = float3(0.376, 0.808, 0.878);
+  // ═ ② 発光層: ぼかしをレイヤーへ 1 回だけ掛けて焼く ═
+  const blurPaint = Skia.Paint();
+  blurPaint.setImageFilter(Skia.ImageFilter.MakeBlur(4 * s, 4 * s, TileMode.Decal, null));
+  canvas.saveLayer(blurPaint);
 
-float segDist(float2 p, float2 a, float2 b) {
-  float2 pa = p - a;
-  float2 ba = b - a;
-  float t = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-4), 0.0, 1.0);
-  return length(pa - ba * t);
-}
-
-half4 main(float2 fragCoord) {
-  float2 p = fragCoord;
-  float invS = 1.0 / max(uS, 1e-4);
-  float3 glow = float3(0.0);
-  float br = 0.86 + 0.14 * uBreath;
-
-  for (int i = 0; i < ${nCirc}; i++) {
-    float4 cc = uCirc[i];
-    float d = abs(length(p - cc.xy) - cc.z) * invS;
-    glow += CYAN * exp(-d * d / 0.35) * cc.w * 0.50 * br;
+  for (const c of geo.glowCircles) {
+    canvas.drawCircle(cx, cy, c.r, mk(CYAN, c.op, 1.3 * s));
   }
-  for (int i = 0; i < ${nSeg}; i++) {
-    float d = segDist(p, uSegA[i].xy, uSegA[i].zw) * invS;
-    glow += CYAN * exp(-d * d / 0.35) * uSegS[i] * 0.50 * br;
+  for (const sg of geo.glowSegs) {
+    canvas.drawLine(sg.x1, sg.y1, sg.x2, sg.y2, mk(CYAN, sg.op, 1.3 * s));
   }
-  for (int i = 0; i < ${nNode}; i++) {
-    float4 nd = uNode[i];
-    float2 q = (p - nd.xy) * invS;
-    float rr = length(q);
-    float cs = max(nd.z * invS, 1e-4);
-    // the far term decays as exp(-rr/(cs*13)); beyond cs*80 it is under 1e-5
-    if (rr < cs * 80.0) {
-      float core = exp(-rr * rr / (cs * cs));
-      float halo = exp(-rr / (cs * 4.2)) * 0.18;
-      float farv = exp(-rr / (cs * 13.0)) * 0.05;
-      float tw = 0.86 + 0.14 * sin(uTime * 2.094 + float(i) * 0.93);
-      float3 ncol = mix(float3(0.95, 0.97, 1.0), CYAN, nd.w);
-      float sp = 0.0;
-      if (nd.w > 0.5) {
-        sp = (exp(-abs(q.x) / 1.0) * exp(-abs(q.y) / (cs * 6.0))
-            + exp(-abs(q.y) / 1.0) * exp(-abs(q.x) / (cs * 6.0))) * 0.16;
-      }
-      glow += ncol * ((core + halo + farv) * tw + sp * tw) * 0.60;
+  for (const sg of geo.hexSegs) {
+    canvas.drawLine(
+      sg.x1, sg.y1, sg.x2, sg.y2,
+      mk(
+        HEX_SHARP_LAYER ? HEX_COLOR : CYAN,
+        HEX_SHARP_LAYER ? HEX_HALO_OPACITY : sg.op,
+        (HEX_SHARP_LAYER ? HEX_HALO_WIDTH : HEX_GLOW_WIDTH) * s,
+      ),
+    );
+  }
+  for (const n of geo.glowNodes) {
+    const col = n.main ? CYAN : '#F3F8FF';
+    canvas.drawCircle(n.x, n.y, n.r * 1.9, mk(col, 0.85));
+    canvas.drawCircle(n.x, n.y, n.r * 4.6, mk(col, 0.12));
+    if (n.main) {
+      const cross = mk(CYAN, 0.3, 0.8 * s);
+      canvas.drawLine(n.x - n.r * 7, n.y, n.x + n.r * 7, n.y, cross);
+      canvas.drawLine(n.x, n.y - n.r * 7, n.x, n.y + n.r * 7, cross);
     }
   }
-  float3 col = float3(1.0) - exp(-glow * 1.35);
-  // The reference screen-blends its whole canvas. Here the canvas composites
-  // over a separate view, so return a premultiplied color whose alpha is the
-  // max channel: source-over then yields col + dst*(1-a), i.e. screen-like.
-  float a = clamp(max(max(col.r, col.g), col.b), 0.0, 1.0);
-  return half4(half3(col), half(a));
-}
-`;
+  canvas.restore();
+
+  // ═ ②' シャープ層: 元も独立した screen レイヤーだったので、層の中は
+  //    srcOver・層自体を screen で重ねる、という構造をそのまま焼く ═
+  if (HEX_SHARP_LAYER || NODE_SHARP_LAYER) {
+    const screenPaint = Skia.Paint();
+    screenPaint.setBlendMode(BlendMode.Screen);
+    canvas.saveLayer(screenPaint);
+
+    if (HEX_SHARP_LAYER) {
+      for (const sg of geo.hexSegs) {
+        const paint = mk(HEX_COLOR, sg.op, HEX_WIDTH * s, true);
+        if (HEX_DASH) paint.setPathEffect(Skia.PathEffect.MakeDash(HEX_DASH.map((d) => d * s)));
+        canvas.drawLine(sg.x1, sg.y1, sg.x2, sg.y2, paint);
+      }
+    }
+    if (NODE_SHARP_LAYER) {
+      for (const n of geo.glowNodes) {
+        const col = n.main ? CYAN : '#FFFFFF';
+        const spike = Math.max(n.r * NODE_SPIKE_LEN, 4 * s); // 十字光条の長さ
+        const line = mk(col, NODE_SPIKE_OPACITY, 0.6 * s, true);
+        canvas.drawLine(n.x - spike, n.y, n.x + spike, n.y, line);
+        canvas.drawLine(n.x, n.y - spike, n.x, n.y + spike, line);
+        canvas.drawCircle(n.x, n.y, Math.max(n.r * 0.85, 0.9 * s), mk('#FFFFFF', NODE_CORE_OPACITY));
+        canvas.drawCircle(n.x, n.y, Math.max(n.r * 1.6, 1.7 * s), mk(col, 0.3));
+      }
+    }
+    canvas.restore();
+  }
+
+  // GPU バックドのスナップショットはそのままでは描画スレッドで無視される
+  surface.flush();
+  const snapshot = surface.makeImageSnapshot();
+  return snapshot.makeNonTextureImage() ?? snapshot;
 }
 
 // ══════ 動的部品 ══════
@@ -704,7 +820,7 @@ export type StarSealProps = {
   style?: StyleProp<ViewStyle>;
 };
 
-export const StarSeal: React.FC<StarSealProps> = ({
+const StarSealImpl: React.FC<StarSealProps> = ({
   width: W,
   height: H,
   centerX,
@@ -760,6 +876,77 @@ export const StarSeal: React.FC<StarSealProps> = ({
     return w;
   };
 
+  // ── ① 彫刻層は静的なので 1 枚の SkImage へ焼く ──
+  // 参照HTML の #frSealInk は Canvas2D へ初期化時に一度だけ描かれ、描画ループ
+  // frame() からは一切触られない（ループ内にインク側コンテキストの呼び出しは
+  // 0 箇所）。アプリ側は宣言的に置いていたため、同じ Canvas にある発光層の
+  // 呼吸（毎フレーム変化）に巻き込まれ、二重リング・232菱形・260点列・352複線・
+  // 316点列・390目盛・435円…と 2,000 を超えるプリミティブが毎フレーム
+  // 再ラスタライズされていた。焼けば毎フレームはテクスチャ 1 枚の転送で済む。
+  //
+  // MakeOffscreen が null を返す環境では従来どおり宣言的に描く（フォールバック）。
+  const inkImage = useMemo(() => {
+    if (W <= 0 || H <= 0) return null;
+    const dpr = Math.min(PixelRatio.get(), INK_BAKE_MAX_DPR);
+    // ホームへ戻るたび焼き直さないようモジュールキャッシュに載せる
+    return cachedImage(`sealInk|${W}|${H}|${cx}|${cy}|${s}|${dpr}`, () => {
+    const surface = Skia.Surface.MakeOffscreen(Math.ceil(W * dpr), Math.ceil(H * dpr));
+    if (!surface) return null;
+    const canvas = surface.getCanvas();
+    canvas.scale(dpr, dpr);
+
+    for (const g of geo.strokes) {
+      const paint = Skia.Paint();
+      paint.setAntiAlias(true);
+      paint.setStyle(PaintStyle.Stroke);
+      paint.setStrokeWidth(g.width);
+      paint.setColor(Skia.Color(g.color));
+      if (g.dash) paint.setPathEffect(Skia.PathEffect.MakeDash(g.dash));
+      canvas.drawPath(g.path, paint);
+    }
+    for (const g of geo.fills) {
+      const paint = Skia.Paint();
+      paint.setAntiAlias(true);
+      paint.setColor(Skia.Color(g.color));
+      canvas.drawPath(g.path, paint);
+    }
+    for (const t of geo.texts) {
+      // フォント未解決の字は宣言版（font={null}）でも描かれないので揃える
+      const font = fonts.get(Math.round(t.size * 10)) ?? null;
+      if (!font) continue;
+      const w = estWidth(t.text, t.size, font);
+      const dx = t.align === 'c' ? -w / 2 : t.align === 'r' ? -w : 0;
+      const paint = Skia.Paint();
+      paint.setAntiAlias(true);
+      paint.setColor(Skia.Color(t.color));
+      canvas.save();
+      canvas.translate(t.x, t.y);
+      // 宣言版の transform rotate はラジアン / imperative の rotate は度
+      if (t.rot) canvas.rotate((t.rot * 180) / Math.PI, 0, 0);
+      canvas.drawText(t.text, dx, t.voff, paint, font);
+      canvas.restore();
+    }
+    surface.flush();
+    // GPU バックドのスナップショットは生成時の GL コンテキストに紐づくため、
+    // そのまま <Image> へ渡しても描画スレッド側では無視されて透明になる。
+    // makeNonTextureImage() でラスタ画像へ落としてから返すこと。
+    const snapshot = surface.makeImageSnapshot();
+    return snapshot.makeNonTextureImage() ?? snapshot;
+    });
+    // estWidth は毎レンダー再生成される純関数なので依存に入れない
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [geo, fonts, W, H, cx, cy, s]);
+
+  // ── ②＋②' 発光層も 1 枚の SkImage へ焼く（bakeGlowImage のコメント参照） ──
+  const glowImage = useMemo(() => {
+    if (W <= 0 || H <= 0) return null;
+    const dpr = Math.min(PixelRatio.get(), GLOW_BAKE_MAX_DPR);
+    return cachedImage(
+      `sealGlow|${W}|${H}|${cx}|${cy}|${s}|${dpr}`,
+      () => bakeGlowImage(geo, W, H, cx, cy, s, dpr),
+    );
+  }, [geo, W, H, cx, cy, s]);
+
   // reduce-motion
   const [reduced, setReduced] = useState(false);
   useEffect(() => {
@@ -775,13 +962,20 @@ export const StarSeal: React.FC<StarSealProps> = ({
     };
   }, []);
 
-  const clock = useClock();
-  const stopSV = useSharedValue<boolean>(paused || reduced);
+  // 参照レポート②: 背面でも回り続けるループが発熱・電池消耗の直接原因。
+  // 非アクティブ時はフレームコールバックごと外して完全に止める。
+  const { clock } = useBackdropClock(paused || reduced);
+  const stopSV = useSharedValue<boolean>(false);
   useEffect(() => {
-    stopSV.value = paused || reduced;
-  }, [paused, reduced, stopSV]);
+    // paused（フリップ中の一時停止）では「止まった見た目」へ切り替えない。
+    // stop=true にすると雲も星も t=0 の姿へ飛び、光点は画面外へ退避するため、
+    // 止めた瞬間と再開した瞬間の両方でガクッと切り替わって見える。
+    // 時計が止まっていれば値は最後の状態で凍るので、それで十分。
+    // ここを立てるのは reduce-motion（意図的に動きを消す設定）のときだけ。
+    stopSV.value = reduced;
+  }, [reduced, stopSV]);
 
-  // 呼吸（0.86+0.14·sin 周期6s）。退避描画のみで使う
+  // 呼吸（0.86+0.14·sin 周期6s）。焼いた画像の不透明度として使う
   const glowOpacity = useDerivedValue(() => {
     if (stopSV.value) return 0.93;
     const t = clock.value / 1000;
@@ -789,85 +983,58 @@ export const StarSeal: React.FC<StarSealProps> = ({
     return 0.86 + 0.14 * breath;
   }, [clock]);
 
-  // ── ② 発光層シェーダー ──
-  // 幾何の個数は決定論なので、実際の要素数でソースを生成してコンパイルする。
-  const glowEffect = useMemo(() => {
-    try {
-      return Skia.RuntimeEffect.Make(
-        buildGlowShaderSource(geo.glowCircles.length, geo.glowSegs.length, geo.glowNodes.length),
-      );
-    } catch {
-      return null;
-    }
-  }, [geo.glowCircles.length, geo.glowSegs.length, geo.glowNodes.length]);
-
-  // uniform に渡す平坦配列。参照は px 座標で距離を測り、シェーダー側で 1/s する。
-  const glowArrays = useMemo(() => {
-    const circ: number[] = [];
-    geo.glowCircles.forEach((c) => circ.push(cx, cy, c.r, c.op));
-    const segA: number[] = [];
-    const segS: number[] = [];
-    geo.glowSegs.forEach((sg) => {
-      segA.push(sg.x1, sg.y1, sg.x2, sg.y2);
-      segS.push(sg.op);
-    });
-    const node: number[] = [];
-    geo.glowNodes.forEach((n) => node.push(n.x, n.y, n.r, n.main ? 1 : 0));
-    return { circ, segA, segS, node };
-  }, [geo.glowCircles, geo.glowSegs, geo.glowNodes, cx, cy]);
-
-  // 静的配列は参照を使い回し、毎フレーム作るのは時刻・呼吸だけにする。
-  const glowUniforms = useDerivedValue(() => {
-    const stopped = stopSV.value;
-    const t = stopped ? 0 : clock.value / 1000;
-    const breath = stopped ? 0.5 : 0.5 + 0.5 * Math.sin((t / 3) * Math.PI * 2);
-    return {
-      uS: s,
-      uTime: t,
-      uBreath: breath,
-      uCirc: glowArrays.circ,
-      uSegA: glowArrays.segA,
-      uSegS: glowArrays.segS,
-      uNode: glowArrays.node,
-    };
-  }, [clock, glowArrays, s]);
-
   return (
     <Canvas style={[{ width: W, height: H }, style]} pointerEvents="none">
-      {/* ═ ① 彫刻層（静的） ═ */}
-      <Group>
-        {geo.strokes.map((g, i) => (
-          <Path key={`s${i}`} path={g.path} color={g.color} style="stroke" strokeWidth={g.width}>
-            {g.dash ? <DashPathEffect intervals={g.dash} /> : null}
-          </Path>
-        ))}
-        {geo.fills.map((g, i) => (
-          <Path key={`f${i}`} path={g.path} color={g.color} />
-        ))}
-        {geo.texts.map((t, i) => {
-          const font = fonts.get(Math.round(t.size * 10)) ?? null;
-          const w = estWidth(t.text, t.size, font);
-          const dx = t.align === 'c' ? -w / 2 : t.align === 'r' ? -w : 0;
-          return (
-            <Group key={`t${i}`} transform={[{ translateX: t.x }, { translateY: t.y }, { rotate: t.rot }]}>
-              <SkText text={t.text} x={dx} y={t.voff} font={font} color={t.color} />
-            </Group>
-          );
-        })}
-      </Group>
-
-      {/* ═ ② 発光層（参照シェーダーの逐語移植） ═
-          円・線分・ノードの距離減衰を1枚のシェーダーで解析的に描く。
-          Skia の Blur は使わない（滲みは減衰式そのものが持っている）。 */}
-      {glowEffect ? (
-        <Fill>
-          <Shader source={glowEffect} uniforms={glowUniforms} />
-        </Fill>
+      {/* ═ ① 彫刻層（静的・SkImage へ焼き込み済み） ═
+          参照 #frSealInk と同じ「一度描いたら触らない」層。
+          焼けなかった環境（MakeOffscreen が null）だけ従来の宣言的描画へ落とす */}
+      {inkImage ? (
+        <SkiaImage image={inkImage} x={0} y={0} width={W} height={H} fit="fill" />
       ) : (
-        // RuntimeEffect が使えない環境向けの退避描画（滲みなしの細線＋点）
-        <Group opacity={glowOpacity} layer={<Paint blendMode="screen" />}>
+        <Group>
+          {geo.strokes.map((g, i) => (
+            <Path key={`s${i}`} path={g.path} color={g.color} style="stroke" strokeWidth={g.width}>
+              {g.dash ? <DashPathEffect intervals={g.dash} /> : null}
+            </Path>
+          ))}
+          {geo.fills.map((g, i) => (
+            <Path key={`f${i}`} path={g.path} color={g.color} />
+          ))}
+          {geo.texts.map((t, i) => {
+            const font = fonts.get(Math.round(t.size * 10)) ?? null;
+            const w = estWidth(t.text, t.size, font);
+            const dx = t.align === 'c' ? -w / 2 : t.align === 'r' ? -w : 0;
+            return (
+              <Group key={`t${i}`} transform={[{ translateX: t.x }, { translateY: t.y }, { rotate: t.rot }]}>
+                <SkText text={t.text} x={dx} y={t.voff} font={font} color={t.color} />
+              </Group>
+            );
+          })}
+        </Group>
+      )}
+
+      {/* ═ ②＋②' 発光層（静的・SkImage へ焼き込み済み） ═
+          呼吸（0.86+0.14sin）以外は動かない 228 プリミティブを 1 枚へ焼き、
+          実行時は screen 合成＋呼吸の透過で画像を 1 枚描くだけにする。
+          毎フレームの全画面 saveLayer 2 枚とガウシアン Blur(4*s) が消える。
+          焼けなかった環境（MakeOffscreen が null）だけ従来の 2 レイヤーへ落とす */}
+      {glowImage ? (
+        <Group blendMode="screen" opacity={glowOpacity}>
+          <SkiaImage image={glowImage} x={0} y={0} width={W} height={H} fit="fill" />
+        </Group>
+      ) : (
+        <>
+        {/* ═ ② 発光層（screen 合成＋呼吸） ═ */}
+        <Group
+          opacity={glowOpacity}
+          layer={
+            <Paint blendMode="screen">
+              <Blur blur={4 * s} />
+            </Paint>
+          }
+        >
           {geo.glowCircles.map((c, i) => (
-            <Circle key={`gc${i}`} cx={cx} cy={cy} r={c.r} style="stroke" strokeWidth={s} color={CYAN} opacity={c.op} />
+            <Circle key={`gc${i}`} cx={cx} cy={cy} r={c.r} style="stroke" strokeWidth={1.3 * s} color={CYAN} opacity={c.op} />
           ))}
           {geo.glowSegs.map((sg, i) => (
             <Line
@@ -876,24 +1043,99 @@ export const StarSeal: React.FC<StarSealProps> = ({
               p2={vec(sg.x2, sg.y2)}
               color={CYAN}
               style="stroke"
-              strokeWidth={s}
+              strokeWidth={1.3 * s}
               opacity={sg.op}
             />
           ))}
+          {/* 六芒星の6辺。参照はこの「ぼかした発光層」だけで描く。
+              シャープ層を使う場合のみ、ここは太く薄いハローへ降格する */}
+          {geo.hexSegs.map((sg, i) => (
+            <Line
+              key={`hh${i}`}
+              p1={vec(sg.x1, sg.y1)}
+              p2={vec(sg.x2, sg.y2)}
+              color={HEX_SHARP_LAYER ? HEX_COLOR : CYAN}
+              style="stroke"
+              strokeWidth={(HEX_SHARP_LAYER ? HEX_HALO_WIDTH : HEX_GLOW_WIDTH) * s}
+              opacity={HEX_SHARP_LAYER ? HEX_HALO_OPACITY : sg.op}
+            />
+          ))}
           {geo.glowNodes.map((n, i) => (
-            <Circle key={`gn${i}`} cx={n.x} cy={n.y} r={n.r} color={n.main ? CYAN : '#F3F8FF'} opacity={0.85} />
+            <React.Fragment key={`gn${i}`}>
+              <Circle cx={n.x} cy={n.y} r={n.r * 1.9} color={n.main ? CYAN : '#F3F8FF'} opacity={0.85} />
+              <Circle cx={n.x} cy={n.y} r={n.r * 4.6} color={n.main ? CYAN : '#F3F8FF'} opacity={0.12} />
+              {n.main && (
+                <>
+                  <Line
+                    p1={vec(n.x - n.r * 7, n.y)} p2={vec(n.x + n.r * 7, n.y)}
+                    color={CYAN} style="stroke" strokeWidth={0.8 * s} opacity={0.3}
+                  />
+                  <Line
+                    p1={vec(n.x, n.y - n.r * 7)} p2={vec(n.x, n.y + n.r * 7)}
+                    color={CYAN} style="stroke" strokeWidth={0.8 * s} opacity={0.3}
+                  />
+                </>
+              )}
+            </React.Fragment>
           ))}
         </Group>
+
+        {/* ═ ②' シャープ層（参照には無い・既定で無効） ═
+            発光層は全体に Blur がかかるため交点までにじむ。それを嫌って
+            ブラーなしのコア＋十字光条を重ねていたが、参照 fr_v98-2_FIX は
+            この層を持たず、六芒星も交点もぼかした発光だけで描いている。
+            実機比較で「はっきりしすぎ」の主因だったため既定で切る。
+            視認性を優先したい場合は HEX_SHARP_LAYER / NODE_SHARP_LAYER を true へ */}
+        {(HEX_SHARP_LAYER || NODE_SHARP_LAYER) && (
+          <Group opacity={glowOpacity} layer={<Paint blendMode="screen" />}>
+            {HEX_SHARP_LAYER &&
+              geo.hexSegs.map((sg, i) => (
+                <Line
+                  key={`hx${i}`}
+                  p1={vec(sg.x1, sg.y1)}
+                  p2={vec(sg.x2, sg.y2)}
+                  color={HEX_COLOR}
+                  style="stroke"
+                  strokeWidth={HEX_WIDTH * s}
+                  strokeCap="round"
+                  opacity={sg.op}
+                >
+                  {HEX_DASH ? <DashPathEffect intervals={HEX_DASH.map((d) => d * s)} /> : null}
+                </Line>
+              ))}
+            {NODE_SHARP_LAYER &&
+              geo.glowNodes.map((n, i) => {
+                const col = n.main ? CYAN : '#FFFFFF';
+                const spike = Math.max(n.r * NODE_SPIKE_LEN, 4 * s); // 十字光条の長さ
+                return (
+                  <React.Fragment key={`sn${i}`}>
+                    <Line
+                      p1={vec(n.x - spike, n.y)} p2={vec(n.x + spike, n.y)}
+                      color={col} style="stroke" strokeWidth={0.6 * s} strokeCap="round" opacity={NODE_SPIKE_OPACITY}
+                    />
+                    <Line
+                      p1={vec(n.x, n.y - spike)} p2={vec(n.x, n.y + spike)}
+                      color={col} style="stroke" strokeWidth={0.6 * s} strokeCap="round" opacity={NODE_SPIKE_OPACITY}
+                    />
+                    {/* シャープな白コア＋ごく薄い縁 */}
+                    <Circle cx={n.x} cy={n.y} r={Math.max(n.r * 0.85, 0.9 * s)} color="#FFFFFF" opacity={NODE_CORE_OPACITY} />
+                    <Circle cx={n.x} cy={n.y} r={Math.max(n.r * 1.6, 1.7 * s)} color={col} opacity={0.3} />
+                  </React.Fragment>
+                );
+              })}
+          </Group>
+        )}
+        </>
       )}
 
-      {/* ═ ③ 信号層（通電・光の車＋スパーク） ═ */}
-      <Group
-        layer={
-          <Paint blendMode="screen">
-            <Blur blur={1.2 * s} />
-          </Paint>
-        }
-      >
+      {/* ═ ③ 信号層（通電・光の車＋スパーク） ═
+          参照 fr_v98-2_FIX の信号層はぼかしを持たない（頭部は 16px スプライトへ
+          焼いた放射グラデ自体がぼけの役目で、合成も lighter だけ）。こちらは
+          layer={<Paint blendMode="screen"><Blur/></Paint>} にしていたため、
+          全画面 saveLayer の確保とガウシアン 1 本を毎フレーム払っていた。
+          光点を 45→15 に間引いても発熱が下がりきらなかったのはこれが層あたりの
+          固定費だったから。screen 合成だけを継承させ、saveLayer は発行しない */}
+      <Group blendMode="screen">
         {geo.cars.map((p, i) => (
           <Car key={`car${i}`} p={p} s={s} clock={clock} stop={stopSV} />
         ))}
@@ -904,5 +1146,13 @@ export const StarSeal: React.FC<StarSealProps> = ({
     </Canvas>
   );
 };
+
+
+// React.memo で包む。DiscoverScreen が再レンダーすると、素の FC のままでは
+// children の要素ツリーが作り直され、RN Skia の Canvas が
+// stopMapper → recorder 再構築 → 全ノード再 push（sksg/Container.native.ts）
+// を丸ごとやり直す。フリップの開始・終了はまさにその瞬間なので、
+// 一番引っかかってほしくないタイミングで最大のコストが乗っていた。
+export const StarSeal = React.memo(StarSealImpl);
 
 export default StarSeal;

@@ -147,11 +147,15 @@ export const FLIP_BACK_SCALE = 1.75;
 export const FLIP_LIFT = 0.09;
 
 /**
- * ホーム（ディスカバー）の表面カード幅(pt)。DiscoverScreen 自身が正だが、
- * 他画面（PlayerScreen）が「裏面の絶対サイズをホームと揃える」ために
- * 参照する必要があるため、ここに切り出して共有する。
+ * ホーム（ディスカバー）の表面カード幅(pt)。
+ * 参照実装は 380x760 の固定枠にカード 188.59 を置いているので、画面の高さを
+ * 760 で割った倍率をそのまま掛ける（幅基準にすると設計枠より縦長の端末で
+ * カードの縦だけが相対的に縮む。理由は DiscoverScreen のコメント参照）。
+ * DiscoverScreen 自身が正だが、他画面（PlayerScreen）が「裏面の絶対サイズを
+ * ホームと揃える」ために参照する必要があるため、ここに切り出して共有する。
  */
-export const HOME_CARD_W = 172;
+export const homeCardWidth = (screenH: number): number =>
+  Math.round(188.59 * (screenH > 0 ? screenH / 760 : 1));
 
 /**
  * 裏→表に戻すとき、表面の実体オーバーレイを復帰させるまでの**最短**待ち時間(ms)。
