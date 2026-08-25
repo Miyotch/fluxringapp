@@ -1091,10 +1091,15 @@ export const CardGL: React.FC<CardGLProps> = ({
   // 拡大（backScale）と持ち上げを含めて、回転中の対角線が切れないだけの
   // 正方形キャンバスを確保する。
   // 参照どおり枠基準でクランプした拡大率・持ち上げ量（未指定時は参照既定値）
-  const backScale = useMemo(
-    () => backScaleProp ?? computeBackScale(frame, width, height),
-    [backScaleProp, frame, width, height],
-  );
+  const backScale = useMemo(() => {
+    if (backScaleProp == null) return computeBackScale(frame, width, height);
+    // 明示指定は「他画面と裏面の実寸を揃える」ための上書き。ただし親が
+    // overflow:hidden でクリップすることがある（PlayerScreen の cardArea）ので、
+    // 枠に収まる上限（参照 _dv3d.layout と同じ 枠高*0.82）は超えさせない。
+    // これが無いと裏面の上辺が水平に切れる。
+    if (!frame || frame.height <= 0) return backScaleProp;
+    return Math.min(backScaleProp, (frame.height * 0.82) / height);
+  }, [backScaleProp, frame, width, height]);
   const backLiftRatio = useMemo(() => computeBackLiftRatio(frame, height), [frame, height]);
   const liftPx = height * backLiftRatio;
   // backScale<1 でも回転時の対角線は縮まないので 1 を下回らせない

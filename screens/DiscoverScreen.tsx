@@ -48,6 +48,7 @@ import { StarSeal } from '../components/StarSeal';
 import {
   CardGL,
   CARD_ASPECT,
+  computeBackScale,
 } from '../components/CardGL';
 import { BuyButton } from '../components/BuyButton';
 import { WishlistStar } from '../components/WishlistStar';
@@ -56,7 +57,7 @@ import { EqBars } from '../components/EqBars';
 import { BellIcon, PreviewIcon } from '../components/icons';
 import { useTopInset } from '../lib/safeArea';
 import { PurchaseParticles } from '../components/PurchaseParticles';
-import { PURCHASE, FLIP_BACK_SCALE, homeCardWidth } from '../constants/design-tokens';
+import { PURCHASE, homeCardWidth } from '../constants/design-tokens';
 import { formatPrice, TRACK_PRICE_JPY } from '../constants/pricing';
 import { JP_SERIF_FONT } from '../constants/fonts';
 import type { PurchaseController } from '../lib/usePurchaseFlow';
@@ -209,7 +210,14 @@ export const DiscoverScreen: React.FC<Props> = ({
   // 参照のデバイス枠に相当する矩形。裏面の拡大率 S と持ち上げ量はここ基準で決まる
   // （参照 _dv3d.layout: S = min(1.28, 枠幅*0.86/カード幅, 枠高*0.82/カード高)）。
   const cardFrame = useMemo(() => ({ width: screenW, height: slideH }), [screenW, slideH]);
-  // 裏返し時、拡大されたカード（FLIP_BACK_SCALE）が下部の購入ボタン／ウィッシュ星と
+  // 裏面の実倍率。CardGL が frame から出すものと同じ式を使う（下部クロームの
+  // 退避量がここに依存するので、片方だけ変わるとボタンが余分に沈む）。
+  const backScale = useMemo(
+    () => computeBackScale(cardFrame, cardW, cardH),
+    [cardFrame, cardW, cardH],
+  );
+
+  // 裏返し時、拡大されたカード（backScale）が下部の購入ボタン／ウィッシュ星と
   // 被るため、flipped の間は隠すのではなく、拡大後のカード下端よりさらに下へ
   // スライドさせて「カードの下」に表示する。
   const BOTTOM_BASE = 109 + slideH * 0.02; // 通常時（表向き）の bottom 値
@@ -219,7 +227,7 @@ export const DiscoverScreen: React.FC<Props> = ({
   // 張り付きすぎないよう最低16pxは確保する。
   const flippedBottom = Math.max(
     16,
-    slideH / 2 - (cardH * FLIP_BACK_SCALE) / 2 - FLIPPED_GAP,
+    slideH / 2 - (cardH * backScale) / 2 - FLIPPED_GAP,
   );
   const bottomChromeT = useSharedValue(0);
   useEffect(() => {

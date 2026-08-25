@@ -141,6 +141,12 @@ export const FLIP_EASING = (t: number): number =>
  *
  * 表面は常に倍率1なので、この値を変えても表面のサイズは一切変わらない。
  */
+/**
+ * @deprecated 使用箇所なし。裏面の倍率は CardGL の computeBackScale()（参照
+ * _dv3d.layout の 枠幅*0.86 / 枠高*0.82 / 上限 CARD_BACK_SCALE_MAX=1.28）が正。
+ * この 1.75 で逆算すると裏面が3割大きくなり、PlayerScreen の cardArea
+ * （overflow:hidden）の上辺で切れる。復活させないこと。
+ */
 export const FLIP_BACK_SCALE = 1.75;
 
 /** 回転の中腹で「少し浮く」ぶんの倍率加算（進捗0.5でピーク）。旧 CardGL 直書きの 0.09 と同値 */
