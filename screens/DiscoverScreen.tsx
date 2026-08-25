@@ -19,27 +19,37 @@ import {
   View,
   Text,
   Pressable,
-  FlatList,
   StyleSheet,
   StatusBar,
   LayoutChangeEvent,
   useWindowDimensions,
 } from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   useSharedValue,
+  useDerivedValue,
   useAnimatedStyle,
+  useAnimatedReaction,
+  useFrameCallback,
+  runOnJS,
   withTiming,
   withSequence,
   withDelay,
   Easing,
 } from 'react-native-reanimated';
+import { useIdleFloat } from '../lib/useIdleFloat';
 import { useAudioPlayer } from 'expo-audio';
 import { previewUrl } from '../lib/r2';
 import { CardFace } from '../components/CardFace';
-import { NebulaBand } from '../components/NebulaBand';
+import { BackdropSky } from '../components/BackdropSky';
+import { BackdropVeil } from '../components/BackdropVeil';
+import { CardGround } from '../components/CardGround';
 import { StarSeal } from '../components/StarSeal';
-import { CardGL } from '../components/CardGL';
-import type { CardBackData } from '../components/CardBack';
+import {
+  CardGL,
+  CARD_ASPECT,
+  computeBackScale,
+} from '../components/CardGL';
 import { BuyButton } from '../components/BuyButton';
 import { WishlistStar } from '../components/WishlistStar';
 import { PurchaseModal } from '../components/PurchaseModal';
@@ -47,11 +57,39 @@ import { EqBars } from '../components/EqBars';
 import { BellIcon, PreviewIcon } from '../components/icons';
 import { useTopInset } from '../lib/safeArea';
 import { PurchaseParticles } from '../components/PurchaseParticles';
-import { PurchaseCardGlow } from '../components/PurchaseCardGlow';
-import { PURCHASE, FLIP_BACK_SCALE, HOME_CARD_W } from '../constants/design-tokens';
+import { PURCHASE, homeCardWidth } from '../constants/design-tokens';
 import { formatPrice, TRACK_PRICE_JPY } from '../constants/pricing';
 import { JP_SERIF_FONT } from '../constants/fonts';
 import type { PurchaseController } from '../lib/usePurchaseFlow';
+
+// ── 表示スイッチ ──────────────────────────────────────────────
+// true にするとカード層（ページャ・接地影・固定クローム）を丸ごと外し、
+// 背景ブロック D と調律陣ブロック C だけを表示する。
+// 参照 fr_v98-2_FIX（Cardless).html と 1:1 で見比べるときもこれを true にする。
+// 天の川の明るさ・星の径・調律陣の焼き上がり・粒状感の確認用。
+//
+// ※ カードなし（星だけ）のビルドは 0.2.0 (14)〜(16)、および
+//   perf/seal-pulse-thinning / perf/seal-static-bake ブランチに保存してある。
+const DEBUG_BACKDROP_ONLY = false;
+
+// ── v98 カルーセル（参照 fr_v98_FIX.html 710-731行）────────────────
+// 曲送りは FlatList の pagingEnabled ではなく、参照と同じ dragX モデルで動かす。
+// paging では確定しきい値が実質「画面幅の半分」になり、参照の 37.7px＋速度
+// 500px/s より 5 倍以上重かった（＝「フリックがきかない」の直接原因）。
+const CAR_THRESH_R = 0.20;   // 確定しきい値（カード幅比・参照 THRESH=CARDW*0.20）
+const CAR_FAST_MIN_R = 0.06; // 速度成立時の最小移動量（参照 CARDW*0.06）
+const CAR_FADE_R = 0.55;     // 中央カードが消えきる距離（参照 CARDW*0.55）
+const CAR_VEL = 500;         // フリック速度しきい値 px/s（参照 0.5px/ms）
+const CAR_LERP = 0.22;       // 毎フレームの寄せ（参照 dragX += (target-dragX)*0.22）
+const CAR_SETTLE = 0.8;      // 整定しきい値 px（参照 |dragX-carTarget| < 0.8）
+const CAR_LAND_MS = 800;     // 着地フェード（参照 landT0 から 800ms）
+const CAR_AXIS = 6;          // 軸判定＝タップ境界（参照 moved の 6px）
+const CAR_DT_MAX = 0.05;     // 1フレームで進める上限（秒）
+
+// カードが表からこれ以上傾いたら接地影を消して固定する（参照の hideEls 相当）
+const GROUND_HIDE_DEG = 8;
+// これ以上傾いている間は背景（天の川・星・調律陣の光点）の時計を止める
+const SPIN_PAUSE_DEG = 2;
 
 const C = {
   page: '#0E0C20',
@@ -138,6 +176,8 @@ export const DiscoverScreen: React.FC<Props> = ({
   const [slideH, setSlideH] = useState(0);
   const [activeIndex, setActiveIndex] = useState(initialIndex);
   const [flipped, setFlipped] = useState(false); // アクティブカードが裏面か（横スクロール可否用）
+  // アクティブカードの表面からの回転角（度）。focus-dim（背景暗転）の駆動用
+  const cardRotation = useSharedValue(0);
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [wishlist, setWishlist] = useState<Set<string>>(new Set());
 
@@ -149,30 +189,45 @@ export const DiscoverScreen: React.FC<Props> = ({
   // 演出が立ち切る前にボタンが変わると、事後報告に見えるため一拍待たせる。
   const [pendingReveal, setPendingReveal] = useState<Set<string>>(new Set());
 
-  const { width: screenW } = useWindowDimensions();
+  const { width: screenW, height: screenH } = useWindowDimensions();
   const active = tracks[activeIndex] ?? tracks[0];
-  // 調律陣（StarSeal）のスケール基準。v98 カルーセル確定値 BASE_W = 164 × 1.15 = 188.6 で、
-  // この値のとき陣が参照実装と 1:1 になる。陣は検証済みの確定値なのでここは動かさない。
-  const SEAL_REF_W = 189;
-  // カードだけを陣より一回り小さくして、陣とカードのバランスをモック寄りにする。
-  // HOME_CARD_W は design-tokens.ts に切り出し済み（PlayerScreen が裏面の
-  // 絶対サイズをホームに揃えるために参照するため）。
-  const cardW = HOME_CARD_W;
-  const cardH = Math.round(cardW * 1.5);
-  const cardRadius = Math.round(0.085 * cardW); // CardAura と同じ角丸比率
+  // 参照はカード 188.6px を 380x760 の固定デバイス枠の中で見せている。
+  // その設計をそのまま実画面へ等比フィットさせ、カード幅から調律陣・カルーセル
+  // 距離・接地影まで全部を同じ倍率で連動させる。
+  //
+  // 基準は「画面の高さ÷760」。幅基準（min）だと Pixel 6（411x914・比 2.22）の
+  // ように設計枠（比 2.00）より縦長の端末では、幅の比率は参照と一致するのに
+  // 縦は相対的に 11% 小さくなり「カードの縦が短い」と見えていた。
+  //   参照: カード高 282.9 / 枠高 760 = 37.2%
+  //   幅基準のアプリ: 306 / 914 = 33.5%
+  // 端末の形が設計と違う以上どちらかしか合わないので、実機で違和感の出た
+  // 縦を優先する（そのぶん幅は画面の 49.6% → 55% と参照より広くなる）。
+  // フッターは設計枠 380x760 の内側にあるので、割る相手は表示領域ではなく
+  // 画面の高さ。
+  const cardW = homeCardWidth(screenH);
+  // 比率は CardGL の CARD_ASPECT が唯一の正（GL メッシュと必ず揃える）
+  const cardH = Math.round(cardW * CARD_ASPECT);
+  // 参照のデバイス枠に相当する矩形。裏面の拡大率 S と持ち上げ量はここ基準で決まる
+  // （参照 _dv3d.layout: S = min(1.28, 枠幅*0.86/カード幅, 枠高*0.82/カード高)）。
+  const cardFrame = useMemo(() => ({ width: screenW, height: slideH }), [screenW, slideH]);
+  // 裏面の実倍率。CardGL が frame から出すものと同じ式を使う（下部クロームの
+  // 退避量がここに依存するので、片方だけ変わるとボタンが余分に沈む）。
+  const backScale = useMemo(
+    () => computeBackScale(cardFrame, cardW, cardH),
+    [cardFrame, cardW, cardH],
+  );
 
-  // 裏返し時、拡大されたカード（FLIP_BACK_SCALE）が下部の購入ボタン／ウィッシュ星と
+  // 裏返し時、拡大されたカード（backScale）が下部の購入ボタン／ウィッシュ星と
   // 被るため、flipped の間は隠すのではなく、拡大後のカード下端よりさらに下へ
-  // スライドさせて「カードの下」に表示する（カードの拡大率はStorySeal等と同じく
-  // 実機調整済みの確定値のためカード側は動かさない）。
+  // スライドさせて「カードの下」に表示する。
   const BOTTOM_BASE = 109 + slideH * 0.02; // 通常時（表向き）の bottom 値
   const FLIPPED_GAP = 16; // 拡大カード下端からの余白
-  // カードはスライド内で縦中央に配置される（styles.slide）ため、中心から
-  // 拡大後の半分の高さぶん下が裏面カードの下端。そこに GAP を足した位置まで
-  // 沈める。極端に小さい画面でも張り付きすぎないよう最低16pxは確保する。
+  // カードはスライド内で縦中央に配置されるため、中心から拡大後の半分の高さぶん下が
+  // 裏面カードの下端。そこに GAP を足した位置まで沈める。極端に小さい画面でも
+  // 張り付きすぎないよう最低16pxは確保する。
   const flippedBottom = Math.max(
     16,
-    slideH / 2 - (cardH * FLIP_BACK_SCALE) / 2 - FLIPPED_GAP,
+    slideH / 2 - (cardH * backScale) / 2 - FLIPPED_GAP,
   );
   const bottomChromeT = useSharedValue(0);
   useEffect(() => {
@@ -185,13 +240,11 @@ export const DiscoverScreen: React.FC<Props> = ({
     transform: [{ translateY: bottomChromeT.value * (BOTTOM_BASE - flippedBottom) }],
   }));
 
-  // 購入確定時のカード発光・浮遊（PurchaseCardGlow ＋ このカード自身のtranslate/scale）
+  // 購入確定時のカード発光・浮遊。発光は CardGL の purchaseGlow（枠＋外周グロー）へ
+  // 渡し、浮遊は中央スロットの transform（centerStyle）へ合成する。
   const cardGlow = useSharedValue(0);
   const cardTranslateY = useSharedValue(0);
   const cardScale = useSharedValue(1);
-  const cardFloatStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: cardTranslateY.value }, { scale: cardScale.value }],
-  }));
 
   // フェーズ1(0-400ms)発光イン＋持ち上げ／フェーズ2(400-1000ms)微浮遊のまま保持／
   // フェーズ3(1000-1600ms)発光・位置ともに元へ収束
@@ -203,6 +256,77 @@ export const DiscoverScreen: React.FC<Props> = ({
     cardScale.value = withSequence(withTiming(1.02, rise), withDelay(600, withTiming(1, settle)));
   }, [cardGlow, cardTranslateY, cardScale]);
 
+  // ── v98 カルーセルの状態（参照 710-731行）──────────────────────
+  const carGeo = useMemo(
+    () => ({
+      thresh: cardW * CAR_THRESH_R,
+      fastMin: cardW * CAR_FAST_MIN_R,
+      fade: cardW * CAR_FADE_R,
+      // 参照 STEP = 190 + CARDW/2 + THRESH（隣カードとの中心間距離）。
+      // 先頭の 190 は参照デバイス(380px幅)基準の実寸なので、カードと同じ
+      // 倍率（cardW/188.59）でスケールする
+      step: (190 + 188.59 / 2 + 188.59 * CAR_THRESH_R) * (cardW / 188.59),
+    }),
+    [cardW],
+  );
+  /** カードの横位置(px)。指に 1:1 で追従し、離すと 0 か ±STEP へ寄る */
+  const dragX = useSharedValue(0);
+  const carTarget = useSharedValue(0);
+  /** 1 = 送り/戻りアニメ中。参照 down() はこの間の新規タッチを完全に無視する */
+  const carBusy = useSharedValue(0);
+  /** +1=次へ / -1=前へ / 0=戻すだけ */
+  const pendingDir = useSharedValue(0);
+  /** このジェスチャが操作権を取ったか（アニメ中に触られたら 0 のまま） */
+  const claimed = useSharedValue(0);
+  /** 着地フェード（参照 lk = 着地からの経過/800ms） */
+  const landFade = useSharedValue(1);
+
+  // ── アイドルフロート（v99-tsubasa）──────────────────────────
+  // 参照は dragging / carouselActive / 裏返し中(aProg>0.02) で 0 へ収束させる。
+  const scrolling = useSharedValue(0);
+  const damp = useDerivedValue<number>(() => {
+    const aProg = Math.abs(cardRotation.value) / 180;
+    // 参照は dragging だけでなく carouselActive（送り/戻りアニメ中）でも止める。
+    // 滑っている最中に上下へ浮くと、動きが二重になって落ち着かない。
+    return scrolling.value > 0.5 || carBusy.value > 0.5 || aProg > 0.02 ? 0 : 1;
+  }, [scrolling, carBusy, cardRotation]);
+  // カードを出さないビルドではフロートの消費者が居ないので、フレームコールバックごと止める
+  const floatY = useIdleFloat(damp, !DEBUG_BACKDROP_ONLY);
+  // 接地影は床に留めたまま、フロートと逆相で反応させる（lift = floatY/3.0）
+  const lift = useDerivedValue(() => floatY.value / 3.0, [floatY]);
+  // 参照 690行: ground.opacity = 0.78 * slideFade * fore
+  //   fore      = |cos(回転角)| … 裏返り中は接地影を弱める
+  //   slideFade = カード本体と同じ横スワイプのフェード
+  // カードは中央スロットの opacity でフェードするが、接地影はスロットの外側
+  // （全画面レイヤー）にあるので、同じ係数をここで掛けないと影だけ残る。
+  //
+  // ★ 回転が始まったら 0 を返して「固定」する。参照は 3D ビューを開くとき
+  //   接地影を visibility:hidden にして、回転中は一切さわらない（704/1891行）。
+  //   RN Skia は Canvas 単位でしか再描画できないので、値が毎フレーム変わると
+  //   全画面 Canvas が clear + ガウシアン込みで塗り直される。値が変わらなければ
+  //   mapper ごと止まり、再描画がゼロになる。
+  const groundFade = useDerivedValue(() => {
+    if (Math.abs(cardRotation.value) > GROUND_HIDE_DEG) return 0;
+    const fore = Math.abs(Math.cos((cardRotation.value * Math.PI) / 180));
+    const slide = Math.min(
+      Math.max(0, 1 - Math.abs(dragX.value) / carGeo.fade),
+      landFade.value,
+    );
+    return fore * slide;
+  }, [cardRotation, dragX, landFade, carGeo]);
+
+  // 回転中（＝表を向いていない）かどうか。true の間は背景の時計を止める。
+  // 参照の星と天の川は CSS コンポジタで回るのでメインスレッド負荷が構造的に
+  // ゼロだが、Skia は全画面 Canvas の再ラスタライズになる。同じ土俵に立つ
+  // 唯一の方法が「回している間は止める」。
+  const [cardSpinning, setCardSpinning] = useState(false);
+  useAnimatedReaction(
+    () => Math.abs(cardRotation.value) > SPIN_PAUSE_DEG,
+    (now, prev) => {
+      if (prev !== null && now !== prev) runOnJS(setCardSpinning)(now);
+    },
+    [],
+  );
   // 試聴プレイヤー（30秒・公開URL）
   const preview = useAudioPlayer();
 
@@ -212,35 +336,172 @@ export const DiscoverScreen: React.FC<Props> = ({
   // サーフェスを同期生成するため、タップ直後にこれが挟まると数十〜百ms級の
   // ヒッチになり、フリップ演出のフレームを丸ごと食う。曲一覧が変わらない限り
   // 同じ参照を返して再生成を止める。
-  const backDataById = useMemo(() => {
-    const m = new Map<string, CardBackData>();
-    for (const t of tracks) {
-      m.set(t.id, {
-        title: t.title,
-        serial: t.back?.serial,
-        story: t.back?.story ?? t.subtitle,
-        materials: t.back?.materials,
-        tuning: t.back?.tuning,
-        frequencies: t.back?.frequencies,
-        artist: t.back?.artist,
-      });
-    }
-    return m;
-  }, [tracks]);
-
   const onRootLayout = (e: LayoutChangeEvent) => setSlideH(e.nativeEvent.layout.height);
 
-  const onViewableItemsChanged = useRef(
-    ({ viewableItems }: { viewableItems: Array<{ index: number | null }> }) => {
-      if (viewableItems.length > 0 && viewableItems[0].index != null) {
-        setActiveIndex(viewableItems[0].index);
-        // 曲が変わったら横スクロールを必ず復活（旧アクティブの CardGL は
-        // アンマウントされるので表裏状態も自然にリセットされる）
-        setFlipped(false);
+  // ── カルーセルの駆動（参照 stepCarousel / applyCarousel）──────────
+  // useFrameCallback はアニメ中だけ setActive(true) にする。静止時に毎フレーム
+  // 仕事をしないのは C/D ブロックの熱対策と同じ規律（lib/usePausableClock.ts）。
+  const carFrameRef = useRef<{ setActive: (a: boolean) => void } | null>(null);
+  const count = tracks.length;
+
+  /** 整定した瞬間の後始末。dir!==0 なら曲を確定して着地フェードを始める */
+  const finishCarousel = useCallback(
+    (dir: number) => {
+      carFrameRef.current?.setActive(false);
+      if (dir === 0) return;
+      // 参照 ORDER は循環（端で止まらない）
+      setActiveIndex((i) => (((i + dir) % count) + count) % count);
+      setFlipped(false);
+      // 旧カードの回転角が残ると落影・接地影が戻らないのでリセット
+      cardRotation.value = 0;
+      // 購入の呼吸が途中でも、曲が変わったら消す（次のカードへ持ち越さない）
+      cardGlow.value = 0;
+      // 参照 landT0: 着地から 800ms かけて中央カードを戻す（0 は整定時に設定済み）
+      landFade.value = withTiming(1, { duration: CAR_LAND_MS, easing: Easing.linear });
+    },
+    [count, cardRotation, cardGlow, landFade],
+  );
+
+  const startCarousel = useCallback(() => {
+    carFrameRef.current?.setActive(true);
+  }, []);
+
+  // useFrameCallback は callback の同一性が変わるたびに登録し直す実装なので、
+  // インライン関数のままだと再レンダーごとに再登録が走る。useCallback で固定する。
+  const carTick = useCallback(
+    (info: { timeSincePreviousFrame: number | null }) => {
+      'worklet';
+      const dt = Math.min((info.timeSincePreviousFrame ?? 1000 / 60) / 1000, CAR_DT_MAX);
+      // 参照は 0.22/frame 固定。120Hz 端末で 2 倍速にならないよう時間で補正する
+      const k = 1 - Math.pow(1 - CAR_LERP, dt * 60);
+      dragX.value += (carTarget.value - dragX.value) * k;
+      if (Math.abs(dragX.value - carTarget.value) < CAR_SETTLE) {
+        const dir = pendingDir.value;
+        // 参照: 確定でもスナップバックでも最後は dragX=0（新しい札が中央に出る）
+        dragX.value = 0;
+        carTarget.value = 0;
+        pendingDir.value = 0;
+        carBusy.value = 0;
+        // 曲を差し替えるときは、ここで中央スロットを消しておく。
+        // activeIndex の更新は runOnJS 経由で 1〜2 フレーム遅れるため、
+        // 消さずに dragX=0 へ飛ばすと「古い絵柄が中央で一瞬光る」。
+        if (dir !== 0) landFade.value = 0;
+        runOnJS(finishCarousel)(dir);
       }
     },
-  ).current;
-  const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 60 }).current;
+    [finishCarousel, dragX, carTarget, pendingDir, carBusy, landFade],
+  );
+
+  const carFrame = useFrameCallback(carTick, false);
+
+  useEffect(() => {
+    carFrameRef.current = carFrame;
+  }, [carFrame]);
+
+  // ── ジェスチャ（参照 down/move/up = 722-728行）────────────────────
+  //   ・6px 動くまで活性化しない＝タップは CardGL 側のフリップへ通る
+  //   ・縦に 6px 先行したら失敗（参照の |ax|>=|ay| 軸判定に相当）
+  //   ・裏面では丸ごと無効（参照 aProg<0.5 の条件）
+  const carouselGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .enabled(!flipped)
+        .activeOffsetX([-CAR_AXIS, CAR_AXIS])
+        .failOffsetY([-CAR_AXIS, CAR_AXIS])
+        .onBegin(() => {
+          'worklet';
+          // 参照 down(): 送りアニメ中と裏返し中は操作権を渡さない
+          claimed.value = carBusy.value === 0 && Math.abs(cardRotation.value) < 90 ? 1 : 0;
+          if (claimed.value) scrolling.value = 1;
+        })
+        .onUpdate((e) => {
+          'worklet';
+          if (!claimed.value) return;
+          // 参照 move(): dragX = 指の移動量そのまま（1:1・上限なし）
+          dragX.value = e.translationX;
+        })
+        .onEnd((e) => {
+          'worklet';
+          if (!claimed.value) return;
+          const mag = Math.abs(dragX.value);
+          const dir = dragX.value < 0 ? 1 : -1;
+          // 参照は「押してから離すまでの総時間」で平均速度を出しており、
+          // ゆっくり掴んでから素早く払うと成立しない欠陥がある。ここは
+          // RNGH の瞬時速度を使い、しきい値 500px/s だけ参照に合わせる。
+          const fast = Math.abs(e.velocityX) > CAR_VEL;
+          if (mag >= carGeo.thresh || (fast && mag > carGeo.fastMin)) {
+            pendingDir.value = dir;
+            carTarget.value = -dir * carGeo.step;
+          } else {
+            pendingDir.value = 0;
+            carTarget.value = 0;
+          }
+          carBusy.value = 1;
+          runOnJS(startCarousel)();
+        })
+        .onFinalize(() => {
+          'worklet';
+          scrolling.value = 0;
+          claimed.value = 0;
+        }),
+    [
+      flipped,
+      carGeo,
+      claimed,
+      carBusy,
+      cardRotation,
+      scrolling,
+      dragX,
+      pendingDir,
+      carTarget,
+      startCarousel,
+    ],
+  );
+
+  // ── スロットの見た目（参照 applyCarousel 710-718行）──────────────
+  const centerStyle = useAnimatedStyle(() => ({
+    // 参照 slideFade = max(0, 1-|dragX|/(CARDW*0.55))、着地中は lk と min 合成
+    opacity: Math.min(Math.max(0, 1 - Math.abs(dragX.value) / carGeo.fade), landFade.value),
+    // 購入演出の持ち上げ(cardTranslateY)・拡大(cardScale)もここへ合成する。
+    // style 配列を足すと transform ごと後勝ちで置き換わるため、1本にまとめる。
+    transform: [
+      { translateX: dragX.value },
+      { translateY: floatY.value + cardTranslateY.value },
+      { scale: cardScale.value },
+    ],
+  }));
+  // 隣カードは参照どおり等倍・不透明度1（縮小もフェードも掛けない）
+  const peekLStyle = useAnimatedStyle(() => ({
+    opacity: dragX.value > 0.5 ? 1 : 0,
+    transform: [{ translateX: dragX.value - carGeo.step }],
+  }));
+  const peekRStyle = useAnimatedStyle(() => ({
+    opacity: dragX.value < -0.5 ? 1 : 0,
+    transform: [{ translateX: dragX.value + carGeo.step }],
+  }));
+
+  const prevTrack = tracks[(((activeIndex - 1) % count) + count) % count];
+  const nextTrack = tracks[(((activeIndex + 1) % count) + count) % count];
+
+  // 裏面の刻印テクスチャ（1024x1536）は backData が変わるたび同期生成される。
+  // インラインのオブジェクトリテラルだと再レンダーのたびに別物と見なされ、
+  // フリップのたびに 6MB のラスタライズで JS が止まり、その直後の 1 フレームで
+  // カードが一気に回っていた。曲が変わったときだけ作り直す。
+  const backData = useMemo(
+    () =>
+      active
+        ? {
+            title: active.title,
+            serial: active.back?.serial,
+            story: active.back?.story ?? active.subtitle,
+            materials: active.back?.materials,
+            tuning: active.back?.tuning,
+            frequencies: active.back?.frequencies,
+            artist: active.back?.artist,
+          }
+        : undefined,
+    [active],
+  );
 
   // 試聴は自動開始しない（スピーカーボタンの押下だけをトリガーにする）。
   // 曲を切り替えたら再生中の試聴は止める。
@@ -316,9 +577,9 @@ export const DiscoverScreen: React.FC<Props> = ({
   // (5) onDone で光粒子をアンマウント、画面遷移はしない（ホームに留まる）。
   //
   // PurchaseTransition（拡大＋星点火＋トランスポート）はここでは使わない。
-  // ホームの完了演出は PurchaseParticles＋PurchaseCardGlow を正とする（元のカード位置
+  // ホームの完了演出は PurchaseParticles＋カード自身の発光を正とする（元のカード位置
   // で光粒子が舞い上がり、カード自身がふわっと発光・浮遊する。複製カードは出さない
-  // 方針を維持するため）。PurchaseTransition は ComponentGallery の部品デモとして据え置き。
+  // 方針を維持するため）。発光は CardGL の purchaseGlow（枠＋外周グロー）で描く。PurchaseTransition は ComponentGallery の部品デモとして据え置き。
   const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const onBuyRef = useRef(onBuy);
   onBuyRef.current = onBuy;
@@ -365,83 +626,98 @@ export const DiscoverScreen: React.FC<Props> = ({
     <View style={styles.root} onLayout={onRootLayout}>
       <StatusBar barStyle="light-content" backgroundColor={C.page} />
 
-      {/* 最背面: 天の川バンド（NebulaBand）。カード左上あたりに紫の星雲が
-          密集する帯を敷く全面背景（自身が bgbase グラデーションも描く）。
-          調律陣（StarSeal）はこの上に重ねる装飾レイヤーで、背景自体を置き換えない。 */}
-      <NebulaBand />
+      {/* 背景ブロック D の下半分（参照 z 順: bgbase → nebBand → bgstars）。
+          旧 NebulaBand + StarField の 2 枚を 1 枚の Canvas へ統合。
+          .bgaura は参照側が opacity:0!important の無効レイヤーなので移植しない */}
+      {slideH > 0 && <BackdropSky width={screenW} height={slideH} paused={cardSpinning} />}
 
-      {/* 調律陣の背景。スケール基準はカード幅（cardW）に固定する。
-          画面基準（width/heightのみ）だとタブレットで画面ごと拡大され、
-          カードに対して陣だけが不釣り合いに巨大化する（iPad実測で参照比1.71倍）。
-          中心は実際にカードが描かれる位置（スライド中央）に一致させる。 */}
+      {/* 調律陣の背景（プレイヤーと同一・カード中心に配置） */}
       {slideH > 0 && (
         <StarSeal
           width={screenW}
           height={slideH}
-          cardWidth={SEAL_REF_W}
           centerX={screenW / 2}
           centerY={slideH / 2}
+          cardWidth={cardW}
+          paused={cardSpinning}
           style={styles.sealLayer}
         />
       )}
 
-      {/* カードページャ。表面=横スワイプで曲切替＋タップで裏返し、
-          裏面=全方向360°回転（横スワイプは無効） */}
-      {slideH > 0 && (
-        <FlatList
-          data={tracks}
-          keyExtractor={(t) => t.id}
-          horizontal
-          pagingEnabled
-          scrollEnabled={!flipped}
-          showsHorizontalScrollIndicator={false}
-          extraData={activeIndex}
-          onViewableItemsChanged={onViewableItemsChanged}
-          viewabilityConfig={viewabilityConfig}
-          windowSize={3}
-          maxToRenderPerBatch={2}
-          initialScrollIndex={initialIndex}
-          getItemLayout={(_, index) => ({ length: screenW, offset: screenW * index, index })}
-          renderItem={({ item, index }) => (
-            <View style={[styles.slide, { width: screenW, height: slideH }]}>
-              {index === activeIndex ? (
-                // アクティブ面: v98準拠の実3Dカード（角丸・厚み・オーラ）。
-                // 表面=角丸の作品画像＋タップで180°横回転で裏返し / 裏面=
-                // アルミ刻印面（再生画面と同一デザイン）＋全方向360°回転。
-                // タップ→フリップは内部完結（FlatList のセル再レンダーに依存しない）。
-                // Animated.View でラップし、購入確定時だけ浮遊(translateY/scale)させる。
-                <Animated.View style={[{ width: cardW, height: cardH }, cardFloatStyle]}>
-                  {showPurchaseFx && (
-                    <PurchaseCardGlow width={cardW} height={cardH} radius={cardRadius} glow={cardGlow} />
-                  )}
-                  <CardGL
-                    mode="flip"
-                    backStyle="aluminum"
-                    frontUri={item.artworkUrl}
-                    width={cardW}
-                    height={cardH}
-                    aura={{ a: item.glowColor, b: item.glowColor2 }}
-                    onFlipChange={setFlipped}
-                    backData={backDataById.get(item.id)}
-                  />
-                </Animated.View>
-              ) : (
-                // 非アクティブは軽量な静止カード（角丸＋オーラ・v98の表面と同一デザイン）
-                <CardFace
-                  uri={item.artworkUrl}
-                  width={cardW}
-                  height={cardH}
-                  auraA={item.glowColor}
-                  auraB={item.glowColor2}
-                />
-              )}
-            </View>
-          )}
+      {/* 背景ブロック D の上半分（減光・粒状感の3層 = bgvig + focus-dim + bggrain）。
+          参照の z 順どおり調律陣より上・カードより下。
+          旧・減光レイヤーと粒状感レイヤーの 2 枚を 1 枚の Canvas へ統合 */}
+      {slideH > 0 && <BackdropVeil width={screenW} height={slideH} />}
+
+      {/* 接地影（card-ground）。カードは floatY で浮くが影は床に留め、
+          逆相で「浮くと薄く広く／沈むと濃く狭く」反応させる */}
+      {slideH > 0 && !DEBUG_BACKDROP_ONLY && (
+        <CardGround
+          width={screenW}
+          height={slideH}
+          centerX={screenW / 2}
+          centerY={slideH / 2}
+          cardW={cardW}
+          cardH={cardH}
+          fade={groundFade}
+          lift={lift}
+          dragX={dragX}
+          style={styles.sealLayer}
         />
       )}
 
+      {/* カード層（B ブロック）。参照 .stage は peekL / card / peekR の
+          3 スロット固定で、カード自身が指へ 1:1 追従する（710-718行）。
+          FlatList の paging では確定しきい値が画面幅の半分になってしまい、
+          参照の 37.7px＋500px/s とは別物の操作感だった。 */}
+      {slideH > 0 && !DEBUG_BACKDROP_ONLY && (
+        <GestureDetector gesture={carouselGesture}>
+          <View style={[styles.stage, { height: slideH }]} pointerEvents="box-none">
+            {/* 隣接カード（参照 peekL/peekR）。等倍・不透明度1で dragX±STEP。
+                静止時は opacity 0 ＝ 合成から外れるだけで、毎フレームの
+                描画コストは持たない（中身は静止した Skia レイヤー） */}
+            {count > 1 && (
+              <>
+                <Animated.View style={[styles.slot, peekLStyle]} pointerEvents="none">
+                  <CardFace uri={prevTrack.artworkUrl} width={cardW} height={cardH} />
+                </Animated.View>
+                <Animated.View style={[styles.slot, peekRStyle]} pointerEvents="none">
+                  <CardFace uri={nextTrack.artworkUrl} width={cardW} height={cardH} />
+                </Animated.View>
+              </>
+            )}
+
+            {/* アクティブ面: v98準拠の実3Dカード（角丸・厚み・オーラ）。
+                表面=角丸の作品画像＋タップで180°横回転して裏返し / 裏面=
+                アルミ刻印面（再生画面と同一デザイン）＋全方向回転。
+                曲が変わってもカードは載せ替えず、テクスチャだけ差し替える
+                （GL コンテキストの作り直しを避ける）。 */}
+            <Animated.View style={[styles.slot, centerStyle]} pointerEvents="box-none">
+              {active && (
+                <CardGL
+                  mode="flip"
+                  backStyle="aluminum"
+                  frontUri={active.artworkUrl}
+                  width={cardW}
+                  height={cardH}
+                  shadow
+                  frame={cardFrame}
+                  onFlipChange={setFlipped}
+                  rotationOut={cardRotation}
+                  purchaseGlow={showPurchaseFx ? cardGlow : undefined}
+                  backData={backData}
+                />
+              )}
+            </Animated.View>
+          </View>
+        </GestureDetector>
+      )}
+
       {/* ── 固定クローム（active に連動） ── */}
-      <View style={styles.chrome} pointerEvents="box-none">
+      <View
+        style={[styles.chrome, DEBUG_BACKDROP_ONLY && styles.hidden]}
+        pointerEvents={DEBUG_BACKDROP_ONLY ? 'none' : 'box-none'}
+      >
         {/* ブランド */}
         <Text style={[styles.brand, { top: 26 + chromeShift }]}>Flux Ring</Text>
 
@@ -534,8 +810,21 @@ export const DiscoverScreen: React.FC<Props> = ({
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.page },
-  slide: { alignItems: 'center', justifyContent: 'center' },
+  /** 参照 .stage（position:absolute; inset:0）。3スロットの親 */
+  stage: { position: 'absolute', left: 0, right: 0, top: 0 },
+  /** 参照の card / peekL / peekR。中央基準で重ね、translateX で振り分ける */
+  slot: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   sealLayer: { position: 'absolute', top: 0, left: 0 },
+  /** DEBUG_BACKDROP_ONLY 用。クロームを畳んで背景・調律陣だけを見る */
+  hidden: { opacity: 0 },
 
   chrome: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
   brand: {

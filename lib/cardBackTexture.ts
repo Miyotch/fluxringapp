@@ -1,7 +1,7 @@
 /**
  * cardBackTexture.ts — 3Dカード裏面テクスチャの生成（Skia オフスクリーン）
  * ------------------------------------------------------------------
- * ホーム画面の裏面（components/CardBack.tsx）と同じデザイン
+ * カード裏面のデザイン
  *   ・横帯グラデーション（磨きアルミの映り込み）
  *   ・縦ヘアライン（決定論ハッシュ）
  *   ・斜めの光沢一筋＋上端ハイライト/下端シェード
@@ -24,9 +24,22 @@ import {
   SkCanvas,
   SkImage,
 } from '@shopify/react-native-skia';
-import type { CardBackData } from '../components/CardBack';
+/**
+ * 裏面に刻む内容。以前は RN 版の裏面コンポーネント components/CardBack.tsx が
+ * 持っていたが、裏面は GL のテクスチャ描画へ一本化され、そちらは使われなく
+ * なったので、実際にこの型でテクスチャを焼くこのモジュールへ移した。
+ */
+export type CardBackData = {
+  serial?: string;         // 'No. 001'
+  title: string;
+  story?: string;
+  materials?: string[];    // 原材料（例: ['朝の空気', '低い持続音']）
+  tuning?: string;         // 調律名（例: '純正律'）
+  frequencies?: string[];  // 周波数のみ（例: ['432 Hz', '7.83 Hz']）
+  artist?: string;         // 'NAOKI OKA'
+};
 
-// CardBack.tsx と同じ帯色
+// 磨きアルミの帯色
 const BAND_COLORS = [
   '#AEB4BD', '#E6E9EE', '#9CA2AB', '#D9DDE3',
   '#B6BBC4', '#EDEFF3', '#A4AAB3', '#CDD1D8',
