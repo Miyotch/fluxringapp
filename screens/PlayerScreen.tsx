@@ -12,7 +12,7 @@
  *   ・ホーム(ディスカバー)側は従来のまま。この画面のみの挙動
  */
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -34,12 +34,12 @@ import Animated, {
   Easing,
 } from 'react-native-reanimated';
 import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
-import { CardGL } from '../components/CardGL';
+import { CardGL, CARD_BACK_SCALE_MAX } from '../components/CardGL';
 import { NebulaGL } from '../components/NebulaGL';
 import { CardAfterimage, CardOrigin } from '../components/CardAfterimage';
 import { EqBars } from '../components/EqBars';
 import { PlayMark, PauseMark, LoopIcon, ShareIcon, SkipIcon, SkipPrevIcon } from '../components/icons';
-import { COLOR, SPACE, TRANSPORT, FLIP_BACK_SCALE, HOME_CARD_W } from '../constants/design-tokens';
+import { COLOR, SPACE, TRANSPORT, homeCardWidth } from '../constants/design-tokens';
 import { formatTime } from '../lib/audio';
 import { useTopInset, useBottomInset } from '../lib/safeArea';
 import { fullAudioUrl, previewUrl } from '../lib/r2';
@@ -101,9 +101,12 @@ export const PlayerScreen: React.FC<Props> = ({
   // 裏面（フリップ後）の絶対サイズをホーム画面と揃える。表面カードはこの画面の
   // ほうが大きい（cardW=240 前後 vs ホーム172）ため、CardGL 既定の
   // FLIP_BACK_SCALE をそのまま使うと裏面がホームよりずっと大きく描かれてしまう。
-  // 「ホームの裏面幅(HOME_CARD_W×FLIP_BACK_SCALE)」になるよう、この画面の
-  // cardW 基準で倍率を逆算する。
-  const backScale = (HOME_CARD_W * FLIP_BACK_SCALE) / cardW;
+  // 「ホームの裏面幅」になるよう、この画面の cardW 基準で倍率を逆算する。
+  // ホーム側の裏面倍率は CardGL の computeBackScale（参照 _dv3d.layout）で、
+  // 実機の画面比ではまず上限の CARD_BACK_SCALE_MAX に張り付く。旧 FLIP_BACK_SCALE
+  // (1.75) は現在どこでも使われておらず、これで逆算すると裏面が3割大きくなって
+  // cardArea（overflow:hidden）の上辺で切れる。
+  const backScale = (homeCardWidth(screenH) * CARD_BACK_SCALE_MAX) / cardW;
 
   // 残像の起点は「開いた瞬間」の座標に固定。曲送り／戻しで track が変わっても動かさない。
   const [afterimageOrigin] = useState(origin ?? null);
@@ -127,6 +130,13 @@ export const PlayerScreen: React.FC<Props> = ({
 
   // カード領域のレイアウト（x/y は root 内での位置。フライトインの着地座標に使う）
   const [cardArea, setCardArea] = useState({ x: 0, y: 0, w: 0, h: 0 });
+  // CardGL へ渡す枠。cardArea は overflow:hidden なので、この高さを超えて
+  // 裏面が拡大されないよう CardGL 側でクランプさせる。
+  // ※毎レンダーで新しいオブジェクトを渡すと R3F のツリーが作り直されるので useMemo。
+  const cardFrame = useMemo(
+    () => ({ width: cardArea.w, height: cardArea.h }),
+    [cardArea.w, cardArea.h],
+  );
 
   // ── コレクション→再生 の画面遷移演出 ──────────────────────────
   // ①カードがコレクションのグリッド位置から中央フォーカス位置へ拡大しながら移動
@@ -430,6 +440,7 @@ export const PlayerScreen: React.FC<Props> = ({
             width={cardW}
             height={cardH}
             depthRatio={0.016}
+            frame={cardFrame}
             backScale={backScale}
             backData={{
               title: track.title,

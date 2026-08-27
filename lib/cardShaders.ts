@@ -50,10 +50,17 @@ precision highp float;
 uniform sampler2D map;
 uniform float uHasMap;
 uniform vec3 uLight; // (0.45, -0.55, -0.80) 参照値
+uniform vec2 uCardPx; // カードの見かけ寸法(px)。表面オーバーレイを px 基準で描くため
 
 varying vec2 vUv;
 varying vec3 vWorldNormal;
 varying vec3 vWorldPos;
+
+// 角丸長方形の符号付き距離（内側が負）
+float sdRoundRect(vec2 p, vec2 b, float r) {
+  vec2 d = abs(p) - b + vec2(r);
+  return min(max(d.x, d.y), 0.0) + length(max(d, 0.0)) - r;
+}
 
 void main() {
   vec3 N = normalize(vWorldNormal);
@@ -86,6 +93,38 @@ void main() {
   col += cyan * fres * rimAmount;
 
   col = pow(clamp(col, 0.0, 1.0), vec3(1.0 / 2.2)); // 簡易ガンマ補正
+
+  // ── v99-tsubasa の表面オーバーレイ（.face.front::after）────────────
+  // components/CardSurface.tsx と同一の作図。CSS は sRGB 空間で合成するので
+  // ガンマ補正の「後」に載せる。フリップ中は GL 面が見えるため、静止時の
+  // Skia オーバーレイと同じ見えをここでも作らないと回転開始時に金枠が消える。
+  //
+  // vUv.y は remapUV により 1=カード上端。CSS の 180deg は上→下なので反転。
+  float t = 1.0 - vUv.y;
+
+  // (a) 面内減光: 白.05 0% → 透明 34% → 暗.12 76% → 暗.26 100%
+  vec3 deep = vec3(3.0, 5.0, 14.0) / 255.0;
+  if (t < 0.34) {
+    col = mix(col, vec3(1.0), 0.05 * (1.0 - t / 0.34));
+  } else if (t < 0.76) {
+    col = mix(col, deep, 0.12 * ((t - 0.34) / 0.42));
+  } else {
+    col = mix(col, deep, 0.12 + 0.14 * ((t - 0.76) / 0.24));
+  }
+
+  // 参照のカード幅 188.6px 基準へ正規化する。CardSurface.tsx も同じ係数で
+  // スケールするので、静止（Skia）↔ 回転中（GL）で寸法がぶれない。
+  float s = uCardPx.x / 188.6;
+
+  // (c) 下端の内側シャドウ inset 0 -18px 30px rgba(3,5,14,.22)
+  //     dy=-18 で穴が上へずれるため、実質は下辺だけの減光。
+  //     ガウス(σ=15)の裾を smoothstep で近似する。
+  float dBot = vUv.y * uCardPx.y / s; // 下端からの距離（参照px）
+  col = mix(col, deep, 0.22 * (1.0 - smoothstep(-4.0, 48.0, dBot)));
+
+  // (b) 内枠の二重ヘアラインは Skia 側（CardSurface）と揃えて撤去。
+  //     実機で「横枠が太い」と出たため。参照 v98 も P.frame=0.0 で枠なし。
+
   gl_FragColor = vec4(col, artSample.a);
 }
 `;
