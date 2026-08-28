@@ -48,7 +48,6 @@ import { StarSeal } from '../components/StarSeal';
 import {
   CardGL,
   CARD_ASPECT,
-  computeBackScale,
 } from '../components/CardGL';
 import { BuyButton } from '../components/BuyButton';
 import { WishlistStar } from '../components/WishlistStar';
@@ -209,36 +208,15 @@ export const DiscoverScreen: React.FC<Props> = ({
   const cardH = Math.round(cardW * CARD_ASPECT);
   // 参照のデバイス枠に相当する矩形。裏面の拡大率 S と持ち上げ量はここ基準で決まる
   // （参照 _dv3d.layout: S = min(1.28, 枠幅*0.86/カード幅, 枠高*0.82/カード高)）。
+  // CardGL 自身に frame を渡し、裏面の実倍率は CardGL 内部の computeBackScale に
+  // 任せる（下部クロームは固定位置になったので、ここで揃えて計算する必要はない）。
   const cardFrame = useMemo(() => ({ width: screenW, height: slideH }), [screenW, slideH]);
-  // 裏面の実倍率。CardGL が frame から出すものと同じ式を使う（下部クロームの
-  // 退避量がここに依存するので、片方だけ変わるとボタンが余分に沈む）。
-  const backScale = useMemo(
-    () => computeBackScale(cardFrame, cardW, cardH),
-    [cardFrame, cardW, cardH],
-  );
 
-  // 裏返し時、拡大されたカード（backScale）が下部の購入ボタン／ウィッシュ星と
-  // 被るため、flipped の間は隠すのではなく、拡大後のカード下端よりさらに下へ
-  // スライドさせて「カードの下」に表示する。
-  const BOTTOM_BASE = 109 + slideH * 0.02; // 通常時（表向き）の bottom 値
-  const FLIPPED_GAP = 16; // 拡大カード下端からの余白
-  // カードはスライド内で縦中央に配置されるため、中心から拡大後の半分の高さぶん下が
-  // 裏面カードの下端。そこに GAP を足した位置まで沈める。極端に小さい画面でも
-  // 張り付きすぎないよう最低16pxは確保する。
-  const flippedBottom = Math.max(
-    16,
-    slideH / 2 - (cardH * backScale) / 2 - FLIPPED_GAP,
-  );
-  const bottomChromeT = useSharedValue(0);
-  useEffect(() => {
-    bottomChromeT.value = withTiming(flipped ? 1 : 0, {
-      duration: 260,
-      easing: Easing.inOut(Easing.quad),
-    });
-  }, [flipped, bottomChromeT]);
-  const bottomChromeStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: bottomChromeT.value * (BOTTOM_BASE - flippedBottom) }],
-  }));
+  // 購入ボタン／ウィッシュ星の位置は裏返し時も動かさず固定にする
+  // （iPhone 16 で、裏面のカードが拡大されるのに合わせてボタンが下へスライドし、
+  // ガタつくとの指摘のため）。裏面は computeBackScale で枠内に収まるよう
+  // クランプ済みなので、固定位置のままでも大きくはみ出さない。
+  const BOTTOM_BASE = 109 + slideH * 0.02;
 
   // 購入確定時のカード発光・浮遊。発光は CardGL の purchaseGlow（枠＋外周グロー）へ
   // 渡し、浮遊は中央スロットの transform（centerStyle）へ合成する。
@@ -730,7 +708,11 @@ export const DiscoverScreen: React.FC<Props> = ({
               <BellIcon size={24} />
               {hasUnread && <View style={styles.bdot} />}
             </Pressable>
-            <EqBars active={isPreviewing} />
+            {/* EqBars は非アクティブ時 null を返すため、幅固定のスロットで囲って
+                試聴の開始/停止でベルの位置が動かないようにする */}
+            <View style={styles.eqSlot}>
+              <EqBars active={isPreviewing} />
+            </View>
           </View>
           <Pressable onPress={togglePreview} hitSlop={10} style={styles.iconsRow2}>
             <PreviewIcon size={24} on={isPreviewing} />
@@ -742,13 +724,8 @@ export const DiscoverScreen: React.FC<Props> = ({
           <Text style={styles.title} numberOfLines={1}>{active?.title}</Text>
         </View>
 
-        {/* 下部: 購入ボタン ＋ ウィッシュ星。
-            裏返し中は拡大されたカードと被るため、下スライドして「カードの下」に
-            表示位置を移す（隠さず常に見える・タップも可能なまま）。 */}
-        <Animated.View
-          style={[styles.bottom, { bottom: BOTTOM_BASE }, bottomChromeStyle]}
-          pointerEvents="box-none"
-        >
+        {/* 下部: 購入ボタン ＋ ウィッシュ星。裏返し中も位置は固定のまま動かさない。 */}
+        <View style={[styles.bottom, { bottom: BOTTOM_BASE }]} pointerEvents="box-none">
           {(() => {
             const owned = isOwned(active);
             return (
@@ -770,7 +747,7 @@ export const DiscoverScreen: React.FC<Props> = ({
               </>
             );
           })()}
-        </Animated.View>
+        </View>
       </View>
 
       {/* 購入の光粒子（画面下部から舞い上がる・複製カードは出さない） */}
@@ -836,6 +813,10 @@ const styles = StyleSheet.create({
   topRight: { position: 'absolute', top: 22, right: 20, alignItems: 'flex-end' },
   iconsRow1: { flexDirection: 'row', alignItems: 'center', gap: 13 },
   iconsRow2: { marginTop: 10 },
+  // EqBars 自身の幅（4本×2px＋間隔3×2px＝14px）に合わせた固定スロット。
+  // EqBars は非アクティブ時 null を返すため、これで囲わないと行の幅が
+  // 詰まり、右寄せの行内でベルの位置が動いてしまう。
+  eqSlot: { width: 14, alignItems: 'center', justifyContent: 'center' },
   bell: {},
   bdot: {
     position: 'absolute', top: -1, right: -1,
