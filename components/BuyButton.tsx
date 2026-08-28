@@ -68,6 +68,7 @@ const styles = StyleSheet.create({
     borderRadius: 28,
     alignItems: 'center',
     justifyContent: 'center',
+    marginTop: 5,
     // 枠・塗りなし
   },
   // 押下時に文字が縮む挙動は不要（発光だけを強める）
