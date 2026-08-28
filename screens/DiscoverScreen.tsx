@@ -216,7 +216,7 @@ export const DiscoverScreen: React.FC<Props> = ({
   // （iPhone 16 で、裏面のカードが拡大されるのに合わせてボタンが下へスライドし、
   // ガタつくとの指摘のため）。裏面は computeBackScale で枠内に収まるよう
   // クランプ済みなので、固定位置のままでも大きくはみ出さない。
-  const BOTTOM_BASE = 109 + slideH * 0.02;
+  const BOTTOM_BASE = 100 + slideH * 0.02;
 
   // 購入確定時のカード発光・浮遊。発光は CardGL の purchaseGlow（枠＋外周グロー）へ
   // 渡し、浮遊は中央スロットの transform（centerStyle）へ合成する。
