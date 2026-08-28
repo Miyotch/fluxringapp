@@ -22,6 +22,7 @@ import {
   TabSettingsIcon,
   LockIcon,
 } from './icons';
+import { TabIconGlow, TabTopIndicator } from './TabGlow';
 
 export type TabKey = 'home' | 'collection' | 'vip' | 'media' | 'settings';
 
@@ -55,13 +56,13 @@ export const Footer: React.FC<FooterProps> = ({ active, onChange, vipLocked = tr
       {TABS.map((tab) => {
         const isActive = tab.key === active;
         const isVip = tab.key === 'vip';
-        // .tb: OFF #9498BE / ON #ECEEF7 / VIP #60CEE0（常時）。
-        // シアンは「不変の規律」どおり VIP 一点だけの装飾。他タブは選択時も
-        // 白寄りに留め、シアンを面積いっぱいに使わない。
+        // .tb: OFF #9498BE / ON #F2E7C8（金）/ VIP #60CEE0（常時）。
+        // シアンは「不変の規律」どおり VIP 一点だけの装飾。VIP はアクティブでも
+        // 金には染めず、上端インジケータ（TabTopIndicator）だけで選択中を示す。
         const tint = isVip
           ? COLOR.auraCyan
           : isActive
-          ? COLOR.textPrimary
+          ? COLOR.tabActiveGold
           : COLOR.textSecondary;
 
         return (
@@ -74,7 +75,13 @@ export const Footer: React.FC<FooterProps> = ({ active, onChange, vipLocked = tr
             accessibilityState={{ selected: isActive }}
             accessibilityLabel={t(tab.labelKey)}
           >
+            {/* タブ上端の金インジケータ（v99 fr_v99_tsubasa .tb.on::before 相当）。
+                VIP がアクティブなときも、アイコン自体は染めずこれだけで示す。 */}
+            <TabTopIndicator active={isActive} />
             <View style={styles.glyphWrap}>
+              {/* アイコン背後の淡い金グロー（.tb.on svg drop-shadow 相当）。
+                  VIP は常時シアンの独立した装飾なので対象外にする。 */}
+              <TabIconGlow active={isActive && !isVip} size={20} />
               {tab.Icon ? (
                 <tab.Icon size={20} color={tint} />
               ) : isVip && vipLocked ? (

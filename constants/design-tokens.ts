@@ -17,6 +17,10 @@ export const COLOR = {
   auraBlue:   '#4684E0',
   auraCyan:   '#60CEE0', // CTA・選択・作品の縁に一点
 
+  // フッターのアクティブタブ（v99 fr_v99_tsubasa 準拠）。
+  // カードの箔押し枠と同族の金色。VIPタブのみ常時シアンで、これとは別。
+  tabActiveGold: '#F2E7C8',
+
   // テキスト
   textPrimary:   '#ECEEF7',
   textSecondary: '#9498BE',
