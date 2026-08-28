@@ -1050,7 +1050,7 @@ export const DocumentScreen: React.FC<{ kind: DocKind; onBack: () => void }> = (
 // 情報（規約類のまとめ）
 // ─────────────────────────────────────────────
 
-const APP_VERSION = '1.0.0';
+const APP_VERSION = '0.1.0';
 
 /**
  * 設定「情報」。CREDITS / 利用規約 / プライバシー / 特商法 を束ねる中間画面。
