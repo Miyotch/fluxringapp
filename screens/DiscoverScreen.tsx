@@ -825,7 +825,7 @@ const styles = StyleSheet.create({
   texts: { position: 'absolute', left: 22, right: 120, top: 58 },
   // .title: 18px / 字間.05em / text-shadow 0 1px 10px rgba(0,0,0,.5)
   title: {
-    fontSize: 18,
+    fontSize: 20,
     letterSpacing: 0.36, // fontSize×0.02
     color: C.text,
     fontFamily: JP_SERIF_FONT, // 和文＝明朝（ゴシックで出ていたのを修正）
