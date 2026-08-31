@@ -36,7 +36,7 @@ import Animated, {
 import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import { CardGL, CARD_BACK_SCALE_MAX } from '../components/CardGL';
 import { NebulaGL } from '../components/NebulaGL';
-import { CardAfterimage, CardOrigin } from '../components/CardAfterimage';
+import { CardAfterimage, CardOrigin, CardOriginItem } from '../components/CardAfterimage';
 import { EqBars } from '../components/EqBars';
 import { PlayMark, PauseMark, LoopIcon, ShareIcon, SkipIcon, SkipPrevIcon } from '../components/icons';
 import { COLOR, SPACE, TRANSPORT, homeCardWidth } from '../constants/design-tokens';
@@ -64,8 +64,13 @@ export type PlayerTrack = {
 
 type Props = {
   track: PlayerTrack;
-  /** コレクションでタップされたタイルの画面絶対座標（指定時のみ残像を一瞬表示） */
+  /** コレクションでタップされたタイルの画面絶対座標（フライトイン演出の起点） */
   origin?: CardOrigin;
+  /**
+   * タップ時点でコレクション画面に見えていた所有済みタイル全ての座標＋
+   * アートワーク。指定時、その全箇所にうっすら残像を残す。
+   */
+  afterimages?: CardOriginItem[];
   onBackHome: () => void; // コレクション or ホームへ戻る（backLabel と対で親が制御）
   /** 上部左の戻る導線の文言。コレクションから開いたときは「‹ コレクションへ戻る」、
    *  ホーム（所有済みカードの再生ボタン）から開いたときは「‹ ホームへ戻る」。 */
@@ -83,6 +88,7 @@ type Props = {
 export const PlayerScreen: React.FC<Props> = ({
   track,
   origin,
+  afterimages,
   backLabel = '‹ コレクションへ戻る',
   onBackHome,
   onPrevTrack,
@@ -110,6 +116,8 @@ export const PlayerScreen: React.FC<Props> = ({
 
   // 残像の起点は「開いた瞬間」の座標に固定。曲送り／戻しで track が変わっても動かさない。
   const [afterimageOrigin] = useState(origin ?? null);
+  // 残像を残す全箇所（コレクションで見えていた所有済みタイルすべて）も同様に固定
+  const [afterimageItems] = useState(afterimages ?? []);
   // コレクションのタイルから開いた（origin あり）ときだけ、タイル→カードの
   // フライトインと「ベール（大きな再生ボタンをもう一度押す）」を経由する。
   // ホームの再生ボタンから開いた（origin なし）ときは、ワンクッション挟まず
@@ -374,13 +382,16 @@ export const PlayerScreen: React.FC<Props> = ({
         <View style={styles.veilScrim} />
       </Animated.View>
 
-      {/* 残像: コレクションのタイルがあった場所に、ぼやけた薄い跡を残す（ベール中は
-          自然には消さない）。再生ボタンのタップでブラー背景と同じタイミングでふっと
-          消え、星雲だけの画面に切り替わる（ホームの再生時と同じ背景にする）。
-          origin が無い（ホーム等から開いた）ときは出さない。 */}
-      {afterimageOrigin && (
+      {/* 残像: コレクション画面に見えていた所有済みタイル全てが元々あった場所に、
+          ぼやけた薄い跡を残す（ベール中は自然には消さない）。再生ボタンのタップで
+          ブラー背景と同じタイミングでふっと消え、星雲だけの画面に切り替わる
+          （ホームの再生時と同じ背景にする）。afterimages が無い（ホーム等から
+          開いた）ときは出さない。 */}
+      {afterimageItems.length > 0 && (
         <Animated.View style={[styles.veilBgLayer, veilBgStyle]} pointerEvents="none">
-          <CardAfterimage uri={track.artworkUrl} origin={afterimageOrigin} />
+          {afterimageItems.map((it, i) => (
+            <CardAfterimage key={i} uri={it.uri} origin={it.origin} />
+          ))}
         </Animated.View>
       )}
 

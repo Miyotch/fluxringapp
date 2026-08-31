@@ -32,7 +32,7 @@ import {
 import Animated, { FadeInUp } from 'react-native-reanimated';
 import Svg, { Defs, LinearGradient as SvgLinear, Stop, Rect, RadialGradient as SvgRadial } from 'react-native-svg';
 import { PurchaseModal } from '../components/PurchaseModal';
-import type { CardOrigin } from '../components/CardAfterimage';
+import type { CardOrigin, CardOriginItem } from '../components/CardAfterimage';
 import { useT } from '../lib/i18n';
 import { useTopInset } from '../lib/safeArea';
 import { formatPrice, TRACK_PRICE_JPY } from '../constants/pricing';
@@ -55,8 +55,13 @@ type Segment = 'mine' | 'wish';
 type Props = {
   owned: CollectionItem[];
   wishlist: CollectionItem[];
-  /** 所有曲タップ → 再生画面。origin はタップされたタイルの画面絶対座標（残像の起点） */
-  onOpenTrack: (id: string, origin?: CardOrigin) => void;
+  /**
+   * 所有曲タップ → 再生画面。
+   * origin はタップされたタイルの画面絶対座標（フライトイン演出の起点）。
+   * afterimages はタップ時点でコレクション画面に見えていた所有済みタイル
+   * すべての座標＋アートワーク（残像を残す全箇所）。
+   */
+  onOpenTrack: (id: string, origin?: CardOrigin, afterimages?: CardOriginItem[]) => void;
   onOpenWish: (id: string) => void;      // ウィッシュ曲タップ → ホームの該当カードへ
   /** 購入が**成立した**ときだけ呼ばれる（キャンセル・失敗では呼ばない） */
   onBuy: (item: CollectionItem) => void;
@@ -64,6 +69,13 @@ type Props = {
   /** 購入フロー。未指定なら購入ボタンは押しても何も起きない */
   purchase?: PurchaseController;
 };
+
+// View.measureInWindow はコールバック形式なので、複数タイルを Promise.all で
+// まとめて測れるよう薄くラップする。
+const measureView = (node: View) =>
+  new Promise<CardOrigin>((resolve) => {
+    node.measureInWindow((x, y, width, height) => resolve({ x, y, width, height }));
+  });
 
 // ── 確定値（v98_FIX） ──
 const COLS = 3;                 // .deck-grid grid-template-columns: repeat(3,1fr)
@@ -256,16 +268,27 @@ export const CollectionScreen: React.FC<Props> = ({
             if (el) tileRefs.current.set(slot.key, el);
             else tileRefs.current.delete(slot.key);
           }}
-          onPress={() => {
+          onPress={async () => {
             const id = slot.item!.id;
             const node = tileRefs.current.get(slot.key);
-            if (node) {
-              node.measureInWindow((x, y, width, height) => {
-                onOpenTrack(id, { x, y, width, height });
-              });
-            } else {
+            if (!node) {
               onOpenTrack(id);
+              return;
             }
+            const tappedOrigin = await measureView(node);
+            // 今この画面に見えている所有済みタイル全部（tileRefs は所有タイルにしか
+            // ref を張らないので、ここに集まっているのはすべて所有分）を同時に測る。
+            const ownedById = new Map(owned.map((o) => [o.id, o]));
+            const measured = await Promise.all(
+              Array.from(tileRefs.current.entries()).map(async ([key, n]) => {
+                const item = ownedById.get(key);
+                if (!item) return null;
+                const origin = await measureView(n);
+                return { uri: item.artworkUrl, origin };
+              }),
+            );
+            const afterimages = measured.filter((m): m is CardOriginItem => m !== null);
+            onOpenTrack(id, tappedOrigin, afterimages);
           }}
         >
           <MetalTile uri={slot.item.artworkUrl} w={colW} h={colH} />

@@ -1,8 +1,10 @@
 /**
  * CardAfterimage.tsx — カードの残像
  * ------------------------------------------------------------------
- * コレクションのカードをタップして再生画面へ遷移した直後、そのカードが
- * 元々あった場所（グリッド上の座標）に、ぼやけた薄い残像を残す。
+ * コレクションのカードをタップして再生画面へ遷移した直後、コレクション画面に
+ * 見えていた所有済みタイルの元の場所（グリッド上の座標）に、ぼやけた薄い残像を残す。
+ * ・1インスタンス＝1枚のタイル分。複数タイル分を残すときは呼び出し側
+ *   （PlayerScreen）が origin ごとにこのコンポーネントを並べて描く
  * ・座標は呼び出し側が事前に measureInWindow() で取得した画面絶対座標
  * ・フェードイン＋ブラーで現れた後は自然に消さず、そのまま残す
  *   （画面を離れる＝このコンポーネントがアンマウントされるまで表示し続ける）
@@ -14,6 +16,8 @@ import { Canvas, Image, Blur, Group, useImage } from '@shopify/react-native-skia
 import { useSharedValue, useDerivedValue, withTiming, Easing } from 'react-native-reanimated';
 
 export type CardOrigin = { x: number; y: number; width: number; height: number };
+/** 残像1枚分＝どのアートワークを、どの画面絶対座標に残すか */
+export type CardOriginItem = { uri: string; origin: CardOrigin };
 
 type Props = {
   uri: string;

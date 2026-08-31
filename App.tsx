@@ -49,7 +49,7 @@ import { NotificationsScreen } from './screens/NotificationsScreen';
 import { ArtistScreen } from './screens/ArtistScreen';
 import { StoryScreen } from './screens/StoryScreen';
 import { PlayerScreen, PlayerTrack } from './screens/PlayerScreen';
-import type { CardOrigin } from './components/CardAfterimage';
+import type { CardOrigin, CardOriginItem } from './components/CardAfterimage';
 import { VipScreen } from './screens/VipScreen';
 // import { ComponentGallery } from './screens/ComponentGallery'; // 部品デモを見るとき有効化
 
@@ -100,8 +100,11 @@ function AppInner() {
   // 再生対象は「所有一覧の中の id」で持つ。曲送り／戻しで前後の曲へ移るとき、
   // track オブジェクトを直接持っていると一覧との対応が取れないため。
   const [playerTrackId, setPlayerTrackId] = useState<string | null>(null);
-  // コレクションでタップされたタイルの画面絶対座標（再生画面の残像アニメーションの起点）
+  // コレクションでタップされたタイルの画面絶対座標（再生画面のフライトイン演出の起点）
   const [playerOrigin, setPlayerOrigin] = useState<CardOrigin | null>(null);
+  // タップ時点でコレクション画面に見えていた所有済みタイル全ての座標＋アートワーク
+  // （再生画面でその全箇所に残像を残す）
+  const [playerAfterimages, setPlayerAfterimages] = useState<CardOriginItem[]>([]);
   // 再生画面をどのタブから開いたか（「戻る」の遷移先とラベル文言の出し分けに使う）
   const [playerReturnTab, setPlayerReturnTab] = useState<'home' | 'collection'>('collection');
   // ホーム（ディスカバー）で最初に表示するカード id（ウィッシュから飛んできたとき用）
@@ -291,6 +294,7 @@ function AppInner() {
       <PlayerScreen
         track={playerTrack}
         origin={playerOrigin ?? undefined}
+        afterimages={playerAfterimages}
         backLabel={playerReturnTab === 'home' ? '‹ ホームへ戻る' : '‹ コレクションへ戻る'}
         onPrevTrack={canSkip ? () => goTrack(-1) : undefined}
         onNextTrack={canSkip ? () => goTrack(1) : undefined}
@@ -396,6 +400,7 @@ function AppInner() {
               if (playerTracks.some((tr) => tr.id === id)) {
                 setPlayerTrackId(id);
                 setPlayerOrigin(null);
+                setPlayerAfterimages([]);
                 setPlayerReturnTab('home');
                 setOverlay('player');
               }
@@ -408,11 +413,12 @@ function AppInner() {
             owned={ownedItems}
             wishlist={wishlistItems}
             purchase={purchase}
-            onOpenTrack={(id, origin) => {
+            onOpenTrack={(id, origin, afterimages) => {
               // 所有曲タップ → 再生画面（ワイヤーフレーム P3）
               if (playerTracks.some((tr) => tr.id === id)) {
                 setPlayerTrackId(id);
                 setPlayerOrigin(origin ?? null);
+                setPlayerAfterimages(afterimages ?? []);
                 setPlayerReturnTab('collection');
                 setOverlay('player');
               } else {
