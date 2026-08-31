@@ -1,7 +1,9 @@
 /**
- * TabGlow.tsx — フッターのアクティブタブ上端に添える金色インジケータ（v99 fr_v99_tsubasa 準拠）
+ * TabGlow.tsx — フッターのアクティブタブ上端に添えるシアンのインジケータ
+ * （v99 fr_v99_tsubasa の位置構成をベースに、色は星雲の縁取りと同じ
+ * シアン COLOR.auraCyan #60CEE0 へ変更）
  * ------------------------------------------------------------------
- * モックの CSS:
+ * 元のモックの CSS:
  *   .tb.on::before{
  *     top:-1px; left:50%; transform:translateX(-50%);
  *     width:26px; height:2px;
@@ -13,20 +15,19 @@
  * 「中心が明るく端がすっと消える」見え方にする）。
  * isActive の切り替えで 250ms（CSS の transition と同じ長さ）フェードする。
  *
- * アイコン自体の金の発光（.tb.on svg drop-shadow 相当）は、RN では
+ * アイコン自体の発光（.tb.on svg drop-shadow 相当）は、RN では
  * View の shadowColor/shadowRadius（アルファ形状に沿う影）で代替する方が
  * SVG の細線に馴染むため、Footer.tsx 側でネイティブ shadow として実装する
  * （このファイルの担当ではない）。
- *
- * VIP タブは常時シアン（Footer.tsx 側の既存仕様）で、この金インジケータとは無関係。
  */
 
 import React, { useEffect } from 'react';
 import { Canvas, Rect, LinearGradient, Blur, vec } from '@shopify/react-native-skia';
 import { useSharedValue, useDerivedValue, withTiming, Easing } from 'react-native-reanimated';
+import { COLOR } from '../constants/design-tokens';
 
-const GOLD = '#e9c879';
-const GOLD_ZERO = 'rgba(233,200,121,0)';
+const ACCENT = COLOR.auraCyan;
+const ACCENT_ZERO = 'rgba(96,206,224,0)';
 const FADE_MS = 250;
 
 function useActiveFade(active: boolean) {
@@ -38,7 +39,7 @@ function useActiveFade(active: boolean) {
 }
 
 /**
- * タブ上端の金インジケータ（棒＋光暈）。フッターの `bar` 直下（各タブの
+ * タブ上端のシアンのインジケータ（棒＋光暈）。フッターの `bar` 直下（各タブの
  * 幅を再現した専用スロット）に絶対配置する想定。canvas 自体は
  * `top:-M` で、芯の2pxバーがスロットの上端（＝フッター上端）にちょうど
  * 乗るように配置する（モックの `top:-1px` に相当）。
@@ -65,19 +66,19 @@ export const TabTopIndicator: React.FC<{ active: boolean }> = ({ active }) => {
       }}
       pointerEvents="none"
     >
-      {/* 広い光暈: box-shadow 0 0 8px rgba(233,200,121,.55) 相当（Skia sigma≒4） */}
+      {/* 広い光暈: box-shadow 0 0 8px rgba(96,206,224,.55) 相当（Skia sigma≒4） */}
       <Rect x={M} y={M} width={W} height={H} opacity={wideGlowOpacity}>
-        <LinearGradient start={vec(M, 0)} end={vec(M + W, 0)} colors={[GOLD_ZERO, GOLD, GOLD_ZERO]} />
+        <LinearGradient start={vec(M, 0)} end={vec(M + W, 0)} colors={[ACCENT_ZERO, ACCENT, ACCENT_ZERO]} />
         <Blur blur={4} />
       </Rect>
       {/* 狭い光暈: 中心付近を明るく締める（σ2） */}
       <Rect x={M} y={M} width={W} height={H} opacity={tightGlowOpacity}>
-        <LinearGradient start={vec(M, 0)} end={vec(M + W, 0)} colors={[GOLD_ZERO, GOLD, GOLD_ZERO]} />
+        <LinearGradient start={vec(M, 0)} end={vec(M + W, 0)} colors={[ACCENT_ZERO, ACCENT, ACCENT_ZERO]} />
         <Blur blur={2} />
       </Rect>
-      {/* 芯の棒: linear-gradient(90deg,transparent,gold,transparent) */}
+      {/* 芯の棒: linear-gradient(90deg,transparent,cyan,transparent) */}
       <Rect x={M} y={M} width={W} height={H} opacity={barOpacity}>
-        <LinearGradient start={vec(M, 0)} end={vec(M + W, 0)} colors={[GOLD_ZERO, GOLD, GOLD_ZERO]} />
+        <LinearGradient start={vec(M, 0)} end={vec(M + W, 0)} colors={[ACCENT_ZERO, ACCENT, ACCENT_ZERO]} />
       </Rect>
     </Canvas>
   );

@@ -696,12 +696,8 @@ export const DiscoverScreen: React.FC<Props> = ({
         style={[styles.chrome, DEBUG_BACKDROP_ONLY && styles.hidden]}
         pointerEvents={DEBUG_BACKDROP_ONLY ? 'none' : 'box-none'}
       >
-        {/* ブランド */}
-        <Text style={[styles.brand, { top: 26 + chromeShift }]}>Flux Ring</Text>
-
-        {/* 右上: ベル+EQ(1段目) / 試聴(2段目)。EQ は試聴中だけ動く
-            （試聴を止めたらボリュームアニメーションも消える）。
-            1段目はベルを左・EQメーターを右の順で並べる。 */}
+        {/* 右上: ベル／EQメーター／試聴アイコンを横一列に並べる。EQ は試聴中だけ
+            動く（試聴を止めたらボリュームアニメーションも消える）。 */}
         <View style={[styles.topRight, { top: topRightY + 5 }]} pointerEvents="box-none">
           <View style={styles.iconsRow1}>
             <Pressable onPress={onOpenNotifications} hitSlop={10} style={styles.bell}>
@@ -709,14 +705,14 @@ export const DiscoverScreen: React.FC<Props> = ({
               {hasUnread && <View style={styles.bdot} />}
             </Pressable>
             {/* EqBars は非アクティブ時 null を返すため、幅固定のスロットで囲って
-                試聴の開始/停止でベルの位置が動かないようにする */}
+                試聴の開始/停止でベルや試聴アイコンの位置が動かないようにする */}
             <View style={styles.eqSlot}>
               <EqBars active={isPreviewing} />
             </View>
+            <Pressable onPress={togglePreview} hitSlop={10}>
+              <PreviewIcon size={24} on={isPreviewing} />
+            </Pressable>
           </View>
-          <Pressable onPress={togglePreview} hitSlop={10} style={styles.iconsRow2}>
-            <PreviewIcon size={24} on={isPreviewing} />
-          </Pressable>
         </View>
 
         {/* タイトル（1行のみ。eyeコピー・情景サブタイトルはモック確定値により非表示） */}
@@ -804,15 +800,8 @@ const styles = StyleSheet.create({
   hidden: { opacity: 0 },
 
   chrome: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
-  brand: {
-    position: 'absolute',
-    // top は SafeArea を加味して JSX 側で上書き（既定は原本 v98 の値）
-    top: 26, left: 22,
-    fontSize: 10, letterSpacing: 4, color: 'rgba(148,152,190,0.45)', fontWeight: '300',
-  },
   topRight: { position: 'absolute', top: 22, right: 20, alignItems: 'flex-end' },
   iconsRow1: { flexDirection: 'row', alignItems: 'center', gap: 13 },
-  iconsRow2: { marginTop: 10 },
   // EqBars 自身の幅（4本×2px＋間隔3×2px＝14px）に合わせた固定スロット。
   // EqBars は非アクティブ時 null を返すため、これで囲わないと行の幅が
   // 詰まり、右寄せの行内でベルの位置が動いてしまう。

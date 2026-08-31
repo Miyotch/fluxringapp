@@ -73,7 +73,7 @@ export const AccountScreen: React.FC<{
   const t = useT();
   const user = useAuthUser();
   const email = user?.email ?? t('settings.notLoggedIn');
-  const navTop = useTopInset(8);
+  const { width: screenW, height: screenH } = useWindowDimensions();
 
   // 退会の確認ポップアップ
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -96,17 +96,10 @@ export const AccountScreen: React.FC<{
 
   return (
     <View style={s.root}>
-      <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
+      <StatusBar barStyle="light-content" backgroundColor={CR.deepest} />
+      <CreditsBackdrop w={screenW} h={screenH} />
+      <SubHeader title={t('account.title')} onBack={onBack} />
       <ScrollView contentContainerStyle={s.body} showsVerticalScrollIndicator={false}>
-        {/* この画面だけ「‹」単体の戻る行＋大見出しの2段構成（モック準拠）。
-            他の設定末端画面は SubHeader（戻る＋タイトルを同じ行に中央配置）のまま。 */}
-        <View style={[s.acctNav, { paddingTop: navTop }]}>
-          <Pressable onPress={onBack} hitSlop={12}>
-            <Text style={s.back}>‹</Text>
-          </Pressable>
-        </View>
-        <Text style={s.acctTitle}>{t('account.title')}</Text>
-
         <Text style={s.acctSectionLabel}>{t('account.sec.registration')}</Text>
         <View style={s.acctCard}>
           <Text style={s.acctLabel}>{t('account.emailLabel')}</Text>
@@ -200,6 +193,7 @@ export const RestoreScreen: React.FC<{
   onRestore?: () => Promise<{ trackIds: string[]; hadFailure: boolean }>;
 }> = ({ onBack, onRestore }) => {
   const t = useT();
+  const { width: screenW, height: screenH } = useWindowDimensions();
   const [status, setStatus] = useState<'idle' | 'busy' | 'done' | 'failed'>('idle');
   const [count, setCount] = useState(0);
 
@@ -221,7 +215,8 @@ export const RestoreScreen: React.FC<{
 
   return (
     <View style={s.root}>
-      <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
+      <StatusBar barStyle="light-content" backgroundColor={CR.deepest} />
+      <CreditsBackdrop w={screenW} h={screenH} />
       <SubHeader title={t('restore.title')} onBack={onBack} />
       <ScrollView contentContainerStyle={s.body} showsVerticalScrollIndicator={false}>
         <Text style={s.paragraph}>{t('restore.body')}</Text>
@@ -262,9 +257,11 @@ const LANGUAGES: { code: Lang; label: string }[] = [
 export const LanguageScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const t = useT();
   const { lang, setLang } = useI18n();
+  const { width: screenW, height: screenH } = useWindowDimensions();
   return (
     <View style={s.root}>
-      <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
+      <StatusBar barStyle="light-content" backgroundColor={CR.deepest} />
+      <CreditsBackdrop w={screenW} h={screenH} />
       <SubHeader title={t('language.title')} onBack={onBack} />
       <ScrollView contentContainerStyle={s.body} showsVerticalScrollIndicator={false}>
         {LANGUAGES.map((l) => (
@@ -284,9 +281,11 @@ export const LanguageScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => 
 
 export const SupportScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const t = useT();
+  const { width: screenW, height: screenH } = useWindowDimensions();
   return (
     <View style={s.root}>
-      <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
+      <StatusBar barStyle="light-content" backgroundColor={CR.deepest} />
+      <CreditsBackdrop w={screenW} h={screenH} />
       <SubHeader title={t('support.title')} onBack={onBack} />
       <ScrollView contentContainerStyle={s.body} showsVerticalScrollIndicator={false}>
         <Text style={[s.paragraph, s.supportLead]}>{t('support.body')}</Text>
@@ -804,9 +803,11 @@ const TokushoRowView: React.FC<{ row: TokushoRow }> = ({ row }) => (
 // 特定商取引法に基づく表記（添付仕様準拠の独自トンマナ。ヘッダーは共通 SubHeader を流用）
 const TokushohoScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const t = useT();
+  const { width: screenW, height: screenH } = useWindowDimensions();
   return (
     <View style={tk.root}>
-      <StatusBar barStyle="light-content" backgroundColor={TK.bg} />
+      <StatusBar barStyle="light-content" backgroundColor={CR.deepest} />
+      <CreditsBackdrop w={screenW} h={screenH} />
       <SubHeader title={t('doc.tokushoho')} onBack={onBack} />
       <ScrollView contentContainerStyle={tk.body} showsVerticalScrollIndicator={false}>
         {tokushoData.map((row, i) => (
@@ -830,7 +831,8 @@ const TK = {
 } as const;
 
 const tk = StyleSheet.create({
-  root: { flex: 1, backgroundColor: TK.bg },
+  // CreditsBackdrop の外周色（CR.deepest、後方で定義のためここでは直値）と揃える
+  root: { flex: 1, backgroundColor: '#05040c' },
   body: { paddingHorizontal: 24, paddingBottom: 96 },
   row: { paddingVertical: 19, borderBottomWidth: 1, borderBottomColor: TK.line },
   dt: { fontSize: 13, color: TK.sub, letterSpacing: 0.6, marginBottom: 6, fontFamily: JP_SERIF_FONT },
@@ -853,7 +855,8 @@ const tk = StyleSheet.create({
   foot: { marginTop: 48, fontSize: 11, color: TK.sub, letterSpacing: 0.55, fontFamily: NUM_FONT },
 });
 
-// CREDITS 画面固有のカラー定義（添付デザイン仕様に準拠。他画面のトンマナとは独立）
+// CREDITS 画面のカラー定義（添付デザイン仕様に準拠）。設定配下の各末端画面の
+// 背景も CREDITS と揃えるため、CR.deepest / CreditsBackdrop はこのファイル内で共用する。
 const CR = {
   page: '#0E0C20',
   deepest: '#05040c',
@@ -866,7 +869,9 @@ const CR = {
 } as const;
 
 // 背景: 中央上部が明るい放射状グラデーション＋3つのソフトなオーラ（blur近似はエッジが
-// 透明に落ちる radial gradient で代替。RN には CSS の filter:blur 相当がないため）
+// 透明に落ちる radial gradient で代替。RN には CSS の filter:blur 相当がないため）。
+// CREDITS 以外の設定末端画面（アカウント/購入の復元/言語/サポート/読み物/情報/特商法）
+// でも同じ背景として使う。
 const CreditsBackdrop: React.FC<{ w: number; h: number }> = ({ w, h }) => (
   <View style={StyleSheet.absoluteFill} pointerEvents="none">
     <Svg width={w} height={h} style={StyleSheet.absoluteFill}>
@@ -1021,6 +1026,7 @@ export const DocumentScreen: React.FC<{ kind: DocKind; onBack: () => void }> = (
   onBack,
 }) => {
   const t = useT();
+  const { width: screenW, height: screenH } = useWindowDimensions();
 
   // Special Thanks は専用の CREDITS 画面
   if (kind === 'thanks') return <CreditsScreen onBack={onBack} />;
@@ -1031,7 +1037,8 @@ export const DocumentScreen: React.FC<{ kind: DocKind; onBack: () => void }> = (
   // タイトルは i18n。本文（法務）は現状 日本語のまま（別途英訳予定）。
   return (
     <View style={s.root}>
-      <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
+      <StatusBar barStyle="light-content" backgroundColor={CR.deepest} />
+      <CreditsBackdrop w={screenW} h={screenH} />
       <SubHeader title={t(`doc.${kind}`)} onBack={onBack} />
       <ScrollView contentContainerStyle={s.body} showsVerticalScrollIndicator={false}>
         {TEXT_DOCS[kind].lead && <Text style={s.docLead}>{TEXT_DOCS[kind].lead}</Text>}
@@ -1060,6 +1067,7 @@ const APP_VERSION = '0.1.0';
  */
 export const InfoScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const t = useT();
+  const { width: screenW, height: screenH } = useWindowDimensions();
   const [doc, setDoc] = useState<DocKind | null>(null);
 
   if (doc) return <DocumentScreen kind={doc} onBack={() => setDoc(null)} />;
@@ -1073,7 +1081,8 @@ export const InfoScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
 
   return (
     <View style={s.root}>
-      <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
+      <StatusBar barStyle="light-content" backgroundColor={CR.deepest} />
+      <CreditsBackdrop w={screenW} h={screenH} />
       <SubHeader title={t('settings.info')} onBack={onBack} />
       <ScrollView contentContainerStyle={s.body} showsVerticalScrollIndicator={false}>
         <View style={s.infoList}>
@@ -1100,7 +1109,8 @@ export const InfoScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
 // ─────────────────────────────────────────────
 
 const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: COLOR.bg },
+  // CreditsBackdrop の外周色と揃える（設定配下の各画面は CREDITS と同じ背景にする）
+  root: { flex: 1, backgroundColor: CR.deepest },
 
   // ── 情報（設定と同じカード型リスト）──
   infoList: { gap: 12 },
@@ -1159,18 +1169,7 @@ const s = StyleSheet.create({
   },
   body: { paddingHorizontal: SPACE.lg, paddingBottom: 48, gap: SPACE.md },
 
-  // ── アカウント画面専用（モック準拠の2段ヘッダー＋カード型リスト）──
-  acctNav: { paddingHorizontal: SPACE.lg, paddingBottom: 2 },
-  acctTitle: {
-    color: COLOR.textPrimary,
-    fontSize: 24,
-    fontWeight: '700',
-    letterSpacing: 0.48,
-    paddingHorizontal: SPACE.lg,
-    marginTop: SPACE.md,
-    marginBottom: SPACE.md,
-    fontFamily: JP_SERIF_FONT,
-  },
+  // ── アカウント画面専用（カード型リスト）──
   acctSectionLabel: {
     color: COLOR.textSecondary,
     fontSize: 11,

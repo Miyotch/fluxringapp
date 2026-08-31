@@ -68,22 +68,16 @@ export const Footer: React.FC<FooterProps> = ({ active, onChange, vipLocked = tr
       {TABS.map((tab) => {
         const isActive = tab.key === active;
         const isVip = tab.key === 'vip';
-        // .tb: OFF #9498BE / ON #E9C879（金）/ VIP #60CEE0（常時）。
-        // シアンは「不変の規律」どおり VIP 一点だけの装飾。VIP はアクティブでも
-        // 金には染めず、上端インジケータ（TabTopIndicator）だけで選択中を示す。
-        const tint = isVip
-          ? COLOR.auraCyan
-          : isActive
-          ? COLOR.tabActiveGold
-          : COLOR.textSecondary;
+        // .tb: OFF #9498BE / ON・VIP #60CEE0（星雲の縁取りと同じシアン、常時）。
+        const tint = isActive || isVip ? COLOR.auraCyan : COLOR.textSecondary;
 
-        // アイコンの金の発光（.tb.on svg drop-shadow(0 0 6px rgba(233,200,121,.45)) 相当）。
-        // RN の View shadow はアルファ形状に沿う影を落とすため、SVG の細線にも馴染む。
+        // アイコンの発光（.tb.on svg drop-shadow 相当）。RN の View shadow は
+        // アルファ形状に沿う影を落とすため、SVG の細線にも馴染む。
         // iOS のみ有効（Android の View shadow は色付き指定に対応しない）。
         const iconGlowStyle =
           isActive && !isVip && Platform.OS === 'ios'
             ? {
-                shadowColor: COLOR.tabActiveGold,
+                shadowColor: COLOR.auraCyan,
                 shadowOpacity: 0.45,
                 shadowRadius: 6,
                 shadowOffset: { width: 0, height: 0 },
