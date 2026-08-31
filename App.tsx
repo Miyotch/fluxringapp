@@ -166,16 +166,21 @@ function AppInner() {
   // コレクション（マイコレ）。作品データはスタブの全曲から所有ぶんを引く。
   const ownedItems = useMemo<CollectionItem[]>(
     () =>
-      STUB_TRACKS.filter((tr) => ownedTrackIds.has(tr.id)).map((tr) => ({
-        id: tr.id,
-        title: tr.title,
-        artworkUrl: tr.artworkUrl,
-        owned: true,
-        audioKey: tr.audioKey,
-        glowColor: tr.glowColor,
-        glowColor2: tr.glowColor2,
-      })),
-    [ownedTrackIds],
+      discoverTracks
+        .filter((tr) => ownedTrackIds.has(tr.id))
+        .map((tr) => ({
+          id: tr.id,
+          title: tr.title,
+          artworkUrl: tr.artworkUrl,
+          owned: true,
+          audioKey: tr.audioKey,
+          serialNo: tr.back?.serial,
+          subtitle: tr.subtitle,
+          previewUrl: tr.previewUrl,
+          glowColor: tr.glowColor,
+          glowColor2: tr.glowColor2,
+        })),
+    [discoverTracks, ownedTrackIds],
   );
 
   // 再生画面が扱うトラック一覧（＝マイコレの並び順）。曲送り／戻しはこの並びを辿る。
@@ -219,19 +224,40 @@ function AppInner() {
   //   ・所有済みは外す（買った作品がウィッシュリストに残り続けないように）
   const wishlistItems = useMemo<CollectionItem[]>(
     () =>
-      STUB_TRACKS.filter((tr) => wishlist.ids.has(tr.id) && !ownedTrackIds.has(tr.id)).map(
-        (tr) => ({
+      discoverTracks
+        .filter((tr) => wishlist.ids.has(tr.id) && !ownedTrackIds.has(tr.id))
+        .map((tr) => ({
           id: tr.id,
           title: tr.title,
           artworkUrl: tr.artworkUrl,
           owned: false,
           audioKey: tr.audioKey,
           serialNo: tr.back?.serial,
+          subtitle: tr.subtitle,
+          previewUrl: tr.previewUrl,
           glowColor: tr.glowColor,
           glowColor2: tr.glowColor2,
-        }),
-      ),
-    [wishlist.ids, ownedTrackIds],
+        })),
+    [discoverTracks, wishlist.ids, ownedTrackIds],
+  );
+
+  // コレクション「すべて」の板に並べる全作品。連作の定位置＝この並び（通し番号順）。
+  // 所有／ウィッシュ／未所有の3状態は CollectionScreen が owned と wishlistIds から決める。
+  const allWorkItems = useMemo<CollectionItem[]>(
+    () =>
+      discoverTracks.map((tr) => ({
+        id: tr.id,
+        title: tr.title,
+        artworkUrl: tr.artworkUrl,
+        owned: ownedTrackIds.has(tr.id),
+        audioKey: tr.audioKey,
+        serialNo: tr.back?.serial,
+        subtitle: tr.subtitle,
+        previewUrl: tr.previewUrl,
+        glowColor: tr.glowColor,
+        glowColor2: tr.glowColor2,
+      })),
+    [discoverTracks, ownedTrackIds],
   );
 
   const goApp = useCallback(() => {
@@ -464,6 +490,9 @@ function AppInner() {
               owned={ownedItems}
               wishlist={wishlistItems}
               onRemoveWish={wishlist.remove}
+              onToggleWish={wishlist.toggle}
+              wishlistIds={wishlist.ids}
+              allWorks={allWorkItems}
               totalWorks={STUB_TRACKS.length}
               purchase={purchase}
               onOpenTrack={(id, origin, afterimages) => {
