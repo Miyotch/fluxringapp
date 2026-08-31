@@ -379,7 +379,7 @@ export function renderAluminumInkPixels(
 
   // タイトル 52px / weight600 / 字間6px（文字が詰まって見えるとの指摘のため
   // 2px→6pxへ拡大）
-  printAlum(c, data.title, cx, 368, 52, '600', alum(1), 12, 'c');
+  printAlum(c, data.title, cx, 368, 52, '600', alum(1), 6, 'c');
 
   // Story 40px / weight300 / lh72 / 字間8px（同上の理由で2px→8pxへ拡大）。
   // 最大4行・1行20文字・合計80文字までの固定文字数で折り返す
