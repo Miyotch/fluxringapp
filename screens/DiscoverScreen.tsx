@@ -697,8 +697,11 @@ export const DiscoverScreen: React.FC<Props> = ({
         pointerEvents={DEBUG_BACKDROP_ONLY ? 'none' : 'box-none'}
       >
         {/* 右上: ベル／EQメーター／試聴アイコンを横一列に並べる。EQ は試聴中だけ
-            動く（試聴を止めたらボリュームアニメーションも消える）。 */}
-        <View style={[styles.topRight, { top: topRightY + 5 }]} pointerEvents="box-none">
+            動く（試聴を止めたらボリュームアニメーションも消える）。
+            top は曲名（texts）と同じ式にして高さを揃える。アイコン枠 24 と
+            タイトルの行ボックスはほぼ同じ高さなので、上端を合わせれば字面の
+            中心も揃う（実機で 14px ぶん高かったのを解消）。 */}
+        <View style={[styles.topRight, { top: 41 + chromeShift }]} pointerEvents="box-none">
           <View style={styles.iconsRow1}>
             <Pressable onPress={onOpenNotifications} hitSlop={10} style={styles.bell}>
               <BellIcon size={24} />
