@@ -17,6 +17,7 @@
 
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { View, StyleSheet } from 'react-native';
+import Animated, { useSharedValue, useAnimatedStyle, withTiming, Easing } from 'react-native-reanimated';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -87,6 +88,17 @@ function AppInner() {
   // 同じ ttf を SkTypeface としても読み込む（失敗しても従来の明朝で描ける）。
   const [skiaFontReady, setSkiaFontReady] = useState(false);
   const [phase, setPhase] = useState<Phase>('launch');
+  // launch → app への切り替え直後、背景（NebulaBand等）だけ先に出て
+  // カードなどが遅れて急に現れる段差を隠すため、タブ画面全体を一度だけ
+  // フェードインさせる（phase は 'launch'→'app' の一方向にしか変わらないので、
+  // タブ切替のたびに再フェードすることはない）。
+  const appFade = useSharedValue(0);
+  useEffect(() => {
+    if (phase === 'app') {
+      appFade.value = withTiming(1, { duration: 450, easing: Easing.out(Easing.quad) });
+    }
+  }, [phase, appFade]);
+  const appFadeStyle = useAnimatedStyle(() => ({ opacity: appFade.value }));
   // launch 後に見せる画面。null=判定中（セッション/オンボ済み/同意状態を確定するまで）
   const [launchScreen, setLaunchScreen] = useState<LaunchScreen | null>(null);
   const [consentJoin, setConsentJoin] = useState<ConsentJoin>('new');
@@ -384,7 +396,7 @@ function AppInner() {
 
   // ── タブ群（フッター表示） ──
   return (
-    <View style={styles.root}>
+    <Animated.View style={[styles.root, appFadeStyle]}>
       <View style={styles.body}>
         {tab === 'home' && (
           <DiscoverScreen
@@ -468,7 +480,7 @@ function AppInner() {
 
       {/* フッター（タブ群でのみ表示） */}
       <Footer active={tab} onChange={changeTab} vipLocked={!vipUnlocked} />
-    </View>
+    </Animated.View>
   );
 }
 

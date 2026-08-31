@@ -15,11 +15,7 @@ export const COLOR = {
   // オーラ（背景で発光・流れる）
   auraViolet: '#7C62D6',
   auraBlue:   '#4684E0',
-  auraCyan:   '#60CEE0', // CTA・選択・作品の縁に一点
-
-  // フッターのアクティブタブ（v99 fr_v99_tsubasa 準拠、モックの --gold）。
-  // VIPタブのみ常時シアンで、これとは別。
-  tabActiveGold: '#E9C879',
+  auraCyan:   '#60CEE0', // CTA・選択・作品の縁に一点。フッターのアクティブタブにも使う
 
   // テキスト
   textPrimary:   '#ECEEF7',
