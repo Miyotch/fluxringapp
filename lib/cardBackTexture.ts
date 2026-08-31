@@ -389,7 +389,7 @@ export function renderAluminumInkPixels(
     const fs = 42;
     const lh = 72;
     const CHARS_PER_LINE = 20;
-    const STORY_LETTER_SPACING = 10;
+    const STORY_LETTER_SPACING = 4;
     const storyFont = makeFont(fs, '300', INK_FONT);
     const zoneTop = 470;
     const zoneBottom = H - 460;
