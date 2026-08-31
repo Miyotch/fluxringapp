@@ -563,7 +563,7 @@ const styles = StyleSheet.create({
   navText: {
     color: 'rgba(236,238,247,0.55)',
     fontSize: 13,
-    letterSpacing: 2.0,
+    letterSpacing: 1.0,
     fontFamily: JP_SERIF_FONT,
   },
   // overflow:hidden で、CardGL の描画キャンバス（flip裏面ぶん拡大されて
