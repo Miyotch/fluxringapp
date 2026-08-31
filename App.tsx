@@ -395,92 +395,100 @@ function AppInner() {
   }
 
   // ── タブ群（フッター表示） ──
+  // フェード中の下地: styles.root（#171430、アプリ本体の地色）は不透明度と
+  // 一緒に透けるため、フェードの裏に何も置かないと透明→黒に見えてしまう
+  // （opacity:0 の瞬間、後ろの素の黒が見える＝「一瞬暗くなる」の原因）。
+  // LaunchFlow と同じ #0E0C20 の下地を常時（フェードとは無関係に）敷いておくと、
+  // 透明なあいだは直前の LaunchFlow と同色に見え、不透明になるにつれて
+  // #171430 へ自然に色が変わる継ぎ目のないクロスフェードになる。
   return (
-    <Animated.View style={[styles.root, appFadeStyle]}>
-      <View style={styles.body}>
-        {tab === 'home' && (
-          <DiscoverScreen
-            tracks={discoverTracks}
-            hasUnread
-            focusTrackId={homeFocusId}
-            onOpenNotifications={() => setOverlay('notifications')}
-            ownedIds={ownedTrackIds}
-            purchase={purchase}
-            onPlay={(id) => {
-              // 所有済みカードの「再生」押下 → 再生画面へ（コレクションのタイル起点が
-              // 無いので残像演出は出さない＝origin は null のまま）
-              if (playerTracks.some((tr) => tr.id === id)) {
-                setPlayerTrackId(id);
-                setPlayerOrigin(null);
-                setPlayerAfterimages([]);
-                setPlayerReturnTab('home');
-                setOverlay('player');
-              }
-            }}
-          />
-        )}
+    <View style={styles.appFadeBackdrop}>
+      <Animated.View style={[styles.root, appFadeStyle]}>
+        <View style={styles.body}>
+          {tab === 'home' && (
+            <DiscoverScreen
+              tracks={discoverTracks}
+              hasUnread
+              focusTrackId={homeFocusId}
+              onOpenNotifications={() => setOverlay('notifications')}
+              ownedIds={ownedTrackIds}
+              purchase={purchase}
+              onPlay={(id) => {
+                // 所有済みカードの「再生」押下 → 再生画面へ（コレクションのタイル起点が
+                // 無いので残像演出は出さない＝origin は null のまま）
+                if (playerTracks.some((tr) => tr.id === id)) {
+                  setPlayerTrackId(id);
+                  setPlayerOrigin(null);
+                  setPlayerAfterimages([]);
+                  setPlayerReturnTab('home');
+                  setOverlay('player');
+                }
+              }}
+            />
+          )}
 
-        {tab === 'collection' && (
-          <CollectionScreen
-            owned={ownedItems}
-            wishlist={wishlistItems}
-            purchase={purchase}
-            onOpenTrack={(id, origin, afterimages) => {
-              // 所有曲タップ → 再生画面（ワイヤーフレーム P3）
-              if (playerTracks.some((tr) => tr.id === id)) {
-                setPlayerTrackId(id);
-                setPlayerOrigin(origin ?? null);
-                setPlayerAfterimages(afterimages ?? []);
-                setPlayerReturnTab('collection');
-                setOverlay('player');
-              } else {
-                setOverlay('story');
-              }
-            }}
-            onOpenWish={(id) => {
-              // ウィッシュ曲タップ → ホーム（ディスカバー）の該当カードへ
-              setHomeFocusId(id);
-              setOverlay(null);
-              setSettingsDetail(null);
-              setTab('home');
-            }}
-            onBuy={() => {
-              // 購入が成立したときだけ呼ばれる。所有権は usePurchaseFlow が
-              // 反映済みで、ウィッシュからは自動的に外れてマイコレへ移る。
-              // ここで再生画面へ飛ばさないのは、コレクションに増えたことを
-              // その場で見せるほうが購入体験として静かなため。
-            }}
-            onDiscover={() => setTab('home')}
-          />
-        )}
+          {tab === 'collection' && (
+            <CollectionScreen
+              owned={ownedItems}
+              wishlist={wishlistItems}
+              purchase={purchase}
+              onOpenTrack={(id, origin, afterimages) => {
+                // 所有曲タップ → 再生画面（ワイヤーフレーム P3）
+                if (playerTracks.some((tr) => tr.id === id)) {
+                  setPlayerTrackId(id);
+                  setPlayerOrigin(origin ?? null);
+                  setPlayerAfterimages(afterimages ?? []);
+                  setPlayerReturnTab('collection');
+                  setOverlay('player');
+                } else {
+                  setOverlay('story');
+                }
+              }}
+              onOpenWish={(id) => {
+                // ウィッシュ曲タップ → ホーム（ディスカバー）の該当カードへ
+                setHomeFocusId(id);
+                setOverlay(null);
+                setSettingsDetail(null);
+                setTab('home');
+              }}
+              onBuy={() => {
+                // 購入が成立したときだけ呼ばれる。所有権は usePurchaseFlow が
+                // 反映済みで、ウィッシュからは自動的に外れてマイコレへ移る。
+                // ここで再生画面へ飛ばさないのは、コレクションに増えたことを
+                // その場で見せるほうが購入体験として静かなため。
+              }}
+              onDiscover={() => setTab('home')}
+            />
+          )}
 
-        {tab === 'vip' && (
-          <VipScreen
-            locked={!vipUnlocked}
-            cards={STUB_VIP_CARDS}
-            onSubmitCode={() => setVipUnlocked(true)}
-          />
-        )}
+          {tab === 'vip' && (
+            <VipScreen
+              locked={!vipUnlocked}
+              cards={STUB_VIP_CARDS}
+              onSubmitCode={() => setVipUnlocked(true)}
+            />
+          )}
 
-        {tab === 'media' && <MediaScreen />}
+          {tab === 'media' && <MediaScreen />}
 
-        {tab === 'settings' && (
-          <SettingsScreen
-            onSelect={(key) => {
-              if (key === 'artist') setOverlay('artist');
-              else setSettingsDetail(key);
-            }}
-            onSignOut={async () => {
-              try { await signOut(); } catch {}
-              restartLaunch();
-            }}
-          />
-        )}
-      </View>
+          {tab === 'settings' && (
+            <SettingsScreen
+              onSelect={(key) => {
+                if (key === 'artist') setOverlay('artist');
+                else setSettingsDetail(key);
+              }}
+              onSignOut={async () => {
+                try { await signOut(); } catch {}
+                restartLaunch();
+              }}
+            />
+          )}
+        </View>
 
-      {/* フッター（タブ群でのみ表示） */}
-      <Footer active={tab} onChange={changeTab} vipLocked={!vipUnlocked} />
-    </Animated.View>
+        {/* フッター（タブ群でのみ表示） */}
+        <Footer active={tab} onChange={changeTab} vipLocked={!vipUnlocked} />
+      </Animated.View>
+    </View>
   );
 }
 
@@ -505,4 +513,10 @@ const styles = StyleSheet.create({
   // 同じ #0E0C20 にして、ネイティブ起動画面 → この画面 → LaunchFlow の間で
   // 背景色が一瞬だけ #171430 に化けるフラッシュを防ぐ（launch_onboarding_spec 準拠）。
   launchRoot: { flex: 1, backgroundColor: '#0E0C20' },
+  // タブ画面（styles.root=#171430）のフェードインの裏地。LaunchFlow と同じ
+  // #0E0C20 にしておくことで、フェード中の透明な部分は直前の LaunchFlow と
+  // 同じ色に見え、不透明になるにつれて #171430 へ自然に色が変わる
+  // （DESIGN.md の仕様どおり、ディスカバー以降の地色は #171430 のまま変えない。
+  //  ここは色を統一するのではなく、その色差をクロスフェードで自然に見せる）。
+  appFadeBackdrop: { flex: 1, backgroundColor: '#0E0C20' },
 });

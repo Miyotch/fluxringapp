@@ -167,11 +167,9 @@ export const DiscoverScreen: React.FC<Props> = ({
   const initialIndex = focusTrackId
     ? Math.max(0, tracks.findIndex((t) => t.id === focusTrackId))
     : 0;
-  // 上部クローム（ブランド／右上アイコン／タイトル）はセーフエリア下へ寄せる。
-  // 原本 v98 は top:22/26/58 の相対配置。その間隔を保ったまま、最上段の
-  // topRight を insets.top + 8 に合わせて全体を同じだけ下げる。
+  // 上部クローム（右上アイコン／タイトル）はセーフエリア下へ寄せる。
+  // タイトルは右上アイコン列と同じ top（topRightY + 5）を使い、縦位置を揃える。
   const topRightY = useTopInset(8);
-  const chromeShift = topRightY - 22;
   const [slideH, setSlideH] = useState(0);
   const [activeIndex, setActiveIndex] = useState(initialIndex);
   const [flipped, setFlipped] = useState(false); // アクティブカードが裏面か（横スクロール可否用）
@@ -718,8 +716,10 @@ export const DiscoverScreen: React.FC<Props> = ({
           </View>
         </View>
 
-        {/* タイトル（1行のみ。eyeコピー・情景サブタイトルはモック確定値により非表示） */}
-        <View style={[styles.texts, { top: 41 + chromeShift }]} pointerEvents="none">
+        {/* タイトル（1行のみ。eyeコピー・情景サブタイトルはモック確定値により非表示）。
+            右上のアイコン列（topRight）と同じ top・高さで縦中央揃えにし、
+            アイコンの縦位置とタイトルの縦位置をぴったり揃える。 */}
+        <View style={[styles.texts, { top: topRightY + 5 }]} pointerEvents="none">
           <Text style={styles.title} numberOfLines={1}>{active?.title}</Text>
         </View>
 
@@ -814,7 +814,9 @@ const styles = StyleSheet.create({
     position: 'absolute', top: -1, right: -1,
     width: 6, height: 6, borderRadius: 3, backgroundColor: C.badge,
   },
-  texts: { position: 'absolute', left: 22, right: 120, top: 58 },
+  // height はアイコン列（topRight の iconsRow1）と同じ 24px にして
+  // justifyContent:'center' で縦中央を揃える（フォント行送りの誤差を吸収する）
+  texts: { position: 'absolute', left: 22, right: 120, height: 24, justifyContent: 'center' },
   // .title: 18px / 字間.05em / text-shadow 0 1px 10px rgba(0,0,0,.5)
   title: {
     fontSize: 20,
