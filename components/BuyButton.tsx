@@ -78,7 +78,7 @@ const styles = StyleSheet.create({
     // 芯を半透明にして輪郭を隠し、textShadow（同形状のぼかし）だけを見せることで
     // 「文字自体が光る」見え方にする。芯を不透明のままにすると輪郭が固く残ってしまう。
     color: 'rgba(244,254,255,0.62)',
-    fontSize: 16,
+    fontSize: 18,
     letterSpacing: 3.2, // .2em（tonmana_typography_reference .buy 準拠）
     fontFamily: JP_SERIF_FONT, // 和文＝明朝（ゴシックで出ていたのを修正）
     textShadowColor: 'rgba(96,206,224,1)',
