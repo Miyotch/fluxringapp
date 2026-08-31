@@ -29,6 +29,7 @@ import { LanguageProvider } from './lib/i18n';
 import { onUserChanged, deleteAccount, signOut } from './lib/firebaseAuth';
 import { usePurchaseFlow } from './lib/usePurchaseFlow';
 import { useSoundPreviews } from './lib/useSoundPreviews';
+import { useWishlist } from './lib/useWishlist';
 import { prefetchArtwork } from './constants/artwork';
 
 import { Footer, TabKey } from './components/Footer';
@@ -56,7 +57,6 @@ import { VipScreen } from './screens/VipScreen';
 import {
   STUB_TRACKS,
   STUB_OWNED,
-  STUB_WISHLIST,
   STUB_NOTICES,
   STUB_ARTISTS,
   STUB_ARTIST_TRACKS,
@@ -136,6 +136,11 @@ function AppInner() {
   // 購読・未完了トランザクションの引き取りが二重に走らないようにするため）。
   const { controller: purchase, ownedIds, restore } = usePurchaseFlow();
 
+  // ウィッシュリスト。ホームの★とコレクションのウィッシュリストは同じ1つの集合を見る。
+  // ここに一本化するまでは DiscoverScreen のローカル state に閉じていて、
+  // 星を押してもウィッシュリストに入らず、画面を離れれば消えていた。
+  const wishlist = useWishlist();
+
   // ホームの試聴URL。カード一覧そのものはまだ STUB_TRACKS（Firestore 未接続）だが、
   // 試聴リンクだけは Firestore の sound/{id}.r2_preview（artworksと同一ID）から
   // リアルタイムに取得し、上書きする。
@@ -208,10 +213,25 @@ function AppInner() {
     [playerIndex, playerTracks],
   );
 
-  // ウィッシュから所有済みは外す（買った作品がウィッシュに残り続けないように）
+  // ウィッシュリストに並べる作品。★を付けた未所有ぶんを、全作品の並び（＝通し番号順）で引く。
+  //   ・追加順に積まないのは、ウィッシュリストを「連作のどこが欠けているか」が見える場に
+  //     したいため。マイコレの 21枠グリッドと同じ番号軸で読める。
+  //   ・所有済みは外す（買った作品がウィッシュリストに残り続けないように）
   const wishlistItems = useMemo<CollectionItem[]>(
-    () => STUB_WISHLIST.filter((w) => !ownedTrackIds.has(w.id)),
-    [ownedTrackIds],
+    () =>
+      STUB_TRACKS.filter((tr) => wishlist.ids.has(tr.id) && !ownedTrackIds.has(tr.id)).map(
+        (tr) => ({
+          id: tr.id,
+          title: tr.title,
+          artworkUrl: tr.artworkUrl,
+          owned: false,
+          audioKey: tr.audioKey,
+          serialNo: tr.back?.serial,
+          glowColor: tr.glowColor,
+          glowColor2: tr.glowColor2,
+        }),
+      ),
+    [wishlist.ids, ownedTrackIds],
   );
 
   const goApp = useCallback(() => {
@@ -422,6 +442,8 @@ function AppInner() {
               focusTrackId={homeFocusId}
               onOpenNotifications={() => setOverlay('notifications')}
               ownedIds={ownedTrackIds}
+              wishlistIds={wishlist.ids}
+              onToggleWishlist={wishlist.toggle}
               purchase={purchase}
               onPlay={(id) => {
                 // 所有済みカードの「再生」押下 → 再生画面へ（コレクションのタイル起点が
@@ -441,6 +463,8 @@ function AppInner() {
             <CollectionScreen
               owned={ownedItems}
               wishlist={wishlistItems}
+              onRemoveWish={wishlist.remove}
+              totalWorks={STUB_TRACKS.length}
               purchase={purchase}
               onOpenTrack={(id, origin, afterimages) => {
                 // 所有曲タップ → 再生画面（ワイヤーフレーム P3）

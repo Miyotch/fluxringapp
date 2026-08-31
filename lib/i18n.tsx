@@ -75,6 +75,10 @@ const JA: Dict = {
   'collection.emptyTitle': 'まだ、ひとつも。',
   'collection.emptyBody': '出会った作品が、ここに静かに集まります。',
   'collection.discover': '作品と出会う',
+  // ウィッシュリスト。進捗を煽らず、連作のどこに居るかだけを示す
+  'collection.wishProgress': '全 {total} 作品｜所有 {owned}・ウィッシュリスト {wish}',
+  'collection.wishRemove': 'ウィッシュリストから外す',
+  'collection.movedTo': '《{title}》は {serial} の枠へ。',
   // 設定
   'settings.title': '設定',
   'settings.sec.account': 'アカウント',
@@ -181,6 +185,9 @@ const EN: Dict = {
   'collection.emptyTitle': 'Nothing yet.',
   'collection.emptyBody': 'Works you meet will quietly gather here.',
   'collection.discover': 'Discover works',
+  'collection.wishProgress': '{total} works | {owned} owned, {wish} in the wishlist',
+  'collection.wishRemove': 'Remove from wishlist',
+  'collection.movedTo': '{title} has moved to slot {serial}.',
   'settings.title': 'Settings',
   'settings.sec.account': 'ACCOUNT',
   'settings.sec.creator': 'CREATOR',

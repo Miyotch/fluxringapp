@@ -32,6 +32,7 @@ import {
 import Animated, { FadeInUp } from 'react-native-reanimated';
 import Svg, { Defs, LinearGradient as SvgLinear, Stop, Rect, RadialGradient as SvgRadial } from 'react-native-svg';
 import { PurchaseModal } from '../components/PurchaseModal';
+import { StarIcon } from '../components/icons';
 import type { CardOrigin, CardOriginItem } from '../components/CardAfterimage';
 import { useT } from '../lib/i18n';
 import { useTopInset } from '../lib/safeArea';
@@ -46,6 +47,7 @@ export type CollectionItem = {
   owned: boolean;
   audioKey?: string;         // R2 音源キー（再生画面へ）
   priceLabel?: string;       // ウィッシュ用
+  serialNo?: string;         // 'No. 003'。ウィッシュリストとマイコレを同じ番号軸で読ませる
   glowColor?: string;
   glowColor2?: string;
 };
@@ -66,6 +68,10 @@ type Props = {
   /** 購入が**成立した**ときだけ呼ばれる（キャンセル・失敗では呼ばない） */
   onBuy: (item: CollectionItem) => void;
   onDiscover: () => void;                // 「作品と出会う」→ ディスカバー
+  /** ウィッシュリストから外す（タイル右上の★）。未指定なら★を出さない */
+  onRemoveWish?: (trackId: string) => void;
+  /** 連作の総数。ウィッシュリストの「どこまで集まったか」を出すために使う */
+  totalWorks?: number;
   /** 購入フロー。未指定なら購入ボタンは押しても何も起きない */
   purchase?: PurchaseController;
 };
@@ -196,6 +202,8 @@ export const CollectionScreen: React.FC<Props> = ({
   onOpenWish,
   onBuy,
   onDiscover,
+  onRemoveWish,
+  totalWorks,
   purchase,
 }) => {
   const t = useT();
@@ -203,6 +211,8 @@ export const CollectionScreen: React.FC<Props> = ({
   const { width: screenW, height: screenH } = useWindowDimensions();
   const [seg, setSeg] = useState<Segment>('mine');
   const [purchaseTarget, setPurchaseTarget] = useState<CollectionItem | null>(null);
+  // ウィッシュリストから買った直後に出す一行（「《朝靄》は No. 003 の枠へ。」）
+  const [movedNote, setMovedNote] = useState<string | null>(null);
   // タップされたタイルの画面絶対座標を測るための参照（再生画面の残像アニメーション用）
   const tileRefs = useRef<Map<string, View>>(new Map());
 
@@ -233,14 +243,30 @@ export const CollectionScreen: React.FC<Props> = ({
 
   // 購入成立でモーダルを閉じ、成立したときだけ onBuy を通知する。
   // コレクション側では演出を出さない（ホームの購入完了演出＝PurchaseParticles が正）。
+  //
+  // ただしウィッシュリストから買ったときだけは一行残す。ウィッシュリストのタイルは所有になった瞬間に
+  // 黙って消える（wishlistItems から外れる）ので、そのままだと「買ったのに
+  // 減った」という引き算の体験になる。どの枠へ移ったかを言い切ってから消す。
   useEffect(() => {
     if (!purchase) return;
     return purchase.onSuccess((trackId) => {
       setPurchaseTarget((prev) => (prev && prev.id === trackId ? null : prev));
       const bought = wishlist.find((w) => w.id === trackId);
-      if (bought) onBuy(bought);
+      if (bought) {
+        setMovedNote(
+          t('collection.movedTo', { title: bought.title, serial: bought.serialNo ?? '' }).trim(),
+        );
+        onBuy(bought);
+      }
     });
-  }, [purchase, wishlist, onBuy]);
+  }, [purchase, wishlist, onBuy, t]);
+
+  // 移動の一行は数秒で静かに引く（残し続けると通知のように読める）
+  useEffect(() => {
+    if (!movedNote) return;
+    const id = setTimeout(() => setMovedNote(null), 3200);
+    return () => clearTimeout(id);
+  }, [movedNote]);
 
   // 3列: (画面幅 - 左右padding - 列間×2) / 3。タイルは aspect 2:3
   const colW = (screenW - PAD_X * 2 - COL_GAP * (COLS - 1)) / COLS;
@@ -303,7 +329,12 @@ export const CollectionScreen: React.FC<Props> = ({
     </Animated.View>
   );
 
-  // ── ウィッシュの1枠（2列・角丸13.9px・下部に曲名と購入ボタン） ──
+  // ── ウィッシュの1枠（2列・角丸13.9px） ──
+  // v98 は購入ボタンをアートの上に重ねていたが、曲名と2段に積むとアートの
+  // 下 1/3 が潰れる。作品を覆わないよう、タイル内には通し番号と曲名だけを残し、
+  // 購入はタイルの外（下段・全幅）へ出した。
+  //   ※ v98_FIX 台帳の変更禁止値（2列 / 角丸13.9 / gap12）はそのまま維持している。
+  //     動かしたのは .wl-btn の位置だけ。ハンドオフには差分として記載が要る。
   const renderWish = ({ item, index }: { item: CollectionItem; index: number }) => (
     <Animated.View
       key={`wish-${item.id}`}
@@ -316,7 +347,28 @@ export const CollectionScreen: React.FC<Props> = ({
           style={{ width: wishW, height: wishH }}
           resizeMode="cover"
         />
-        {/* 下部グラデ＋曲名＋購入ボタン（.wl-go） */}
+
+        {/* 通し番号。マイコレの空枠・所有枠と同じ字組で、連作の同じ軸に載せる */}
+        {!!item.serialNo && (
+          <Text style={styles.wishSerial} numberOfLines={1}>
+            {item.serialNo}
+          </Text>
+        )}
+
+        {/* ★（塗り）＝ウィッシュリストから外す。ホームまで戻らずここで畳めるように */}
+        {onRemoveWish && (
+          <Pressable
+            style={styles.wishStar}
+            hitSlop={6}
+            accessibilityRole="button"
+            accessibilityLabel={t('collection.wishRemove')}
+            onPress={() => onRemoveWish(item.id)}
+          >
+            <StarIcon size={15} filled />
+          </Pressable>
+        )}
+
+        {/* 下部グラデ＋曲名（.wl-go） */}
         <View style={styles.wishGo}>
           <Svg style={StyleSheet.absoluteFill} pointerEvents="none">
             <Defs>
@@ -328,20 +380,41 @@ export const CollectionScreen: React.FC<Props> = ({
             <Rect x="0" y="0" width="100%" height="100%" fill="url(#wgo)" />
           </Svg>
           <Text style={styles.wishName} numberOfLines={1}>{item.title}</Text>
-          <Pressable
-            style={({ pressed }) => [styles.wishBtn, pressed && { opacity: 0.85 }]}
-            onPress={() => {
-              purchase?.dismiss(); // 前回の失敗表示を持ち越さない
-              setPurchaseTarget(item);
-            }}
-          >
-            <Text style={styles.wishBtnLabel} numberOfLines={1}>
-              {t('collection.buy', { price: priceOf(item) })}
-            </Text>
-          </Pressable>
         </View>
       </Pressable>
+
+      {/* 購入はアートの外。ここがウィッシュリスト＝課金導線の実体で、ホームへ戻さず完結する */}
+      <Pressable
+        style={({ pressed }) => [styles.wishBtn, pressed && { opacity: 0.85 }]}
+        onPress={() => {
+          purchase?.dismiss(); // 前回の失敗表示を持ち越さない
+          setPurchaseTarget(item);
+        }}
+      >
+        <Text style={styles.wishBtnLabel} numberOfLines={1}>
+          {t('collection.buy', { price: priceOf(item) })}
+        </Text>
+      </Pressable>
     </Animated.View>
+  );
+
+  // ── ウィッシュリストの見出し（集める行 ＋ 直前の移動の一行） ──
+  // 進捗バーは置かない。ウィッシュリストは「まだ持っていない」を並べる場なので、
+  // 達成度を煽る形にすると PRICING.md の「煽らない・売り込まない」から外れる。
+  // 連作の総数と、いま自分がどこに居るかだけを静かに示す。
+  const renderWishHeader = () => (
+    <View style={styles.wishHeader}>
+      {totalWorks != null && (
+        <Text style={styles.wishProgress}>
+          {t('collection.wishProgress', {
+            owned: owned.length,
+            total: totalWorks,
+            wish: wishlist.length,
+          })}
+        </Text>
+      )}
+      {!!movedNote && <Text style={styles.wishMoved}>{movedNote}</Text>}
+    </View>
   );
 
   return (
@@ -394,6 +467,7 @@ export const CollectionScreen: React.FC<Props> = ({
             key="wish"
             keyExtractor={(i) => i.id}
             renderItem={renderWish}
+            ListHeaderComponent={renderWishHeader}
             numColumns={WISH_COLS}
             columnWrapperStyle={{ gap: WISH_GAP }}
             contentContainerStyle={styles.pages}
@@ -514,16 +588,47 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
   },
   // .wl-name: 12px / 字間.05em / #ECEEF7 / 明朝体
-  wishName: { fontSize: 12, letterSpacing: 0.6, color: C.text, fontFamily: JP_SERIF_FONT, marginBottom: 7 },
+  wishName: { fontSize: 12, letterSpacing: 0.6, color: C.text, fontFamily: JP_SERIF_FONT },
+  // 通し番号。マイコレの filledNum（上6px・11px・字間2.2・opacity.65）に揃える
+  wishSerial: {
+    position: 'absolute',
+    left: 10,
+    top: 7,
+    fontSize: 11,
+    letterSpacing: 2.2,
+    color: C.filledNum,
+    fontFamily: NUM_FONT,
+    opacity: 0.65,
+    textShadowColor: 'rgba(0,0,0,0.8)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 6,
+  },
+  // ★（ウィッシュリストから外す）。タップ域は 32×32、アイコンは 15px
+  wishStar: {
+    position: 'absolute',
+    top: 3,
+    right: 3,
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  // 購入ボタンはタイルの外・全幅（v98 はアート上に重ねていた）
   wishBtn: {
-    alignSelf: 'flex-start',
-    paddingVertical: 5,
-    paddingHorizontal: 10,
+    marginTop: 8,
+    paddingVertical: 7,
+    paddingHorizontal: 8,
     borderWidth: 1,
     borderColor: C.wishBtnBorder,
     borderRadius: 11,
+    alignItems: 'center',
   },
   wishBtnLabel: { fontSize: 9.5, letterSpacing: 0.95, color: C.cyan, fontFamily: NUM_FONT }, // 価格＝数字表記
+
+  // ウィッシュリストの見出し（集める行 ＋ 移動の一行）
+  wishHeader: { marginBottom: 14, gap: 8 },
+  wishProgress: { fontSize: 10.5, letterSpacing: 0.63, color: C.sub, fontFamily: NUM_FONT },
+  wishMoved: { fontSize: 10.5, letterSpacing: 0.84, color: C.cyan, fontFamily: JP_SERIF_FONT },
 
   // 空状態
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, gap: 16 },
