@@ -1,34 +1,28 @@
 /**
- * TabGlow.tsx — フッターのアクティブタブに添える金色のグロー（v99 fr_v99_tsubasa 準拠）
+ * TabGlow.tsx — フッターのアクティブタブ上端に添える金色インジケータ（v99 fr_v99_tsubasa 準拠）
  * ------------------------------------------------------------------
  * モックの CSS:
- *   .tb.on svg{filter:drop-shadow(0 0 6px rgba(233,200,121,.45))}
  *   .tb.on::before{
  *     top:-1px; left:50%; transform:translateX(-50%);
  *     width:26px; height:2px;
  *     background:linear-gradient(90deg,transparent,var(--gold),transparent);
  *     box-shadow:0 0 8px rgba(233,200,121,.55)
  *   }
- * RN に CSS の filter/box-shadow/::before は無いため、Skia の Blur で2つを再現する。
- *   ・TabIconGlow     : アイコン背後に淡い金の丸ぼかし（drop-shadow 相当）
- *   ・TabTopIndicator : タブ上端の金グラデーションの棒＋その光暈（::before 相当）
- * どちらも isActive の切り替えで 250ms（CSS の transition と同じ長さ）フェードする。
+ * RN に CSS の box-shadow/::before は無いため、Skia の Blur で再現する
+ * （芯の2pxバーの上に、広いにじみ（σ4）と狭いにじみ（σ2）を重ねて
+ * 「中心が明るく端がすっと消える」見え方にする）。
+ * isActive の切り替えで 250ms（CSS の transition と同じ長さ）フェードする。
  *
- * VIP タブは常時シアン（Footer.tsx 側の既存仕様）で、この金グローとは無関係。
- * アクティブになったときは TabTopIndicator（上端インジケータ）だけ表示し、
- * アイコン自体の金グロー（TabIconGlow）は非VIPタブにのみ使う想定。
+ * アイコン自体の金の発光（.tb.on svg drop-shadow 相当）は、RN では
+ * View の shadowColor/shadowRadius（アルファ形状に沿う影）で代替する方が
+ * SVG の細線に馴染むため、Footer.tsx 側でネイティブ shadow として実装する
+ * （このファイルの担当ではない）。
+ *
+ * VIP タブは常時シアン（Footer.tsx 側の既存仕様）で、この金インジケータとは無関係。
  */
 
 import React, { useEffect } from 'react';
-import {
-  Canvas,
-  Circle,
-  Rect,
-  RadialGradient,
-  LinearGradient,
-  Blur,
-  vec,
-} from '@shopify/react-native-skia';
+import { Canvas, Rect, LinearGradient, Blur, vec } from '@shopify/react-native-skia';
 import { useSharedValue, useDerivedValue, withTiming, Easing } from 'react-native-reanimated';
 
 const GOLD = '#e9c879';
@@ -44,54 +38,20 @@ function useActiveFade(active: boolean) {
 }
 
 /**
- * アイコン背後の淡い金ぼかし。glyphWrap 内で、アイコンより前（下）に
- * 絶対配置で重ねる想定（このコンポーネント自体には position 系は付けない
- * ので、呼び出し側の View に position:'relative' 相当＝RNの既定値があれば足りる）。
- */
-export const TabIconGlow: React.FC<{ active: boolean; size?: number }> = ({
-  active,
-  size = 20,
-}) => {
-  const t = useActiveFade(active);
-  const opacity = useDerivedValue(() => t.value * 0.45); // rgba(...,.45)
-
-  // CSS blur-radius 6px 相当 → Skia sigma ≒ 3（PurchaseCardGlow と同じ σ≒radius/2 換算）
-  const R = size * 0.55;
-  const M = 14; // にじみの余白
-  const c = vec(M + R, M + R);
-
-  return (
-    <Canvas
-      style={{
-        position: 'absolute',
-        top: -M,
-        left: -M,
-        width: R * 2 + M * 2,
-        height: R * 2 + M * 2,
-      }}
-      pointerEvents="none"
-    >
-      <Circle c={c} r={R} opacity={opacity}>
-        <RadialGradient c={c} r={R} colors={[GOLD, GOLD_ZERO]} />
-        <Blur blur={3} />
-      </Circle>
-    </Canvas>
-  );
-};
-
-/**
- * タブ上端の金インジケータ（棒＋光暈）。タブ本体（Pressable）の直下の子として
- * 絶対配置する想定。left/right を指定しないので、親の alignItems（Footer.tsx
- * の styles.tab は alignItems:'center'）にそのまま従って水平中央に来る。
+ * タブ上端の金インジケータ（棒＋光暈）。フッターの `bar` 直下（各タブの
+ * 幅を再現した専用スロット）に絶対配置する想定。canvas 自体は
+ * `top:-M` で、芯の2pxバーがスロットの上端（＝フッター上端）にちょうど
+ * 乗るように配置する（モックの `top:-1px` に相当）。
  */
 export const TabTopIndicator: React.FC<{ active: boolean }> = ({ active }) => {
   const t = useActiveFade(active);
   const barOpacity = useDerivedValue(() => t.value);
-  const glowOpacity = useDerivedValue(() => t.value * 0.55); // rgba(...,.55)
+  const wideGlowOpacity = useDerivedValue(() => t.value * 0.55); // rgba(...,.55)
+  const tightGlowOpacity = useDerivedValue(() => t.value * 0.55);
 
   const W = 26;
   const H = 2;
-  const M = 10; // にじみの余白
+  const M = 16; // にじみの余白（σ4 の広い光暈が切れないよう十分に確保）
   const canvasW = W + M * 2;
   const canvasH = H + M * 2;
 
@@ -99,16 +59,21 @@ export const TabTopIndicator: React.FC<{ active: boolean }> = ({ active }) => {
     <Canvas
       style={{
         position: 'absolute',
-        top: -1 - M,
+        top: -M,
         width: canvasW,
         height: canvasH,
       }}
       pointerEvents="none"
     >
-      {/* 光暈: box-shadow 0 0 8px rgba(233,200,121,.55) 相当（Skia sigma≒4） */}
-      <Rect x={M} y={M} width={W} height={H} opacity={glowOpacity}>
+      {/* 広い光暈: box-shadow 0 0 8px rgba(233,200,121,.55) 相当（Skia sigma≒4） */}
+      <Rect x={M} y={M} width={W} height={H} opacity={wideGlowOpacity}>
         <LinearGradient start={vec(M, 0)} end={vec(M + W, 0)} colors={[GOLD_ZERO, GOLD, GOLD_ZERO]} />
         <Blur blur={4} />
+      </Rect>
+      {/* 狭い光暈: 中心付近を明るく締める（σ2） */}
+      <Rect x={M} y={M} width={W} height={H} opacity={tightGlowOpacity}>
+        <LinearGradient start={vec(M, 0)} end={vec(M + W, 0)} colors={[GOLD_ZERO, GOLD, GOLD_ZERO]} />
+        <Blur blur={2} />
       </Rect>
       {/* 芯の棒: linear-gradient(90deg,transparent,gold,transparent) */}
       <Rect x={M} y={M} width={W} height={H} opacity={barOpacity}>
