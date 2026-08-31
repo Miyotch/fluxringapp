@@ -22,6 +22,7 @@ import {
   TabSettingsIcon,
   LockIcon,
 } from './icons';
+import { TabTopIndicator } from './TabGlow';
 
 export type TabKey = 'home' | 'collection' | 'vip' | 'media' | 'settings';
 
@@ -52,17 +53,42 @@ export const Footer: React.FC<FooterProps> = ({ active, onChange, vipLocked = tr
   const padBottom = useBottomInset(Platform.OS === 'ios' ? 20 : 12);
   return (
     <View style={[styles.bar, { paddingBottom: padBottom }]}>
+      {/* タブ上端の金インジケータ（v99 fr_v99_tsubasa .tb.on::before 相当）。
+          各タブ Pressable は bar 内で縦中央寄せ（高さがコンテンツ依存）のため、
+          インジケータはタブの内側ではなく bar 直下の専用オーバーレイ行に、
+          タブと同じ 5 分割（flex:1 ×5・paddingHorizontal 8）で重ねる。
+          こうすることで、タブの内容量に関係なく必ず bar の最上端に揃う。 */}
+      <View style={styles.indicatorRow} pointerEvents="none">
+        {TABS.map((tab) => (
+          <View key={tab.key} style={styles.indicatorSlot}>
+            <TabTopIndicator active={tab.key === active} />
+          </View>
+        ))}
+      </View>
       {TABS.map((tab) => {
         const isActive = tab.key === active;
         const isVip = tab.key === 'vip';
-        // .tb: OFF #9498BE / ON #ECEEF7 / VIP #60CEE0（常時）。
-        // シアンは「不変の規律」どおり VIP 一点だけの装飾。他タブは選択時も
-        // 白寄りに留め、シアンを面積いっぱいに使わない。
+        // .tb: OFF #9498BE / ON #E9C879（金）/ VIP #60CEE0（常時）。
+        // シアンは「不変の規律」どおり VIP 一点だけの装飾。VIP はアクティブでも
+        // 金には染めず、上端インジケータ（TabTopIndicator）だけで選択中を示す。
         const tint = isVip
           ? COLOR.auraCyan
           : isActive
-          ? COLOR.textPrimary
+          ? COLOR.tabActiveGold
           : COLOR.textSecondary;
+
+        // アイコンの金の発光（.tb.on svg drop-shadow(0 0 6px rgba(233,200,121,.45)) 相当）。
+        // RN の View shadow はアルファ形状に沿う影を落とすため、SVG の細線にも馴染む。
+        // iOS のみ有効（Android の View shadow は色付き指定に対応しない）。
+        const iconGlowStyle =
+          isActive && !isVip && Platform.OS === 'ios'
+            ? {
+                shadowColor: COLOR.tabActiveGold,
+                shadowOpacity: 0.45,
+                shadowRadius: 6,
+                shadowOffset: { width: 0, height: 0 },
+              }
+            : null;
 
         return (
           <Pressable
@@ -74,7 +100,7 @@ export const Footer: React.FC<FooterProps> = ({ active, onChange, vipLocked = tr
             accessibilityState={{ selected: isActive }}
             accessibilityLabel={t(tab.labelKey)}
           >
-            <View style={styles.glyphWrap}>
+            <View style={[styles.glyphWrap, iconGlowStyle]}>
               {tab.Icon ? (
                 <tab.Icon size={20} color={tint} />
               ) : isVip && vipLocked ? (
@@ -110,6 +136,19 @@ const styles = StyleSheet.create({
     borderTopColor: COLOR.border,
     backgroundColor: 'rgba(23,20,48,0.92)',
   },
+  // bar の最上端（paddingTop の外側）に重ねる、タブと同じ5分割のオーバーレイ行。
+  indicatorRow: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    paddingHorizontal: 8,
+  },
+  indicatorSlot: {
+    flex: 1,
+    alignItems: 'center',
+  },
   tab: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -124,11 +163,11 @@ const styles = StyleSheet.create({
     fontSize: 18,
     lineHeight: 20,
   },
-  // .tb: 9px / weight 500
+  // .tb: 9px / weight 500 / letter-spacing .12em
   label: {
     fontSize: 9,
     fontWeight: '500',
-    letterSpacing: 0.2,
+    letterSpacing: 1.08,
   },
 });
 
