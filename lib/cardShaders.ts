@@ -51,6 +51,8 @@ uniform sampler2D map;
 uniform float uHasMap;
 uniform vec3 uLight; // (0.45, -0.55, -0.80) 参照値
 uniform vec2 uCardPx; // カードの見かけ寸法(px)。表面オーバーレイを px 基準で描くため
+// 0=正面で静止 / 1=傾いている。ライティング項の効き具合。CardGL が回転角から毎フレーム渡す。
+uniform float uMotion;
 
 varying vec2 vUv;
 varying vec3 vWorldNormal;
@@ -60,6 +62,14 @@ varying vec3 vWorldPos;
 float sdRoundRect(vec2 p, vec2 b, float r) {
   vec2 d = abs(p) - b + vec2(r);
   return min(max(d.x, d.y), 0.0) + length(max(d, 0.0)) - r;
+}
+
+// リニア → sRGB（正式な OETF）。three.js が SRGBColorSpace で行った復号の逆。
+// 静止時に GL 面を素の作品画像へ戻すために使う。
+vec3 linearToSrgb(vec3 c) {
+  vec3 lo = c * 12.92;
+  vec3 hi = 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055;
+  return mix(lo, hi, step(vec3(0.0031308), c));
 }
 
 void main() {
@@ -89,10 +99,30 @@ void main() {
   vec3 R = reflect(-V, N);
   float env = clamp(R.y * 0.5 + 0.5, 0.0, 1.0);
 
-  vec3 col = (art * (0.58 + 0.5 * diff) + vec3(spec) * 0.29 + vec3(env) * 0.065 + vec3(band) * 0.17) * 0.9;
-  col += cyan * fres * rimAmount;
+  vec3 lit = (art * (0.58 + 0.5 * diff) + vec3(spec) * 0.29 + vec3(env) * 0.065 + vec3(band) * 0.17) * 0.9;
+  lit += cyan * fres * rimAmount;
 
-  col = pow(clamp(col, 0.0, 1.0), vec3(1.0 / 2.2)); // 簡易ガンマ補正
+  // ── 静止時は素の作品画像そのものへ落とす ────────────────────────
+  // ライティング項は「傾けたときの表現」だが、正面で静止していても
+  //   band   最大 1.0（diag = 0.72(u+v) と bandCenter ≒ 0.72 が中央で一致し、
+  //          対角線上に幅広の帯が出っぱなしになる）→ +0.17
+  //   env    0.5 → +0.0325
+  //   fres   0.06 → シアン(0.93,0.95,0.98) を +0.024
+  //   本体   art × (0.58+0.5×0.7477) × 0.9 = art × 0.86（コントラスト圧縮）
+  // が乗り続ける。結果はリニア空間で「絵 × 0.86 + 白～シアン 0.21」で、
+  // 暗部ほど持ち上がって少し霞んだ寒色になる。
+  //
+  // 静止時のホームは RN の <Image>（＝素の作品画像）を重ねて見せているので、
+  // GL 面がこの状態のままだと「タップして戻ると色みが変わる」ことになる。
+  // uMotion=0 では art を厳密な sRGB へ戻してそのまま返すので、GL 面と
+  // <Image> が一致する（この後に載る CardSurface 相当の作図は Skia 版と
+  // 同一なので、そちらもそのまま揃う）。
+  // ライティング側は従来どおり簡易ガンマ。静止側は three.js が SRGBColorSpace で
+  // 復号したぶんを**厳密な sRGB OETF で戻す**。pow(1/2.2) では暗部が最大 8/255
+  // 持ち上がってしまい、平面の <Image> と一致しない。
+  vec3 litOut  = pow(clamp(lit, 0.0, 1.0), vec3(1.0 / 2.2));
+  vec3 flatOut = linearToSrgb(clamp(art, 0.0, 1.0));
+  vec3 col = mix(flatOut, litOut, uMotion);
 
   // ── v99-tsubasa の表面オーバーレイ（.face.front::after）────────────
   // components/CardSurface.tsx と同一の作図。CSS は sRGB 空間で合成するので

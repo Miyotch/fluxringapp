@@ -130,6 +130,10 @@ const AURA_HIDE_DEG = 10;
 const DT_MAX = 0.05;
 // 2D（表面オーバーレイ）復帰時のクロスフェード（ms）。GL 面との差をならす。
 const OVERLAY_FADE_MS = 140;
+// 表面ライティング（uMotion）が効き切る回転角（度）。0°＝素の作品画像、
+// これ以上傾いたら参照どおりのライティング。AURA_HIDE_DEG と同値にして、
+// 「落影が消える＝カードが動き出した」の境目と揃える。
+const MOTION_FULL_DEG = AURA_HIDE_DEG;
 
 // ── ここから下は main 側で入った挙動（この PR でも維持する）──────────
 // 裏面トラックボールの傾き上限。1.25rad(≈71.6°) はひっくり返って見えるため
@@ -435,6 +439,9 @@ const CardMesh: React.FC<{
           map: { value: null },
           uHasMap: { value: 0 },
           uLight: { value: uLightVec },
+          // 0=正面で静止 / 1=傾いている。useFrame が回転角から毎フレーム更新する。
+          // spin（プレイヤー）は常時ライティングなので 1 のまま使う。
+          uMotion: { value: 1 },
           // 表面オーバーレイ（金の内枠・下端シャドウ）を px 基準で描くための実寸
           uCardPx: { value: new THREE.Vector2(cardPx.width, cardPx.height) },
         },
@@ -675,7 +682,13 @@ const CardMesh: React.FC<{
     // createSerializable して UI スレッドへスケジュールする。毎フレームの
     // コストなので本数を絞る。落影も接地影も、この回転角ひとつから
     // UI スレッド側の derived で出せる。
-    rotationOut.value = (Math.acos(z) * 180) / Math.PI;
+    const tiltDeg = (Math.acos(z) * 180) / Math.PI;
+    rotationOut.value = tiltDeg;
+    // 表面ライティングの効き。flip（ホーム）は静止時に RN <Image> と一致させたい
+    // ので 0 まで落とす。spin（プレイヤー）は平面オーバーレイを持たないため常時 1。
+    frontMaterial.uniforms.uMotion.value = flipDrive
+      ? Math.min(1, tiltDeg / MOTION_FULL_DEG)
+      : 1;
     // ── frameloop="demand" の自走判定 ──
     // 動きが残っている間だけ次フレームを要求する。静止したら要求が止まり、
     // GL は 1 フレームも描かない（Pixel 6 で「常時 60fps で GL が回り続けて
@@ -898,6 +911,22 @@ export const CardGL: React.FC<CardGLProps> = ({
     setOverlayVisible(true);
   };
 
+  // 最後の砦: 表に戻ったのに 2D オーバーレイが復帰していない状態を残さない。
+  // 着地イベント（onClosed）と 900ms タイマーの両方を取りこぼしても、ここで
+  // 必ず不透明の <Image> に戻す。GL 面が見えっぱなしだと、タップ受けの
+  // Pressable ごと失われて次のフリップも効かなくなる。
+  // 900ms + フェード 140ms より後に置く。
+  useEffect(() => {
+    if (!isFlip || flipped) return;
+    const id = setTimeout(() => {
+      overlayShown.current = true;
+      overlayOpacity.value = withTiming(1, { duration: OVERLAY_FADE_MS });
+      setOverlayVisible(true);
+    }, 1200);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isFlip, flipped]);
+
   // 参照 _dv3d は mode を同期に持つため、開いた直後の2打目も確実に close へ届く。
   // アプリ側は flipped(state) 頼みだったので、React のコミット前に来た2打目が
   // まだ表面の Pressable に吸われて消えていた。mode を ref で先に確定させる。
@@ -924,6 +953,10 @@ export const CardGL: React.FC<CardGLProps> = ({
     // 「2Dに戻ったのにスワイプが効かない」空白が出る。
     onFlipChange?.(false);
     overlayOpacity.value = 0;
+    // showOverlay は overlayShown で二重発火を弾く。ここで false に戻して
+    // おかないと、開く経路が flipToBack を通らなかった場合に「透明のまま
+    // 復帰済み扱い」で取り残され、GL 面が見えっぱなしになる。
+    overlayShown.current = false;
     // 保険: 着地イベントが来ないまま 900ms 経ったら強制復帰
     clearOverlayTimer();
     overlayTimer.current = setTimeout(showOverlay, 900);
