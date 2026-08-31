@@ -13,6 +13,7 @@
  * ぶんだけ——しかもそこは放射グラデの外周でほぼ透明。実DOMで検算済み。
  * 影はカードのフロートに追従しない（床に留まる）ので centerY は静止時の中心。
  *   塗り    = radial rgba(0,0,0,.62) 0% → .40 30% → .18 54% → 0 76%
+ *             ※ アプリでは黒帯に見えたため COLORS で減光済み（下のコメント）
  *   ぼかし  = filter: blur(3px)  ← filter の値は σ そのもの（box-shadow の 2σ とは別）
  *
  * lift はフロート量 floatY/3.0（-1..1）。**影自体は床に留めてフロートさせない**。
@@ -29,13 +30,22 @@ import { useDerivedValue, SharedValue } from 'react-native-reanimated';
 /** 参照実装のカード幅（CSS の px 値はこの幅で定義されている） */
 const REF_W = 188.6;
 
-/** .card-ground の radial-gradient 階調 */
-const COLORS = ['rgba(0,0,0,0.62)', 'rgba(0,0,0,0.40)', 'rgba(0,0,0,0.18)', 'rgba(0,0,0,0)'];
+/**
+ * .card-ground の radial-gradient 階調。
+ *
+ * 参照値は 0.62 / 0.40 / 0.18 / 0 ＋ BASE_OPACITY 0.78 で、カード下端の
+ * すぐ下がアルファ 0.48 の黒になる。楕円の中心がカード下端の 15px 下・
+ * 高さがカード高の 16% あるため、実機ではこれが「カードの背景に黒い画面が
+ * ある」と見える幅 0.86w・高さ 40px 級の黒帯になっていた。
+ * 接地の手がかりは残したいので、消さずに濃さを約 1/3（ピーク 0.16）まで
+ * 落とす。形・位置・フロート連動は参照のまま。
+ */
+const COLORS = ['rgba(0,0,0,0.26)', 'rgba(0,0,0,0.16)', 'rgba(0,0,0,0.07)', 'rgba(0,0,0,0)'];
 const STOPS = [0, 0.3, 0.54, 0.76];
 /** filter: blur(3px) — filter の値は σ そのもの */
 const SIGMA = 3;
-/** 基準不透明度 */
-const BASE_OPACITY = 0.78;
+/** 基準不透明度（参照 0.78 → 黒帯に見えたため減光） */
+const BASE_OPACITY = 0.6;
 
 export type CardGroundProps = {
   /** キャンバス寸法 */
