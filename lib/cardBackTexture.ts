@@ -51,12 +51,19 @@ function hash(x: number): number {
   return s - Math.floor(s);
 }
 
-// 和文=全角幅・欧文=約半角の概算（Skia の measureText 失敗時にも安全）
+// 文字の送り幅（次の文字を置く位置の基準）。
+// font.measureText() は「インクの外接矩形幅」を返す（SkFont.d.ts の戻り値型が
+// SkRect であることからも分かる）ため、送り幅としては使えない。全角括弧
+// （）のようにインク（見える曲線）が送り幅よりかなり細い・片側に寄った字形だと、
+// これを送り幅として使うと次の文字が重なって描かれ、括弧が隠れてしまう
+// （漢字はインク幅≒送り幅なのでこれまで問題が表面化していなかった）。
+// 正しい送り幅は getGlyphIDs()+getGlyphWidths()（advanceX）で取る。
 function estWidth(text: string, fs: number, font: SkFont | null): number {
   if (font) {
     try {
-      const m = font.measureText(text);
-      if (m && m.width > 0) return m.width;
+      const glyphs = font.getGlyphIDs(text);
+      const w = font.getGlyphWidths(glyphs).reduce((a, b) => a + b, 0);
+      if (w > 0) return w;
     } catch {}
   }
   let w = 0;
