@@ -29,7 +29,14 @@ import {
   PanResponder,
   useWindowDimensions,
 } from 'react-native';
-import Animated, { FadeInUp } from 'react-native-reanimated';
+import Animated, {
+  Easing,
+  FadeInUp,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
+import { CardGL } from '../components/CardGL';
 import Svg, { Defs, LinearGradient as SvgLinear, Stop, Rect, RadialGradient as SvgRadial } from 'react-native-svg';
 import { PurchaseModal } from '../components/PurchaseModal';
 import { StarIcon } from '../components/icons';
@@ -55,6 +62,15 @@ export type CollectionItem = {
   previewUrl?: string | null;
   glowColor?: string;
   glowColor2?: string;
+  /** カード裏面の刻印。作品詳細の 3D カード（CardGL）でホーム・再生画面と同じ裏面を出す */
+  back?: {
+    serial?: string;
+    story?: string;
+    materials?: string[];
+    tuning?: string;
+    frequencies?: string[];
+    artist?: string;
+  };
 };
 
 // 参照 fr_v98_wish.html の col-tabs（すべて / 所有 / ウィッシュリスト）
@@ -339,6 +355,97 @@ export const CollectionScreen: React.FC<Props> = ({
     [detailId, works],
   );
 
+  // ── 作品詳細のカード ────────────────────────────────────────────
+  // 平らな Image ではなく、ホーム／再生画面と同じ CardGL を置く。タップで表↔裏、
+  // 裏面は指で回せる。板・ウィッシュ・マイコレのどこから開いても同じカードを
+  // 触ることになる（以前は所有タイルだけが本物のカードで、他は静止画だった）。
+  // 参照の .wcard は枠幅43%（≒149px）だったが、静止画ではなく触れるカードに
+  // なったので、タイル（約100px）から開いたときに「拡大した」と分かる大きさへ
+  // 上げる。画面高に対する比で決め、下の番号・曲名・3ボタンが押し出されない
+  // よう 330px で頭打ちにする（iPhone SE の高さでも収まる）。
+  const workCardH = Math.min(
+    Math.round(screenH * 0.42),
+    330,
+    Math.round((screenW - PAD_X * 2) * 1.5),
+  );
+  const workCardW = Math.round(workCardH / 1.5);
+  // frame は「カードを収める枠の実寸」。CardGL はこれを基に裏面の拡大率と
+  // 持ち上げ量を決める。毎レンダー新しい参照を渡すと裏面テクスチャが作り直される。
+  const workCardFrame = useMemo(() => ({ width: screenW, height: screenH }), [screenW, screenH]);
+  // 裏面の刻印。参照が変わるたび 1024×1536 の Skia サーフェスを同期生成するので、
+  // 開いている作品が変わったときだけ作り直す（DiscoverScreen と同じ規律）。
+  const workBackData = useMemo(
+    () =>
+      detail
+        ? {
+            title: detail.title,
+            serial: detail.back?.serial ?? detail.serialNo,
+            story: detail.back?.story ?? detail.subtitle,
+            materials: detail.back?.materials,
+            tuning: detail.back?.tuning,
+            frequencies: detail.back?.frequencies,
+            artist: detail.back?.artist ?? 'NAOKI OKA',
+          }
+        : undefined,
+    [detail],
+  );
+
+  // タイル→カードのフライトイン。マイコレのタイルから再生画面を開くときと同じ
+  // 演出（PlayerScreen の①）を、この面の中で完結させる。押したタイルの矩形に
+  // 同じ見かけサイズで重ねてから、詳細のカード位置へ 400ms で寄せる。
+  const flightFrom = useRef<CardOrigin | null>(null);
+  const workCardRef = useRef<View>(null);
+  const cardTX = useSharedValue(0);
+  const cardTY = useSharedValue(0);
+  const cardScale = useSharedValue(1);
+  const cardFlightStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: cardTX.value },
+      { translateY: cardTY.value },
+      { scale: cardScale.value },
+    ],
+  }));
+
+  // 詳細のカード枠のレイアウトが決まった瞬間に、押したタイルから飛ばす。
+  // measureInWindow はアニメを載せていない外枠に対して呼ぶ（変形中のノードを
+  // 測ると着地点がずれる）。
+  const onWorkCardLayout = useCallback(() => {
+    const from = flightFrom.current;
+    const node = workCardRef.current;
+    flightFrom.current = null;
+    if (!from || !node) return;
+    node.measureInWindow((x, y, w, h) => {
+      if (!w || !h) return;
+      const flight = { duration: 400, easing: Easing.out(Easing.cubic) };
+      cardTX.value = from.x + from.width / 2 - (x + w / 2);
+      cardTY.value = from.y + from.height / 2 - (y + h / 2);
+      cardScale.value = from.width / w;
+      cardTX.value = withTiming(0, flight);
+      cardTY.value = withTiming(0, flight);
+      cardScale.value = withTiming(1, flight);
+    });
+  }, [cardScale, cardTX, cardTY]);
+
+  // 板／ウィッシュのタイル。押した矩形を測ってから詳細を開く（測れなければ
+  // フライトインなしでそのまま開く＝演出が出ないだけで動作は同じ）。
+  const detailRefs = useRef<Map<string, View>>(new Map());
+  const openDetail = useCallback(async (id: string, refKey: string) => {
+    const node = detailRefs.current.get(refKey);
+    flightFrom.current = node ? await measureView(node) : null;
+    setDetailId(id);
+  }, []);
+
+  // 詳細を閉じるときは変形をリセットする（次に開いたときに前回の残りから
+  // 始まらないように）。
+  const closeDetail = useCallback(() => {
+    stopPreview();
+    setDetailId(null);
+    flightFrom.current = null;
+    cardTX.value = 0;
+    cardTY.value = 0;
+    cardScale.value = 1;
+  }, [cardScale, cardTX, cardTY, stopPreview]);
+
   // 購入成立でモーダルを閉じ、成立したときだけ onBuy を通知する。
   // コレクション側では演出を出さない（ホームの購入完了演出＝PurchaseParticles が正）。
   //
@@ -491,7 +598,13 @@ export const CollectionScreen: React.FC<Props> = ({
         entering={FadeInUp.duration(420).delay((index % 8) * 55)}
         style={{ width: colW, marginBottom: ROW_GAP }}
       >
-        <Pressable onPress={() => setDetailId(item.id)}>
+        <Pressable
+          ref={(el) => {
+            if (el) detailRefs.current.set(`all-${item.id}`, el);
+            else detailRefs.current.delete(`all-${item.id}`);
+          }}
+          onPress={() => openDetail(item.id, `all-${item.id}`)}
+        >
           {state === 'own' ? (
             <>
               <MetalTile uri={item.artworkUrl} w={colW} h={colH} />
@@ -536,7 +649,14 @@ export const CollectionScreen: React.FC<Props> = ({
           その作品が立ち上がる」挙動に揃える。以前はホームの該当カードへ
           飛ばしていたが、コレクションを見ている最中に画面ごと持って行かれる
           ので、この面の中で購入と★まで完結させる。 */}
-      <Pressable onPress={() => setDetailId(item.id)} style={styles.wishSlot}>
+      <Pressable
+        ref={(el) => {
+          if (el) detailRefs.current.set(`wish-${item.id}`, el);
+          else detailRefs.current.delete(`wish-${item.id}`);
+        }}
+        onPress={() => openDetail(item.id, `wish-${item.id}`)}
+        style={styles.wishSlot}
+      >
         <Image
           source={{ uri: item.artworkUrl }}
           style={{ width: wishW, height: wishH }}
@@ -721,26 +841,36 @@ export const CollectionScreen: React.FC<Props> = ({
           未所有なら ★ / 30秒 試聴 / 迎える の3手。ここが「再生ではなく試聴と購入」の実体。 */}
       {detail && (
         <View style={[styles.work, { paddingTop: titleTop + 8 }]}>
-          <Pressable
-            style={styles.workBack}
-            hitSlop={10}
-            onPress={() => {
-              stopPreview();
-              setDetailId(null);
-            }}
-          >
+          <Pressable style={styles.workBack} hitSlop={10} onPress={closeDetail}>
             <Text style={styles.workBackLabel}>{`‹ ${t('collection.back')}`}</Text>
           </Pressable>
 
-          <View style={styles.workCard}>
-            <Image
-              source={{ uri: detail.artworkUrl }}
+          {/* 外枠はアニメを載せない＝着地点の実測用。内側の Animated.View だけが
+              タイルから飛んでくる。CardGL の Canvas はカード実寸より外へはみ出す
+              （裏面が S=1.28 で拡大する）ので、ここで overflow を切ってはいけない。 */}
+          <View
+            ref={workCardRef}
+            onLayout={onWorkCardLayout}
+            style={[styles.workCardBox, { width: workCardW, height: workCardH }]}
+          >
+            <Animated.View
               style={[
-                styles.workCardImg,
+                { width: workCardW, height: workCardH },
                 slotState(detail.id) !== 'own' && styles.workCardDim,
+                cardFlightStyle,
               ]}
-              resizeMode="cover"
-            />
+            >
+              <CardGL
+                mode="flip"
+                backStyle="aluminum"
+                frontUri={detail.artworkUrl}
+                width={workCardW}
+                height={workCardH}
+                shadow
+                frame={workCardFrame}
+                backData={workBackData}
+              />
+            </Animated.View>
           </View>
 
           {!!detail.serialNo && <Text style={styles.workNo}>{detail.serialNo}</Text>}
@@ -756,8 +886,7 @@ export const CollectionScreen: React.FC<Props> = ({
                   pressed && { opacity: 0.85 },
                 ]}
                 onPress={() => {
-                  stopPreview();
-                  setDetailId(null);
+                  closeDetail();
                   onOpenTrack(detail.id);
                 }}
               >
@@ -1033,15 +1162,10 @@ const styles = StyleSheet.create({
   },
   workBack: { alignSelf: 'flex-start' },
   workBackLabel: { color: C.back, fontSize: 12, letterSpacing: 0.6 },
-  // 参照 .wcard 164x246（枠幅380基準 = 43%）・角丸14
-  workCard: {
-    width: '43%',
-    aspectRatio: 2 / 3,
-    marginTop: 26,
-    borderRadius: 14,
-    overflow: 'hidden',
-  },
-  workCardImg: { width: '100%', height: '100%' },
+  // 参照 .wcard 164x246（枠幅380基準 = 43%）。実寸は workCardW/H で渡す。
+  // borderRadius / overflow は付けない — 角丸はカード自身（CardGL）が持っており、
+  // ここでクリップすると裏面の拡大分と落影が切れる。
+  workCardBox: { marginTop: 26 },
   // 未所有は沈める（参照 .wcard.dim = brightness(.62)）
   workCardDim: { opacity: 0.62 },
   workNo: { marginTop: 22, fontSize: 9.5, letterSpacing: 2.66, color: C.sub, fontFamily: NUM_FONT },
