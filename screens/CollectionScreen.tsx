@@ -325,8 +325,14 @@ export const CollectionScreen: React.FC<Props> = ({
     stopPreview();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seg]);
-  // 画面を離れるときも必ず止める
-  useEffect(() => () => preview.pause(), [preview]);
+  // 画面を離れるときの停止は「何もしない」のが正しい。
+  // useAudioPlayer は内部の useReleasingSharedObject が unmount の cleanup で
+  // player.release() を呼ぶ。そのフックはこの画面の先頭（238行目）で呼ばれている＝
+  // React はフック宣言順に cleanup を走らせるので、release() が先に効く。
+  // そのあとで pause() を呼ぶと解放済みのネイティブ shared object を触ることになり、
+  // JS の fatal exception → RCTFatal → SIGABRT で落ちる（カードを押して再生画面や
+  // ホームへ移った瞬間にこの画面が unmount されるため、そこで必ず踏む）。
+  // release() 自体が再生を止めるので、音が鳴り続ける心配はない。
 
   const detail = useMemo(
     () => (detailId ? works.find((w) => w.id === detailId) ?? null : null),
