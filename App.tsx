@@ -179,6 +179,7 @@ function AppInner() {
           previewUrl: tr.previewUrl,
           glowColor: tr.glowColor,
           glowColor2: tr.glowColor2,
+          back: tr.back,
         })),
     [discoverTracks, ownedTrackIds],
   );
@@ -237,6 +238,7 @@ function AppInner() {
           previewUrl: tr.previewUrl,
           glowColor: tr.glowColor,
           glowColor2: tr.glowColor2,
+          back: tr.back,
         })),
     [discoverTracks, wishlist.ids, ownedTrackIds],
   );
@@ -256,6 +258,7 @@ function AppInner() {
         previewUrl: tr.previewUrl,
         glowColor: tr.glowColor,
         glowColor2: tr.glowColor2,
+        back: tr.back,
       })),
     [discoverTracks, ownedTrackIds],
   );
