@@ -33,7 +33,7 @@
           }
         ]
       },
-      "buildNumber": "26"
+      "buildNumber": "27"
     },
     "android": {
       "package": "com.fluxring.app",

@@ -369,9 +369,24 @@ export const CollectionScreen: React.FC<Props> = ({
     Math.round((screenW - PAD_X * 2) * 1.5),
   );
   const workCardW = Math.round(workCardH / 1.5);
-  // frame は「カードを収める枠の実寸」。CardGL はこれを基に裏面の拡大率と
-  // 持ち上げ量を決める。毎レンダー新しい参照を渡すと裏面テクスチャが作り直される。
-  const workCardFrame = useMemo(() => ({ width: screenW, height: screenH }), [screenW, screenH]);
+  // frame は「カードを収める枠の実寸」。CardGL はこれを基に
+  //   裏面の拡大率 S = min(1.28, 枠幅*0.86/カード幅, 枠高*0.82/カード高)
+  //   持ち上げ量   = 枠高 * 0.03（上へ）
+  // を決める。画面全体（screenH）を枠として渡すと S が上限 1.28 に張り付き、
+  // さらに持ち上げが 25px 以上になって、フリップした裏面が上の「戻る」まで
+  // 覆ってしまった。ホームは枠＝カルーセル領域であって画面全体ではない。
+  //
+  // ここではカード高の 1.45 倍を枠として渡す。S は 0.82*1.45 = 1.189 で頭打ちに
+  // なり、持ち上げも 0.0435*カード高 に収まる。裏面が上へ出る量は
+  //   カード高*(S-1)/2 + 持ち上げ ≒ カード高 * 0.138
+  // で、下の CARD_HEADROOM がその実測ぶんの余白。
+  const workCardFrame = useMemo(
+    () => ({ width: screenW, height: Math.round(workCardH * 1.45) }),
+    [screenW, workCardH],
+  );
+  // フリップした裏面が上へせり出す量ぶんの余白。これを空けておかないと
+  // 「戻る」が裏面の下に隠れる。
+  const cardHeadroom = Math.ceil(workCardH * 0.138) + 8;
   // 裏面の刻印。参照が変わるたび 1024×1536 の Skia サーフェスを同期生成するので、
   // 開いている作品が変わったときだけ作り直す（DiscoverScreen と同じ規律）。
   const workBackData = useMemo(
@@ -851,7 +866,10 @@ export const CollectionScreen: React.FC<Props> = ({
           <View
             ref={workCardRef}
             onLayout={onWorkCardLayout}
-            style={[styles.workCardBox, { width: workCardW, height: workCardH }]}
+            style={[
+              styles.workCardBox,
+              { width: workCardW, height: workCardH, marginTop: cardHeadroom },
+            ]}
           >
             <Animated.View
               style={[
@@ -1160,12 +1178,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 22,
   },
-  workBack: { alignSelf: 'flex-start' },
+  // zIndex はカードより手前に置くため。RN は後ろの兄弟が上に描かれるので、
+  // これが無いとフリップした裏面が「戻る」の上に被って押せなくなる。
+  workBack: { alignSelf: 'flex-start', zIndex: 2 },
   workBackLabel: { color: C.back, fontSize: 12, letterSpacing: 0.6 },
   // 参照 .wcard 164x246（枠幅380基準 = 43%）。実寸は workCardW/H で渡す。
   // borderRadius / overflow は付けない — 角丸はカード自身（CardGL）が持っており、
   // ここでクリップすると裏面の拡大分と落影が切れる。
-  workCardBox: { marginTop: 26 },
+  // marginTop は cardHeadroom（裏面のせり出しぶん）を実寸で当てる
+  workCardBox: {},
   // 未所有は沈める（参照 .wcard.dim = brightness(.62)）
   workCardDim: { opacity: 0.62 },
   workNo: { marginTop: 22, fontSize: 9.5, letterSpacing: 2.66, color: C.sub, fontFamily: NUM_FONT },
