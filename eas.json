@@ -21,9 +21,18 @@
     "production": {
       "extends": "base",
       "autoIncrement": true
+    },
+    "testflight": {
+      "extends": "base",
+      "distribution": "store"
     }
   },
   "submit": {
+    "testflight": {
+      "ios": {
+        "ascAppId": "6778899462"
+      }
+    },
     "production": {
       "ios": {},
       "android": {
