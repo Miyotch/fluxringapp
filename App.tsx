@@ -507,13 +507,6 @@ function AppInner() {
                   setOverlay('story');
                 }
               }}
-              onOpenWish={(id) => {
-                // ウィッシュ曲タップ → ホーム（ディスカバー）の該当カードへ
-                setHomeFocusId(id);
-                setOverlay(null);
-                setSettingsDetail(null);
-                setTab('home');
-              }}
               onBuy={() => {
                 // 購入が成立したときだけ呼ばれる。所有権は usePurchaseFlow が
                 // 反映済みで、ウィッシュからは自動的に外れてマイコレへ移る。
