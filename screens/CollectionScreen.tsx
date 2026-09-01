@@ -71,7 +71,6 @@ type Props = {
    * すべての座標＋アートワーク（残像を残す全箇所）。
    */
   onOpenTrack: (id: string, origin?: CardOrigin, afterimages?: CardOriginItem[]) => void;
-  onOpenWish: (id: string) => void;      // ウィッシュ曲タップ → ホームの該当カードへ
   /** 購入が**成立した**ときだけ呼ばれる（キャンセル・失敗では呼ばない） */
   onBuy: (item: CollectionItem) => void;
   onDiscover: () => void;                // 「作品と出会う」→ ディスカバー
@@ -140,7 +139,9 @@ const C = {
   back: '#AEB4D6',
 } as const;
 
-type MineSlot = { key: string; item: CollectionItem | null; no: string };
+// soon … まだ作品が存在しない席。番号を出すと「その番号の作品はもうある」と
+//        読めてしまうので、実体のある作品数より先は Coming Soon に置き換える。
+type MineSlot = { key: string; item: CollectionItem | null; no: string; soon: boolean };
 
 // パネル背景: radial #14122e → #0a0a1c 46% → #05040c
 const PanelBackground: React.FC<{ w: number; h: number }> = ({ w, h }) => (
@@ -215,7 +216,6 @@ export const CollectionScreen: React.FC<Props> = ({
   owned,
   wishlist,
   onOpenTrack,
-  onOpenWish,
   onBuy,
   onDiscover,
   onRemoveWish,
@@ -373,10 +373,16 @@ export const CollectionScreen: React.FC<Props> = ({
   const wishH = wishW * 1.5;
 
   // マイコレは常に21枠。所有分を先頭から詰め、残りは通し番号だけの枠。
+  // 実体のある作品数。これより先の席は番号ではなく Coming Soon。
+  // 空席が「未所有（作品はある）」なのか「まだ作品が無い」のかは番号では
+  // 区別できないので、ここだけが判断材料になる。
+  const worksCount = totalWorks ?? works.length;
+
   const mineSlots: MineSlot[] = Array.from({ length: TOTAL_SLOTS }, (_, i) => ({
     key: owned[i]?.id ?? `empty-${i}`,
     item: owned[i] ?? null,
     no: String(i + 1).padStart(2, '0'),
+    soon: i >= worksCount,
   }));
 
   // ── マイコレの1枠 ──
@@ -421,7 +427,11 @@ export const CollectionScreen: React.FC<Props> = ({
         </Pressable>
       ) : (
         <View style={[styles.emptySlot, { width: colW, height: colH }]}>
-          <Text style={styles.slotNum}>{slot.no}</Text>
+          {slot.soon ? (
+            <Text style={styles.slotSoon} numberOfLines={2}>{t('collection.comingSoon')}</Text>
+          ) : (
+            <Text style={styles.slotNum}>{slot.no}</Text>
+          )}
         </View>
       )}
     </Animated.View>
@@ -443,6 +453,8 @@ export const CollectionScreen: React.FC<Props> = ({
       key: works[i]?.id ?? `board-empty-${i}`,
       item: works[i] ?? null,
       no: works[i] ? slotNo(works[i], i) : String(i + 1).padStart(2, '0'),
+      // 板は works をそのまま並べるので、item が無い＝まだ作品が無い席
+      soon: !works[i],
     }),
   );
 
@@ -467,7 +479,7 @@ export const CollectionScreen: React.FC<Props> = ({
           style={{ width: colW, marginBottom: ROW_GAP }}
         >
           <View style={[styles.emptySlot, { width: colW, height: colH }]}>
-            <Text style={styles.slotNum}>{no}</Text>
+            <Text style={styles.slotSoon} numberOfLines={2}>{t('collection.comingSoon')}</Text>
           </View>
         </Animated.View>
       );
@@ -520,7 +532,11 @@ export const CollectionScreen: React.FC<Props> = ({
       entering={FadeInUp.duration(420).delay((index % 8) * 55)}
       style={{ width: wishW, marginBottom: WISH_GAP }}
     >
-      <Pressable onPress={() => onOpenWish(item.id)} style={styles.wishSlot}>
+      {/* タップ＝作品詳細。マイコレのタイル（タップ＝再生）と同じ「押したら
+          その作品が立ち上がる」挙動に揃える。以前はホームの該当カードへ
+          飛ばしていたが、コレクションを見ている最中に画面ごと持って行かれる
+          ので、この面の中で購入と★まで完結させる。 */}
+      <Pressable onPress={() => setDetailId(item.id)} style={styles.wishSlot}>
         <Image
           source={{ uri: item.artworkUrl }}
           style={{ width: wishW, height: wishH }}
@@ -790,7 +806,7 @@ export const CollectionScreen: React.FC<Props> = ({
                   }}
                 >
                   <Text style={[styles.workBtnLabel, styles.workBtnSolidLabel]} numberOfLines={1}>
-                    {t('collection.take', { price: priceOf(detail) })}
+                    {t('collection.buy', { price: priceOf(detail) })}
                   </Text>
                 </Pressable>
               </>
@@ -889,6 +905,18 @@ const styles = StyleSheet.create({
   },
   // .slot-num（空スロット: 中央）
   slotNum: { fontSize: 11, letterSpacing: 2.2, color: C.slotNum, fontFamily: NUM_FONT }, // 通し番号＝数字表記
+  // 未発表席の Coming Soon。番号と同じ字面・同じ色で、文字数ぶんだけ小さく組む
+  // （枠は colW＝約100px なので 11px のままでは入らない）
+  slotSoon: {
+    fontSize: 9,
+    lineHeight: 12,
+    letterSpacing: 0.8,
+    textAlign: 'center',
+    paddingHorizontal: 4,
+    color: C.slotNum,
+    fontFamily: NUM_FONT,
+    opacity: 0.85,
+  },
   // .deck-slot.filled .slot-num（所有: 上6px・opacity.65）
   filledNum: {
     position: 'absolute',

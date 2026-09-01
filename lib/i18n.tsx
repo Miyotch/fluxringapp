@@ -88,6 +88,9 @@ const JA: Dict = {
   'collection.take': '迎える {price}',
   'collection.ownedHere': '所有しています',
   'collection.wishHere': 'ウィッシュリストに置いています',
+  // まだ作品が無い席。番号を出すと「その番号の作品が既にある」と読めるので、
+  // 実体のある 001〜005 の先は Coming Soon に置き換える
+  'collection.comingSoon': 'Coming Soon',
   // 設定
   'settings.title': '設定',
   'settings.sec.account': 'アカウント',
@@ -205,6 +208,7 @@ const EN: Dict = {
   'collection.take': 'Take it {price}',
   'collection.ownedHere': 'You own this',
   'collection.wishHere': 'On your wishlist',
+  'collection.comingSoon': 'Coming Soon',
   'settings.title': 'Settings',
   'settings.sec.account': 'ACCOUNT',
   'settings.sec.creator': 'CREATOR',
