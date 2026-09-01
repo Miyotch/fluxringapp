@@ -2,7 +2,7 @@
   "expo": {
     "name": "FLUX RING",
     "slug": "fluxring",
-    "version": "0.1.0",
+    "version": "0.3.0",
     "scheme": "fluxring",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
@@ -33,7 +33,7 @@
           }
         ]
       },
-      "buildNumber": "20"
+      "buildNumber": "23"
     },
     "android": {
       "package": "com.fluxring.app",
@@ -42,7 +42,7 @@
         "foregroundImage": "./icon.png",
         "backgroundColor": "#0E0C20"
       },
-      "versionCode": 22
+      "versionCode": 28
     },
     "plugins": [
       "expo-apple-authentication",
