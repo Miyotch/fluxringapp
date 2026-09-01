@@ -130,6 +130,14 @@ type Props = {
   focusTrackId?: string | null;
   /** 所有している trackId（App.tsx の usePurchaseFlow から。Firestore が正） */
   ownedIds?: Set<string>;
+  /**
+   * ウィッシュリストに置かれている trackId。App.tsx の useWishlist が正。
+   * 未指定のときだけ画面内のローカル state にフォールバックする（部品デモ用）。
+   * ここを props にするまで★はこの画面に閉じていて、コレクションのウィッシュリストへ届かなかった。
+   */
+  wishlistIds?: Set<string>;
+  /** ★のトグル。未指定ならローカル state を切り替える（保存されない） */
+  onToggleWishlist?: (trackId: string) => void;
   /** 購入フロー。未指定なら購入ボタンは押しても何も起きない（ギャラリー表示用） */
   purchase?: PurchaseController;
   /** 所有済みカードの「再生」ボタン押下 → 再生画面を開く。未指定なら何も起きない */
@@ -160,6 +168,8 @@ export const DiscoverScreen: React.FC<Props> = ({
   onBuy,
   focusTrackId,
   ownedIds,
+  wishlistIds,
+  onToggleWishlist,
   purchase,
   onPlay,
 }) => {
@@ -176,7 +186,9 @@ export const DiscoverScreen: React.FC<Props> = ({
   // アクティブカードの表面からの回転角（度）。focus-dim（背景暗転）の駆動用
   const cardRotation = useSharedValue(0);
   const [playingId, setPlayingId] = useState<string | null>(null);
-  const [wishlist, setWishlist] = useState<Set<string>>(new Set());
+  // ウィッシュリストは App.tsx の useWishlist が正。props が無いとき（部品デモ）だけローカルに持つ。
+  const [localWishlist, setLocalWishlist] = useState<Set<string>>(new Set());
+  const wishlist = wishlistIds ?? localWishlist;
 
   // 購入の光粒子演出（元のカード位置から下部いっぱいに舞い上がる）
   const [showPurchaseFx, setShowPurchaseFx] = useState(false);
@@ -501,13 +513,20 @@ export const DiscoverScreen: React.FC<Props> = ({
     setPlayingId(active.id);
   }, [active, playingId, preview]);
 
-  const toggleWishlist = useCallback((id: string) => {
-    setWishlist((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-  }, []);
+  const toggleWishlist = useCallback(
+    (id: string) => {
+      if (onToggleWishlist) {
+        onToggleWishlist(id);
+        return;
+      }
+      setLocalWishlist((prev) => {
+        const next = new Set(prev);
+        next.has(id) ? next.delete(id) : next.add(id);
+        return next;
+      });
+    },
+    [onToggleWishlist],
+  );
 
   // 所有判定。pendingReveal に居る間は「まだ所有していない」ように見せる（演出の順序のため）
   const isOwned = useCallback(

@@ -17,7 +17,7 @@
  * マイコレは 21枠の常設グリッド（未購入も枠を先出し）。
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -32,10 +32,13 @@ import {
 import Animated, { FadeInUp } from 'react-native-reanimated';
 import Svg, { Defs, LinearGradient as SvgLinear, Stop, Rect, RadialGradient as SvgRadial } from 'react-native-svg';
 import { PurchaseModal } from '../components/PurchaseModal';
+import { StarIcon } from '../components/icons';
 import type { CardOrigin, CardOriginItem } from '../components/CardAfterimage';
 import { useT } from '../lib/i18n';
 import { useTopInset } from '../lib/safeArea';
 import { formatPrice, TRACK_PRICE_JPY } from '../constants/pricing';
+import { useAudioPlayer } from 'expo-audio';
+import { previewUrl as r2PreviewUrl } from '../lib/r2';
 import { NUM_FONT, JP_SERIF_FONT } from '../constants/fonts';
 import type { PurchaseController } from '../lib/usePurchaseFlow';
 
@@ -46,11 +49,17 @@ export type CollectionItem = {
   owned: boolean;
   audioKey?: string;         // R2 音源キー（再生画面へ）
   priceLabel?: string;       // ウィッシュ用
+  serialNo?: string;         // 'No. 003'。ウィッシュリストとマイコレを同じ番号軸で読ませる
+  subtitle?: string;         // 情景の言葉（作品詳細の1行）
+  /** 試聴URL。null/未設定なら audioKey から R2 の固定名で組む。どちらも無ければ試聴なし */
+  previewUrl?: string | null;
   glowColor?: string;
   glowColor2?: string;
 };
 
-type Segment = 'mine' | 'wish';
+// 参照 fr_v98_wish.html の col-tabs（すべて / 所有 / ウィッシュリスト）
+type Segment = 'all' | 'mine' | 'wish';
+const SEGMENTS: Segment[] = ['all', 'mine', 'wish'];
 
 type Props = {
   owned: CollectionItem[];
@@ -66,6 +75,19 @@ type Props = {
   /** 購入が**成立した**ときだけ呼ばれる（キャンセル・失敗では呼ばない） */
   onBuy: (item: CollectionItem) => void;
   onDiscover: () => void;                // 「作品と出会う」→ ディスカバー
+  /** ウィッシュリストから外す（タイル右上の★）。未指定なら★を出さない */
+  onRemoveWish?: (trackId: string) => void;
+  /** 連作の総数。ウィッシュリストの「どこまで集まったか」を出すために使う */
+  totalWorks?: number;
+  /**
+   * 連作の全作品（通し番号順）。「すべて」の板をこの並びで描く。
+   * 未指定なら所有＋ウィッシュから組み立てる（部品デモ用のフォールバック）。
+   */
+  allWorks?: CollectionItem[];
+  /** ★のトグル（作品詳細から）。未指定なら詳細に★を出さない */
+  onToggleWish?: (trackId: string) => void;
+  /** ★が付いている trackId。未指定なら wishlist 配列から判定する */
+  wishlistIds?: Set<string>;
   /** 購入フロー。未指定なら購入ボタンは押しても何も起きない */
   purchase?: PurchaseController;
 };
@@ -196,13 +218,26 @@ export const CollectionScreen: React.FC<Props> = ({
   onOpenWish,
   onBuy,
   onDiscover,
+  onRemoveWish,
+  totalWorks,
+  allWorks,
+  onToggleWish,
+  wishlistIds,
   purchase,
 }) => {
   const t = useT();
   const titleTop = useTopInset(14); // 従来 58px（=44+14）
   const { width: screenW, height: screenH } = useWindowDimensions();
-  const [seg, setSeg] = useState<Segment>('mine');
+  // 参照の既定タブは「すべて」。連作の全体像を先に見せ、そこから所有／欲しいへ絞る。
+  const [seg, setSeg] = useState<Segment>('all');
   const [purchaseTarget, setPurchaseTarget] = useState<CollectionItem | null>(null);
+  // 枠タップで立ち上がる作品詳細（参照 .work）。null=閉じている
+  const [detailId, setDetailId] = useState<string | null>(null);
+  // 試聴中の trackId。ホーム（DiscoverScreen）と同じ expo-audio の使い方に揃える
+  const [previewingId, setPreviewingId] = useState<string | null>(null);
+  const preview = useAudioPlayer();
+  // ウィッシュリストから買った直後に出す一行（「《朝靄》は No. 003 の枠へ。」）
+  const [movedNote, setMovedNote] = useState<string | null>(null);
   // タップされたタイルの画面絶対座標を測るための参照（再生画面の残像アニメーション用）
   const tileRefs = useRef<Map<string, View>>(new Map());
 
@@ -218,8 +253,12 @@ export const CollectionScreen: React.FC<Props> = ({
         const far = Math.abs(g.dx) >= SWIPE_COMMIT_PX;
         const fast = Math.abs(g.vx) >= SWIPE_COMMIT_VX;
         if (!far && !fast) return; // 迷い程度の動きでは切り替えない
-        // タブは [マイコレ, ウィッシュ] の並び。左スワイプ=次 / 右スワイプ=前。
-        setSeg(g.dx < 0 ? 'wish' : 'mine');
+        // タブは [すべて, 所有, ウィッシュ] の並び。左スワイプ=次 / 右スワイプ=前。
+        setSeg((prev) => {
+          const i = SEGMENTS.indexOf(prev);
+          const next = i + (g.dx < 0 ? 1 : -1);
+          return SEGMENTS[Math.max(0, Math.min(SEGMENTS.length - 1, next))];
+        });
       },
     }),
   ).current;
@@ -231,16 +270,95 @@ export const CollectionScreen: React.FC<Props> = ({
   const priceOf = (item: CollectionItem) =>
     purchase?.displayPriceOf(item.id) ?? formatPrice(TRACK_PRICE_JPY);
 
+  // 「すべて」の板に並べる作品。連作の定位置＝この配列の順序がそのまま枠の順序。
+  const works = useMemo<CollectionItem[]>(() => {
+    if (allWorks && allWorks.length) return allWorks;
+    // フォールバック（部品デモ）。所有→ウィッシュの順で重複を除く
+    const seen = new Set<string>();
+    const merged: CollectionItem[] = [];
+    for (const w of [...owned, ...wishlist]) {
+      if (seen.has(w.id)) continue;
+      seen.add(w.id);
+      merged.push(w);
+    }
+    return merged;
+  }, [allWorks, owned, wishlist]);
+
+  const ownedIds = useMemo(() => new Set(owned.map((o) => o.id)), [owned]);
+  const wishIds = useMemo(
+    () => wishlistIds ?? new Set(wishlist.map((w) => w.id)),
+    [wishlistIds, wishlist],
+  );
+
+  // 枠の状態は参照 render() と同じ3値。'none' は決定どおり A（番号のみ）で描く。
+  const slotState = useCallback(
+    (id: string): 'own' | 'wish' | 'none' =>
+      ownedIds.has(id) ? 'own' : wishIds.has(id) ? 'wish' : 'none',
+    [ownedIds, wishIds],
+  );
+
+  // 30秒試聴。ホームと同じく「もう一度押す＝止める」。
+  const togglePreview = useCallback(
+    (item: CollectionItem) => {
+      if (previewingId === item.id) {
+        preview.pause();
+        setPreviewingId(null);
+        return;
+      }
+      const url = item.previewUrl ?? (item.audioKey ? r2PreviewUrl(item.audioKey) : null);
+      if (!url) return; // 試聴未設定
+      preview.replace({ uri: url });
+      preview.play();
+      setPreviewingId(item.id);
+    },
+    [previewingId, preview],
+  );
+
+  const stopPreview = useCallback(() => {
+    if (previewingId == null) return;
+    preview.pause();
+    setPreviewingId(null);
+  }, [previewingId, preview]);
+
+  // タブを移ったら試聴は止める（見えていない作品が鳴り続けないように）
+  useEffect(() => {
+    stopPreview();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seg]);
+  // 画面を離れるときも必ず止める
+  useEffect(() => () => preview.pause(), [preview]);
+
+  const detail = useMemo(
+    () => (detailId ? works.find((w) => w.id === detailId) ?? null : null),
+    [detailId, works],
+  );
+
   // 購入成立でモーダルを閉じ、成立したときだけ onBuy を通知する。
   // コレクション側では演出を出さない（ホームの購入完了演出＝PurchaseParticles が正）。
+  //
+  // ただしウィッシュリストから買ったときだけは一行残す。ウィッシュリストのタイルは所有になった瞬間に
+  // 黙って消える（wishlistItems から外れる）ので、そのままだと「買ったのに
+  // 減った」という引き算の体験になる。どの枠へ移ったかを言い切ってから消す。
   useEffect(() => {
     if (!purchase) return;
     return purchase.onSuccess((trackId) => {
       setPurchaseTarget((prev) => (prev && prev.id === trackId ? null : prev));
       const bought = wishlist.find((w) => w.id === trackId);
-      if (bought) onBuy(bought);
+      if (bought) {
+        setMovedNote(
+          t('collection.movedTo', { title: bought.title, serial: bought.serialNo ?? '' }).trim(),
+        );
+        onBuy(bought);
+      }
     });
-  }, [purchase, wishlist, onBuy]);
+  }, [purchase, wishlist, onBuy, t]);
+
+  // 移動の一行は数秒で静かに引く（残し続けると通知のように読める）
+  useEffect(() => {
+    if (!movedNote) return;
+    const id = setTimeout(() => setMovedNote(null), 3200);
+    return () => clearTimeout(id);
+  }, [movedNote]);
 
   // 3列: (画面幅 - 左右padding - 列間×2) / 3。タイルは aspect 2:3
   const colW = (screenW - PAD_X * 2 - COL_GAP * (COLS - 1)) / COLS;
@@ -303,7 +421,93 @@ export const CollectionScreen: React.FC<Props> = ({
     </Animated.View>
   );
 
-  // ── ウィッシュの1枠（2列・角丸13.9px・下部に曲名と購入ボタン） ──
+  // 枠の通し番号。serialNo（'No. 003'）があれば数字だけ取り出し、無ければ並び順。
+  // マイコレの空枠と同じ2桁の字組に揃えて、同じ番号軸で読めるようにする。
+  const slotNo = (item: CollectionItem, index: number) => {
+    const digits = item.serialNo?.replace(/[^0-9]/g, '');
+    return (digits && digits.replace(/^0+(?=\d)/, '').padStart(2, '0')) ||
+      String(index + 1).padStart(2, '0');
+  };
+
+  // 板は最低 21 枠（マイコレと同じ盤面）。作品が足りないぶんは番号だけの空席で埋める。
+  // 連作は「どこが空いているか」が見える場なので、作品数ぶんだけ縮めると盤に見えない。
+  const boardSlots: MineSlot[] = Array.from(
+    { length: Math.max(TOTAL_SLOTS, works.length) },
+    (_, i) => ({
+      key: works[i]?.id ?? `board-empty-${i}`,
+      item: works[i] ?? null,
+      no: works[i] ? slotNo(works[i], i) : String(i + 1).padStart(2, '0'),
+    }),
+  );
+
+  // ── 「すべて」の板の1枠（参照 .slot の3状態） ──
+  //   own  … 金属フレーム（マイコレと同じ MetalTile）
+  //   wish … 沈んだアート＋シアンの内枠＋★
+  //   none … 番号のみ（決定 A。未発表作品の存在を予告しない）
+  //
+  // ※ 沈み方は参照の filter: brightness(.52) saturate(.62) 相当。RN の Image に
+  //   CSS フィルタは無いので、黒地の上に opacity .52 で重ねて brightness だけ
+  //   合わせている（彩度は落としていない）。グリッド全枠に ColorMatrix を敷くと
+  //   スクロールが重くなるため、ここは明度合わせに留める。
+  const renderBoardSlot = ({ item: slot, index }: { item: MineSlot; index: number }) => {
+    const item = slot.item;
+    const no = slot.no;
+    // まだ作品が入っていない席。参照の「決めが要る」枠は A（番号のみ）で確定
+    if (!item) {
+      return (
+        <Animated.View
+          key={`all-${slot.key}`}
+          entering={FadeInUp.duration(420).delay((index % 8) * 55)}
+          style={{ width: colW, marginBottom: ROW_GAP }}
+        >
+          <View style={[styles.emptySlot, { width: colW, height: colH }]}>
+            <Text style={styles.slotNum}>{no}</Text>
+          </View>
+        </Animated.View>
+      );
+    }
+    const state = slotState(item.id);
+    return (
+      <Animated.View
+        key={`all-${slot.key}`}
+        entering={FadeInUp.duration(420).delay((index % 8) * 55)}
+        style={{ width: colW, marginBottom: ROW_GAP }}
+      >
+        <Pressable onPress={() => setDetailId(item.id)}>
+          {state === 'own' ? (
+            <>
+              <MetalTile uri={item.artworkUrl} w={colW} h={colH} />
+              <Text style={styles.filledNum}>{no}</Text>
+            </>
+          ) : state === 'wish' ? (
+            <View style={[styles.boardWish, { width: colW, height: colH }]}>
+              <Image
+                source={{ uri: item.artworkUrl }}
+                style={{ width: colW, height: colH, opacity: 0.52 }}
+                resizeMode="cover"
+              />
+              <View style={styles.boardWishEdge} pointerEvents="none" />
+              <Text style={[styles.filledNum, styles.boardWishNum]}>{no}</Text>
+              <View style={styles.boardWishStar} pointerEvents="none">
+                <StarIcon size={13} filled />
+              </View>
+            </View>
+          ) : (
+            <View style={[styles.emptySlot, { width: colW, height: colH }]}>
+              <Text style={styles.slotNum}>{no}</Text>
+            </View>
+          )}
+        </Pressable>
+      </Animated.View>
+    );
+  };
+
+  // ── ウィッシュの1枠（2列・角丸13.9px） ──
+  // v98 は購入ボタンをアートの上に重ねていたが、曲名と2段に積むとアートの
+  // 下 1/3 が潰れる。作品を覆わないよう、タイル内には通し番号と曲名だけを残し、
+  // 購入はタイルの外（下段・全幅）へ出した。
+  //   ※ v98_FIX 台帳の変更禁止値（2列 / 角丸13.9 / gap12）はそのまま維持している。
+  //     動かしたのは .wl-btn の位置だけ。ハンドオフには差分として記載が要る。
   const renderWish = ({ item, index }: { item: CollectionItem; index: number }) => (
     <Animated.View
       key={`wish-${item.id}`}
@@ -316,7 +520,28 @@ export const CollectionScreen: React.FC<Props> = ({
           style={{ width: wishW, height: wishH }}
           resizeMode="cover"
         />
-        {/* 下部グラデ＋曲名＋購入ボタン（.wl-go） */}
+
+        {/* 通し番号。マイコレの空枠・所有枠と同じ字組で、連作の同じ軸に載せる */}
+        {!!item.serialNo && (
+          <Text style={styles.wishSerial} numberOfLines={1}>
+            {item.serialNo}
+          </Text>
+        )}
+
+        {/* ★（塗り）＝ウィッシュリストから外す。ホームまで戻らずここで畳めるように */}
+        {onRemoveWish && (
+          <Pressable
+            style={styles.wishStar}
+            hitSlop={6}
+            accessibilityRole="button"
+            accessibilityLabel={t('collection.wishRemove')}
+            onPress={() => onRemoveWish(item.id)}
+          >
+            <StarIcon size={15} filled />
+          </Pressable>
+        )}
+
+        {/* 下部グラデ＋曲名（.wl-go） */}
         <View style={styles.wishGo}>
           <Svg style={StyleSheet.absoluteFill} pointerEvents="none">
             <Defs>
@@ -328,20 +553,64 @@ export const CollectionScreen: React.FC<Props> = ({
             <Rect x="0" y="0" width="100%" height="100%" fill="url(#wgo)" />
           </Svg>
           <Text style={styles.wishName} numberOfLines={1}>{item.title}</Text>
-          <Pressable
-            style={({ pressed }) => [styles.wishBtn, pressed && { opacity: 0.85 }]}
-            onPress={() => {
-              purchase?.dismiss(); // 前回の失敗表示を持ち越さない
-              setPurchaseTarget(item);
-            }}
-          >
-            <Text style={styles.wishBtnLabel} numberOfLines={1}>
-              {t('collection.buy', { price: priceOf(item) })}
-            </Text>
-          </Pressable>
         </View>
       </Pressable>
+
+      {/* 試聴と購入はアートの外・横並び。ウィッシュリストは「まだ持っていない」を
+          並べる場なので、所有側の「タップ＝再生」に対して、ここは
+          「聴いてから決める」の 2 手（試聴／購入）を必ず出す。 */}
+      <View style={styles.wishActs}>
+        <Pressable
+          style={({ pressed }) => [
+            styles.wishBtn,
+            styles.wishActBtn,
+            previewingId === item.id && styles.wishBtnOn,
+            pressed && { opacity: 0.85 },
+          ]}
+          onPress={() => togglePreview(item)}
+        >
+          <Text style={styles.wishBtnLabel} numberOfLines={1}>
+            {previewingId === item.id ? t('collection.previewStop') : t('collection.preview')}
+          </Text>
+        </Pressable>
+        <Pressable
+          style={({ pressed }) => [
+            styles.wishBtn,
+            styles.wishActBtn,
+            styles.wishBuyBtn,
+            pressed && { opacity: 0.85 },
+          ]}
+          onPress={() => {
+            stopPreview();
+            purchase?.dismiss(); // 前回の失敗表示を持ち越さない
+            setPurchaseTarget(item);
+          }}
+        >
+          <Text style={[styles.wishBtnLabel, styles.wishBuyLabel]} numberOfLines={1}>
+            {t('collection.buy', { price: priceOf(item) })}
+          </Text>
+        </Pressable>
+      </View>
     </Animated.View>
+  );
+
+  // ── ウィッシュリストの見出し（集める行 ＋ 直前の移動の一行） ──
+  // 進捗バーは置かない。ウィッシュリストは「まだ持っていない」を並べる場なので、
+  // 達成度を煽る形にすると PRICING.md の「煽らない・売り込まない」から外れる。
+  // 連作の総数と、いま自分がどこに居るかだけを静かに示す。
+  const renderWishHeader = () => (
+    <View style={styles.wishHeader}>
+      {totalWorks != null && (
+        <Text style={styles.wishProgress}>
+          {t('collection.wishProgress', {
+            owned: owned.length,
+            total: totalWorks,
+            wish: wishlist.length,
+          })}
+        </Text>
+      )}
+      {!!movedNote && <Text style={styles.wishMoved}>{movedNote}</Text>}
+    </View>
   );
 
   return (
@@ -354,19 +623,41 @@ export const CollectionScreen: React.FC<Props> = ({
 
       {/* タブ（.col-tabs: 左右22px / 下線 rgba(96,206,224,.15)） */}
       <View style={styles.colTabs}>
-        {(['mine', 'wish'] as Segment[]).map((k) => (
-          <Pressable key={k} style={styles.colTab} onPress={() => setSeg(k)}>
-            <Text style={[styles.colTabText, seg === k && styles.colTabTextOn]}>
-              {k === 'mine' ? t('collection.owned') : t('collection.wishlist')}
-            </Text>
-            {seg === k && <View style={styles.colTabUnderline} />}
-          </Pressable>
-        ))}
+        {SEGMENTS.map((k) => {
+          // 参照 .cnt: 0 件のときは数字を出さない（空の枠を数字で強調しない）
+          const count = k === 'mine' ? owned.length : k === 'wish' ? wishlist.length : 0;
+          const label =
+            k === 'all'
+              ? t('collection.all')
+              : k === 'mine'
+              ? t('collection.owned')
+              : t('collection.wishlist');
+          return (
+            <Pressable key={k} style={styles.colTab} onPress={() => setSeg(k)}>
+              <Text style={[styles.colTabText, seg === k && styles.colTabTextOn]} numberOfLines={1}>
+                {label}
+                {count > 0 ? ` ${count}` : ''}
+              </Text>
+              {seg === k && <View style={styles.colTabUnderline} />}
+            </Pressable>
+          );
+        })}
       </View>
 
       {/* グリッド（上端フェード付き）。横スワイプでマイコレ↔ウィッシュを切替 */}
       <View style={styles.pagesWrap} {...segSwipe.panHandlers}>
-        {seg === 'mine' ? (
+        {seg === 'all' ? (
+          <FlatList
+            data={boardSlots}
+            key="all"
+            keyExtractor={(s) => s.key}
+            renderItem={renderBoardSlot}
+            numColumns={COLS}
+            columnWrapperStyle={{ gap: COL_GAP }}
+            contentContainerStyle={styles.pages}
+            showsVerticalScrollIndicator={false}
+          />
+        ) : seg === 'mine' ? (
           <FlatList
             data={mineSlots}
             key="mine"
@@ -394,6 +685,7 @@ export const CollectionScreen: React.FC<Props> = ({
             key="wish"
             keyExtractor={(i) => i.id}
             renderItem={renderWish}
+            ListHeaderComponent={renderWishHeader}
             numColumns={WISH_COLS}
             columnWrapperStyle={{ gap: WISH_GAP }}
             contentContainerStyle={styles.pages}
@@ -402,6 +694,112 @@ export const CollectionScreen: React.FC<Props> = ({
         )}
         <TopFade w={screenW} />
       </View>
+
+      {/* 枠タップで立ち上がる作品（参照 .work）。所有なら「再生する」、
+          未所有なら ★ / 30秒 試聴 / 迎える の3手。ここが「再生ではなく試聴と購入」の実体。 */}
+      {detail && (
+        <View style={[styles.work, { paddingTop: titleTop + 8 }]}>
+          <Pressable
+            style={styles.workBack}
+            hitSlop={10}
+            onPress={() => {
+              stopPreview();
+              setDetailId(null);
+            }}
+          >
+            <Text style={styles.workBackLabel}>{`‹ ${t('collection.back')}`}</Text>
+          </Pressable>
+
+          <View style={styles.workCard}>
+            <Image
+              source={{ uri: detail.artworkUrl }}
+              style={[
+                styles.workCardImg,
+                slotState(detail.id) !== 'own' && styles.workCardDim,
+              ]}
+              resizeMode="cover"
+            />
+          </View>
+
+          {!!detail.serialNo && <Text style={styles.workNo}>{detail.serialNo}</Text>}
+          <Text style={styles.workTitle} numberOfLines={1}>{detail.title}</Text>
+          {!!detail.subtitle && <Text style={styles.workSub}>{detail.subtitle}</Text>}
+
+          <View style={styles.workActs}>
+            {slotState(detail.id) === 'own' ? (
+              <Pressable
+                style={({ pressed }) => [
+                  styles.workBtn,
+                  styles.workBtnSolid,
+                  pressed && { opacity: 0.85 },
+                ]}
+                onPress={() => {
+                  stopPreview();
+                  setDetailId(null);
+                  onOpenTrack(detail.id);
+                }}
+              >
+                <Text style={[styles.workBtnLabel, styles.workBtnSolidLabel]}>
+                  {t('collection.play')}
+                </Text>
+              </Pressable>
+            ) : (
+              <>
+                {/* ★＝ウィッシュリストに置く／外す。板の空席からも入れる2つ目の登録点 */}
+                {onToggleWish && (
+                  <Pressable
+                    style={styles.workStar}
+                    hitSlop={6}
+                    accessibilityRole="button"
+                    accessibilityLabel={t('collection.wishRemove')}
+                    onPress={() => onToggleWish(detail.id)}
+                  >
+                    <StarIcon size={17} filled={wishIds.has(detail.id)} />
+                  </Pressable>
+                )}
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.workBtn,
+                    previewingId === detail.id && styles.wishBtnOn,
+                    pressed && { opacity: 0.85 },
+                  ]}
+                  onPress={() => togglePreview(detail)}
+                >
+                  <Text style={styles.workBtnLabel}>
+                    {previewingId === detail.id
+                      ? t('collection.previewStop')
+                      : t('collection.preview')}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.workBtn,
+                    styles.workBtnSolid,
+                    pressed && { opacity: 0.85 },
+                  ]}
+                  onPress={() => {
+                    stopPreview();
+                    purchase?.dismiss();
+                    setPurchaseTarget(detail);
+                  }}
+                >
+                  <Text style={[styles.workBtnLabel, styles.workBtnSolidLabel]} numberOfLines={1}>
+                    {t('collection.take', { price: priceOf(detail) })}
+                  </Text>
+                </Pressable>
+              </>
+            )}
+          </View>
+
+          <Text style={styles.workShelf}>
+            {slotState(detail.id) === 'own'
+              ? t('collection.ownedHere')
+              : wishIds.has(detail.id)
+              ? t('collection.wishHere')
+              : ''}
+          </Text>
+        </View>
+      )}
 
       <PurchaseModal
         visible={purchaseTarget != null}
@@ -514,16 +912,141 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
   },
   // .wl-name: 12px / 字間.05em / #ECEEF7 / 明朝体
-  wishName: { fontSize: 12, letterSpacing: 0.6, color: C.text, fontFamily: JP_SERIF_FONT, marginBottom: 7 },
+  wishName: { fontSize: 12, letterSpacing: 0.6, color: C.text, fontFamily: JP_SERIF_FONT },
+  // 通し番号。マイコレの filledNum（上6px・11px・字間2.2・opacity.65）に揃える
+  wishSerial: {
+    position: 'absolute',
+    left: 10,
+    top: 7,
+    fontSize: 11,
+    letterSpacing: 2.2,
+    color: C.filledNum,
+    fontFamily: NUM_FONT,
+    opacity: 0.65,
+    textShadowColor: 'rgba(0,0,0,0.8)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 6,
+  },
+  // ★（ウィッシュリストから外す）。タップ域は 32×32、アイコンは 15px
+  wishStar: {
+    position: 'absolute',
+    top: 3,
+    right: 3,
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  // 購入ボタンはタイルの外・全幅（v98 はアート上に重ねていた）
   wishBtn: {
-    alignSelf: 'flex-start',
-    paddingVertical: 5,
-    paddingHorizontal: 10,
+    marginTop: 8,
+    paddingVertical: 7,
+    paddingHorizontal: 8,
     borderWidth: 1,
     borderColor: C.wishBtnBorder,
     borderRadius: 11,
+    alignItems: 'center',
   },
   wishBtnLabel: { fontSize: 9.5, letterSpacing: 0.95, color: C.cyan, fontFamily: NUM_FONT }, // 価格＝数字表記
+  // 試聴／購入の横並び。ボタン2つで幅を割るので gap は列間より詰める
+  wishActs: { flexDirection: 'row', gap: 6 },
+  wishActBtn: { flex: 1, paddingHorizontal: 4 },
+  // 試聴中は枠を強めて「いま鳴っている」を示す（色は変えない＝シアン一本のまま）
+  wishBtnOn: { borderColor: C.cyan, backgroundColor: 'rgba(96,206,224,0.12)' },
+  // 購入だけ地を敷いて主従をつける（参照 .wbtn.solid 相当の軽い版）
+  wishBuyBtn: { backgroundColor: 'rgba(96,206,224,0.14)' },
+  wishBuyLabel: { color: C.text },
+
+  // 「すべて」の板・ウィッシュ状態の枠（参照 .slot.wish）
+  boardWish: {
+    borderRadius: TILE_RADIUS,
+    overflow: 'hidden',
+    backgroundColor: '#05040c', // アートを opacity .52 で沈めるための黒地
+  },
+  // inset 0 0 0 1px rgba(96,206,224,.5)
+  boardWishEdge: {
+    position: 'absolute' as const,
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    borderRadius: TILE_RADIUS,
+    borderWidth: 1,
+    borderColor: 'rgba(96,206,224,0.5)',
+  },
+  boardWishNum: { color: C.cyan, opacity: 0.85 },
+  boardWishStar: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    width: 26,
+    height: 26,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  // 作品が立ち上がる（参照 .work）。盤・ウィッシュのどちらの枠からも開く
+  work: {
+    position: 'absolute' as const,
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    zIndex: 14,
+    backgroundColor: 'rgba(6,5,16,0.93)',
+    alignItems: 'center',
+    paddingHorizontal: 22,
+  },
+  workBack: { alignSelf: 'flex-start' },
+  workBackLabel: { color: C.back, fontSize: 12, letterSpacing: 0.6 },
+  // 参照 .wcard 164x246（枠幅380基準 = 43%）・角丸14
+  workCard: {
+    width: '43%',
+    aspectRatio: 2 / 3,
+    marginTop: 26,
+    borderRadius: 14,
+    overflow: 'hidden',
+  },
+  workCardImg: { width: '100%', height: '100%' },
+  // 未所有は沈める（参照 .wcard.dim = brightness(.62)）
+  workCardDim: { opacity: 0.62 },
+  workNo: { marginTop: 22, fontSize: 9.5, letterSpacing: 2.66, color: C.sub, fontFamily: NUM_FONT },
+  workTitle: { marginTop: 7, fontSize: 21, letterSpacing: 1.26, color: C.text, fontFamily: JP_SERIF_FONT },
+  workSub: {
+    marginTop: 9,
+    fontSize: 11,
+    letterSpacing: 0.55,
+    color: C.sub,
+    lineHeight: 21,
+    textAlign: 'center',
+    paddingHorizontal: 18,
+  },
+  workActs: { flexDirection: 'row', gap: 9, alignItems: 'center', marginTop: 26 },
+  workBtn: {
+    paddingVertical: 11,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(96,206,224,0.4)',
+  },
+  workBtnLabel: { fontSize: 10.5, letterSpacing: 1.26, color: C.cyan },
+  workBtnSolid: { backgroundColor: C.cyan, borderColor: C.cyan },
+  workBtnSolidLabel: { color: '#06121a' },
+  workStar: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    borderWidth: 1,
+    borderColor: 'rgba(96,206,224,0.3)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  workShelf: { marginTop: 14, fontSize: 9.5, letterSpacing: 0.95, color: '#5a6088' },
+
+  // ウィッシュリストの見出し（集める行 ＋ 移動の一行）
+  wishHeader: { marginBottom: 14, gap: 8 },
+  wishProgress: { fontSize: 10.5, letterSpacing: 0.63, color: C.sub, fontFamily: NUM_FONT },
+  wishMoved: { fontSize: 10.5, letterSpacing: 0.84, color: C.cyan, fontFamily: JP_SERIF_FONT },
 
   // 空状態
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, gap: 16 },
