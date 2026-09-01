@@ -15,9 +15,8 @@
  * 旧・部品デモは screens/ComponentGallery.tsx に退避（__DEV_GALLERY__ で切替可）。
  */
 
-import React, { useState, useCallback, useEffect, useMemo } from 'react';
-import { View, StyleSheet } from 'react-native';
-import Animated, { useSharedValue, useAnimatedStyle, withTiming, Easing } from 'react-native-reanimated';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { View, StyleSheet, Animated, Easing } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -92,13 +91,24 @@ function AppInner() {
   // カードなどが遅れて急に現れる段差を隠すため、タブ画面全体を一度だけ
   // フェードインさせる（phase は 'launch'→'app' の一方向にしか変わらないので、
   // タブ切替のたびに再フェードすることはない）。
-  const appFade = useSharedValue(0);
+  // ※ react-native-reanimated（useSharedValue/withTiming）ではなく、あえて
+  //   React Native 本体の Animated を使う。アプリのルートである App.tsx で
+  //   起動直後にワークレットのシリアライズ（worklets::SerializableJSRef 等）
+  //   が走るタイミングと、LaunchFlow のアンマウント〜タブ群の大量マウントが
+  //   重なる瞬間が一致しており、実機のTestFlightクラッシュ（SIGABRT / JS の
+  //   fatal exception が RCTFatal 経由で abort）がこの重なりで再現していた。
+  //   Animated は JSI ワークレットを経由しないため、この経路のクラッシュを避けられる。
+  const appFade = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     if (phase === 'app') {
-      appFade.value = withTiming(1, { duration: 450, easing: Easing.out(Easing.quad) });
+      Animated.timing(appFade, {
+        toValue: 1,
+        duration: 450,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }).start();
     }
   }, [phase, appFade]);
-  const appFadeStyle = useAnimatedStyle(() => ({ opacity: appFade.value }));
   // launch 後に見せる画面。null=判定中（セッション/オンボ済み/同意状態を確定するまで）
   const [launchScreen, setLaunchScreen] = useState<LaunchScreen | null>(null);
   const [consentJoin, setConsentJoin] = useState<ConsentJoin>('new');
@@ -403,7 +413,7 @@ function AppInner() {
   // #171430 へ自然に色が変わる継ぎ目のないクロスフェードになる。
   return (
     <View style={styles.appFadeBackdrop}>
-      <Animated.View style={[styles.root, appFadeStyle]}>
+      <Animated.View style={[styles.root, { opacity: appFade }]}>
         <View style={styles.body}>
           {tab === 'home' && (
             <DiscoverScreen
