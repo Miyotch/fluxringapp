@@ -768,11 +768,19 @@ export const CollectionScreen: React.FC<Props> = ({
       <StatusBar barStyle="light-content" backgroundColor="#0a0a1c" />
       <PanelBackground w={screenW} h={screenH} />
 
-      {/* タイトル（.skh: 上58px / 18px / 字間.05em） */}
-      <Text style={[styles.skh, { paddingTop: titleTop }]}>{t('collection.title')}</Text>
+      {/* タイトル（.skh: 上58px / 18px / 字間.05em）
+          作品詳細が開いている間は消す。見出し「コレクション」と詳細の「戻る」は
+          ほぼ同じ高さに出るので、幕越しに重なって読めなくなるため。
+          アンマウントせず opacity で消すのは、後ろの盤がガタつかないように。 */}
+      <Text style={[styles.skh, { paddingTop: titleTop }, !!detail && styles.hiddenWhileWork]}>
+        {t('collection.title')}
+      </Text>
 
       {/* タブ（.col-tabs: 左右22px / 下線 rgba(96,206,224,.15)） */}
-      <View style={styles.colTabs}>
+      <View
+        style={[styles.colTabs, !!detail && styles.hiddenWhileWork]}
+        pointerEvents={detail ? 'none' : 'auto'}
+      >
         {SEGMENTS.map((k) => {
           // 参照 .cnt: 0 件のときは数字を出さない（空の枠を数字で強調しない）
           const count = k === 'mine' ? owned.length : k === 'wish' ? wishlist.length : 0;
@@ -849,6 +857,19 @@ export const CollectionScreen: React.FC<Props> = ({
           未所有なら ★ / 30秒 試聴 / 迎える の3手。ここが「再生ではなく試聴と購入」の実体。 */}
       {detail && (
         <View style={[styles.work, { paddingTop: titleTop + 8 }]}>
+          {/* 背景は PlayerScreen のベールと同じ組み立て＝暗幕＋作品アートを
+              blurRadius 40 で薄く敷く。素通しの幕（.78）だと後ろの盤の細部が
+              そのまま読めてしまい、特にウィッシュの2列（大きく明るいアート）が
+              うるさかった。かといって真っ黒だと沈むので、ぼかしたアートで
+              柔らかい下地を作る。 */}
+          <View style={StyleSheet.absoluteFill} pointerEvents="none">
+            <Image
+              source={{ uri: detail.artworkUrl }}
+              style={styles.workBgImage}
+              blurRadius={40}
+            />
+          </View>
+
           <Pressable style={styles.workBack} hitSlop={10} onPress={closeDetail}>
             <Text style={styles.workBackLabel}>{`‹ ${t('collection.back')}`}</Text>
           </Pressable>
@@ -1184,13 +1205,16 @@ const styles = StyleSheet.create({
     top: 0,
     bottom: 0,
     zIndex: 14,
-    // PlayerScreen のベール幕（veilScrim）と同じ値。ほぼ不透明（.93）だと
-    // 「別画面へ移った」ように見えるが、ここはコレクションの上で作品が
-    // 立ち上がる面なので、後ろの盤が透けて見えるほうが正しい。
-    backgroundColor: 'rgba(8,7,20,0.78)',
+    // 暗幕。この上に workBgImage（ぼかしたアート）を重ねて下地を作る。
+    // PlayerScreen のベールも同じ二層構成（暗い下地＋blurRadius 40 のアート .18）。
+    backgroundColor: 'rgba(6,5,16,0.93)',
     alignItems: 'center',
     paddingHorizontal: 22,
   },
+  // 作品詳細が開いている間だけ見出し・タブを消す（レイアウトは動かさない）
+  hiddenWhileWork: { opacity: 0 },
+  // ぼかしたアートの下地（PlayerScreen の veilBgImage と同値の .18）
+  workBgImage: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, opacity: 0.18 },
   // zIndex はカードより手前に置くため。RN は後ろの兄弟が上に描かれるので、
   // これが無いとフリップした裏面が「戻る」の上に被って押せなくなる。
   workBack: { alignSelf: 'flex-start', zIndex: 2 },
