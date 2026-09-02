@@ -29,7 +29,15 @@ import {
   PanResponder,
   useWindowDimensions,
 } from 'react-native';
-import Animated, { FadeInUp } from 'react-native-reanimated';
+import Animated, {
+  Easing,
+  FadeInUp,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
+import { CardGL, CARD_BACK_SCALE_MAX } from '../components/CardGL';
+import { homeCardWidth } from '../constants/design-tokens';
 import Svg, { Defs, LinearGradient as SvgLinear, Stop, Rect, RadialGradient as SvgRadial } from 'react-native-svg';
 import { PurchaseModal } from '../components/PurchaseModal';
 import { StarIcon } from '../components/icons';
@@ -55,6 +63,15 @@ export type CollectionItem = {
   previewUrl?: string | null;
   glowColor?: string;
   glowColor2?: string;
+  /** カード裏面の刻印。作品詳細の 3D カード（CardGL）でホーム・再生画面と同じ裏面を出す */
+  back?: {
+    serial?: string;
+    story?: string;
+    materials?: string[];
+    tuning?: string;
+    frequencies?: string[];
+    artist?: string;
+  };
 };
 
 // 参照 fr_v98_wish.html の col-tabs（すべて / 所有 / ウィッシュリスト）
@@ -71,7 +88,6 @@ type Props = {
    * すべての座標＋アートワーク（残像を残す全箇所）。
    */
   onOpenTrack: (id: string, origin?: CardOrigin, afterimages?: CardOriginItem[]) => void;
-  onOpenWish: (id: string) => void;      // ウィッシュ曲タップ → ホームの該当カードへ
   /** 購入が**成立した**ときだけ呼ばれる（キャンセル・失敗では呼ばない） */
   onBuy: (item: CollectionItem) => void;
   onDiscover: () => void;                // 「作品と出会う」→ ディスカバー
@@ -140,7 +156,9 @@ const C = {
   back: '#AEB4D6',
 } as const;
 
-type MineSlot = { key: string; item: CollectionItem | null; no: string };
+// soon … まだ作品が存在しない席。番号を出すと「その番号の作品はもうある」と
+//        読めてしまうので、実体のある作品数より先は Coming Soon に置き換える。
+type MineSlot = { key: string; item: CollectionItem | null; no: string; soon: boolean };
 
 // パネル背景: radial #14122e → #0a0a1c 46% → #05040c
 const PanelBackground: React.FC<{ w: number; h: number }> = ({ w, h }) => (
@@ -215,7 +233,6 @@ export const CollectionScreen: React.FC<Props> = ({
   owned,
   wishlist,
   onOpenTrack,
-  onOpenWish,
   onBuy,
   onDiscover,
   onRemoveWish,
@@ -325,13 +342,117 @@ export const CollectionScreen: React.FC<Props> = ({
     stopPreview();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seg]);
-  // 画面を離れるときも必ず止める
-  useEffect(() => () => preview.pause(), [preview]);
+  // 画面を離れるときの停止は「何もしない」のが正しい。
+  // useAudioPlayer は内部の useReleasingSharedObject が unmount の cleanup で
+  // player.release() を呼ぶ。そのフックはこの画面の先頭（238行目）で呼ばれている＝
+  // React はフック宣言順に cleanup を走らせるので、release() が先に効く。
+  // そのあとで pause() を呼ぶと解放済みのネイティブ shared object を触ることになり、
+  // JS の fatal exception → RCTFatal → SIGABRT で落ちる（カードを押して再生画面や
+  // ホームへ移った瞬間にこの画面が unmount されるため、そこで必ず踏む）。
+  // release() 自体が再生を止めるので、音が鳴り続ける心配はない。
 
   const detail = useMemo(
     () => (detailId ? works.find((w) => w.id === detailId) ?? null : null),
     [detailId, works],
   );
+
+  // ── 作品詳細のカード ────────────────────────────────────────────
+  // 平らな Image ではなく、ホーム／再生画面と同じ CardGL を置く。タップで表↔裏、
+  // 裏面は指で回せる。板・ウィッシュ・マイコレのどこから開いても同じカードを
+  // 触ることになる（以前は所有タイルだけが本物のカードで、他は静止画だった）。
+  // 寸法・見かけの大きさ・裏面の倍率は、すべて PlayerScreen（＝マイコレのタイルを
+  // 押したときに開く面）と同じ式にする。どのタブから開いても、拡大したあとの
+  // カードが同じ大きさ・同じ位置に着くようにするため。
+  const workCardW = Math.min(screenW - 96, 240);
+  const workCardH = Math.round(workCardW * 1.5);
+  // PlayerScreen のベール（再生前）と同じ見かけ倍率。CardGL 自体は実寸で固定し、
+  // ラッパーの scale だけで見かけを縮める（3Dシーンの作り直しを避ける）。
+  const CARD_FOCUS_SCALE = 1 / 1.08;
+  // 裏面（フリップ後）の絶対サイズをホームと揃える。frame からの自動算出だと
+  // 上限 1.28 に張り付いて裏面が「戻る」まで覆うので、PlayerScreen と同じく
+  // ホームの裏面幅から逆算した値を明示的に渡す。
+  const workBackScale = (homeCardWidth(screenH) * CARD_BACK_SCALE_MAX) / workCardW;
+  // frame はカードを収める領域の実寸。裏面の持ち上げ量（枠高の3%）がここから
+  // 決まる。画面全体を渡すと持ち上がりすぎるので、実測した領域を渡す。
+  const [cardArea, setCardArea] = useState({ w: 0, h: 0 });
+  const workCardFrame = useMemo(
+    () => ({ width: cardArea.w, height: cardArea.h }),
+    [cardArea.w, cardArea.h],
+  );
+  // 裏面の刻印。参照が変わるたび 1024×1536 の Skia サーフェスを同期生成するので、
+  // 開いている作品が変わったときだけ作り直す（DiscoverScreen と同じ規律）。
+  const workBackData = useMemo(
+    () =>
+      detail
+        ? {
+            title: detail.title,
+            serial: detail.back?.serial ?? detail.serialNo,
+            story: detail.back?.story ?? detail.subtitle,
+            materials: detail.back?.materials,
+            tuning: detail.back?.tuning,
+            frequencies: detail.back?.frequencies,
+            artist: detail.back?.artist ?? 'NAOKI OKA',
+          }
+        : undefined,
+    [detail],
+  );
+
+  // タイル→カードのフライトイン。マイコレのタイルから再生画面を開くときと同じ
+  // 演出（PlayerScreen の①）を、この面の中で完結させる。押したタイルの矩形に
+  // 同じ見かけサイズで重ねてから、詳細のカード位置へ 400ms で寄せる。
+  const flightFrom = useRef<CardOrigin | null>(null);
+  const workCardRef = useRef<View>(null);
+  const cardTX = useSharedValue(0);
+  const cardTY = useSharedValue(0);
+  const cardScale = useSharedValue(CARD_FOCUS_SCALE);
+  const cardFlightStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: cardTX.value },
+      { translateY: cardTY.value },
+      { scale: cardScale.value },
+    ],
+  }));
+
+  // 詳細のカード枠のレイアウトが決まった瞬間に、押したタイルから飛ばす。
+  // measureInWindow はアニメを載せていない外枠に対して呼ぶ（変形中のノードを
+  // 測ると着地点がずれる）。
+  const onWorkCardLayout = useCallback(() => {
+    const from = flightFrom.current;
+    const node = workCardRef.current;
+    flightFrom.current = null;
+    if (!from || !node) return;
+    node.measureInWindow((x, y, w, h) => {
+      if (!w || !h) return;
+      const flight = { duration: 400, easing: Easing.out(Easing.cubic) };
+      cardTX.value = from.x + from.width / 2 - (x + w / 2);
+      cardTY.value = from.y + from.height / 2 - (y + h / 2);
+      cardScale.value = from.width / w;
+      cardTX.value = withTiming(0, flight);
+      cardTY.value = withTiming(0, flight);
+      // 着地は PlayerScreen のベールと同じ見かけ倍率
+      cardScale.value = withTiming(CARD_FOCUS_SCALE, flight);
+    });
+  }, [CARD_FOCUS_SCALE, cardScale, cardTX, cardTY]);
+
+  // 板／ウィッシュのタイル。押した矩形を測ってから詳細を開く（測れなければ
+  // フライトインなしでそのまま開く＝演出が出ないだけで動作は同じ）。
+  const detailRefs = useRef<Map<string, View>>(new Map());
+  const openDetail = useCallback(async (id: string, refKey: string) => {
+    const node = detailRefs.current.get(refKey);
+    flightFrom.current = node ? await measureView(node) : null;
+    setDetailId(id);
+  }, []);
+
+  // 詳細を閉じるときは変形をリセットする（次に開いたときに前回の残りから
+  // 始まらないように）。
+  const closeDetail = useCallback(() => {
+    stopPreview();
+    setDetailId(null);
+    flightFrom.current = null;
+    cardTX.value = 0;
+    cardTY.value = 0;
+    cardScale.value = CARD_FOCUS_SCALE;
+  }, [CARD_FOCUS_SCALE, cardScale, cardTX, cardTY, stopPreview]);
 
   // 購入成立でモーダルを閉じ、成立したときだけ onBuy を通知する。
   // コレクション側では演出を出さない（ホームの購入完了演出＝PurchaseParticles が正）。
@@ -367,10 +488,16 @@ export const CollectionScreen: React.FC<Props> = ({
   const wishH = wishW * 1.5;
 
   // マイコレは常に21枠。所有分を先頭から詰め、残りは通し番号だけの枠。
+  // 実体のある作品数。これより先の席は番号ではなく Coming Soon。
+  // 空席が「未所有（作品はある）」なのか「まだ作品が無い」のかは番号では
+  // 区別できないので、ここだけが判断材料になる。
+  const worksCount = totalWorks ?? works.length;
+
   const mineSlots: MineSlot[] = Array.from({ length: TOTAL_SLOTS }, (_, i) => ({
     key: owned[i]?.id ?? `empty-${i}`,
     item: owned[i] ?? null,
     no: String(i + 1).padStart(2, '0'),
+    soon: i >= worksCount,
   }));
 
   // ── マイコレの1枠 ──
@@ -415,7 +542,11 @@ export const CollectionScreen: React.FC<Props> = ({
         </Pressable>
       ) : (
         <View style={[styles.emptySlot, { width: colW, height: colH }]}>
-          <Text style={styles.slotNum}>{slot.no}</Text>
+          {slot.soon ? (
+            <Text style={styles.slotSoon} numberOfLines={2}>{t('collection.comingSoon')}</Text>
+          ) : (
+            <Text style={styles.slotNum}>{slot.no}</Text>
+          )}
         </View>
       )}
     </Animated.View>
@@ -437,6 +568,8 @@ export const CollectionScreen: React.FC<Props> = ({
       key: works[i]?.id ?? `board-empty-${i}`,
       item: works[i] ?? null,
       no: works[i] ? slotNo(works[i], i) : String(i + 1).padStart(2, '0'),
+      // 板は works をそのまま並べるので、item が無い＝まだ作品が無い席
+      soon: !works[i],
     }),
   );
 
@@ -461,7 +594,7 @@ export const CollectionScreen: React.FC<Props> = ({
           style={{ width: colW, marginBottom: ROW_GAP }}
         >
           <View style={[styles.emptySlot, { width: colW, height: colH }]}>
-            <Text style={styles.slotNum}>{no}</Text>
+            <Text style={styles.slotSoon} numberOfLines={2}>{t('collection.comingSoon')}</Text>
           </View>
         </Animated.View>
       );
@@ -473,7 +606,13 @@ export const CollectionScreen: React.FC<Props> = ({
         entering={FadeInUp.duration(420).delay((index % 8) * 55)}
         style={{ width: colW, marginBottom: ROW_GAP }}
       >
-        <Pressable onPress={() => setDetailId(item.id)}>
+        <Pressable
+          ref={(el) => {
+            if (el) detailRefs.current.set(`all-${item.id}`, el);
+            else detailRefs.current.delete(`all-${item.id}`);
+          }}
+          onPress={() => openDetail(item.id, `all-${item.id}`)}
+        >
           {state === 'own' ? (
             <>
               <MetalTile uri={item.artworkUrl} w={colW} h={colH} />
@@ -514,7 +653,18 @@ export const CollectionScreen: React.FC<Props> = ({
       entering={FadeInUp.duration(420).delay((index % 8) * 55)}
       style={{ width: wishW, marginBottom: WISH_GAP }}
     >
-      <Pressable onPress={() => onOpenWish(item.id)} style={styles.wishSlot}>
+      {/* タップ＝作品詳細。マイコレのタイル（タップ＝再生）と同じ「押したら
+          その作品が立ち上がる」挙動に揃える。以前はホームの該当カードへ
+          飛ばしていたが、コレクションを見ている最中に画面ごと持って行かれる
+          ので、この面の中で購入と★まで完結させる。 */}
+      <Pressable
+        ref={(el) => {
+          if (el) detailRefs.current.set(`wish-${item.id}`, el);
+          else detailRefs.current.delete(`wish-${item.id}`);
+        }}
+        onPress={() => openDetail(item.id, `wish-${item.id}`)}
+        style={styles.wishSlot}
+      >
         <Image
           source={{ uri: item.artworkUrl }}
           style={{ width: wishW, height: wishH }}
@@ -699,26 +849,56 @@ export const CollectionScreen: React.FC<Props> = ({
           未所有なら ★ / 30秒 試聴 / 迎える の3手。ここが「再生ではなく試聴と購入」の実体。 */}
       {detail && (
         <View style={[styles.work, { paddingTop: titleTop + 8 }]}>
-          <Pressable
-            style={styles.workBack}
-            hitSlop={10}
-            onPress={() => {
-              stopPreview();
-              setDetailId(null);
-            }}
-          >
+          <Pressable style={styles.workBack} hitSlop={10} onPress={closeDetail}>
             <Text style={styles.workBackLabel}>{`‹ ${t('collection.back')}`}</Text>
           </Pressable>
 
-          <View style={styles.workCard}>
-            <Image
-              source={{ uri: detail.artworkUrl }}
-              style={[
-                styles.workCardImg,
-                slotState(detail.id) !== 'own' && styles.workCardDim,
-              ]}
-              resizeMode="cover"
-            />
+          {/* カードは PlayerScreen と同じく、残りの縦幅の中央に置く（cardArea:
+              flex:1 + center）。上の「戻る」と下の番号・曲名・3ボタンの間に
+              取れるだけ取り、その中心へ着地させる。 */}
+          <View
+            style={styles.workCardArea}
+            onLayout={(ev) =>
+              setCardArea({
+                w: ev.nativeEvent.layout.width,
+                h: ev.nativeEvent.layout.height,
+              })
+            }
+          >
+            {/* 外枠はアニメを載せない＝着地点の実測用。内側の Animated.View だけが
+                タイルから飛んでくる。CardGL の Canvas はカード実寸より外へはみ出す
+                ので、ここで overflow を切ってはいけない。 */}
+            <View
+              ref={workCardRef}
+              onLayout={onWorkCardLayout}
+              style={{ width: workCardW, height: workCardH }}
+            >
+              {/* 未所有でも沈めない。沈みが情報になるのは所有と並ぶ「すべて」の盤
+                  だけで、1作品しか出ていないこの面では何とも比較されない。所有状態は
+                  下のボタン（再生する／★・試聴・購入する）と workShelf の一行で
+                  既に言い切っている。加えて CardGL では opacity がカード全体
+                  （金属の縁・ハイライト・落影まで）に効くため、参照 .wcard.dim の
+                  filter:brightness(.62)＝画像だけを暗くする、とは別物になる。 */}
+              <Animated.View
+                style={[{ width: workCardW, height: workCardH }, cardFlightStyle]}
+              >
+                <CardGL
+                  mode="flip"
+                  backStyle="aluminum"
+                  frontUri={detail.artworkUrl}
+                  width={workCardW}
+                  height={workCardH}
+                  // 厚み 1mm 相当。PlayerScreen と同じ値に揃える（既定の
+                  // 8.5/188.6 だと縁が3倍近く厚く見えて、マイコレから開いた
+                  // カードと別物に見える）
+                  depthRatio={0.016}
+                  shadow
+                  frame={workCardFrame}
+                  backScale={workBackScale}
+                  backData={workBackData}
+                />
+              </Animated.View>
+            </View>
           </View>
 
           {!!detail.serialNo && <Text style={styles.workNo}>{detail.serialNo}</Text>}
@@ -734,8 +914,7 @@ export const CollectionScreen: React.FC<Props> = ({
                   pressed && { opacity: 0.85 },
                 ]}
                 onPress={() => {
-                  stopPreview();
-                  setDetailId(null);
+                  closeDetail();
                   onOpenTrack(detail.id);
                 }}
               >
@@ -784,7 +963,7 @@ export const CollectionScreen: React.FC<Props> = ({
                   }}
                 >
                   <Text style={[styles.workBtnLabel, styles.workBtnSolidLabel]} numberOfLines={1}>
-                    {t('collection.take', { price: priceOf(detail) })}
+                    {t('collection.buy', { price: priceOf(detail) })}
                   </Text>
                 </Pressable>
               </>
@@ -883,6 +1062,18 @@ const styles = StyleSheet.create({
   },
   // .slot-num（空スロット: 中央）
   slotNum: { fontSize: 11, letterSpacing: 2.2, color: C.slotNum, fontFamily: NUM_FONT }, // 通し番号＝数字表記
+  // 未発表席の Coming Soon。番号と同じ字面・同じ色で、文字数ぶんだけ小さく組む
+  // （枠は colW＝約100px なので 11px のままでは入らない）
+  slotSoon: {
+    fontSize: 9,
+    lineHeight: 12,
+    letterSpacing: 0.8,
+    textAlign: 'center',
+    paddingHorizontal: 4,
+    color: C.slotNum,
+    fontFamily: NUM_FONT,
+    opacity: 0.85,
+  },
   // .deck-slot.filled .slot-num（所有: 上6px・opacity.65）
   filledNum: {
     position: 'absolute',
@@ -993,23 +1184,23 @@ const styles = StyleSheet.create({
     top: 0,
     bottom: 0,
     zIndex: 14,
-    backgroundColor: 'rgba(6,5,16,0.93)',
+    // PlayerScreen のベール幕（veilScrim）と同じ値。ほぼ不透明（.93）だと
+    // 「別画面へ移った」ように見えるが、ここはコレクションの上で作品が
+    // 立ち上がる面なので、後ろの盤が透けて見えるほうが正しい。
+    backgroundColor: 'rgba(8,7,20,0.78)',
     alignItems: 'center',
     paddingHorizontal: 22,
   },
-  workBack: { alignSelf: 'flex-start' },
+  // zIndex はカードより手前に置くため。RN は後ろの兄弟が上に描かれるので、
+  // これが無いとフリップした裏面が「戻る」の上に被って押せなくなる。
+  workBack: { alignSelf: 'flex-start', zIndex: 2 },
   workBackLabel: { color: C.back, fontSize: 12, letterSpacing: 0.6 },
-  // 参照 .wcard 164x246（枠幅380基準 = 43%）・角丸14
-  workCard: {
-    width: '43%',
-    aspectRatio: 2 / 3,
-    marginTop: 26,
-    borderRadius: 14,
-    overflow: 'hidden',
-  },
-  workCardImg: { width: '100%', height: '100%' },
-  // 未所有は沈める（参照 .wcard.dim = brightness(.62)）
-  workCardDim: { opacity: 0.62 },
+  // 参照 .wcard 164x246（枠幅380基準 = 43%）。実寸は workCardW/H で渡す。
+  // borderRadius / overflow は付けない — 角丸はカード自身（CardGL）が持っており、
+  // ここでクリップすると裏面の拡大分と落影が切れる。
+  // PlayerScreen の cardArea と同じ「残りを全部使って中央寄せ」。
+  // overflow:hidden は付けない — CardGL の Canvas はカード実寸より外へ描く。
+  workCardArea: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   workNo: { marginTop: 22, fontSize: 9.5, letterSpacing: 2.66, color: C.sub, fontFamily: NUM_FONT },
   workTitle: { marginTop: 7, fontSize: 21, letterSpacing: 1.26, color: C.text, fontFamily: JP_SERIF_FONT },
   workSub: {

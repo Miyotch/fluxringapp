@@ -179,6 +179,7 @@ function AppInner() {
           previewUrl: tr.previewUrl,
           glowColor: tr.glowColor,
           glowColor2: tr.glowColor2,
+          back: tr.back,
         })),
     [discoverTracks, ownedTrackIds],
   );
@@ -237,6 +238,7 @@ function AppInner() {
           previewUrl: tr.previewUrl,
           glowColor: tr.glowColor,
           glowColor2: tr.glowColor2,
+          back: tr.back,
         })),
     [discoverTracks, wishlist.ids, ownedTrackIds],
   );
@@ -256,6 +258,7 @@ function AppInner() {
         previewUrl: tr.previewUrl,
         glowColor: tr.glowColor,
         glowColor2: tr.glowColor2,
+        back: tr.back,
       })),
     [discoverTracks, ownedTrackIds],
   );
@@ -506,13 +509,6 @@ function AppInner() {
                 } else {
                   setOverlay('story');
                 }
-              }}
-              onOpenWish={(id) => {
-                // ウィッシュ曲タップ → ホーム（ディスカバー）の該当カードへ
-                setHomeFocusId(id);
-                setOverlay(null);
-                setSettingsDetail(null);
-                setTab('home');
               }}
               onBuy={() => {
                 // 購入が成立したときだけ呼ばれる。所有権は usePurchaseFlow が
