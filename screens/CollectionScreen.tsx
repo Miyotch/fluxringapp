@@ -36,7 +36,8 @@ import Animated, {
   useSharedValue,
   withTiming,
 } from 'react-native-reanimated';
-import { CardGL } from '../components/CardGL';
+import { CardGL, CARD_BACK_SCALE_MAX } from '../components/CardGL';
+import { homeCardWidth } from '../constants/design-tokens';
 import Svg, { Defs, LinearGradient as SvgLinear, Stop, Rect, RadialGradient as SvgRadial } from 'react-native-svg';
 import { PurchaseModal } from '../components/PurchaseModal';
 import { StarIcon } from '../components/icons';
@@ -359,34 +360,25 @@ export const CollectionScreen: React.FC<Props> = ({
   // 平らな Image ではなく、ホーム／再生画面と同じ CardGL を置く。タップで表↔裏、
   // 裏面は指で回せる。板・ウィッシュ・マイコレのどこから開いても同じカードを
   // 触ることになる（以前は所有タイルだけが本物のカードで、他は静止画だった）。
-  // 参照の .wcard は枠幅43%（≒149px）だったが、静止画ではなく触れるカードに
-  // なったので、タイル（約100px）から開いたときに「拡大した」と分かる大きさへ
-  // 上げる。画面高に対する比で決め、下の番号・曲名・3ボタンが押し出されない
-  // よう 330px で頭打ちにする（iPhone SE の高さでも収まる）。
-  const workCardH = Math.min(
-    Math.round(screenH * 0.42),
-    330,
-    Math.round((screenW - PAD_X * 2) * 1.5),
-  );
-  const workCardW = Math.round(workCardH / 1.5);
-  // frame は「カードを収める枠の実寸」。CardGL はこれを基に
-  //   裏面の拡大率 S = min(1.28, 枠幅*0.86/カード幅, 枠高*0.82/カード高)
-  //   持ち上げ量   = 枠高 * 0.03（上へ）
-  // を決める。画面全体（screenH）を枠として渡すと S が上限 1.28 に張り付き、
-  // さらに持ち上げが 25px 以上になって、フリップした裏面が上の「戻る」まで
-  // 覆ってしまった。ホームは枠＝カルーセル領域であって画面全体ではない。
-  //
-  // ここではカード高の 1.45 倍を枠として渡す。S は 0.82*1.45 = 1.189 で頭打ちに
-  // なり、持ち上げも 0.0435*カード高 に収まる。裏面が上へ出る量は
-  //   カード高*(S-1)/2 + 持ち上げ ≒ カード高 * 0.138
-  // で、下の CARD_HEADROOM がその実測ぶんの余白。
+  // 寸法・見かけの大きさ・裏面の倍率は、すべて PlayerScreen（＝マイコレのタイルを
+  // 押したときに開く面）と同じ式にする。どのタブから開いても、拡大したあとの
+  // カードが同じ大きさ・同じ位置に着くようにするため。
+  const workCardW = Math.min(screenW - 96, 240);
+  const workCardH = Math.round(workCardW * 1.5);
+  // PlayerScreen のベール（再生前）と同じ見かけ倍率。CardGL 自体は実寸で固定し、
+  // ラッパーの scale だけで見かけを縮める（3Dシーンの作り直しを避ける）。
+  const CARD_FOCUS_SCALE = 1 / 1.08;
+  // 裏面（フリップ後）の絶対サイズをホームと揃える。frame からの自動算出だと
+  // 上限 1.28 に張り付いて裏面が「戻る」まで覆うので、PlayerScreen と同じく
+  // ホームの裏面幅から逆算した値を明示的に渡す。
+  const workBackScale = (homeCardWidth(screenH) * CARD_BACK_SCALE_MAX) / workCardW;
+  // frame はカードを収める領域の実寸。裏面の持ち上げ量（枠高の3%）がここから
+  // 決まる。画面全体を渡すと持ち上がりすぎるので、実測した領域を渡す。
+  const [cardArea, setCardArea] = useState({ w: 0, h: 0 });
   const workCardFrame = useMemo(
-    () => ({ width: screenW, height: Math.round(workCardH * 1.45) }),
-    [screenW, workCardH],
+    () => ({ width: cardArea.w, height: cardArea.h }),
+    [cardArea.w, cardArea.h],
   );
-  // フリップした裏面が上へせり出す量ぶんの余白。これを空けておかないと
-  // 「戻る」が裏面の下に隠れる。
-  const cardHeadroom = Math.ceil(workCardH * 0.138) + 8;
   // 裏面の刻印。参照が変わるたび 1024×1536 の Skia サーフェスを同期生成するので、
   // 開いている作品が変わったときだけ作り直す（DiscoverScreen と同じ規律）。
   const workBackData = useMemo(
@@ -412,7 +404,7 @@ export const CollectionScreen: React.FC<Props> = ({
   const workCardRef = useRef<View>(null);
   const cardTX = useSharedValue(0);
   const cardTY = useSharedValue(0);
-  const cardScale = useSharedValue(1);
+  const cardScale = useSharedValue(CARD_FOCUS_SCALE);
   const cardFlightStyle = useAnimatedStyle(() => ({
     transform: [
       { translateX: cardTX.value },
@@ -437,9 +429,10 @@ export const CollectionScreen: React.FC<Props> = ({
       cardScale.value = from.width / w;
       cardTX.value = withTiming(0, flight);
       cardTY.value = withTiming(0, flight);
-      cardScale.value = withTiming(1, flight);
+      // 着地は PlayerScreen のベールと同じ見かけ倍率
+      cardScale.value = withTiming(CARD_FOCUS_SCALE, flight);
     });
-  }, [cardScale, cardTX, cardTY]);
+  }, [CARD_FOCUS_SCALE, cardScale, cardTX, cardTY]);
 
   // 板／ウィッシュのタイル。押した矩形を測ってから詳細を開く（測れなければ
   // フライトインなしでそのまま開く＝演出が出ないだけで動作は同じ）。
@@ -458,8 +451,8 @@ export const CollectionScreen: React.FC<Props> = ({
     flightFrom.current = null;
     cardTX.value = 0;
     cardTY.value = 0;
-    cardScale.value = 1;
-  }, [cardScale, cardTX, cardTY, stopPreview]);
+    cardScale.value = CARD_FOCUS_SCALE;
+  }, [CARD_FOCUS_SCALE, cardScale, cardTX, cardTY, stopPreview]);
 
   // 購入成立でモーダルを閉じ、成立したときだけ onBuy を通知する。
   // コレクション側では演出を出さない（ホームの購入完了演出＝PurchaseParticles が正）。
@@ -860,35 +853,46 @@ export const CollectionScreen: React.FC<Props> = ({
             <Text style={styles.workBackLabel}>{`‹ ${t('collection.back')}`}</Text>
           </Pressable>
 
-          {/* 外枠はアニメを載せない＝着地点の実測用。内側の Animated.View だけが
-              タイルから飛んでくる。CardGL の Canvas はカード実寸より外へはみ出す
-              （裏面が S=1.28 で拡大する）ので、ここで overflow を切ってはいけない。 */}
+          {/* カードは PlayerScreen と同じく、残りの縦幅の中央に置く（cardArea:
+              flex:1 + center）。上の「戻る」と下の番号・曲名・3ボタンの間に
+              取れるだけ取り、その中心へ着地させる。 */}
           <View
-            ref={workCardRef}
-            onLayout={onWorkCardLayout}
-            style={[
-              styles.workCardBox,
-              { width: workCardW, height: workCardH, marginTop: cardHeadroom },
-            ]}
+            style={styles.workCardArea}
+            onLayout={(ev) =>
+              setCardArea({
+                w: ev.nativeEvent.layout.width,
+                h: ev.nativeEvent.layout.height,
+              })
+            }
           >
-            <Animated.View
-              style={[
-                { width: workCardW, height: workCardH },
-                slotState(detail.id) !== 'own' && styles.workCardDim,
-                cardFlightStyle,
-              ]}
+            {/* 外枠はアニメを載せない＝着地点の実測用。内側の Animated.View だけが
+                タイルから飛んでくる。CardGL の Canvas はカード実寸より外へはみ出す
+                ので、ここで overflow を切ってはいけない。 */}
+            <View
+              ref={workCardRef}
+              onLayout={onWorkCardLayout}
+              style={{ width: workCardW, height: workCardH }}
             >
-              <CardGL
-                mode="flip"
-                backStyle="aluminum"
-                frontUri={detail.artworkUrl}
-                width={workCardW}
-                height={workCardH}
-                shadow
-                frame={workCardFrame}
-                backData={workBackData}
-              />
-            </Animated.View>
+              <Animated.View
+                style={[
+                  { width: workCardW, height: workCardH },
+                  slotState(detail.id) !== 'own' && styles.workCardDim,
+                  cardFlightStyle,
+                ]}
+              >
+                <CardGL
+                  mode="flip"
+                  backStyle="aluminum"
+                  frontUri={detail.artworkUrl}
+                  width={workCardW}
+                  height={workCardH}
+                  shadow
+                  frame={workCardFrame}
+                  backScale={workBackScale}
+                  backData={workBackData}
+                />
+              </Animated.View>
+            </View>
           </View>
 
           {!!detail.serialNo && <Text style={styles.workNo}>{detail.serialNo}</Text>}
@@ -1185,8 +1189,9 @@ const styles = StyleSheet.create({
   // 参照 .wcard 164x246（枠幅380基準 = 43%）。実寸は workCardW/H で渡す。
   // borderRadius / overflow は付けない — 角丸はカード自身（CardGL）が持っており、
   // ここでクリップすると裏面の拡大分と落影が切れる。
-  // marginTop は cardHeadroom（裏面のせり出しぶん）を実寸で当てる
-  workCardBox: {},
+  // PlayerScreen の cardArea と同じ「残りを全部使って中央寄せ」。
+  // overflow:hidden は付けない — CardGL の Canvas はカード実寸より外へ描く。
+  workCardArea: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   // 未所有は沈める（参照 .wcard.dim = brightness(.62)）
   workCardDim: { opacity: 0.62 },
   workNo: { marginTop: 22, fontSize: 9.5, letterSpacing: 2.66, color: C.sub, fontFamily: NUM_FONT },
