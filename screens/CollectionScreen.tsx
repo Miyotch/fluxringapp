@@ -873,12 +873,14 @@ export const CollectionScreen: React.FC<Props> = ({
               onLayout={onWorkCardLayout}
               style={{ width: workCardW, height: workCardH }}
             >
+              {/* 未所有でも沈めない。沈みが情報になるのは所有と並ぶ「すべて」の盤
+                  だけで、1作品しか出ていないこの面では何とも比較されない。所有状態は
+                  下のボタン（再生する／★・試聴・購入する）と workShelf の一行で
+                  既に言い切っている。加えて CardGL では opacity がカード全体
+                  （金属の縁・ハイライト・落影まで）に効くため、参照 .wcard.dim の
+                  filter:brightness(.62)＝画像だけを暗くする、とは別物になる。 */}
               <Animated.View
-                style={[
-                  { width: workCardW, height: workCardH },
-                  slotState(detail.id) !== 'own' && styles.workCardDim,
-                  cardFlightStyle,
-                ]}
+                style={[{ width: workCardW, height: workCardH }, cardFlightStyle]}
               >
                 <CardGL
                   mode="flip"
@@ -1192,8 +1194,6 @@ const styles = StyleSheet.create({
   // PlayerScreen の cardArea と同じ「残りを全部使って中央寄せ」。
   // overflow:hidden は付けない — CardGL の Canvas はカード実寸より外へ描く。
   workCardArea: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  // 未所有は沈める（参照 .wcard.dim = brightness(.62)）
-  workCardDim: { opacity: 0.62 },
   workNo: { marginTop: 22, fontSize: 9.5, letterSpacing: 2.66, color: C.sub, fontFamily: NUM_FONT },
   workTitle: { marginTop: 7, fontSize: 21, letterSpacing: 1.26, color: C.text, fontFamily: JP_SERIF_FONT },
   workSub: {
