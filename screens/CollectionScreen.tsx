@@ -888,6 +888,10 @@ export const CollectionScreen: React.FC<Props> = ({
                   frontUri={detail.artworkUrl}
                   width={workCardW}
                   height={workCardH}
+                  // 厚み 1mm 相当。PlayerScreen と同じ値に揃える（既定の
+                  // 8.5/188.6 だと縁が3倍近く厚く見えて、マイコレから開いた
+                  // カードと別物に見える）
+                  depthRatio={0.016}
                   shadow
                   frame={workCardFrame}
                   backScale={workBackScale}
@@ -1180,7 +1184,10 @@ const styles = StyleSheet.create({
     top: 0,
     bottom: 0,
     zIndex: 14,
-    backgroundColor: 'rgba(6,5,16,0.93)',
+    // PlayerScreen のベール幕（veilScrim）と同じ値。ほぼ不透明（.93）だと
+    // 「別画面へ移った」ように見えるが、ここはコレクションの上で作品が
+    // 立ち上がる面なので、後ろの盤が透けて見えるほうが正しい。
+    backgroundColor: 'rgba(8,7,20,0.78)',
     alignItems: 'center',
     paddingHorizontal: 22,
   },
