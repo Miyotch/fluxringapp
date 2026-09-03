@@ -48,7 +48,12 @@ import {
 import { useSharedValue, useDerivedValue, SharedValue } from 'react-native-reanimated';
 
 // ── 参照実装のパラメータ（P オブジェクト・682行） ──
-const P_COUNT = 300;
+// 発熱対策（2026-09-03）: 参照の 300（実描画479星）から半減。
+// 全画面 Canvas は毎フレーム clear + 全星の再描画なので、星の本数が
+// そのまま塗り面積になる。特に層1(halo 1.3)・層2(halo 2.2)はハローぶん
+// 径が数倍あり、ここが効く。層2は groups=n なので明滅の mapper 数も減る。
+// 参照忠実度より「置きっぱなしにできること」を優先する判断。
+const P_COUNT = 150;
 const P_SIZE = 0.5;
 const P_BRIGHT = 1.6;
 const P_TWINKLE = 2.5;
