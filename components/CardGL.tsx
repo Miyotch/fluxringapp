@@ -48,6 +48,7 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber/native';
 import * as THREE from 'three';
 import { TextureLoader } from 'expo-three';
 import { Asset } from 'expo-asset';
+import { createLru } from '../lib/lruCache';
 import Animated, {
   withSpring,
   withTiming,
@@ -371,6 +372,20 @@ function remapUV(geo: THREE.BufferGeometry, w: number, h: number) {
   uv.needsUpdate = true;
 }
 
+// ── 裏面刻印テクスチャのキャッシュ ────────────────────────────────
+// 曲を送るたびに renderAluminumInkPixels が Skia.Surface.Make(1024,1536) を
+// 起こし、数十回の drawText を流し、readPixels で 6.3MB を吸い出し、さらに
+// 行反転コピーで 6.3MB を作る。一時確保は 1 回あたり約 19MB で、これが JS
+// スレッド同期で走るため、連続スワイプでは GC 圧と CPU 発熱に直結していた。
+// 作品は増えないので、隣接3曲ぶん持っておけば往復スワイプで焼き直しが消える。
+//
+// limit は prev / active / next の 3。追い出されるのは必ず「いま表示していない
+// 最も古いもの」なので、表示中のテクスチャを dispose してしまう事故は起きない。
+const inkTexCache = createLru<THREE.DataTexture>({
+  limit: 3,
+  onEvict: (t) => t.dispose(),
+});
+
 // Skia の RGBA ピクセル → three の DataTexture（行順を反転）
 function pixelsToTexture(res: BackPixels): THREE.DataTexture {
   const { pixels, width: tw, height: th } = res;
@@ -522,10 +537,23 @@ const CardMesh: React.FC<{
     if (!backData) return;
     if (backStyle === 'aluminum') {
       try {
-        const res = renderAluminumInkPixels(backData);
-        // 差し替え前のテクスチャは GPU 側を明示的に解放する。放置すると
-        // 1024x1536 RGBA（約6MB）がフリップのたび積み上がる。
-        if (res) setInkTex((prev) => { prev?.dispose(); return pixelsToTexture(res); });
+        // 内容でキーを引く。backData は DiscoverScreen 側で useMemo 済みだが、
+        // 参照ではなく中身でキーにしておくと、別経路（再生画面・作品詳細）から
+        // 同じ作品を開いたときにも当たる。
+        const key = `alum|${JSON.stringify(backData)}`;
+        let tex = inkTexCache.get(key);
+        if (!tex) {
+          const res = renderAluminumInkPixels(backData);
+          if (res) {
+            tex = pixelsToTexture(res);
+            inkTexCache.set(key, tex);
+          }
+        }
+        // ここで prev?.dispose() をしてはいけない。テクスチャの所有者は
+        // キャッシュに移っており、差し替えのたびに解放すると、キャッシュに
+        // 載ったままの生きたテクスチャを壊してしまう。症状は「1曲戻ったときだけ
+        // 裏面が真っ黒」という再現条件つきの形で出る。解放は追い出し時だけ。
+        if (tex) setInkTex(tex);
       } catch {}
       return;
     }

@@ -418,9 +418,22 @@ export const DiscoverScreen: React.FC<Props> = ({
   // 参照の星と天の川は CSS コンポジタで回るのでメインスレッド負荷が構造的に
   // ゼロだが、Skia は全画面 Canvas の再ラスタライズになる。同じ土俵に立つ
   // 唯一の方法が「回している間は止める」。
+  // 止める条件は「カードが動いている間」全部。以前は回転（cardRotation）だけを
+  // 見ていたので、曲送りの横スワイプでは止まらなかった。あちらは cardRotation が
+  // 0 のままなので判定に引っかからず、179本の derived と全画面 Skia 2枚が
+  // 回り続けたうえに、指追従ぶんの仕事が上乗せされていた。
+  //
+  // dragX を使うのは scrolling より正確だから。scrolling はジェスチャの onBegin
+  // ＝指が触れた瞬間に立つので、フリップ目的のタップでも一瞬 pause がトグルする。
+  // dragX は整定時に carTick が厳密に 0 を代入するので「実際にカードが横に
+  // 動いている間」とちょうど一致する。指を離してから整定し終わるまでの区間は
+  // carBusy が繋ぐ。
   const [cardSpinning, setCardSpinning] = useState(false);
   useAnimatedReaction(
-    () => Math.abs(cardRotation.value) > SPIN_PAUSE_DEG,
+    () =>
+      Math.abs(cardRotation.value) > SPIN_PAUSE_DEG ||
+      dragX.value !== 0 ||
+      carBusy.value > 0.5,
     (now, prev) => {
       if (prev !== null && now !== prev) runOnJS(setCardSpinning)(now);
     },
