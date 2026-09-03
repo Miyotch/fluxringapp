@@ -357,7 +357,25 @@ const BackdropSkyImpl: React.FC<BackdropSkyProps> = ({
   const nebStarGroups = useMemo(() => buildStarGroups(W, H), [W, H]);
   const starLayers = useMemo<BuiltLayer[]>(() => buildLayers(W, H), [W, H]);
 
-  return (
+  // ── Canvas の要素ツリーを固定する ────────────────────────────────
+  // RN Skia の <Canvas> は children の「要素としての同一性」が変わると
+  // renderer/Canvas.js の useLayoutEffect → sksg/Container.redraw() が走り、
+  // stopMapper → recorder 新規作成 → 全ノード再走査 → startMapper を
+  // 丸ごとやり直す（BackdropSky は約130コマンド）。
+  //
+  // paused が変わるとこの Impl は再レンダーするので、素のままだと
+  // 「止める瞬間」と「再開する瞬間」の両方でその再構築を払っていた。
+  // カードを回し始める／曲を送り始める、まさに一番引っかかってほしくない
+  // タイミングである。
+  //
+  // 下のツリーは paused も reduced も参照していない（clock が止まるだけで
+  // 見た目は最後の状態で凍る）。依存はすべて安定した値なので、memo 化すれば
+  // 再構築はマウント時の1回きりになる。
+  //   W/H/scale … 画面サイズが変わったときだけ
+  //   clouds/nebStarGroups/starLayers … useMemo 済み
+  //   clock/stop … useSharedValue 由来で参照が固定
+  const tree = useMemo(
+    () => (
     <Canvas style={[StyleSheet.absoluteFill, { width: W, height: H }]} pointerEvents="none">
       {/* ── .bgbase: radial(125% 95% at 50% 28%) #15132e → #0c0a1f → #07060f ──
           横 rx=1.25W の正円を縦に 0.95H/1.25W へ圧縮して楕円化（静的） */}
@@ -411,7 +429,11 @@ const BackdropSkyImpl: React.FC<BackdropSkyProps> = ({
           )),
         )}
     </Canvas>
+    ),
+    [W, H, scale, clouds, nebStarGroups, starLayers, clock, stop],
   );
+
+  return tree;
 };
 
 

@@ -22,6 +22,7 @@
       "usesAppleSignIn": true,
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
+        "CADisableMinimumFrameDurationOnPhone": false,
         "UIBackgroundModes": [
           "audio"
         ],
@@ -33,7 +34,7 @@
           }
         ]
       },
-      "buildNumber": "31"
+      "buildNumber": "32"
     },
     "android": {
       "package": "com.fluxring.app",
