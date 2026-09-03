@@ -23,7 +23,7 @@
  * そのまま電池消耗と発熱になる。
  */
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 import { useSharedValue, useFrameCallback, type SharedValue } from 'react-native-reanimated';
 
@@ -48,21 +48,61 @@ export function useAppForeground(): boolean {
 /** 1フレームで進める上限(ms)。再開直後の巨大な差分を吸収する */
 const CLOCK_DT_MAX_MS = 50;
 
-export function usePausableClock(active: boolean): SharedValue<number> {
+/**
+ * 背景アニメの最小更新間隔(ms)。33 ≒ 30fps。
+ *
+ * 全画面 Canvas の再ラスタライズ回数は「時計が値を書いたフレーム数」と 1:1 で
+ * 決まる（clock → 74/103本の derived → sksg の startMapper → picture の push →
+ * RNSkPictureRenderer::setPicture → requestRedraw）。つまりここを間引けば、
+ * 塗る回数がそのまま比例して減る。
+ *
+ * 30fps にするのは、この層が「ゆっくり流れる雲・またたく星・呼吸する光」しか
+ * 持たないから。映画が24fpsで成立する種類の動きで、60fps である必要がない。
+ * カードの操作（GL・ジェスチャ追従）はこの時計を使っていないので、手触りには
+ * 一切影響しない。
+ *
+ * clock.value には端数を捨てずに累計を足すので、雲の流れる速さも星の明滅周期も
+ * 変わらない。サンプリング点が半分になるだけ。
+ */
+export const AMBIENT_MIN_STEP_MS = 33;
+
+export function usePausableClock(active: boolean, minStepMs = 0): SharedValue<number> {
   const clock = useSharedValue(0);
-  const frame = useFrameCallback((info) => {
-    'worklet';
-    // 「動いていた時間」だけを積む。以前は実時間（timeSinceFirstFrame）を
-    // そのまま入れていたため、止めている間も時計は進み、再開した瞬間に
-    // 位相が飛んでいた。星の明滅が一斉に切り替わるので、カードが正面へ
-    // 戻った瞬間に画面がチカッと光って見えていた（実機で指摘）。
-    const dt = Math.min(info.timeSincePreviousFrame ?? 1000 / 60, CLOCK_DT_MAX_MS);
-    clock.value += dt;
-  }, false);
+  // 間引き用の端数入れ。購読者がいない SharedValue なので、ここへ毎フレーム
+  // 書いても mapper は 1 本も走らない＝Canvas は塗り直されない。
+  const acc = useSharedValue(0);
+
+  const tick = useCallback(
+    (info: { timeSincePreviousFrame: number | null }) => {
+      'worklet';
+      // 「動いていた時間」だけを積む。以前は実時間（timeSinceFirstFrame）を
+      // そのまま入れていたため、止めている間も時計は進み、再開した瞬間に
+      // 位相が飛んでいた。星の明滅が一斉に切り替わるので、カードが正面へ
+      // 戻った瞬間に画面がチカッと光って見えていた（実機で指摘）。
+      const dt = Math.min(info.timeSincePreviousFrame ?? 1000 / 60, CLOCK_DT_MAX_MS);
+      if (minStepMs <= 0) {
+        clock.value += dt;
+        return;
+      }
+      const a = acc.value + dt;
+      if (a < minStepMs) {
+        acc.value = a;
+        return;
+      }
+      acc.value = 0;
+      clock.value += a; // 端数を捨てない＝速度・位相は不変
+    },
+    [clock, acc, minStepMs],
+  );
+
+  // useCallback で固定しておかないと、再レンダーのたびに
+  // unregister → register の scheduleOnUI 往復が入る。
+  const frame = useFrameCallback(tick, false);
 
   useEffect(() => {
     frame.setActive(active);
-  }, [active, frame]);
+    if (!active) acc.value = 0;
+  }, [active, frame, acc]);
 
   return clock;
 }
@@ -77,5 +117,5 @@ export function useBackdropClock(paused: boolean): {
 } {
   const foreground = useAppForeground();
   const running = foreground && !paused;
-  return { clock: usePausableClock(running), running };
+  return { clock: usePausableClock(running, AMBIENT_MIN_STEP_MS), running };
 }
