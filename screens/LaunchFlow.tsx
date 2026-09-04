@@ -347,6 +347,26 @@ export const LaunchFlow: React.FC<Props> = ({
     [leave, onEnterApp],
   );
 
+  // ── 天の川を出すタイミング ──
+  // launch（ワードマークだけの 1.2 秒）では出さない。ここから出していたため、
+  // 起動が「黒 → 背景 → 黒 → 順に点灯」となり、背景が一度消える段ができていた。
+  // 背景はホームの intro で初めて灯すのが正で、起動フローで先に見せる必要はない。
+  //
+  // オンボーディング（p0）・ログイン・同意は、画面そのものが天の川を地として
+  // 設計されているので、そちらへ移るときに灯す。立ち上がりはホームの空と
+  // 同じ長さ・同じイージングにして、起動フロー全体で同じ「灯り方」に揃える。
+  //
+  // セッション有効でホームへ直行する経路では一度も呼ばれない＝天の川は出ない。
+  const skyOp = useRef(new RNAnimated.Value(0)).current;
+  const revealSky = useCallback(() => {
+    RNAnimated.timing(skyOp, {
+      toValue: 1,
+      duration: HOME_INTRO.skyMs,
+      easing: RNEasing.out(RNEasing.quad),
+      useNativeDriver: true,
+    }).start();
+  }, [skyOp]);
+
   // ── launch: 1.2秒のフェード後、initialScreen へ ──
   const launchOp = useSharedValue(0);
   useEffect(() => {
@@ -362,13 +382,16 @@ export const LaunchFlow: React.FC<Props> = ({
         if (initialScreen !== 'app') runOnJS(setScreen)(initialScreen);
       }),
     );
-    // exist（セッション有効）は launch のあとそのままアプリへ入る。ワードマークの
-    // 消灯と同じ 790ms 起点・410ms で天の川も一緒に暗転させ、真っ暗になってから
-    // ホームへ渡す（起動フローの総時間 1.2 秒は変えない）。
-    if (initialScreen === 'app') {
-      const id = setTimeout(() => leave(410, onEnterApp), 790);
-      return () => clearTimeout(id);
-    }
+    // ワードマークが引き始める 790ms に、次の一手を重ねる。
+    //   ・'app'（セッション有効）: 同じ 410ms で暗転しきってからホームへ渡す。
+    //     背景は出していないので、暗いまま次の intro へ繋がる。
+    //   ・それ以外: 天の川を灯し始める。ワードマークの退場と入れ替わりになり、
+    //     1.2 秒でオンボーディング／ログインが出る頃には地ができている。
+    const id = setTimeout(
+      () => (initialScreen === 'app' ? leave(410, onEnterApp) : revealSky()),
+      790,
+    );
+    return () => clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const launchStyle = useAnimatedStyle(() => ({ opacity: launchOp.value }));
@@ -380,7 +403,14 @@ export const LaunchFlow: React.FC<Props> = ({
           アプリへ渡す直前にまとめて暗転させる（leave 参照）。地色は外の
           s.root が持っているので、透けても素の黒は覗かない。 */}
       <RNAnimated.View style={[StyleSheet.absoluteFill, { opacity: leaveOp }]}>
-        <NebulaBand />
+        {/* 天の川。launch のあいだは opacity 0 で、p0 / login / consent へ
+            移るときだけ灯す（skyOp 参照）。ホームへ直行する経路では出ない。 */}
+        <RNAnimated.View
+          style={[StyleSheet.absoluteFill, { opacity: skyOp }]}
+          pointerEvents="none"
+        >
+          <NebulaBand />
+        </RNAnimated.View>
 
         {screen === 'launch' && (
           <View style={s.center} pointerEvents="none">
