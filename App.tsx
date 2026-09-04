@@ -31,6 +31,7 @@ import { usePurchaseFlow } from './lib/usePurchaseFlow';
 import { useSoundPreviews } from './lib/useSoundPreviews';
 import { useWishlist } from './lib/useWishlist';
 import { prefetchArtwork } from './constants/artwork';
+import { ANIM, HOME_INTRO } from './constants/design-tokens';
 
 import { Footer, TabKey } from './components/Footer';
 import { LaunchFlow, LaunchScreen, ConsentJoin } from './screens/LaunchFlow';
@@ -109,6 +110,26 @@ function AppInner() {
       }).start();
     }
   }, [phase, appFade]);
+
+  // ホームの intro（暗転から段階的に灯す）は起動後の最初のマウントだけ走らせる。
+  // タブを移動して戻る／再生画面から戻る、といった再マウントでは走らせない。
+  const [homeIntroPending, setHomeIntroPending] = useState(true);
+
+  // フッターはホームが灯り終わる頃に最後に出す。ホームの各層が順に灯っている間に
+  // フッターだけ最初から居ると、静かに立ち上がる流れがそこで途切れて見える。
+  // 起動直後の 1 回だけ（phase は launch→app の一方向。サインアウトで launch へ
+  // 戻したときは restartLaunch が 0 に戻す）。
+  const footerFade = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (phase !== 'app') return;
+    Animated.timing(footerFade, {
+      toValue: 1,
+      duration: ANIM.footerEnterMs,
+      delay: HOME_INTRO.footerDelayMs,
+      easing: Easing.out(Easing.quad),
+      useNativeDriver: true,
+    }).start();
+  }, [phase, footerFade]);
   // launch 後に見せる画面。null=判定中（セッション/オンボ済み/同意状態を確定するまで）
   const [launchScreen, setLaunchScreen] = useState<LaunchScreen | null>(null);
   const [consentJoin, setConsentJoin] = useState<ConsentJoin>('new');
@@ -329,8 +350,13 @@ function AppInner() {
     setSettingsDetail(null);
     setTab('home');
     setPhase('launch');
+    // 起動フローからやり直すので、ホームの intro とフッターの出方も初期状態へ戻す
+    // （次にアプリへ入るときは、初回と同じように暗転から灯る）。
+    setHomeIntroPending(true);
+    appFade.setValue(0);
+    footerFade.setValue(0);
     decideLaunch();
-  }, [decideLaunch]);
+  }, [decideLaunch, appFade, footerFade]);
 
   // 同梱アートの展開（起動フローの裏で実行）。
   // downloadAsync で localUri（file://）を確定させ、Skia / GL テクスチャが
@@ -474,6 +500,8 @@ function AppInner() {
               wishlistIds={wishlist.ids}
               onToggleWishlist={wishlist.toggle}
               purchase={purchase}
+              introOnMount={homeIntroPending}
+              onIntroDone={() => setHomeIntroPending(false)}
               onPlay={(id) => {
                 // 所有済みカードの「再生」押下 → 再生画面へ（コレクションのタイル起点が
                 // 無いので残像演出は出さない＝origin は null のまま）
@@ -544,8 +572,10 @@ function AppInner() {
           )}
         </View>
 
-        {/* フッター（タブ群でのみ表示） */}
-        <Footer active={tab} onChange={changeTab} vipLocked={!vipUnlocked} />
+        {/* フッター（タブ群でのみ表示）。起動直後はホームが灯り終わる頃に遅れて出す */}
+        <Animated.View style={{ opacity: footerFade }}>
+          <Footer active={tab} onChange={changeTab} vipLocked={!vipUnlocked} />
+        </Animated.View>
       </Animated.View>
     </View>
   );

@@ -231,6 +231,44 @@ export const ANIM = {
 } as const;
 
 // ─────────────────────────────────────────────
+// HOME INTRO — 起動後、ホームが暗転から段階的に灯る演出
+// ─────────────────────────────────────────────
+//
+// なぜ要るか: 起動フローを抜けた直後のホームは、レイアウト確定（slideH>0）の
+// render で BackdropSky / StarSeal / CardGround / CardGL が一斉にマウントされる。
+// そのとき StarSeal の彫刻・発光画像のベイクと BackdropSky のスプライト焼きが
+// JS スレッドで同期実行され、その間もネイティブ駆動のフェードだけが進むため、
+// ベイクが明けた瞬間に「フェード途中の濃さで全層がいきなり現れる」ように見えた。
+//
+// 対策の骨子は「時間ではなく準備完了でゲートする」。各層を opacity 0 のラッパへ
+// 入れ、重い層がコミットされ rAF を 2 回またいでから下の順序で灯す。ベイクで JS が
+// 止まっている間は真っ暗のままなので、段差そのものが起きない。
+//
+// 順序は DESIGN.md の規律「オーラは沈むのではなく灯る・昇る」に合わせ、
+// 奥から手前へ・下から上へ。t=0 は上記 rAF×2 の瞬間。
+//
+// 起動後の最初の 1 回だけ走る（タブ移動や再生画面からの再マウントでは走らせない）。
+// reduce-motion では順序と移動を捨てて quickMs の一斉フェードへ落とす。
+export const HOME_INTRO = {
+  skyMs:           900,  // ① 星空＋減光・粒状（BackdropSky + BackdropVeil）
+  sealDelayMs:     250,  // ② 調律陣（StarSeal）
+  sealMs:          700,
+  sealScaleFrom:  0.97,  // わずかに小さい所から等倍へ（焼き上がるように見せる）
+  cardDelayMs:     450,  // ③ カード＋接地影
+  cardMs:          650,
+  cardRiseFrom:      18, // translateY の開始値(px)。下から昇る
+  topDelayMs:      700,  // ④ 上部クローム（曲名・右上アイコン）
+  topMs:           450,
+  topDropFrom:       -6, // 上から少しだけ降りる
+  bottomDelayMs:   850,  // ⑤ 下部クローム（購入ボタン＋★）
+  bottomMs:        450,
+  bottomRiseFrom:     8,
+  footerDelayMs:   950,  // ⑥ フッター（App.tsx 側）。長さは ANIM.footerEnterMs
+  quickMs:         600,  // reduce-motion 時の一斉フェード
+  launchLeaveMs:   320,  // 起動フローの出口暗転（login/p0/consent/post → app）
+} as const;
+
+// ─────────────────────────────────────────────
 // PURCHASE ANIMATION
 // ─────────────────────────────────────────────
 
