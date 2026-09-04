@@ -23,6 +23,12 @@ import {
   StatusBar,
   LayoutChangeEvent,
   useWindowDimensions,
+  AccessibilityInfo,
+  // 起動時の intro だけは reanimated ではなく RN 本体の Animated で書く
+  // （PR #105 と同じ理由。launch→app の境界でワークレットを走らせない）。
+  // この画面は reanimated の Animated / Easing も使うので別名で取り込む。
+  Animated as RNAnimated,
+  Easing as RNEasing,
 } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
@@ -56,7 +62,7 @@ import { EqBars } from '../components/EqBars';
 import { BellIcon, PreviewIcon } from '../components/icons';
 import { useTopInset } from '../lib/safeArea';
 import { PurchaseParticles } from '../components/PurchaseParticles';
-import { PURCHASE, homeCardWidth } from '../constants/design-tokens';
+import { PURCHASE, HOME_INTRO, homeCardWidth } from '../constants/design-tokens';
 import { formatPrice, TRACK_PRICE_JPY } from '../constants/pricing';
 import { JP_SERIF_FONT } from '../constants/fonts';
 import type { PurchaseController } from '../lib/usePurchaseFlow';
@@ -142,6 +148,14 @@ type Props = {
   purchase?: PurchaseController;
   /** 所有済みカードの「再生」ボタン押下 → 再生画面を開く。未指定なら何も起きない */
   onPlay?: (trackId: string) => void;
+  /**
+   * 起動後の最初のマウントで、暗転から段階的に灯す intro を走らせる。
+   * App.tsx が起動直後の 1 回だけ true を渡す（タブ移動や再生画面から戻った
+   * 再マウントでは false ＝ 全層すぐに表示）。
+   */
+  introOnMount?: boolean;
+  /** intro が終わった（または reduce-motion で一斉フェードし終えた）ことを親へ返す */
+  onIntroDone?: () => void;
 };
 
 // フォールバック用スタブ（App からは stubData を渡す）
@@ -172,6 +186,8 @@ export const DiscoverScreen: React.FC<Props> = ({
   onToggleWishlist,
   purchase,
   onPlay,
+  introOnMount = false,
+  onIntroDone,
 }) => {
   // ウィッシュから飛んできたときは、その曲のカードを最初に表示する。
   const initialIndex = focusTrackId
@@ -197,6 +213,101 @@ export const DiscoverScreen: React.FC<Props> = ({
   // 購入は成立したが、まだ「再生」表示に切り替えていない trackId。
   // 演出が立ち切る前にボタンが変わると、事後報告に見えるため一拍待たせる。
   const [pendingReveal, setPendingReveal] = useState<Set<string>>(new Set());
+
+  // ── 起動時 intro（暗転から段階的に灯す）────────────────────────
+  // 各層を opacity 0 のラッパへ入れ、重い層がコミットされてから 0→1 で灯す。
+  // 値は 0..1 の進行度で、opacity はそのまま、位置・拡大は interpolate で作る。
+  //
+  // introOnMount=false（タブや再生画面から戻ってきた再マウント）のときは初期値 1 の
+  // 静止した値になるので、ラッパは残るが見た目もコストも従来どおり。
+  //
+  // DEBUG_BACKDROP_ONLY のときも 1 から始める。カード層は描かれないが背景と調律陣は
+  // 描かれるので、0 から始めると背景確認用のビルドが真っ暗になってしまう。
+  const introFrom = introOnMount && !DEBUG_BACKDROP_ONLY ? 0 : 1;
+  const intro = useRef({
+    sky: new RNAnimated.Value(introFrom),
+    seal: new RNAnimated.Value(introFrom),
+    card: new RNAnimated.Value(introFrom),
+    top: new RNAnimated.Value(introFrom),
+    bottom: new RNAnimated.Value(introFrom),
+  }).current;
+  const introStarted = useRef(false);
+  // 完了通知は ref 経由で読む。deps に入れると、親がインライン関数を渡している
+  // 場合に再レンダーごとへ effect が張り直され、cleanup が rAF を潰して
+  // intro が永久に始まらなくなる。
+  const onIntroDoneRef = useRef(onIntroDone);
+  onIntroDoneRef.current = onIntroDone;
+
+  const sealScale = useRef(
+    intro.seal.interpolate({ inputRange: [0, 1], outputRange: [HOME_INTRO.sealScaleFrom, 1] }),
+  ).current;
+  const cardRise = useRef(
+    intro.card.interpolate({ inputRange: [0, 1], outputRange: [HOME_INTRO.cardRiseFrom, 0] }),
+  ).current;
+  const topDrop = useRef(
+    intro.top.interpolate({ inputRange: [0, 1], outputRange: [HOME_INTRO.topDropFrom, 0] }),
+  ).current;
+  const bottomRise = useRef(
+    intro.bottom.interpolate({ inputRange: [0, 1], outputRange: [HOME_INTRO.bottomRiseFrom, 0] }),
+  ).current;
+
+  useEffect(() => {
+    // DEBUG_BACKDROP_ONLY では値が 1 から始まるので、走らせても見た目は変わらない
+    // （完了通知だけが親へ返る）。ここで弾くと onIntroDone が永久に来ない。
+    if (!introOnMount || introStarted.current || slideH <= 0) return;
+    introStarted.current = true;
+    let cancelled = false;
+
+    const run = (reduced: boolean) => {
+      if (cancelled) return;
+      const t = (
+        v: RNAnimated.Value,
+        duration: number,
+        delay: number,
+        easing: (value: number) => number = RNEasing.out(RNEasing.quad),
+      ) =>
+        RNAnimated.timing(v, { toValue: 1, duration, delay, easing, useNativeDriver: true });
+
+      const anim = reduced
+        ? // 「視差効果を減らす」設定では順序も移動も捨て、一斉に明るくするだけにする
+          RNAnimated.parallel([
+            t(intro.sky, HOME_INTRO.quickMs, 0),
+            t(intro.seal, HOME_INTRO.quickMs, 0),
+            t(intro.card, HOME_INTRO.quickMs, 0),
+            t(intro.top, HOME_INTRO.quickMs, 0),
+            t(intro.bottom, HOME_INTRO.quickMs, 0),
+          ])
+        : // 奥から手前へ・下から上へ（DESIGN.md「灯る・昇る」）
+          RNAnimated.parallel([
+            t(intro.sky, HOME_INTRO.skyMs, 0),
+            t(intro.seal, HOME_INTRO.sealMs, HOME_INTRO.sealDelayMs),
+            t(intro.card, HOME_INTRO.cardMs, HOME_INTRO.cardDelayMs, RNEasing.out(RNEasing.cubic)),
+            t(intro.top, HOME_INTRO.topMs, HOME_INTRO.topDelayMs),
+            t(intro.bottom, HOME_INTRO.bottomMs, HOME_INTRO.bottomDelayMs),
+          ]);
+
+      anim.start(() => {
+        if (!cancelled) onIntroDoneRef.current?.();
+      });
+    };
+
+    // 重い層（星空・調律陣・カード）はこの render でマウントされ、StarSeal の
+    // 彫刻・発光画像のベイクが JS スレッドで同期実行される。コミット後に rAF を
+    // 2 回またいでから灯し始めることで、ベイクで JS が止まっている間は opacity 0 の
+    // まま＝「フェード途中の濃さで全層がいきなり現れる」が起きない。
+    let raf = requestAnimationFrame(() => {
+      raf = requestAnimationFrame(() => {
+        AccessibilityInfo.isReduceMotionEnabled()
+          .then(run)
+          .catch(() => run(false));
+      });
+    });
+
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf);
+    };
+  }, [slideH, introOnMount, intro]);
 
   const { width: screenW, height: screenH } = useWindowDimensions();
   const active = tracks[activeIndex] ?? tracks[0];
@@ -623,89 +734,125 @@ export const DiscoverScreen: React.FC<Props> = ({
 
       {/* 背景ブロック D の下半分（参照 z 順: bgbase → nebBand → bgstars）。
           旧 NebulaBand + StarField の 2 枚を 1 枚の Canvas へ統合。
-          .bgaura は参照側が opacity:0!important の無効レイヤーなので移植しない */}
-      {slideH > 0 && <BackdropSky width={screenW} height={slideH} paused={cardSpinning} />}
-
-      {/* 調律陣の背景（プレイヤーと同一・カード中心に配置） */}
+          .bgaura は参照側が opacity:0!important の無効レイヤーなので移植しない。
+          intro① : 最初に灯る層。ラッパは各層の React.memo を壊さないよう外側に置き、
+          子へ渡す props は増やさない */}
       {slideH > 0 && (
-        <StarSeal
-          width={screenW}
-          height={slideH}
-          centerX={screenW / 2}
-          centerY={slideH / 2}
-          cardWidth={cardW}
-          paused={cardSpinning}
-          style={styles.sealLayer}
-        />
+        <RNAnimated.View
+          style={[StyleSheet.absoluteFill, { opacity: intro.sky }]}
+          pointerEvents="none"
+        >
+          <BackdropSky width={screenW} height={slideH} paused={cardSpinning} />
+        </RNAnimated.View>
+      )}
+
+      {/* 調律陣の背景（プレイヤーと同一・カード中心に配置）。
+          intro② : わずかに小さい所から等倍へ、空に少し遅れて灯る */}
+      {slideH > 0 && (
+        <RNAnimated.View
+          style={[
+            StyleSheet.absoluteFill,
+            { opacity: intro.seal, transform: [{ scale: sealScale }] },
+          ]}
+          pointerEvents="none"
+        >
+          <StarSeal
+            width={screenW}
+            height={slideH}
+            centerX={screenW / 2}
+            centerY={slideH / 2}
+            cardWidth={cardW}
+            paused={cardSpinning}
+            style={styles.sealLayer}
+          />
+        </RNAnimated.View>
       )}
 
       {/* 背景ブロック D の上半分（減光・粒状感の3層 = bgvig + focus-dim + bggrain）。
           参照の z 順どおり調律陣より上・カードより下。
-          旧・減光レイヤーと粒状感レイヤーの 2 枚を 1 枚の Canvas へ統合 */}
-      {slideH > 0 && <BackdropVeil width={screenW} height={slideH} />}
-
-      {/* 接地影（card-ground）。カードは floatY で浮くが影は床に留め、
-          逆相で「浮くと薄く広く／沈むと濃く狭く」反応させる */}
-      {slideH > 0 && !DEBUG_BACKDROP_ONLY && (
-        <CardGround
-          width={screenW}
-          height={slideH}
-          centerX={screenW / 2}
-          centerY={slideH / 2}
-          cardW={cardW}
-          cardH={cardH}
-          fade={groundFade}
-          lift={lift}
-          dragX={dragX}
-          style={styles.sealLayer}
-        />
+          旧・減光レイヤーと粒状感レイヤーの 2 枚を 1 枚の Canvas へ統合。
+          減光・粒状は空の一部なので intro の進行度は① と共有する */}
+      {slideH > 0 && (
+        <RNAnimated.View
+          style={[StyleSheet.absoluteFill, { opacity: intro.sky }]}
+          pointerEvents="none"
+        >
+          <BackdropVeil width={screenW} height={slideH} />
+        </RNAnimated.View>
       )}
 
-      {/* カード層（B ブロック）。参照 .stage は peekL / card / peekR の
-          3 スロット固定で、カード自身が指へ 1:1 追従する（710-718行）。
-          FlatList の paging では確定しきい値が画面幅の半分になってしまい、
-          参照の 37.7px＋500px/s とは別物の操作感だった。 */}
+      {/* intro③ : 接地影とカード層。下から昇らせるので、接地影も一緒に動かす
+          （影だけ床に残ると浮遊が二重に見える）。カルーセルの transform は
+          中央スロット側が持っているが、こちらはその外側のラッパなので衝突しない。
+          GestureDetector の直下はネイティブ View のままにする（RNGH の要件）。 */}
       {slideH > 0 && !DEBUG_BACKDROP_ONLY && (
-        <GestureDetector gesture={carouselGesture}>
-          <View style={[styles.stage, { height: slideH }]} pointerEvents="box-none">
-            {/* 隣接カード（参照 peekL/peekR）。等倍・不透明度1で dragX±STEP。
-                静止時は opacity 0 ＝ 合成から外れるだけで、毎フレームの
-                描画コストは持たない（中身は静止した Skia レイヤー） */}
-            {count > 1 && (
-              <>
-                <Animated.View style={[styles.slot, peekLStyle]} pointerEvents="none">
-                  <CardFace uri={prevTrack.artworkUrl} width={cardW} height={cardH} />
-                </Animated.View>
-                <Animated.View style={[styles.slot, peekRStyle]} pointerEvents="none">
-                  <CardFace uri={nextTrack.artworkUrl} width={cardW} height={cardH} />
-                </Animated.View>
-              </>
-            )}
+        <RNAnimated.View
+          style={[
+            StyleSheet.absoluteFill,
+            { opacity: intro.card, transform: [{ translateY: cardRise }] },
+          ]}
+          pointerEvents="box-none"
+        >
+          {/* 接地影（card-ground）。カードは floatY で浮くが影は床に留め、
+              逆相で「浮くと薄く広く／沈むと濃く狭く」反応させる */}
+          <CardGround
+            width={screenW}
+            height={slideH}
+            centerX={screenW / 2}
+            centerY={slideH / 2}
+            cardW={cardW}
+            cardH={cardH}
+            fade={groundFade}
+            lift={lift}
+            dragX={dragX}
+            style={styles.sealLayer}
+          />
 
-            {/* アクティブ面: v98準拠の実3Dカード（角丸・厚み・オーラ）。
-                表面=角丸の作品画像＋タップで180°横回転して裏返し / 裏面=
-                アルミ刻印面（再生画面と同一デザイン）＋全方向回転。
-                曲が変わってもカードは載せ替えず、テクスチャだけ差し替える
-                （GL コンテキストの作り直しを避ける）。 */}
-            <Animated.View style={[styles.slot, centerStyle]} pointerEvents="box-none">
-              {active && (
-                <CardGL
-                  mode="flip"
-                  backStyle="aluminum"
-                  frontUri={active.artworkUrl}
-                  width={cardW}
-                  height={cardH}
-                  shadow
-                  frame={cardFrame}
-                  onFlipChange={setFlipped}
-                  rotationOut={cardRotation}
-                  purchaseGlow={showPurchaseFx ? cardGlow : undefined}
-                  backData={backData}
-                />
+          {/* カード層（B ブロック）。参照 .stage は peekL / card / peekR の
+              3 スロット固定で、カード自身が指へ 1:1 追従する（710-718行）。
+              FlatList の paging では確定しきい値が画面幅の半分になってしまい、
+              参照の 37.7px＋500px/s とは別物の操作感だった。 */}
+          <GestureDetector gesture={carouselGesture}>
+            <View style={[styles.stage, { height: slideH }]} pointerEvents="box-none">
+              {/* 隣接カード（参照 peekL/peekR）。等倍・不透明度1で dragX±STEP。
+                  静止時は opacity 0 ＝ 合成から外れるだけで、毎フレームの
+                  描画コストは持たない（中身は静止した Skia レイヤー） */}
+              {count > 1 && (
+                <>
+                  <Animated.View style={[styles.slot, peekLStyle]} pointerEvents="none">
+                    <CardFace uri={prevTrack.artworkUrl} width={cardW} height={cardH} />
+                  </Animated.View>
+                  <Animated.View style={[styles.slot, peekRStyle]} pointerEvents="none">
+                    <CardFace uri={nextTrack.artworkUrl} width={cardW} height={cardH} />
+                  </Animated.View>
+                </>
               )}
-            </Animated.View>
-          </View>
-        </GestureDetector>
+
+              {/* アクティブ面: v98準拠の実3Dカード（角丸・厚み・オーラ）。
+                  表面=角丸の作品画像＋タップで180°横回転して裏返し / 裏面=
+                  アルミ刻印面（再生画面と同一デザイン）＋全方向回転。
+                  曲が変わってもカードは載せ替えず、テクスチャだけ差し替える
+                  （GL コンテキストの作り直しを避ける）。 */}
+              <Animated.View style={[styles.slot, centerStyle]} pointerEvents="box-none">
+                {active && (
+                  <CardGL
+                    mode="flip"
+                    backStyle="aluminum"
+                    frontUri={active.artworkUrl}
+                    width={cardW}
+                    height={cardH}
+                    shadow
+                    frame={cardFrame}
+                    onFlipChange={setFlipped}
+                    rotationOut={cardRotation}
+                    purchaseGlow={showPurchaseFx ? cardGlow : undefined}
+                    backData={backData}
+                  />
+                )}
+              </Animated.View>
+            </View>
+          </GestureDetector>
+        </RNAnimated.View>
       )}
 
       {/* ── 固定クローム（active に連動） ── */}
@@ -713,57 +860,75 @@ export const DiscoverScreen: React.FC<Props> = ({
         style={[styles.chrome, DEBUG_BACKDROP_ONLY && styles.hidden]}
         pointerEvents={DEBUG_BACKDROP_ONLY ? 'none' : 'box-none'}
       >
-        {/* 右上: ベル／EQメーター／試聴アイコンを横一列に並べる。EQ は試聴中だけ
-            動く（試聴を止めたらボリュームアニメーションも消える）。
-            top は曲名（texts）と同じ topRightY + 5 にして高さを揃える。 */}
-        <View style={[styles.topRight, { top: topRightY + 5 }]} pointerEvents="box-none">
-          <View style={styles.iconsRow1}>
-            <Pressable onPress={onOpenNotifications} hitSlop={10} style={styles.bell}>
-              <BellIcon size={24} />
-              {hasUnread && <View style={styles.bdot} />}
-            </Pressable>
-            {/* EqBars は非アクティブ時 null を返すため、幅固定のスロットで囲って
-                試聴の開始/停止でベルや試聴アイコンの位置が動かないようにする */}
-            <View style={styles.eqSlot}>
-              <EqBars active={isPreviewing} />
+        {/* intro④ : 上部クローム（曲名・右上アイコン）。上から少しだけ降りる */}
+        <RNAnimated.View
+          style={[
+            StyleSheet.absoluteFill,
+            { opacity: intro.top, transform: [{ translateY: topDrop }] },
+          ]}
+          pointerEvents="box-none"
+        >
+          {/* 右上: ベル／EQメーター／試聴アイコンを横一列に並べる。EQ は試聴中だけ
+              動く（試聴を止めたらボリュームアニメーションも消える）。
+              top は曲名（texts）と同じ topRightY + 5 にして高さを揃える。 */}
+          <View style={[styles.topRight, { top: topRightY + 5 }]} pointerEvents="box-none">
+            <View style={styles.iconsRow1}>
+              <Pressable onPress={onOpenNotifications} hitSlop={10} style={styles.bell}>
+                <BellIcon size={24} />
+                {hasUnread && <View style={styles.bdot} />}
+              </Pressable>
+              {/* EqBars は非アクティブ時 null を返すため、幅固定のスロットで囲って
+                  試聴の開始/停止でベルや試聴アイコンの位置が動かないようにする */}
+              <View style={styles.eqSlot}>
+                <EqBars active={isPreviewing} />
+              </View>
+              <Pressable onPress={togglePreview} hitSlop={10}>
+                <PreviewIcon size={24} on={isPreviewing} />
+              </Pressable>
             </View>
-            <Pressable onPress={togglePreview} hitSlop={10}>
-              <PreviewIcon size={24} on={isPreviewing} />
-            </Pressable>
           </View>
-        </View>
 
-        {/* タイトル（1行のみ。eyeコピー・情景サブタイトルはモック確定値により非表示）。
-            右上のアイコン列（topRight）と同じ top・高さで縦中央揃えにし、
-            アイコンの縦位置とタイトルの縦位置をぴったり揃える。 */}
-        <View style={[styles.texts, { top: topRightY + 5 }]} pointerEvents="none">
-          <Text style={styles.title} numberOfLines={1}>{active?.title}</Text>
-        </View>
+          {/* タイトル（1行のみ。eyeコピー・情景サブタイトルはモック確定値により非表示）。
+              右上のアイコン列（topRight）と同じ top・高さで縦中央揃えにし、
+              アイコンの縦位置とタイトルの縦位置をぴったり揃える。 */}
+          <View style={[styles.texts, { top: topRightY + 5 }]} pointerEvents="none">
+            <Text style={styles.title} numberOfLines={1}>{active?.title}</Text>
+          </View>
+        </RNAnimated.View>
 
-        {/* 下部: 購入ボタン ＋ ウィッシュ星。裏返し中も位置は固定のまま動かさない。 */}
-        <View style={[styles.bottom, { bottom: BOTTOM_BASE }]} pointerEvents="box-none">
-          {(() => {
-            const owned = isOwned(active);
-            return (
-              <>
-                <BuyButton
-                  owned={owned}
-                  priceLabel={active ? purchase?.displayPriceOf(active.id) : undefined}
-                  onPress={handleBuy}
-                />
-                {/* 所有済みでは星を非表示 */}
-                {!owned && (
-                  <View style={styles.starSlot}>
-                    <WishlistStar
-                      inWishlist={active ? wishlist.has(active.id) : false}
-                      onToggle={() => active && toggleWishlist(active.id)}
-                    />
-                  </View>
-                )}
-              </>
-            );
-          })()}
-        </View>
+        {/* intro⑤ : 下部クローム（購入ボタン＋★）。最後に下から入る */}
+        <RNAnimated.View
+          style={[
+            StyleSheet.absoluteFill,
+            { opacity: intro.bottom, transform: [{ translateY: bottomRise }] },
+          ]}
+          pointerEvents="box-none"
+        >
+          {/* 下部: 購入ボタン ＋ ウィッシュ星。裏返し中も位置は固定のまま動かさない。 */}
+          <View style={[styles.bottom, { bottom: BOTTOM_BASE }]} pointerEvents="box-none">
+            {(() => {
+              const owned = isOwned(active);
+              return (
+                <>
+                  <BuyButton
+                    owned={owned}
+                    priceLabel={active ? purchase?.displayPriceOf(active.id) : undefined}
+                    onPress={handleBuy}
+                  />
+                  {/* 所有済みでは星を非表示 */}
+                  {!owned && (
+                    <View style={styles.starSlot}>
+                      <WishlistStar
+                        inWishlist={active ? wishlist.has(active.id) : false}
+                        onToggle={() => active && toggleWishlist(active.id)}
+                      />
+                    </View>
+                  )}
+                </>
+              );
+            })()}
+          </View>
+        </RNAnimated.View>
       </View>
 
       {/* 購入の光粒子（画面下部から舞い上がる・複製カードは出さない） */}

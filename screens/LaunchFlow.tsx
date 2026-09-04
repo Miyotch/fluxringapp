@@ -31,6 +31,10 @@ import {
   useWindowDimensions,
   NativeSyntheticEvent,
   NativeScrollEvent,
+  // 出口の暗転だけは reanimated ではなく RN 本体の Animated で書く（下の leave 参照）。
+  // この画面は reanimated の Animated / Easing も使うので別名で取り込む。
+  Animated as RNAnimated,
+  Easing as RNEasing,
 } from 'react-native';
 import Animated, {
   useSharedValue,
@@ -59,6 +63,7 @@ import {
 } from '../constants/authConfig';
 import { signIn, signInWithGoogleToken } from '../lib/firebaseAuth';
 import { useTopInset } from '../lib/safeArea';
+import { HOME_INTRO } from '../constants/design-tokens';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -306,6 +311,62 @@ export const LaunchFlow: React.FC<Props> = ({
 }) => {
   const [screen, setScreen] = useState<Screen>('launch');
 
+  // ── 出口の暗転 ──
+  // アプリ本体へ渡す前に、天の川ごと画面の中身を暗転させる。
+  // 以前は LaunchFlow がそのままアンマウントされていたため、ワードマークが
+  // 消えたあとも残っていた天の川がカットで唐突に消え、ホーム側の「背景だけ
+  // 一瞬出て、いきなり全部出る」の前半をつくっていた。
+  //
+  // ルート View の地色（#0E0C20）は残したまま中身だけを透かす。ルートごと
+  // 透かすと OS のウィンドウ地色が覗いて、別のフラッシュになる。
+  //
+  // reanimated ではなく RN 本体の Animated を使うのは PR #105 と同じ理由。
+  // launch→app の境界でワークレットのシリアライズを走らせない（実機の
+  // SIGABRT がこの重なりで再現していた）。
+  const leaveOp = useRef(new RNAnimated.Value(1)).current;
+  const leaving = useRef(false);
+  const leave = useCallback(
+    (durationMs: number, done: () => void) => {
+      // 連打・多重コールバックで二重に走らせない（onEnterApp は 1 回だけ）
+      if (leaving.current) return;
+      leaving.current = true;
+      RNAnimated.timing(leaveOp, {
+        toValue: 0,
+        duration: durationMs,
+        easing: RNEasing.in(RNEasing.quad),
+        useNativeDriver: true,
+      }).start(({ finished }) => {
+        if (finished) done();
+        else leaving.current = false; // 中断されたらやり直せるように戻す
+      });
+    },
+    [leaveOp],
+  );
+  const leaveToApp = useCallback(
+    () => leave(HOME_INTRO.launchLeaveMs, onEnterApp),
+    [leave, onEnterApp],
+  );
+
+  // ── 天の川を出すタイミング ──
+  // launch（ワードマークだけの 1.2 秒）では出さない。ここから出していたため、
+  // 起動が「黒 → 背景 → 黒 → 順に点灯」となり、背景が一度消える段ができていた。
+  // 背景はホームの intro で初めて灯すのが正で、起動フローで先に見せる必要はない。
+  //
+  // オンボーディング（p0）・ログイン・同意は、画面そのものが天の川を地として
+  // 設計されているので、そちらへ移るときに灯す。立ち上がりはホームの空と
+  // 同じ長さ・同じイージングにして、起動フロー全体で同じ「灯り方」に揃える。
+  //
+  // セッション有効でホームへ直行する経路では一度も呼ばれない＝天の川は出ない。
+  const skyOp = useRef(new RNAnimated.Value(0)).current;
+  const revealSky = useCallback(() => {
+    RNAnimated.timing(skyOp, {
+      toValue: 1,
+      duration: HOME_INTRO.skyMs,
+      easing: RNEasing.out(RNEasing.quad),
+      useNativeDriver: true,
+    }).start();
+  }, [skyOp]);
+
   // ── launch: 1.2秒のフェード後、initialScreen へ ──
   const launchOp = useSharedValue(0);
   useEffect(() => {
@@ -316,11 +377,21 @@ export const LaunchFlow: React.FC<Props> = ({
       withTiming(0, { duration: 410, easing: Easing.in(Easing.ease) }, (fin) => {
         'worklet';
         if (!fin) return;
-        // exist（セッション有効）は launch 後そのままアプリへ
-        if (initialScreen === 'app') runOnJS(onEnterApp)();
-        else runOnJS(setScreen)(initialScreen);
+        // 'app'（セッション有効）は下の timer が暗転ごとアプリへ渡すので、
+        // ここでは画面を差し替えるぶんだけを扱う。
+        if (initialScreen !== 'app') runOnJS(setScreen)(initialScreen);
       }),
     );
+    // ワードマークが引き始める 790ms に、次の一手を重ねる。
+    //   ・'app'（セッション有効）: 同じ 410ms で暗転しきってからホームへ渡す。
+    //     背景は出していないので、暗いまま次の intro へ繋がる。
+    //   ・それ以外: 天の川を灯し始める。ワードマークの退場と入れ替わりになり、
+    //     1.2 秒でオンボーディング／ログインが出る頃には地ができている。
+    const id = setTimeout(
+      () => (initialScreen === 'app' ? leave(410, onEnterApp) : revealSky()),
+      790,
+    );
+    return () => clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const launchStyle = useAnimatedStyle(() => ({ opacity: launchOp.value }));
@@ -328,45 +399,59 @@ export const LaunchFlow: React.FC<Props> = ({
   return (
     <View style={s.root}>
       <StatusBar barStyle="light-content" backgroundColor={C.bg} />
-      <NebulaBand />
+      {/* 出口の暗転レイヤー。天の川もオンボーディングもこの中に入れて、
+          アプリへ渡す直前にまとめて暗転させる（leave 参照）。地色は外の
+          s.root が持っているので、透けても素の黒は覗かない。 */}
+      <RNAnimated.View style={[StyleSheet.absoluteFill, { opacity: leaveOp }]}>
+        {/* 天の川。launch のあいだは opacity 0 で、p0 / login / consent へ
+            移るときだけ灯す（skyOp 参照）。ホームへ直行する経路では出ない。 */}
+        <RNAnimated.View
+          style={[StyleSheet.absoluteFill, { opacity: skyOp }]}
+          pointerEvents="none"
+        >
+          <NebulaBand />
+        </RNAnimated.View>
 
-      {screen === 'launch' && (
-        <View style={s.center} pointerEvents="none">
-          <Animated.View style={launchStyle}>
-            <Wordmark width={210} color={C.text} />
-          </Animated.View>
-        </View>
-      )}
+        {screen === 'launch' && (
+          <View style={s.center} pointerEvents="none">
+            <Animated.View style={launchStyle}>
+              <Wordmark width={210} color={C.text} />
+            </Animated.View>
+          </View>
+        )}
 
-      {screen === 'p0' && (
-        <P0
-          onSignup={() => setScreen('post')}
-          onEnterApp={onEnterApp}
-          onToLogin={() => setScreen('login')}
-        />
-      )}
+        {screen === 'p0' && (
+          <P0
+            onSignup={() => setScreen('post')}
+            onEnterApp={leaveToApp}
+            onToLogin={() => setScreen('login')}
+          />
+        )}
 
-      {screen === 'post' && (
-        <PostSteps onDone={(info) => onCompleteSignup(info)} />
-      )}
+        {screen === 'post' && (
+          <PostSteps
+            onDone={(info) => leave(HOME_INTRO.launchLeaveMs, () => onCompleteSignup(info))}
+          />
+        )}
 
-      {screen === 'login' && (
-        <LoginScreen
-          onEnterApp={onEnterApp}
-          onToSignup={() => setScreen('p0')}
-        />
-      )}
+        {screen === 'login' && (
+          <LoginScreen
+            onEnterApp={leaveToApp}
+            onToSignup={() => setScreen('p0')}
+          />
+        )}
 
-      {screen === 'consent' && (
-        <ConsentScreen
-          onAgree={() => {
-            onAgreeConsent();
-            if (consentJoin === 'new') setScreen('p0');
-            else if (consentJoin === 'login') setScreen('login');
-            else onEnterApp();
-          }}
-        />
-      )}
+        {screen === 'consent' && (
+          <ConsentScreen
+            onAgree={() => {
+              onAgreeConsent();
+              if (consentJoin === 'new') setScreen('p0');
+              else if (consentJoin === 'login') setScreen('login');
+              else leaveToApp();
+            }}
+          />
+        )}
+      </RNAnimated.View>
     </View>
   );
 };
