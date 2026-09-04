@@ -108,7 +108,7 @@
 |----------|------|------|
 | `OnboardingScreen.tsx` | P0 | 情景3枚の横スワイプ → サインアップ/ログイン |
 | `AuthScreen.tsx` | — | サインアップ / ログイン（メール・Google・Apple） |
-| `DiscoverScreen.tsx` | P2 | ハブ。横スワイプ曲切替・試聴・購入トランジション |
+| `DiscoverScreen.tsx` | P2 | ハブ。横スワイプ曲切替・試聴・購入トランジション。起動後1回だけ intro（暗転→星空→調律陣→カード→文字の順に点灯。定数は `HOME_INTRO`）|
 | `StoryScreen.tsx` | P2.1 | サムネ→Story→調律素材→Artist（フロスト分離・固定位置） |
 | `PlayerScreen.tsx` | — | 再生画面。共有カード＋フロストのトランスポート |
 | `CollectionScreen.tsx` | P3 | 2列グリッド。マイコレ/ウィッシュ切替・空状態 |
