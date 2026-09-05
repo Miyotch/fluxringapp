@@ -46,7 +46,14 @@
  *   参照は星ごとに独立して明滅するが、最も目立つ層2（36個）は移植当初から
  *   1星1群＝実質個別だった。層0(317)/層1(126)は輝度 0.08〜0.26 と淡く、
  *   群にまとめても知覚差が出ない。derived value 数を抑える利点が勝るため
- *   群方式（8/12/36・天の川16）を維持する。
+ *   群方式（8/12/36・天の川8）を維持する。
+ *
+ * 明滅する星／しない星の分割について（2026-09-05）:
+ *   この Canvas が持つのは **明滅する群だけ**（層1の3群＋層2の18群＝21本）。
+ *   残り 400 星あまりは components/StaticStars.tsx の別 Canvas が持ち、そちらは
+ *   SharedValue をひとつも参照しないのでマウント時に1回描いたきり凍る。
+ *   星の総数は参照どおり479のまま、毎フレームの仕事だけが減る。
+ *   境界は StarField.tsx の LayerSpec.liveGroups。
  *
  * 未移植（意図的・2026-08-17 判断）:
  *   ・カードのフリップ量に連動する横パララックス（参照 animateBG の
@@ -80,14 +87,15 @@ import {
 } from './NebulaBand';
 import {
   buildLayers,
+  splitLayers,
   STAR_COLOR,
-  HALO_TUNE,
   type BuiltLayer,
+  type SplitLayer,
   type TwinkleGroup,
   type LayerSpec,
 } from './StarField';
+import { StarGroupPaint, StaticStars } from './StaticStars';
 import {
-  makeGlowSprite,
   makeBlurredRadialSprite,
   fullSprite,
   cachedImage,
@@ -130,21 +138,12 @@ const CLOUD_SIGMA = (13 * ((CLOUD_SPRITE_PX / 2) * CLOUD_CORE_RATIO)) / 150;
  */
 const CLOUD_GAIN = 1.3;
 
-/** ハロースプライト一辺。芯 + 3σ がちょうど収まる比率を層ごとに計算する */
-const HALO_SPRITE_PX = 96;
-
 /** 雲のグラデ停止点（参照 loop(): addColorStop 0 / 0.42 / 1） */
 const CLOUD_STOPS = [
   { at: 0, color: 'rgba(255,255,255,1)' },
   { at: 0.42, color: 'rgba(255,255,255,0.5)' },
   { at: 1, color: 'rgba(255,255,255,0)' },
 ];
-
-/** 'r,g,b' と α から SkColor（Float32Array・0..1）を作る */
-function rgbaColor(rgb: string, a: number): SkColor {
-  const [r, g, b] = rgb.split(',').map((v) => Number(v) / 255);
-  return new Float32Array([r, g, b, a]);
-}
 
 // ══════ 天の川の雲（Atlas で 36 個を 1 ドローに束ねる） ══════
 const CloudAtlas: React.FC<{
@@ -232,15 +231,16 @@ const NebStarLayer: React.FC<{
   return <Path path={g.path} color="rgb(200,214,252)" opacity={opacity} blendMode="plus" />;
 };
 
-// ══════ bgstars の 1 群（本体 = Path / ハロー = Atlas のガウス減衰） ══════
+// ══════ bgstars のうち「明滅する」1群 ══════
+// 絵は StarGroupPaint と共通。ここは opacity に SharedValue を渡す＝この Canvas を
+// 毎フレーム塗り直させる側。静的な群は components/StaticStars.tsx が別 Canvas で持つ。
 const TwinkleLayer: React.FC<{
   g: TwinkleGroup;
   spec: LayerSpec;
   layerIndex: number;
-  scale: number;
   clock: SharedValue<number>;
   stop: SharedValue<boolean>;
-}> = ({ g, spec, layerIndex, scale, clock, stop }) => {
+}> = ({ g, spec, layerIndex, clock, stop }) => {
   const opacity = useDerivedValue(() => {
     // 停止時は谷 = 基輝度で静止（参照の初期 style.opacity = o0 と同じ）
     if (stop.value) return g.o0;
@@ -248,66 +248,14 @@ const TwinkleLayer: React.FC<{
     return g.o0 + (g.o1 - g.o0) * (0.5 - 0.5 * Math.cos((t + g.ph) * g.w));
   }, [clock]);
 
-  // ハロー = box-shadow '0 0 Bpx'（B = 星径 × spec.halo、σ = B/2）。
-  // 星径 = 芯半径 × 2 なので σ / 芯半径 = spec.halo。
-  // 芯 + 3σ がスプライトへ収まる比率を逆算する。
-  const halo = useMemo(() => {
-    if (spec.halo <= 0) return null;
-    const coreRatio = 1 / (1 + 3 * spec.halo);
-    let core = (HALO_SPRITE_PX / 2) * coreRatio;
-    const image = cachedImage(`starHalo${layerIndex}`, () => {
-      const made = makeGlowSprite(HALO_SPRITE_PX, coreRatio, spec.halo);
-      core = made.core;
-      return made.image;
-    });
-    return image ? { image, core, size: HALO_SPRITE_PX } : null;
-  }, [spec.halo, layerIndex]);
-
-  const haloRect = useMemo(() => fullSprite(halo?.image ?? null), [halo]);
-  const haloSprites = useMemo(
-    () => (halo ? g.halos.map(() => haloRect) : []),
-    [halo, g.halos, haloRect],
-  );
-  // ハローの位置・大きさは不動なので起動時に確定（毎フレームの割当ゼロ）
-  const haloTransforms = useMemo<SkRSXform[]>(() => {
-    if (!halo) return [];
-    const k = halo.size / halo.core;
-    return g.halos.map((h) => {
-      // h.r は「星半径 + box-shadow の B」で作られた視覚半径。
-      // ここでは芯 = 星半径に合わせたいので星半径へ戻す。
-      const starR = h.r / (1 + 2 * spec.halo);
-      const side = starR * k;
-      return Skia.RSXform(side / halo.size, 0, h.x - side / 2, h.y - side / 2);
-    });
-  }, [halo, g.halos, spec.halo]);
-
-  const haloColors = useMemo<SkColor[] | undefined>(() => {
-    if (!halo) return undefined;
-    const col = rgbaColor(spec.haloRGB, spec.haloA * HALO_TUNE);
-    return g.halos.map(() => col);
-  }, [halo, g.halos, spec.haloRGB, spec.haloA]);
-
-  const bodyColor = DEBUG_SKY.proofOfLife ? PROOF_COLOR : STAR_COLOR;
-
   return (
-    <Group opacity={opacity}>
-      {halo?.image && haloTransforms.length > 0 && (
-        <Atlas
-          image={halo.image}
-          sprites={haloSprites}
-          transforms={haloTransforms}
-          colors={haloColors}
-          colorBlendMode={ATLAS_TINT}
-        />
-      )}
-      {/* 星本体。サブピクセル径なので Path のアンチエイリアスに任せる。
-          層0 には参照の filter:blur(0.4px) を BlurMask で復元していたが、発熱対策で
-          撤去した。各群の星は画面全域に散っておりパスのバウンズが実質フルスクリーン
-          なので、「マスク生成→ぼかし→合成」が毎フレーム 8 群ぶん走っていた。参照側は
-          静的 DOM に CSS filter を一度当てるだけで毎フレームのコストはゼロ。
-          0.4px は DPR3 実機ではほぼ視認できない差なので、素の AA に委ねる */}
-      <Path path={g.path} color={bodyColor} />
-    </Group>
+    <StarGroupPaint
+      g={g}
+      spec={spec}
+      layerIndex={layerIndex}
+      opacity={opacity}
+      bodyColor={DEBUG_SKY.proofOfLife ? PROOF_COLOR : STAR_COLOR}
+    />
   );
 };
 
@@ -356,6 +304,9 @@ const BackdropSkyImpl: React.FC<BackdropSkyProps> = ({
   const clouds = useMemo(buildClouds, []);
   const nebStarGroups = useMemo(() => buildStarGroups(W, H), [W, H]);
   const starLayers = useMemo<BuiltLayer[]>(() => buildLayers(W, H), [W, H]);
+  // 明滅する群 / 動かさない群へ振り分ける（星の位置・径・分布は不変）。
+  // live はこの Canvas、still は下の StaticStars（塗り直されない Canvas）へ。
+  const split = useMemo<SplitLayer[]>(() => splitLayers(starLayers), [starLayers]);
 
   // ── Canvas の要素ツリーを固定する ────────────────────────────────
   // RN Skia の <Canvas> は children の「要素としての同一性」が変わると
@@ -413,16 +364,17 @@ const BackdropSkyImpl: React.FC<BackdropSkyProps> = ({
         </Group>
       )}
 
-      {/* ── .bgstars: 遠近3層479星。遠景→近景の順（参照の DOM 生成順） ── */}
+      {/* ── .bgstars（明滅する群だけ）。遠景→近景の順（参照の DOM 生成順）──
+          残りの星は StaticStars が別 Canvas で持つ。星同士の重なりは点なので
+          描画順が入れ替わっても知覚差は出ない */}
       {DEBUG_SKY.showStars &&
-        starLayers.map((l, li) =>
-          l.groups.map((g, gi) => (
+        split.map((l) =>
+          l.live.map((g, gi) => (
             <TwinkleLayer
-              key={`${li}-${gi}`}
+              key={`${l.layerIndex}-${gi}`}
               g={g}
               spec={l.spec}
-              layerIndex={li}
-              scale={scale}
+              layerIndex={l.layerIndex}
               clock={clock}
               stop={stop}
             />
@@ -430,10 +382,24 @@ const BackdropSkyImpl: React.FC<BackdropSkyProps> = ({
         )}
     </Canvas>
     ),
-    [W, H, scale, clouds, nebStarGroups, starLayers, clock, stop],
+    [W, H, scale, clouds, nebStarGroups, split, clock, stop],
   );
 
-  return tree;
+  // 静的な星は別 Canvas。天の川の screen 合成グループの外側に srcOver で重なる
+  // 点は、これまで同じ Canvas の最後に描いていたときと合成結果が変わらない。
+  return (
+    <>
+      {tree}
+      {DEBUG_SKY.showStars && (
+        <StaticStars
+          width={W}
+          height={H}
+          layers={split}
+          bodyColor={DEBUG_SKY.proofOfLife ? PROOF_COLOR : STAR_COLOR}
+        />
+      )}
+    </>
+  );
 };
 
 
