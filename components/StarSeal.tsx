@@ -68,14 +68,14 @@ const REF_CARD_CY = 367.765; // .card top 226.33 + 282.87/2
 // 09_FS.glsl の CYAN=vec3(0.376,0.808,0.878) と一致（×255=(95.9,206.0,223.9)）
 const CYAN = 'rgba(96,206,224,1)';
 // 09_FS.glsl の NSP（スパーク並行数）と一致
-const N_SPARKS = 36;
+const N_SPARKS = 18;
 
 // ── 発熱対策: 信号層の密度 ──────────────────────────────
 // 走る光点は 1本につき毎フレーム derived value 2（head/tail）＋描画2
 // （Line/Circle）を消費し、さらに screen 合成＋Blur のレイヤー内にあるため
 // 塗り面積がそのまま GPU 負荷になる。実機が熱くなる件への対応として、
 // 本数を 1/3（45→15）へ、尾の長さを半分へ落とす。
-const PULSE_KEEP_EVERY = 3;   // 生成後に何本おきに残すか（3 = 1/3）
+const PULSE_KEEP_EVERY = 6;   // 生成後に何本おきに残すか（6 = 1/6・45→8本）
 const PULSE_TAIL_SCALE = 0.5; // 尾の長さ倍率
 
 // 交点のシャープ層。旧値（光条長5.5・光条0.55・コア0.95）は参照より強く、
@@ -134,11 +134,11 @@ const lab = (a: number) => `rgba(178,198,216,${a})`;
 
 // 彫刻層を焼くときの最大 DPR。3x 機では全画面 RGBA が約 10MB になるため上限を置く。
 // 髪の毛のような細線が主体なので 2 未満へ落とすと目に見えて甘くなる。
-const INK_BAKE_MAX_DPR = 3;
+const INK_BAKE_MAX_DPR = 2;
 
 // 発光層を焼くときの最大 DPR。ぼかし側だけなら 1.5 で足りるが、同じ画像へ
 // シャープ層（0.6*s の十字光条・小さな白コア）も焼くので彫刻層と同じ上限にする。
-const GLOW_BAKE_MAX_DPR = 3;
+const GLOW_BAKE_MAX_DPR = 2;
 
 // 決定論ハッシュ（0..1）
 function hash(x: number): number {
@@ -983,7 +983,11 @@ const StarSealImpl: React.FC<StarSealProps> = ({
     return 0.86 + 0.14 * breath;
   }, [clock]);
 
-  return (
+  // BackdropSky と同じ理由で要素ツリーを固定する。paused が変わるだけで
+  // recorder（約66プリミティブ＋焼き画像2枚）を作り直さないようにする。
+  // 下のツリーは paused も reduced も参照していない。
+  const tree = useMemo(
+    () => (
     <Canvas style={[{ width: W, height: H }, style]} pointerEvents="none">
       {/* ═ ① 彫刻層（静的・SkImage へ焼き込み済み） ═
           参照 #frSealInk と同じ「一度描いたら触らない」層。
@@ -1144,7 +1148,11 @@ const StarSealImpl: React.FC<StarSealProps> = ({
         ))}
       </Group>
     </Canvas>
+    ),
+    [W, H, style, s, cx, cy, geo, fonts, inkImage, glowImage, glowOpacity, clock, stopSV],
   );
+
+  return tree;
 };
 
 

@@ -18,6 +18,9 @@
  *   ・乱数は決定論ハッシュ（NebulaBand と同方式。再レンダーで模様が変わらない）
  *   ・明滅は群に量子化して Path をまとめ、derived value 数を抑える
  *     （479個 → 8+12+36 = 56群。層2は目立つので星ごと＝1星1群）
+ *   ・さらに 2026-09-05 以降、群は「明滅させる live」と「動かさない still」へ
+ *     分かれる（splitLayers）。still は components/StaticStars.tsx の
+ *     再描画されない Canvas が描くので、何個あっても毎フレームの仕事は増えない
  *   ・ハローは参照の box-shadow の代替。当初は Path+Blur で近似したが、
  *     毎フレーム 48 回の saveLayer（オフスクリーン合成）が走り実機で重かった
  *     ため、星ごとの RadialGradient 円（中心=ハロー色 → 外周=透明）に変更。
@@ -48,6 +51,16 @@ import {
 import { useSharedValue, useDerivedValue, SharedValue } from 'react-native-reanimated';
 
 // ── 参照実装のパラメータ（P オブジェクト・682行） ──
+// 2026-09-05: 参照値 300（実描画479星）へ復帰。
+//
+// 2026-09-03 の発熱対策で 150（239星）へ半減したが、同じコミットで
+// 「支配的なのは塗り面積ではなく全画面 Canvas を1秒に何回塗り直すか」と
+// 見立てを訂正している。効いたのは 120Hz→60Hz 固定と時計の 30fps 間引きで、
+// 星の本数はその次だった。空が寂しくなったぶんだけ損をしていることになる。
+//
+// そこで「数（密度）」と「動き（明滅）」を切り離す。本数は参照へ戻し、
+// 明滅する群だけを生きた Canvas に残して、残りは再描画されない静的 Canvas
+// （components/StaticStars.tsx）へ逃がす。下の liveGroups がその境界。
 const P_COUNT = 300;
 const P_SIZE = 0.5;
 const P_BRIGHT = 1.6;
@@ -73,6 +86,12 @@ const N2 = Math.round(P_COUNT * 0.12);
 export type LayerSpec = {
   n: number;
   groups: number;              // 明滅の群数（層2は n と同数＝星ごと）
+  /**
+   * このうち先頭いくつの群を「明滅させたまま」にするか（残りは静的 Canvas 行き）。
+   * 星 i は群 i % groups へ入る＝どの群も画面全域・全径レンジに散った一様な
+   * 部分集合なので、先頭から取るだけで偏らない。
+   */
+  liveGroups: number;
   sMin: number; sMax: number;  // 径レンジ（SIZE_K 適用前）
   oMin: number; oMax: number;  // 基輝度レンジ（P_BRIGHT 適用前）
   halo: number;                // 参照 box-shadow の径倍率（0=なし）
@@ -80,10 +99,16 @@ export type LayerSpec = {
   haloA: number;               // ハロー色の α（参照 box-shadow の α）
 };
 
+// liveGroups の配分（2026-09-05）。毎フレームの仕事は「明滅する星」だけが作る。
+//   層0 317星: 0/8   … ハロー無し・輝度 0.08〜0.26。個々の明滅は知覚できない
+//   層1 126星: 3/12  … 約32星。空の「呼吸」を薄く担保する
+//   層2  36星: 18/36 … ハロー 2.2 で塗り面積の主体。目に付く粒は半分残す
+// 明滅の mapper は 21本（(30) 56本 / (33) 38本）。生きた星の塗り面積も (33) を
+// 約 2 割下回る。密度だけ (30) へ戻して負荷は (33) より軽い、が狙い。
 const LAYERS: LayerSpec[] = [
-  { n: N0, groups: 8,  sMin: 0.5, sMax: 1.0, oMin: 0.05, oMax: 0.16, halo: 0,   haloRGB: '',            haloA: 0 },
-  { n: N1, groups: 12, sMin: 1.1, sMax: 1.7, oMin: 0.2,  oMax: 0.4,  halo: 1.3, haloRGB: '200,220,255', haloA: 0.35 },
-  { n: N2, groups: N2, sMin: 2.0, sMax: 2.9, oMin: 0.42, oMax: 0.62, halo: 2.2, haloRGB: '200,230,250', haloA: 0.7 },
+  { n: N0, groups: 8,  liveGroups: 0,                 sMin: 0.5, sMax: 1.0, oMin: 0.05, oMax: 0.16, halo: 0,   haloRGB: '',            haloA: 0 },
+  { n: N1, groups: 12, liveGroups: 3,                 sMin: 1.1, sMax: 1.7, oMin: 0.2,  oMax: 0.4,  halo: 1.3, haloRGB: '200,220,255', haloA: 0.35 },
+  { n: N2, groups: N2, liveGroups: Math.round(N2 / 2), sMin: 2.0, sMax: 2.9, oMin: 0.42, oMax: 0.62, halo: 2.2, haloRGB: '200,230,250', haloA: 0.7 },
 ];
 
 // 決定論ハッシュ（0..1）— NebulaBand と同方式
@@ -108,6 +133,43 @@ export type BuiltLayer = {
   spec: LayerSpec;
   groups: TwinkleGroup[];
 };
+
+/**
+ * 静的に置く星の不透明度。
+ *
+ * 明滅は o(t) = o0 + (o1-o0)·(0.5 - 0.5·cos …) なので、時間平均はちょうど
+ * (o0+o1)/2 になる。止めるなら谷 o0 ではなくこの平均で置くのが、動いていた
+ * ときと同じ「空の明るさ」になる。谷で固定すると空全体が沈んで見える。
+ *
+ * ※ paused / reduce-motion 時に o0 で凍らせるのとは目的が違う。あちらは
+ *   「動いていた星が止まる」ので直前の値に近い谷が自然、こちらは
+ *   「最初から動かない星」なので平均が自然。
+ */
+export function stillOpacity(g: TwinkleGroup): number {
+  return (g.o0 + g.o1) / 2;
+}
+
+export type SplitLayer = {
+  spec: LayerSpec;
+  layerIndex: number;
+  /** 明滅させる群（生きた Canvas 行き） */
+  live: TwinkleGroup[];
+  /** 動かさない群（再描画されない静的 Canvas 行き） */
+  still: TwinkleGroup[];
+};
+
+/**
+ * buildLayers の結果を「明滅する群」と「静的な群」へ振り分ける。
+ * 星の位置・径・分布は一切変えない。どこに描くかだけを決める。
+ */
+export function splitLayers(layers: BuiltLayer[]): SplitLayer[] {
+  return layers.map((l, layerIndex) => ({
+    spec: l.spec,
+    layerIndex,
+    live: l.groups.slice(0, l.spec.liveGroups),
+    still: l.groups.slice(l.spec.liveGroups),
+  }));
+}
 
 export function buildLayers(W: number, H: number): BuiltLayer[] {
   const scale = W / REF_W;

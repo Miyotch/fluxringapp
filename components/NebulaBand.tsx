@@ -42,7 +42,8 @@ const CLOUD_COLORS: [number, number, number][] = [
 ];
 const N_CLOUDS = 36;
 const N_STARS = 520;
-const STAR_GROUPS = 16;
+// 明滅の群数。星の本数は変えず、群だけ束ねて毎フレームの mapper を半減する。
+const STAR_GROUPS = 8;
 export const REF_W = 380; // 参照実装の内部座標幅（サイズ換算基準）
 /** 雲のグラデ停止点（参照 loop(): addColorStop 0 / 0.42 / 1 と同じ） */
 export const CLOUD_GRADIENT_STOPS = [0, 0.42, 1] as const;

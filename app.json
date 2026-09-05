@@ -20,6 +20,7 @@
       "usesAppleSignIn": true,
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
+        "CADisableMinimumFrameDurationOnPhone": false,
         "UIBackgroundModes": ["audio"],
         "CFBundleURLTypes": [
           {
