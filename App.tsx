@@ -29,6 +29,9 @@ import { LanguageProvider } from './lib/i18n';
 import { onUserChanged, deleteAccount, signOut } from './lib/firebaseAuth';
 import { usePurchaseFlow } from './lib/usePurchaseFlow';
 import { useTrackPreviews } from './lib/useTrackPreviews';
+import { useTracks } from './lib/useTracks';
+import { useArtists } from './lib/useArtists';
+import { useUserProfileSync } from './lib/useUserProfileSync';
 import { useArticles } from './lib/useArticles';
 import { useWishlist } from './lib/useWishlist';
 import { prefetchArtwork } from './constants/artwork';
@@ -49,7 +52,7 @@ import {
   DocumentScreen,
 } from './screens/SettingsDetailScreens';
 import { NotificationsScreen } from './screens/NotificationsScreen';
-import { ArtistScreen } from './screens/ArtistScreen';
+import { ArtistScreen, ArtistTrack } from './screens/ArtistScreen';
 import { StoryScreen } from './screens/StoryScreen';
 import { PlayerScreen, PlayerTrack } from './screens/PlayerScreen';
 import type { CardOrigin, CardOriginItem } from './components/CardAfterimage';
@@ -60,8 +63,6 @@ import {
   STUB_TRACKS,
   STUB_OWNED,
   STUB_NOTICES,
-  STUB_ARTISTS,
-  STUB_ARTIST_TRACKS,
   STUB_STORY,
   STUB_VIP_CARDS,
 } from './constants/stubData';
@@ -158,24 +159,38 @@ function AppInner() {
   // 購読・未完了トランザクションの引き取りが二重に走らないようにするため）。
   const { controller: purchase, ownedIds, restore } = usePurchaseFlow();
 
+  // Firebase Authentication ⇔ Firestore users/{uid} の同期。
+  // 新規登録・ログイン・セッション復元のたびに Auth 側のプロフィールを
+  // users/{uid} へ書き込む（従来はどこにも書いておらず連動していなかった）。
+  useUserProfileSync();
+
   // ウィッシュリスト。ホームの★とコレクションのウィッシュリストは同じ1つの集合を見る。
   // ここに一本化するまでは DiscoverScreen のローカル state に閉じていて、
   // 星を押してもウィッシュリストに入らず、画面を離れれば消えていた。
   const wishlist = useWishlist();
 
-  // ホームの試聴URL。カード一覧そのものはまだ STUB_TRACKS（Firestore 未接続）だが、
-  // 試聴リンクだけは Firestore の tracks/{id}.r2_preview_url（旧 sound コレクション
-  // から移行）からリアルタイムに取得し、上書きする。
+  // ホームの楽曲一覧 = 同梱の STUB_TRACKS（v98_FIX ハンドオフの初期5作品。
+  // IAP商品もこの5曲ぶんしか登録が無い）＋ Firestore の tracks コレクションで
+  // 追加された楽曲（CMS経由。試聴・購入後のフル音源URLも自身のドキュメントに
+  // 持つ）。STUB_TRACKS 側は試聴リンクだけ tracks/{id}.r2_preview_url から
+  // 上書きする余地を残す（tracks に同じIDのドキュメントを作ればよい）。
+  // back.serial（通し番号）が無い曲には、結合後の並び順で連番を振る。
   const trackIds = useMemo(() => STUB_TRACKS.map((t) => t.id), []);
   const trackPreviews = useTrackPreviews(trackIds);
-  const discoverTracks = useMemo(
-    () =>
-      STUB_TRACKS.map((t) => ({
-        ...t,
-        previewUrl: trackPreviews.get(t.id) ?? t.previewUrl,
-      })),
-    [trackPreviews],
-  );
+  const firestoreTracks = useTracks();
+  const discoverTracks = useMemo(() => {
+    const stub = STUB_TRACKS.map((t) => ({
+      ...t,
+      previewUrl: trackPreviews.get(t.id) ?? t.previewUrl,
+    }));
+    return [...stub, ...firestoreTracks].map((t, i) => ({
+      ...t,
+      back: t.back && {
+        ...t.back,
+        serial: t.back.serial ?? `No. ${String(i + 1).padStart(3, '0')}`,
+      },
+    }));
+  }, [trackPreviews, firestoreTracks]);
 
   // メディア画面の記事一覧。Firestore の article コレクションから新着順で取得
   const articles = useArticles();
@@ -211,10 +226,11 @@ function AppInner() {
 
   // 再生画面が扱うトラック一覧（＝マイコレの並び順）。曲送り／戻しはこの並びを辿る。
   // カード裏面（アルミ刻印）にホームと同じ内容を出すため、CollectionItem
-  // （表示専用・裏面情報を持たない）ではなく STUB_TRACKS から直接引く。
+  // （表示専用・裏面情報を持たない）ではなく discoverTracks（STUB_TRACKS＋
+  // Firestore の tracks）から直接引く。
   const playerTracks = useMemo<PlayerTrack[]>(
     () =>
-      STUB_TRACKS.filter((tr) => ownedTrackIds.has(tr.id)).map((tr) => ({
+      discoverTracks.filter((tr) => ownedTrackIds.has(tr.id)).map((tr) => ({
         id: tr.id,
         title: tr.title,
         subtitle: tr.subtitle,
@@ -229,7 +245,7 @@ function AppInner() {
         frequencies: tr.back?.frequencies,
         artist: tr.back?.artist,
       })),
-    [ownedTrackIds],
+    [discoverTracks, ownedTrackIds],
   );
   const playerIndex = playerTracks.findIndex((t) => t.id === playerTrackId);
   const playerTrack = playerIndex >= 0 ? playerTracks[playerIndex] : null;
@@ -287,6 +303,30 @@ function AppInner() {
       })),
     [discoverTracks, ownedTrackIds],
   );
+
+  // 設定 →「Artistのご紹介」。Firestore の artists コレクションが正。
+  const artists = useArtists();
+
+  // 作家ごとの楽曲一覧（所有=明 / 未所有=影）。discoverTracks（STUB_TRACKS＋
+  // Firestore の tracks）を artistId で振り分ける。STUB_TRACKS 側は artistId を
+  // 持たないため、氏名一致（空白を無視）で補う（同じ「岡ナオキ」を指すため）。
+  const tracksByArtist = useMemo(() => {
+    const idByName = new Map(artists.map((a) => [a.name.replace(/\s+/g, ''), a.id] as const));
+    const map: Record<string, ArtistTrack[]> = {};
+    for (const tr of discoverTracks) {
+      const artistId = tr.artistId ?? idByName.get(tr.artistName.replace(/\s+/g, ''));
+      if (!artistId) continue;
+      (map[artistId] ??= []).push({
+        id: tr.id,
+        title: tr.title,
+        artworkUrl: tr.artworkUrl,
+        owned: ownedTrackIds.has(tr.id),
+        glowColor: tr.glowColor,
+        glowColor2: tr.glowColor2,
+      });
+    }
+    return map;
+  }, [discoverTracks, artists, ownedTrackIds]);
 
   const goApp = useCallback(() => {
     // アプリへ入るときはオンボ済みとして記録（次回はログイン画面から）
@@ -434,8 +474,8 @@ function AppInner() {
   if (overlay === 'artist') {
     return (
       <ArtistScreen
-        artists={STUB_ARTISTS}
-        tracksByArtist={STUB_ARTIST_TRACKS}
+        artists={artists}
+        tracksByArtist={tracksByArtist}
         onBackToSettings={() => {
           setOverlay(null);
           setTab('settings');
