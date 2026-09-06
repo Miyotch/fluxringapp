@@ -29,6 +29,7 @@ import { LanguageProvider } from './lib/i18n';
 import { onUserChanged, deleteAccount, signOut } from './lib/firebaseAuth';
 import { usePurchaseFlow } from './lib/usePurchaseFlow';
 import { useTrackPreviews } from './lib/useTrackPreviews';
+import { useTracks } from './lib/useTracks';
 import { useArticles } from './lib/useArticles';
 import { useWishlist } from './lib/useWishlist';
 import { prefetchArtwork } from './constants/artwork';
@@ -163,19 +164,28 @@ function AppInner() {
   // 星を押してもウィッシュリストに入らず、画面を離れれば消えていた。
   const wishlist = useWishlist();
 
-  // ホームの試聴URL。カード一覧そのものはまだ STUB_TRACKS（Firestore 未接続）だが、
-  // 試聴リンクだけは Firestore の tracks/{id}.r2_preview_url（旧 sound コレクション
-  // から移行）からリアルタイムに取得し、上書きする。
+  // ホームの楽曲一覧 = 同梱の STUB_TRACKS（v98_FIX ハンドオフの初期5作品。
+  // IAP商品もこの5曲ぶんしか登録が無い）＋ Firestore の tracks コレクションで
+  // 追加された楽曲（CMS経由。試聴・購入後のフル音源URLも自身のドキュメントに
+  // 持つ）。STUB_TRACKS 側は試聴リンクだけ tracks/{id}.r2_preview_url から
+  // 上書きする余地を残す（tracks に同じIDのドキュメントを作ればよい）。
+  // back.serial（通し番号）が無い曲には、結合後の並び順で連番を振る。
   const trackIds = useMemo(() => STUB_TRACKS.map((t) => t.id), []);
   const trackPreviews = useTrackPreviews(trackIds);
-  const discoverTracks = useMemo(
-    () =>
-      STUB_TRACKS.map((t) => ({
-        ...t,
-        previewUrl: trackPreviews.get(t.id) ?? t.previewUrl,
-      })),
-    [trackPreviews],
-  );
+  const firestoreTracks = useTracks();
+  const discoverTracks = useMemo(() => {
+    const stub = STUB_TRACKS.map((t) => ({
+      ...t,
+      previewUrl: trackPreviews.get(t.id) ?? t.previewUrl,
+    }));
+    return [...stub, ...firestoreTracks].map((t, i) => ({
+      ...t,
+      back: t.back && {
+        ...t.back,
+        serial: t.back.serial ?? `No. ${String(i + 1).padStart(3, '0')}`,
+      },
+    }));
+  }, [trackPreviews, firestoreTracks]);
 
   // メディア画面の記事一覧。Firestore の article コレクションから新着順で取得
   const articles = useArticles();
@@ -211,10 +221,11 @@ function AppInner() {
 
   // 再生画面が扱うトラック一覧（＝マイコレの並び順）。曲送り／戻しはこの並びを辿る。
   // カード裏面（アルミ刻印）にホームと同じ内容を出すため、CollectionItem
-  // （表示専用・裏面情報を持たない）ではなく STUB_TRACKS から直接引く。
+  // （表示専用・裏面情報を持たない）ではなく discoverTracks（STUB_TRACKS＋
+  // Firestore の tracks）から直接引く。
   const playerTracks = useMemo<PlayerTrack[]>(
     () =>
-      STUB_TRACKS.filter((tr) => ownedTrackIds.has(tr.id)).map((tr) => ({
+      discoverTracks.filter((tr) => ownedTrackIds.has(tr.id)).map((tr) => ({
         id: tr.id,
         title: tr.title,
         subtitle: tr.subtitle,
@@ -229,7 +240,7 @@ function AppInner() {
         frequencies: tr.back?.frequencies,
         artist: tr.back?.artist,
       })),
-    [ownedTrackIds],
+    [discoverTracks, ownedTrackIds],
   );
   const playerIndex = playerTracks.findIndex((t) => t.id === playerTrackId);
   const playerTrack = playerIndex >= 0 ? playerTracks[playerIndex] : null;

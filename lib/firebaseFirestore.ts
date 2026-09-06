@@ -80,6 +80,18 @@ export const subscribeArticles = (
     onError,
   )
 
+// ── 楽曲一覧をリアルタイム監視（コレクション tracks）───────
+export const subscribeTracks = (
+  count: number,
+  callback: (docs: Array<{ id: string } & Record<string, unknown>>) => void,
+  onError?: (e: Error) => void,
+): Unsubscribe =>
+  onSnapshot(
+    query(tracksCol(), orderBy('publishedAt', 'desc'), limit(count)),
+    snap => callback(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+    onError,
+  )
+
 // ── 楽曲の試聴URL（tracks/{id}.r2_preview_url）をリアルタイム監視 ───
 // ドキュメントが無い／フィールドが空文字・未設定なら null（試聴なし）を返す。
 // フル音源（tracks/{id}.r2_url）は未購入ユーザーにも見えるここでは読まない。
