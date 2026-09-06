@@ -48,6 +48,12 @@ type Article = {
 type Props = {
   sns?: Sns[];
   articles?: Article[];
+  /** 「もっと見る」押下時に次の10件を取得する（未指定ならボタンは出さない） */
+  onLoadMoreArticles?: () => void;
+  /** まだ取得していない記事が残っているか（true のときだけ「もっと見る」を出す） */
+  hasMoreArticles?: boolean;
+  /** 次ページ取得中かどうか（ボタンをローディング表示にする） */
+  loadingMoreArticles?: boolean;
 };
 
 const DEFAULT_SNS: Sns[] = [
@@ -92,6 +98,9 @@ const STUB_ARTICLES: Article[] = [
 export const MediaScreen: React.FC<Props> = ({
   sns = DEFAULT_SNS,
   articles = STUB_ARTICLES,
+  onLoadMoreArticles,
+  hasMoreArticles = false,
+  loadingMoreArticles = false,
 }) => {
   const barTop = useTopInset(12); // 従来 56px（=44+12）
   return (
@@ -137,13 +146,20 @@ export const MediaScreen: React.FC<Props> = ({
             <Text style={styles.articleTitle}>件名：{a.title}</Text>
             {/* 入れた要素だけ表示 */}
             {a.thumbnailUrl && (
-              <View style={styles.thumb}>
-                <Text style={styles.thumbHint}>埋め込みサムネ</Text>
-              </View>
+              <Image source={{ uri: a.thumbnailUrl }} style={styles.thumb} resizeMode="cover" />
             )}
             {a.body && <Text style={styles.articleBody}>{a.body}</Text>}
           </Pressable>
         ))}
+        {hasMoreArticles && (
+          <Pressable
+            style={({ pressed }) => [styles.moreBtn, pressed && { opacity: 0.7 }]}
+            onPress={onLoadMoreArticles}
+            disabled={loadingMoreArticles}
+          >
+            <Text style={styles.moreLabel}>{loadingMoreArticles ? '読み込み中…' : 'もっと見る'}</Text>
+          </Pressable>
+        )}
       </ScrollView>
     </View>
   );
@@ -189,17 +205,25 @@ const styles = StyleSheet.create({
   articleDate: { color: COLOR.textSecondary, fontSize: 11, letterSpacing: 0.5, fontFamily: NUM_FONT },
   articleTitle: { color: COLOR.textPrimary, fontSize: 15, fontWeight: '600', letterSpacing: 0.3 },
   thumb: {
+    width: '100%',
     aspectRatio: 16 / 9,
     borderRadius: RADIUS.md,
     borderWidth: 1,
     borderColor: COLOR.border,
     backgroundColor: 'rgba(58,61,114,0.25)',
-    alignItems: 'center',
-    justifyContent: 'center',
     marginTop: 4,
   },
-  thumbHint: { color: COLOR.textSecondary, fontSize: 12 },
   articleBody: { color: COLOR.textSecondary, fontSize: 13, lineHeight: 20 },
+  moreBtn: {
+    alignSelf: 'center',
+    paddingVertical: SPACE.sm,
+    paddingHorizontal: SPACE.lg,
+    borderRadius: RADIUS.full,
+    borderWidth: 1,
+    borderColor: COLOR.border,
+    backgroundColor: 'rgba(34,36,69,0.30)',
+  },
+  moreLabel: { color: COLOR.textSecondary, fontSize: 13, letterSpacing: 0.5 },
 });
 
 export default MediaScreen;

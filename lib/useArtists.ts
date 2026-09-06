@@ -7,10 +7,11 @@
  * bio は「来歴」と「哲学」の2つの文章を \n\n で連結する
  * （STUB_ARTISTS の bio が同じ形で2段落になっていたのに合わせる。
  *   ArtistScreen 側は単一の <Text> で描画するため改行はそのまま活きる）。
+ * 一覧の並び順は Firestore 側の order フィールドの昇順。
  */
 
 import { useEffect, useState } from 'react';
-import { onSnapshot } from 'firebase/firestore';
+import { onSnapshot, orderBy, query } from 'firebase/firestore';
 import type { Artist } from '../screens/ArtistScreen';
 import { artistsCol } from './firebaseFirestore';
 
@@ -22,7 +23,7 @@ export function useArtists(): Artist[] {
 
   useEffect(() => {
     const unsub = onSnapshot(
-      artistsCol(),
+      query(artistsCol(), orderBy('order', 'asc')),
       (snap) => {
         setArtists(
           snap.docs.map((d) => {
