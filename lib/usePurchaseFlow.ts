@@ -40,7 +40,6 @@ import {
   type PurchaseFailReason,
   type PurchaseOutcome,
 } from './iap'
-import { isPurchasableTrack } from '../constants/iapProducts'
 import { onUserChanged } from './firebaseAuth'
 import {
   clearCachedOwnedIds,
@@ -305,13 +304,12 @@ export function usePurchaseFlow(): PurchaseFlow {
       if (MOCK_PURCHASES) {
         // 実IAPを介さず、busy を少し見せてから成功扱いにする
         // （購入完了演出・所有化・コレクション反映など「購入後」の確認用）。
+        // ストアの商品登録（isPurchasableTrack）は本番IAPを使うときの制約なので、
+        // モック中はここで判定しない——Firestore由来の楽曲もまだ商品登録が
+        // 無いが、モックの間はストアに一切つながず購入を完了させる。
         watchdogRef.current = setTimeout(() => {
           watchdogRef.current = null
-          applyOutcomeRef.current(
-            isPurchasableTrack(trackId)
-              ? { kind: 'success', trackId, verified: false }
-              : { kind: 'failed', reason: 'not_registered' },
-          )
+          applyOutcomeRef.current({ kind: 'success', trackId, verified: false })
         }, MOCK_PURCHASE_DELAY_MS)
         return
       }
