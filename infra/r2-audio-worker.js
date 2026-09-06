@@ -4,19 +4,19 @@
  * 役割: 非公開 R2 バケットのフル音源を、
  *   1) Firebase ID トークンを検証（本人確認）
  *   2) 所有権を確認（購入済みか。Firestore users/{uid}/purchases/{audioKey}）
- *   3) 配信するオブジェクトの場所を Firestore sound/{audioKey}.r2_url から解決
+ *   3) 配信するオブジェクトの場所を Firestore tracks/{audioKey}.r2_url から解決
  *   4) Range 対応でストリーミング（シーク可能）
  * して返す。試聴（preview/*.wav）は公開バケット/カスタムドメインで別配信。
  *
  * ⚠️ セキュリティ注意（重要・デプロイ前に必ず確認）:
- *   sound/{id} ドキュメントは r2_preview を「未購入ユーザーも含む全員」に
- *   試聴用として公開する必要があるため、Firestore セキュリティルール上
- *   クライアント（Firebase Auth の ID トークン経由）から読み取り可能になって
- *   いるはず。r2_url を同じドキュメント・同じ読み取り権限の場所に置くと、
- *   クライアントが Firestore を直接読むだけで購入前でもフル音源の場所が
- *   見えてしまい、この Worker の所有権確認が無意味になる。
- *   → r2_url は r2_preview と分離し（例: 別ドキュメント／サブコレクション
- *     sound/{id}/private/full）、そちらはクライアントからの読み取りを
+ *   tracks/{id} ドキュメントは r2_preview_url・タイトル・アートワーク等を
+ *   「未購入ユーザーも含む全員」に公開する必要があるため、Firestore
+ *   セキュリティルール上クライアント（Firebase Auth の ID トークン経由）から
+ *   読み取り可能になっているはず。r2_url を同じドキュメント・同じ読み取り
+ *   権限の場所に置くと、クライアントが Firestore を直接読むだけで購入前でも
+ *   フル音源の場所が見えてしまい、この Worker の所有権確認が無意味になる。
+ *   → r2_url は r2_preview_url と分離し（例: 別ドキュメント／サブコレクション
+ *     tracks/{id}/private/full）、そちらはクライアントからの読み取りを
  *     `allow read: if false;` にした上で、この Worker（サービスアカウントの
  *     OAuth トークン＝セキュリティルールの対象外）だけが読める運用にすること。
  *
@@ -41,7 +41,7 @@
  *   $ wrangler deploy
  *   → app.json の extra.r2.workerUrl にこの Worker の URL を設定。
  *
- * バケット構成（例・sound/{id}.r2_url 未設定時のフォールバック）:
+ * バケット構成（例・tracks/{id}.r2_url 未設定時のフォールバック）:
  *   full/{audioKey}.wav     ← フル音源（このWorker経由のみ）
  *   （試聴は別の公開バケット: preview/{audioKey}.wav）
  * ------------------------------------------------------------------
@@ -78,13 +78,13 @@ export default {
     if (!owns) return json({ error: 'forbidden' }, 403);
 
     // 3) 配信するオブジェクトの場所を解決する。
-    //    sound/{audioKey}.r2_url が設定されていればそれを優先し（完全URL／
+    //    tracks/{audioKey}.r2_url が設定されていればそれを優先し（完全URL／
     //    バケット相対パスのどちらでも objectKey として解釈できるようにする）、
     //    未設定・取得失敗時は旧来の固定命名規則 `full/{audioKey}.wav` にフォールバックする。
     //    このFirestore読み取りはサービスアカウントのトークンで行うため、
     //    クライアント（Firebase Authの一般ユーザー）からは r2_url は見えない前提。
-    const soundFields = await firestoreGetDoc(env, `sound/${encodeURIComponent(audioKey)}`);
-    const r2Url = soundFields ? firestoreFieldString(soundFields, 'r2_url') : null;
+    const trackFields = await firestoreGetDoc(env, `tracks/${encodeURIComponent(audioKey)}`);
+    const r2Url = trackFields ? firestoreFieldString(trackFields, 'r2_url') : null;
     const objectKey = r2Url ? toObjectKey(r2Url) : `full/${audioKey}.wav`;
 
     // 4) R2 から Range 対応でストリーミング（アプリはこの Worker URL を直接再生してもよい）
@@ -173,7 +173,7 @@ function firestoreFieldString(fields, name) {
 }
 
 /**
- * sound/{id}.r2_url の値を R2 の objectKey（バケット相対パス）に変換する。
+ * tracks/{id}.r2_url の値を R2 の objectKey（バケット相対パス）に変換する。
  * 完全URL（例: "https://.../full/blue.wav"）が入っていれば pathname を、
  * バケット相対パス（例: "full/blue.wav"）がそのまま入っていればそれを使う。
  */

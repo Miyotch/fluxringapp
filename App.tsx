@@ -28,7 +28,7 @@ import { loadNumTypeface } from './lib/skiaFonts';
 import { LanguageProvider } from './lib/i18n';
 import { onUserChanged, deleteAccount, signOut } from './lib/firebaseAuth';
 import { usePurchaseFlow } from './lib/usePurchaseFlow';
-import { useSoundPreviews } from './lib/useSoundPreviews';
+import { useTrackPreviews } from './lib/useTrackPreviews';
 import { useArticles } from './lib/useArticles';
 import { useWishlist } from './lib/useWishlist';
 import { prefetchArtwork } from './constants/artwork';
@@ -164,17 +164,17 @@ function AppInner() {
   const wishlist = useWishlist();
 
   // ホームの試聴URL。カード一覧そのものはまだ STUB_TRACKS（Firestore 未接続）だが、
-  // 試聴リンクだけは Firestore の sound/{id}.r2_preview（artworksと同一ID）から
-  // リアルタイムに取得し、上書きする。
+  // 試聴リンクだけは Firestore の tracks/{id}.r2_preview_url（旧 sound コレクション
+  // から移行）からリアルタイムに取得し、上書きする。
   const trackIds = useMemo(() => STUB_TRACKS.map((t) => t.id), []);
-  const soundPreviews = useSoundPreviews(trackIds);
+  const trackPreviews = useTrackPreviews(trackIds);
   const discoverTracks = useMemo(
     () =>
       STUB_TRACKS.map((t) => ({
         ...t,
-        previewUrl: soundPreviews.get(t.id) ?? t.previewUrl,
+        previewUrl: trackPreviews.get(t.id) ?? t.previewUrl,
       })),
-    [soundPreviews],
+    [trackPreviews],
   );
 
   // メディア画面の記事一覧。Firestore の article コレクションから新着順で取得
