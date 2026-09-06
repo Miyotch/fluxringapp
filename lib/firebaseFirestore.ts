@@ -16,8 +16,9 @@ import { db } from './firebase'
 export const artworksCol = () => collection(db, 'artworks')
 export const artistsCol  = () => collection(db, 'artists')
 export const usersCol    = () => collection(db, 'users')
-// 楽曲の音源情報（試聴URL等）。ドキュメントIDは artworks と同一（1対1）
-export const soundCol    = () => collection(db, 'sound')
+// 楽曲情報（サムネイル・R2音源URL等）。旧 sound コレクションから移行。
+// ドキュメントIDが所有権判定のtrackId（= audioKey）と一致する前提。
+export const tracksCol   = () => collection(db, 'tracks')
 
 // ── ディスカバー：全楽曲を新着順で取得 ─────────────
 export const fetchArtworks = (count = 20) =>
@@ -79,17 +80,19 @@ export const subscribeArticles = (
     onError,
   )
 
-// ── 楽曲の試聴URL（sound/{id}.r2_preview）をリアルタイム監視 ───
+// ── 楽曲の試聴URL（tracks/{id}.r2_preview_url）をリアルタイム監視 ───
 // ドキュメントが無い／フィールドが空文字・未設定なら null（試聴なし）を返す。
-export const subscribeSoundPreview = (
+// フル音源（tracks/{id}.r2_url）は未購入ユーザーにも見えるここでは読まない。
+// 所有権確認後にサーバ側（infra/r2-audio-worker.js）でのみ解決する。
+export const subscribeTrackPreview = (
   id: string,
   callback: (url: string | null) => void,
   onError?: (e: Error) => void,
 ): Unsubscribe =>
   onSnapshot(
-    doc(db, 'sound', id),
+    doc(db, 'tracks', id),
     snap => {
-      const v = snap.exists() ? (snap.data() as { r2_preview?: unknown }).r2_preview : null
+      const v = snap.exists() ? (snap.data() as { r2_preview_url?: unknown }).r2_preview_url : null
       callback(typeof v === 'string' && v.trim() !== '' ? v : null)
     },
     onError,

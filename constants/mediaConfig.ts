@@ -8,7 +8,7 @@
  *                    例: https://media.fluxring.app
  *                    → 試聴URL: {previewBaseUrl}/{audioKey}.wav
  *                      （lib/r2.ts の previewUrl() 参照。実際は Firestore の
- *                       sound/{id}.r2_preview に完全URLを入れる運用が優先され、
+ *                       tracks/{id}.r2_preview_url に完全URLを入れる運用が優先され、
  *                       未設定のときだけこのベースURLからフォールバック構築する）
  *
  *   workerUrl      … フル音源の署名付きURLを発行する Cloudflare Worker のURL。

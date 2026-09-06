@@ -1,15 +1,16 @@
 /**
- * useSoundPreviews.ts — 楽曲IDの配列から Firestore sound/{id}.r2_preview を購読
+ * useTrackPreviews.ts — 楽曲IDの配列から Firestore tracks/{id}.r2_preview_url を購読
  * ------------------------------------------------------------------
  * ホーム（ディスカバー）のカードごとの試聴URLを、R2の固定ファイル名規則
- * ではなく Firestore の sound コレクション（artworks と同一IDの1対1）から
- * 取得する。r2_preview が空文字・未設定・ドキュメント無しの曲は null（試聴なし）。
+ * ではなく Firestore の tracks コレクションから取得する（旧 sound コレクション
+ * から移行）。r2_preview_url が空文字・未設定・ドキュメント無しの曲は
+ * null（試聴なし）。
  */
 
 import { useEffect, useState } from 'react';
-import { subscribeSoundPreview } from './firebaseFirestore';
+import { subscribeTrackPreview } from './firebaseFirestore';
 
-export function useSoundPreviews(ids: string[]): Map<string, string | null> {
+export function useTrackPreviews(ids: string[]): Map<string, string | null> {
   const [previews, setPreviews] = useState<Map<string, string | null>>(new Map());
   // ids の中身が変わらない限り再購読しない（配列は毎レンダー新しい参照になりうるため）
   const key = ids.join(',');
@@ -21,7 +22,7 @@ export function useSoundPreviews(ids: string[]): Map<string, string | null> {
     }
     const list = key.split(',');
     const unsubs = list.map((id) =>
-      subscribeSoundPreview(
+      subscribeTrackPreview(
         id,
         (url) => {
           setPreviews((prev) => {
