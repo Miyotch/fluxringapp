@@ -108,6 +108,7 @@ export type Track = {
   title: string;
   subtitle?: string;        // 情景の言葉（効能は語らない）
   artistName: string;
+  artistId?: string;         // artists コレクションのドキュメントID（作家紹介の紐付け用）
   artworkUrl: string;
   audioKey: string;         // R2 音源キー（試聴は公開・フルは署名付き）
   previewUrl: string | null;

@@ -28,7 +28,10 @@ import { loadNumTypeface } from './lib/skiaFonts';
 import { LanguageProvider } from './lib/i18n';
 import { onUserChanged, deleteAccount, signOut } from './lib/firebaseAuth';
 import { usePurchaseFlow } from './lib/usePurchaseFlow';
-import { useSoundPreviews } from './lib/useSoundPreviews';
+import { useTracks } from './lib/useTracks';
+import { useArtists } from './lib/useArtists';
+import { useUserProfileSync } from './lib/useUserProfileSync';
+import { useArticles } from './lib/useArticles';
 import { useWishlist } from './lib/useWishlist';
 import { prefetchArtwork } from './constants/artwork';
 import { ANIM, HOME_INTRO } from './constants/design-tokens';
@@ -48,7 +51,7 @@ import {
   DocumentScreen,
 } from './screens/SettingsDetailScreens';
 import { NotificationsScreen } from './screens/NotificationsScreen';
-import { ArtistScreen } from './screens/ArtistScreen';
+import { ArtistScreen, ArtistTrack } from './screens/ArtistScreen';
 import { StoryScreen } from './screens/StoryScreen';
 import { PlayerScreen, PlayerTrack } from './screens/PlayerScreen';
 import type { CardOrigin, CardOriginItem } from './components/CardAfterimage';
@@ -56,11 +59,7 @@ import { VipScreen } from './screens/VipScreen';
 // import { ComponentGallery } from './screens/ComponentGallery'; // 部品デモを見るとき有効化
 
 import {
-  STUB_TRACKS,
-  STUB_OWNED,
   STUB_NOTICES,
-  STUB_ARTISTS,
-  STUB_ARTIST_TRACKS,
   STUB_STORY,
   STUB_VIP_CARDS,
 } from './constants/stubData';
@@ -157,34 +156,43 @@ function AppInner() {
   // 購読・未完了トランザクションの引き取りが二重に走らないようにするため）。
   const { controller: purchase, ownedIds, restore } = usePurchaseFlow();
 
+  // Firebase Authentication ⇔ Firestore users/{uid} の同期。
+  // 新規登録・ログイン・セッション復元のたびに Auth 側のプロフィールを
+  // users/{uid} へ書き込む（従来はどこにも書いておらず連動していなかった）。
+  useUserProfileSync();
+
   // ウィッシュリスト。ホームの★とコレクションのウィッシュリストは同じ1つの集合を見る。
   // ここに一本化するまでは DiscoverScreen のローカル state に閉じていて、
   // 星を押してもウィッシュリストに入らず、画面を離れれば消えていた。
   const wishlist = useWishlist();
 
-  // ホームの試聴URL。カード一覧そのものはまだ STUB_TRACKS（Firestore 未接続）だが、
-  // 試聴リンクだけは Firestore の sound/{id}.r2_preview（artworksと同一ID）から
-  // リアルタイムに取得し、上書きする。
-  const trackIds = useMemo(() => STUB_TRACKS.map((t) => t.id), []);
-  const soundPreviews = useSoundPreviews(trackIds);
+  // ホームの楽曲一覧 = Firestore の tracks コレクションのみ（CMS経由で追加され、
+  // 試聴・購入後のフル音源URLも自身のドキュメントに持つ）。同梱の STUB_TRACKS
+  // （v98_FIX ハンドオフの初期5作品）はもう画面に出さない——表示する楽曲・
+  // カードはすべて tracks コレクションを参照する。
+  // back.serial（通し番号）が無い曲には、並び順で連番を振る。
+  const firestoreTracks = useTracks();
   const discoverTracks = useMemo(
     () =>
-      STUB_TRACKS.map((t) => ({
+      firestoreTracks.map((t, i) => ({
         ...t,
-        previewUrl: soundPreviews.get(t.id) ?? t.previewUrl,
+        back: t.back && {
+          ...t.back,
+          serial: t.back.serial ?? `No. ${String(i + 1).padStart(3, '0')}`,
+        },
       })),
-    [soundPreviews],
+    [firestoreTracks],
   );
 
-  // 所有集合。STUB_OWNED は Firestore を繋ぐまでの土台（デモの見え方を保つため）で、
-  // 購入で増えたぶんを足し込む。**Firestore 接続後はこの seed を外すこと**——
-  // 残したままだと未購入の3曲を所有しているように見え続ける。
-  const ownedTrackIds = useMemo(
-    () => new Set<string>([...STUB_OWNED.map((o) => o.id), ...ownedIds]),
-    [ownedIds],
-  );
+  // メディア画面の記事一覧。Firestore の article コレクションから
+  // 公開日時（date）の降順・10件ずつページングで取得
+  const articleFeed = useArticles();
 
-  // コレクション（マイコレ）。作品データはスタブの全曲から所有ぶんを引く。
+  // 所有集合。Firestore（購入で増えたぶん）が正。
+  const ownedTrackIds = useMemo(() => new Set<string>(ownedIds), [ownedIds]);
+
+  // コレクション（マイコレ）。作品データは discoverTracks（tracks コレクション）
+  // の全曲から所有ぶんを引く。
   const ownedItems = useMemo<CollectionItem[]>(
     () =>
       discoverTracks
@@ -207,10 +215,11 @@ function AppInner() {
 
   // 再生画面が扱うトラック一覧（＝マイコレの並び順）。曲送り／戻しはこの並びを辿る。
   // カード裏面（アルミ刻印）にホームと同じ内容を出すため、CollectionItem
-  // （表示専用・裏面情報を持たない）ではなく STUB_TRACKS から直接引く。
+  // （表示専用・裏面情報を持たない）ではなく discoverTracks（Firestore の
+  // tracks）から直接引く。
   const playerTracks = useMemo<PlayerTrack[]>(
     () =>
-      STUB_TRACKS.filter((tr) => ownedTrackIds.has(tr.id)).map((tr) => ({
+      discoverTracks.filter((tr) => ownedTrackIds.has(tr.id)).map((tr) => ({
         id: tr.id,
         title: tr.title,
         subtitle: tr.subtitle,
@@ -225,7 +234,7 @@ function AppInner() {
         frequencies: tr.back?.frequencies,
         artist: tr.back?.artist,
       })),
-    [ownedTrackIds],
+    [discoverTracks, ownedTrackIds],
   );
   const playerIndex = playerTracks.findIndex((t) => t.id === playerTrackId);
   const playerTrack = playerIndex >= 0 ? playerTracks[playerIndex] : null;
@@ -283,6 +292,28 @@ function AppInner() {
       })),
     [discoverTracks, ownedTrackIds],
   );
+
+  // 設定 →「Artistのご紹介」。Firestore の artists コレクションが正。
+  const artists = useArtists();
+
+  // 作家ごとの楽曲一覧（所有=明 / 未所有=影）。discoverTracks（Firestore の
+  // tracks）を artistId で振り分ける。
+  const tracksByArtist = useMemo(() => {
+    const map: Record<string, ArtistTrack[]> = {};
+    for (const tr of discoverTracks) {
+      const artistId = tr.artistId;
+      if (!artistId) continue;
+      (map[artistId] ??= []).push({
+        id: tr.id,
+        title: tr.title,
+        artworkUrl: tr.artworkUrl,
+        owned: ownedTrackIds.has(tr.id),
+        glowColor: tr.glowColor,
+        glowColor2: tr.glowColor2,
+      });
+    }
+    return map;
+  }, [discoverTracks, ownedTrackIds]);
 
   const goApp = useCallback(() => {
     // アプリへ入るときはオンボ済みとして記録（次回はログイン画面から）
@@ -430,8 +461,8 @@ function AppInner() {
   if (overlay === 'artist') {
     return (
       <ArtistScreen
-        artists={STUB_ARTISTS}
-        tracksByArtist={STUB_ARTIST_TRACKS}
+        artists={artists}
+        tracksByArtist={tracksByArtist}
         onBackToSettings={() => {
           setOverlay(null);
           setTab('settings');
@@ -524,7 +555,7 @@ function AppInner() {
               onToggleWish={wishlist.toggle}
               wishlistIds={wishlist.ids}
               allWorks={allWorkItems}
-              totalWorks={STUB_TRACKS.length}
+              totalWorks={discoverTracks.length}
               purchase={purchase}
               onOpenTrack={(id, origin, afterimages) => {
                 // 所有曲タップ → 再生画面（ワイヤーフレーム P3）
@@ -556,7 +587,14 @@ function AppInner() {
             />
           )}
 
-          {tab === 'media' && <MediaScreen />}
+          {tab === 'media' && (
+            <MediaScreen
+              articles={articleFeed.articles}
+              onLoadMoreArticles={articleFeed.loadMore}
+              hasMoreArticles={articleFeed.hasMore}
+              loadingMoreArticles={articleFeed.loading}
+            />
+          )}
 
           {tab === 'settings' && (
             <SettingsScreen

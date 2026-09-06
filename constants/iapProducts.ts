@@ -13,7 +13,7 @@
  *
  * trackId を軸に置く理由:
  *   constants/stubData.ts の STUB_TRACKS.id と、R2 の音源キー（audioKey /
- *   full/{audioKey}.mp3・Worker の /track/{audioKey}）と、Firestore の
+ *   full/{audioKey}.wav・Worker の /track/{audioKey}）と、Firestore の
  *   `users/{uid}/purchases/{trackId}` のドキュメントIDが、すべて同じ文字列で
  *   貫通している。ここで別体系のIDを挟むと変換点が増えて必ずどこかでずれる。
  *

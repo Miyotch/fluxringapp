@@ -67,7 +67,6 @@ import {
   isPurchasableTrack,
   productIdOf,
   trackIdOfProduct,
-  type PaidTrackId,
 } from '../constants/iapProducts'
 
 // ─────────────────────────────────────────────
@@ -84,14 +83,17 @@ import {
 export type PurchaseFailReason = 'unavailable' | 'not_registered' | 'failed'
 
 export type PurchaseOutcome =
-  /** 課金シートを通り、（設定済みなら）サーバ検証まで済んだ */
-  | { kind: 'success'; trackId: PaidTrackId; verified: boolean }
+  /** 課金シートを通り、（設定済みなら）サーバ検証まで済んだ。
+   *  trackId はモック購入（usePurchaseFlow.ts の MOCK_PURCHASES）では
+   *  ストア商品登録の有無を問わず任意の文字列になりうるため string。
+   *  実IAP経由（下記 startPurchase 等）では常に PaidTrackId が入る。 */
+  | { kind: 'success'; trackId: string; verified: boolean }
   /** ユーザーが自分で取り消した。エラーではないので文言も演出も出さない */
   | { kind: 'cancelled' }
   /** すでに所有している。引き取って所有化する（復元と同じ扱い） */
-  | { kind: 'already_owned'; trackId: PaidTrackId | null }
+  | { kind: 'already_owned'; trackId: string | null }
   /** 承認待ち（Android の後払い / iOS の Ask to Buy）。**所有化しない** */
-  | { kind: 'pending'; trackId: PaidTrackId | null }
+  | { kind: 'pending'; trackId: string | null }
   | { kind: 'failed'; reason: PurchaseFailReason }
 
 /** ErrorCode → 画面の扱いへの写像。expo-iap の ErrorCode 実値から引いている。 */
@@ -389,7 +391,7 @@ export async function startPurchase(trackId: string): Promise<PurchaseOutcome | 
 
 export type CollectResult = {
   /** 権利を確定できた trackId */
-  trackIds: PaidTrackId[]
+  trackIds: string[]
   /** 1件でも検証に失敗したか（次回起動で再試行される） */
   hadFailure: boolean
 }
