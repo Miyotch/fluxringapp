@@ -31,12 +31,18 @@
  *   ・背景（bgbase）は NebulaBand 側が描くので、この層は透明で重ねる
  *   ・paused / reduce-motion で明滅停止（静止表示）
  *
- * 横パララックス（2026-09-07 移植）:
+ * 横パララックス（2026-09-07 移植 / 09-07 改訂）:
  *   参照 animateBG は星の平面ごと translateX して、端をまたいだ星だけ反対側へ
- *   置き直す（fr_v98_FIX-cardaction 596-612 / 2939 行）。Skia では星が群ごとの
- *   Path に焼かれていて 1 個だけ動かせないので、**平面を左右へ marginX ずつ
- *   広げ、端の帯の星を反対側へも複製する**（トーラス化）ことで同じ絵にする。
- *   画面内の星の位置・密度は marginX=0 のときと完全に一致する。
+ *   置き直す（fr_v98_FIX-cardaction 596-612 / 2939 行）。溜めた移動量は戻さない
+ *   ので、スワイプを重ねるほど星空は一方向へ流れ続ける。
+ *
+ *   Skia では星が群ごとの Path に焼かれていて 1 個だけ動かせない。かわりに
+ *   **平面を画面幅ぶん複製して周期 W のタイルにする**（repeatX）。ずらし量を
+ *   W で割った余りにすれば、W をまたぐ瞬間の絵は 0 のときと完全に同じなので、
+ *   継ぎ目なしで無限に流せる。周期を W より短くすると同じ星並びが画面内で
+ *   繰り返して見えてしまうため、2W が必要最小の平面幅になる。
+ *
+ *   画面内の星の位置・密度は repeatX=false のときと完全に一致する。
  */
 
 import React, { useMemo, useEffect, useState } from 'react';
@@ -122,14 +128,6 @@ function hash(x: number): number {
 }
 const rnd = (seed: number, a: number, b: number) => a + hash(seed) * (b - a);
 
-/**
- * 横パララックスのために星の平面を左右へ広げる量(px)。
- * DiscoverScreen 側のオフセット上限（STAR_PARALLAX_MAX）より必ず大きくとる。
- * ここを広げたぶんだけ端の帯の星が複製される＝星の総数が増えるので、
- * 必要最小限にとどめる（68px / 画面幅 390px なら約 +35%）。
- */
-export const STAR_PARALLAX_MARGIN = 68;
-
 export type HaloDot = { x: number; y: number; r: number };
 
 export type TwinkleGroup = {
@@ -184,11 +182,11 @@ export function splitLayers(layers: BuiltLayer[]): SplitLayer[] {
 }
 
 /**
- * @param marginX 平面を左右へ広げる量(px)。0 なら従来どおり画面幅ぴったり。
- *                0 より大きいと、平面座標は「画面座標 + marginX」になり、
- *                端 marginX の帯にある星は反対側へも複製される。
+ * @param repeatX true なら星を x と x+W の 2 か所へ置き、幅 2W・周期 W の
+ *                タイルにする（横パララックスの巻き戻し用）。
+ *                false なら従来どおり幅 W の平面。
  */
-export function buildLayers(W: number, H: number, marginX = 0): BuiltLayer[] {
+export function buildLayers(W: number, H: number, repeatX = false): BuiltLayer[] {
   const scale = W / REF_W;
 
   return LAYERS.map((spec, li) => {
@@ -224,12 +222,9 @@ export function buildLayers(W: number, H: number, marginX = 0): BuiltLayer[] {
         g.path.addCircle(px, y, bodyR);
         if (spec.halo > 0) g.halos.push({ x: px, y, r: haloR });
       };
-      put(x + marginX);
-      // トーラス複製: 平面が横へずれても縁が空かないよう、端の帯だけ反対側へも置く
-      if (marginX > 0) {
-        if (x < marginX) put(x + W + marginX);
-        else if (x > W - marginX) put(x - W + marginX);
-      }
+      put(x);
+      // 周期 W のタイル化（横パララックスの巻き戻しが継ぎ目なしになる）
+      if (repeatX) put(x + W);
     }
 
     return { spec, groups };

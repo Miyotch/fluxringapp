@@ -94,7 +94,6 @@ import {
   buildLayers,
   splitLayers,
   STAR_COLOR,
-  STAR_PARALLAX_MARGIN,
   type BuiltLayer,
   type SplitLayer,
   type TwinkleGroup,
@@ -271,8 +270,11 @@ export type BackdropSkyProps = {
   /** ホーム以外を表示している間は true にして明滅を止める（参照 __frSealPause 相当） */
   paused?: boolean;
   /**
-   * 星の平面だけを横へずらす量(px)。地色と天の川は動かさない
-   * （参照 animateBG は #bgstars だけを translate する）。
+   * 星の平面だけを横へずらす、**溜め込んだ**移動量(px)。符号つき・上限なし。
+   * 地色と天の川は動かさない（参照 animateBG は #bgstars だけを translate する）。
+   *
+   * 画面幅 W で割った余りへ畳んでから使う。星の平面は周期 W のタイルなので、
+   * W をまたぐ瞬間の絵は 0 のときと同じ＝継ぎ目なしで無限に流れる。
    *
    * この値は **ネイティブの transform** で消費する。Skia の Group transform に
    * すると Canvas が毎フレーム塗り直しになり、発熱対策で積み上げた
@@ -319,11 +321,11 @@ const BackdropSkyImpl: React.FC<BackdropSkyProps> = ({
 
   const clouds = useMemo(buildClouds, []);
   const nebStarGroups = useMemo(() => buildStarGroups(W, H), [W, H]);
-  // 横へずらす分だけ平面を広げておく（端の帯の星は反対側へも複製される）。
-  // ずらさないビルドでは 0 ＝ 従来どおり画面幅ぴったりの平面。
-  const margin = parallaxX ? STAR_PARALLAX_MARGIN : 0;
-  const planeW = W + margin * 2;
-  const starLayers = useMemo<BuiltLayer[]>(() => buildLayers(W, H, margin), [W, H, margin]);
+  // 横へ流すビルドでは、星の平面を周期 W のタイル（幅 2W）にしておく。
+  // 流さないビルドでは従来どおり画面幅ぴったりの平面。
+  const tiled = !!parallaxX;
+  const planeW = tiled ? W * 2 : W;
+  const starLayers = useMemo<BuiltLayer[]>(() => buildLayers(W, H, tiled), [W, H, tiled]);
   // 明滅する群 / 動かさない群へ振り分ける（星の位置・径・分布は不変）。
   // live はこの Canvas、still は下の StaticStars（塗り直されない Canvas）へ。
   const split = useMemo<SplitLayer[]>(() => splitLayers(starLayers), [starLayers]);
@@ -424,9 +426,15 @@ const BackdropSkyImpl: React.FC<BackdropSkyProps> = ({
   );
 
   // 平面の横ずらし。ネイティブの transform なので Canvas は塗り直されない。
-  const planeStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: parallaxX ? parallaxX.value : 0 }],
-  }));
+  //
+  // 溜まった移動量を W の余り [0, W) へ畳む。平面は左端を -W に置いてあるので、
+  // ずらし量 0 では複製側（平面座標 W..2W）が、W では原本側（0..W）が画面に
+  // 出る。中身は同じなので、余りが W → 0 へ飛ぶ瞬間に絵は 1 ドットも動かない。
+  const planeStyle = useAnimatedStyle(() => {
+    if (!parallaxX || W <= 0) return { transform: [{ translateX: 0 }] };
+    const t = parallaxX.value % W;
+    return { transform: [{ translateX: t < 0 ? t + W : t }] };
+  });
 
   // 星は地色・天の川の外側へ srcOver で重なる。同じ Canvas の最後に描いていた
   // ときと合成結果は変わらない。
@@ -436,7 +444,7 @@ const BackdropSkyImpl: React.FC<BackdropSkyProps> = ({
       {DEBUG_SKY.showStars && (
         <Animated.View
           style={[
-            { position: 'absolute', left: -margin, top: 0, width: planeW, height: H },
+            { position: 'absolute', left: tiled ? -W : 0, top: 0, width: planeW, height: H },
             planeStyle,
           ]}
           pointerEvents="none"

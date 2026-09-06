@@ -88,22 +88,26 @@ const CAR_FADE_R = 0.55;     // 中央カードが消えきる距離（参照 CA
 const CAR_VEL = 500;         // フリック速度しきい値 px/s（参照 0.5px/ms）
 const CAR_LERP = 0.22;       // 毎フレームの寄せ（参照 dragX += (target-dragX)*0.22）
 const CAR_SETTLE = 0.8;      // 整定しきい値 px（参照 |dragX-carTarget| < 0.8）
-const CAR_LAND_MS = 800;     // 着地フェード（参照 landT0 から 800ms）
+// 着地フェード。参照 landT0 は 800ms かけて 0→1 だが、実機で「入れ替わった札が
+// 一瞬消える」と見えた（2026-09-07 岡さん指摘）。中央スロットを 0 から立ち上げる
+// 目的は「activeIndex の反映が 1〜2 フレーム遅れる間、古い絵柄を中央で光らせない」
+// ことだけなので、その数フレームさえ隠せれば長さは要らない。
+// ease-in（立ち上がりが遅い曲線）と組み合わせて、最初の 3 フレームはほぼ 0、
+// 200ms で完全に戻る＝目には「沈まずにそのまま入れ替わる」ようにする。
+const CAR_LAND_MS = 200;
 const CAR_AXIS = 6;          // 軸判定＝タップ境界（参照 moved の 6px）
 const CAR_DT_MAX = 0.05;     // 1フレームで進める上限（秒）
 
 // ── 宇宙空間の手ざわり（参照 fr_v98_FIX-cardaction.html の cardaction-controller）──
 // 参照 2940行: swipe(x) は指の移動量 delta を 0.60 倍で溜め、animateBG（606行）が
 // そこへさらに 0.28 を掛けて星の平面をずらす。実効の追従率は 0.168。
-// こちらは溜めずに dragX へ直結させる（＝カードが戻れば星も中央へ戻る）ので、
-// 溜まりぶんが乗らないぶん少し弱めて 0.13 にしてある。
-const STAR_PARALLAX_K = 0.13;
-// 平面のずれの上限(px)。StarField.STAR_PARALLAX_MARGIN より必ず小さくすること
-// （超えると広げた帯を使い切って、平面の縁＝星のない帯が画面へ入ってくる）。
-const STAR_PARALLAX_MAX = 60;
-// カードが着地して dragX が 0 に戻る瞬間、星まで同じフレームで飛ばすと弾む。
-// 参照 2973行の平滑化（時定数 90ms）に相当する尺で、少し遅れて中央へ滑らせる。
-const STAR_RETURN_MS = 420;
+//
+// 溜めた量は **戻さない**。カードが次の札へ入れ替わっても星はその場に残るので、
+// スワイプを重ねるほど星空は一方向へ流れ続ける（＝ずっと移動して見える）。
+// 平面は周期 W のタイル（StarField.buildLayers の repeatX）なので、溜まった量が
+// 画面幅を越えても継ぎ目は出ない。1 スワイプあたりの流れは STEP×K ≒ 60px 前後、
+// 画面幅ぶん流れるのに 6〜7 スワイプかかる。
+const STAR_PARALLAX_K = 0.168;
 // 参照 2999行: card.style.transform ... scale(1 - press*.035)
 const CARD_PRESS_SCALE = 0.035;
 // 参照 2995行: 指が 7px 動いたら「押した」を取り消す（＝スワイプの入り口）
@@ -433,8 +437,13 @@ export const DiscoverScreen: React.FC<Props> = ({
   const claimed = useSharedValue(0);
   /** 着地フェード（参照 lk = 着地からの経過/800ms） */
   const landFade = useSharedValue(1);
-  /** 星の平面の横ずれ(px)。BackdropSky がネイティブ transform で消費する */
-  const starParallax = useSharedValue(0);
+  /**
+   * 星の平面の横ずれ(px)。**溜め込む一方**で、カードが入れ替わっても戻さない。
+   * BackdropSky が画面幅の余りへ畳んでネイティブ transform で消費する。
+   */
+  const starTravel = useSharedValue(0);
+  /** 前フレームまでに星へ反映済みの dragX。差分だけを starTravel へ足す */
+  const starLastDrag = useSharedValue(0);
   /** 0..1 のカードの押し込み量（参照 state.press） */
   const cardPress = useSharedValue(0);
 
@@ -527,7 +536,7 @@ export const DiscoverScreen: React.FC<Props> = ({
       // 購入の呼吸が途中でも、曲が変わったら消す（次のカードへ持ち越さない）
       cardGlow.value = 0;
       // 参照 landT0: 着地から 800ms かけて中央カードを戻す（0 は整定時に設定済み）
-      landFade.value = withTiming(1, { duration: CAR_LAND_MS, easing: Easing.linear });
+      landFade.value = withTiming(1, { duration: CAR_LAND_MS, easing: Easing.in(Easing.quad) });
     },
     [count, cardRotation, cardGlow, landFade],
   );
@@ -545,6 +554,10 @@ export const DiscoverScreen: React.FC<Props> = ({
       // 参照は 0.22/frame 固定。120Hz 端末で 2 倍速にならないよう時間で補正する
       const k = 1 - Math.pow(1 - CAR_LERP, dt * 60);
       dragX.value += (carTarget.value - dragX.value) * k;
+      // 送りのアニメ中も、指で引いていたときと同じ割合で星を連れていく
+      // （参照 landSwipe の coast に相当する「送りのあいだも動き続ける」ぶん）
+      starTravel.value += (dragX.value - starLastDrag.value) * STAR_PARALLAX_K;
+      starLastDrag.value = dragX.value;
       if (Math.abs(dragX.value - carTarget.value) < CAR_SETTLE) {
         const dir = pendingDir.value;
         // 参照: 確定でもスナップバックでも最後は dragX=0（新しい札が中央に出る）
@@ -552,24 +565,26 @@ export const DiscoverScreen: React.FC<Props> = ({
         carTarget.value = 0;
         pendingDir.value = 0;
         carBusy.value = 0;
-        // 星だけは同じフレームで飛ばさず、遅れて中央へ戻す
-        starParallax.value = withTiming(0, {
-          duration: STAR_RETURN_MS,
-          easing: Easing.out(Easing.cubic),
-        });
+        // 参照 landSwipe と同じ: 札は中央へ戻るが、星の平面は動かさない。
+        // 差分の基準だけ 0 へ戻して、dragX の巻き戻しが星へ伝わらないようにする。
+        starLastDrag.value = 0;
         // 曲を差し替えるときは、ここで中央スロットを消しておく。
         // activeIndex の更新は runOnJS 経由で 1〜2 フレーム遅れるため、
         // 消さずに dragX=0 へ飛ばすと「古い絵柄が中央で一瞬光る」。
         if (dir !== 0) landFade.value = 0;
         runOnJS(finishCarousel)(dir);
-      } else {
-        // 曲送りのアニメ中も、指で引いていたときと同じ割合で星を連れていく
-        // （参照 landSwipe の coast に相当する「送りのあいだも動き続ける」ぶん）
-        const raw = dragX.value * STAR_PARALLAX_K;
-        starParallax.value = Math.max(-STAR_PARALLAX_MAX, Math.min(STAR_PARALLAX_MAX, raw));
       }
     },
-    [finishCarousel, dragX, carTarget, pendingDir, carBusy, landFade, starParallax],
+    [
+      finishCarousel,
+      dragX,
+      carTarget,
+      pendingDir,
+      carBusy,
+      landFade,
+      starTravel,
+      starLastDrag,
+    ],
   );
 
   const carFrame = useFrameCallback(carTick, false);
@@ -593,6 +608,8 @@ export const DiscoverScreen: React.FC<Props> = ({
           // 参照 down(): 送りアニメ中と裏返し中は操作権を渡さない
           claimed.value = carBusy.value === 0 && Math.abs(cardRotation.value) < 90 ? 1 : 0;
           if (claimed.value) scrolling.value = 1;
+          // 新しいジェスチャは dragX=0 から始まる。差分の基準も揃えておく
+          starLastDrag.value = 0;
           // 参照 2993行: card への pointerdown で pressTo=1。ステージ全面ではなく
           // カードの矩形に触れたときだけ沈める（周りの余白を押しても反応しない）。
           if (
@@ -615,9 +632,9 @@ export const DiscoverScreen: React.FC<Props> = ({
           ) {
             cardPress.value = withTiming(0, { duration: 160, easing: Easing.out(Easing.quad) });
           }
-          // 星の平面は指の 13% だけ連れていく（上限つき）
-          const raw = e.translationX * STAR_PARALLAX_K;
-          starParallax.value = Math.max(-STAR_PARALLAX_MAX, Math.min(STAR_PARALLAX_MAX, raw));
+          // 星の平面は指の移動量の 16.8% ぶんだけ一緒に流れる（溜めっぱなし）
+          starTravel.value += (e.translationX - starLastDrag.value) * STAR_PARALLAX_K;
+          starLastDrag.value = e.translationX;
         })
         .onEnd((e) => {
           'worklet';
@@ -656,7 +673,8 @@ export const DiscoverScreen: React.FC<Props> = ({
       pendingDir,
       carTarget,
       startCarousel,
-      starParallax,
+      starTravel,
+      starLastDrag,
       cardPress,
       screenW,
       cardW,
@@ -855,7 +873,7 @@ export const DiscoverScreen: React.FC<Props> = ({
             width={screenW}
             height={slideH}
             paused={cardSpinning}
-            parallaxX={starParallax}
+            parallaxX={starTravel}
           />
         </RNAnimated.View>
       )}
