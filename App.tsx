@@ -119,6 +119,9 @@ function AppInner() {
   // 起動直後の 1 回だけ（phase は launch→app の一方向。サインアウトで launch へ
   // 戻したときは restartLaunch が 0 に戻す）。
   const footerFade = useRef(new Animated.Value(0)).current;
+  // ホームでは透明フッターを画面へかぶせる。その高さ（セーフエリア込み）を測って
+  // DiscoverScreen へ渡し、カードと下部クロームの位置を従来のままに保つ。
+  const [footerH, setFooterH] = useState(0);
   useEffect(() => {
     if (phase !== 'app') return;
     Animated.timing(footerFade, {
@@ -133,6 +136,8 @@ function AppInner() {
   const [launchScreen, setLaunchScreen] = useState<LaunchScreen | null>(null);
   const [consentJoin, setConsentJoin] = useState<ConsentJoin>('new');
   const [tab, setTab] = useState<TabScreen>('home');
+  /** ホームだけフッターを透明にして画面へかぶせる（星空が裏まで続く） */
+  const homeFooterFloats = tab === 'home';
   const [overlay, setOverlay] = useState<Overlay>(null);
   const [vipUnlocked, setVipUnlocked] = useState(false);
   // 設定の末端画面（account/restore/language/support/thanks/terms/privacy/tokushoho）
@@ -533,6 +538,7 @@ function AppInner() {
               purchase={purchase}
               introOnMount={homeIntroPending}
               onIntroDone={() => setHomeIntroPending(false)}
+              bottomInset={footerH}
               onPlay={(id) => {
                 // 所有済みカードの「再生」押下 → 再生画面へ（コレクションのタイル起点が
                 // 無いので残像演出は出さない＝origin は null のまま）
@@ -610,9 +616,23 @@ function AppInner() {
           )}
         </View>
 
-        {/* フッター（タブ群でのみ表示）。起動直後はホームが灯り終わる頃に遅れて出す */}
-        <Animated.View style={{ opacity: footerFade }}>
-          <Footer active={tab} onChange={changeTab} vipLocked={!vipUnlocked} />
+        {/* フッター（タブ群でのみ表示）。起動直後はホームが灯り終わる頃に遅れて出す。
+            ホームだけは下地を消して画面へかぶせる＝星空がフッターの裏まで続く。
+            かぶせるぶん DiscoverScreen の描画領域が画面いっぱいになるので、
+            高さを測って bottomInset として渡し、カードの位置は元のままに保つ。 */}
+        <Animated.View
+          style={[{ opacity: footerFade }, homeFooterFloats && styles.footerFloat]}
+          onLayout={(e) => {
+            const h = e.nativeEvent.layout.height;
+            setFooterH((prev) => (Math.abs(prev - h) < 0.5 ? prev : h));
+          }}
+        >
+          <Footer
+            active={tab}
+            onChange={changeTab}
+            vipLocked={!vipUnlocked}
+            transparent={homeFooterFloats}
+          />
         </Animated.View>
       </Animated.View>
     </View>
@@ -636,6 +656,8 @@ export default function App() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: COLOR_BG },
   body: { flex: 1 },
+  /** ホームの透明フッター。本体の上へ重ねる（列から外す） */
+  footerFloat: { position: 'absolute', left: 0, right: 0, bottom: 0 },
   // 起動判定中の一瞬だけ出る空の画面。app.json の splash/backgroundColor と
   // 同じ #0E0C20 にして、ネイティブ起動画面 → この画面 → LaunchFlow の間で
   // 背景色が一瞬だけ #171430 に化けるフラッシュを防ぐ（launch_onboarding_spec 準拠）。

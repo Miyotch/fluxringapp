@@ -31,8 +31,12 @@
  *   ・背景（bgbase）は NebulaBand 側が描くので、この層は透明で重ねる
  *   ・paused / reduce-motion で明滅停止（静止表示）
  *
- * 未移植（意図的）:
- *   ・カードのフリップ量に連動する横パララックス（参照 animateBG: translateX(shift*-7)）
+ * 横パララックス（2026-09-07 移植）:
+ *   参照 animateBG は星の平面ごと translateX して、端をまたいだ星だけ反対側へ
+ *   置き直す（fr_v98_FIX-cardaction 596-612 / 2939 行）。Skia では星が群ごとの
+ *   Path に焼かれていて 1 個だけ動かせないので、**平面を左右へ marginX ずつ
+ *   広げ、端の帯の星を反対側へも複製する**（トーラス化）ことで同じ絵にする。
+ *   画面内の星の位置・密度は marginX=0 のときと完全に一致する。
  */
 
 import React, { useMemo, useEffect, useState } from 'react';
@@ -118,6 +122,14 @@ function hash(x: number): number {
 }
 const rnd = (seed: number, a: number, b: number) => a + hash(seed) * (b - a);
 
+/**
+ * 横パララックスのために星の平面を左右へ広げる量(px)。
+ * DiscoverScreen 側のオフセット上限（STAR_PARALLAX_MAX）より必ず大きくとる。
+ * ここを広げたぶんだけ端の帯の星が複製される＝星の総数が増えるので、
+ * 必要最小限にとどめる（68px / 画面幅 390px なら約 +35%）。
+ */
+export const STAR_PARALLAX_MARGIN = 68;
+
 export type HaloDot = { x: number; y: number; r: number };
 
 export type TwinkleGroup = {
@@ -171,7 +183,12 @@ export function splitLayers(layers: BuiltLayer[]): SplitLayer[] {
   }));
 }
 
-export function buildLayers(W: number, H: number): BuiltLayer[] {
+/**
+ * @param marginX 平面を左右へ広げる量(px)。0 なら従来どおり画面幅ぴったり。
+ *                0 より大きいと、平面座標は「画面座標 + marginX」になり、
+ *                端 marginX の帯にある星は反対側へも複製される。
+ */
+export function buildLayers(W: number, H: number, marginX = 0): BuiltLayer[] {
   const scale = W / REF_W;
 
   return LAYERS.map((spec, li) => {
@@ -200,10 +217,18 @@ export function buildLayers(W: number, H: number): BuiltLayer[] {
       const y = hash(si + 1.9) * H;
       const size = rnd(si + 3.1, spec.sMin, spec.sMax) * SIZE_K * SIZE_TUNE;
       const g = groups[i % spec.groups];
-      g.path.addCircle(x, y, (size / 2) * scale);
-      if (spec.halo > 0) {
-        // box-shadow '0 0 Bpx'（B = size×halo）の視覚半径 ≈ 星半径 + B
-        g.halos.push({ x, y, r: (size / 2 + size * spec.halo) * scale });
+      const bodyR = (size / 2) * scale;
+      // box-shadow '0 0 Bpx'（B = size×halo）の視覚半径 ≈ 星半径 + B
+      const haloR = (size / 2 + size * spec.halo) * scale;
+      const put = (px: number) => {
+        g.path.addCircle(px, y, bodyR);
+        if (spec.halo > 0) g.halos.push({ x: px, y, r: haloR });
+      };
+      put(x + marginX);
+      // トーラス複製: 平面が横へずれても縁が空かないよう、端の帯だけ反対側へも置く
+      if (marginX > 0) {
+        if (x < marginX) put(x + W + marginX);
+        else if (x > W - marginX) put(x - W + marginX);
       }
     }
 

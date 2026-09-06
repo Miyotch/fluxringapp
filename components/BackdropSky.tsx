@@ -75,7 +75,12 @@ import {
   type SkRSXform,
   type SkColor,
 } from '@shopify/react-native-skia';
-import { useSharedValue, useDerivedValue, type SharedValue } from 'react-native-reanimated';
+import Animated, {
+  useSharedValue,
+  useDerivedValue,
+  useAnimatedStyle,
+  type SharedValue,
+} from 'react-native-reanimated';
 import { useBackdropClock } from '../lib/usePausableClock';
 
 import {
@@ -89,6 +94,7 @@ import {
   buildLayers,
   splitLayers,
   STAR_COLOR,
+  STAR_PARALLAX_MARGIN,
   type BuiltLayer,
   type SplitLayer,
   type TwinkleGroup,
@@ -264,12 +270,22 @@ export type BackdropSkyProps = {
   height: number;
   /** ホーム以外を表示している間は true にして明滅を止める（参照 __frSealPause 相当） */
   paused?: boolean;
+  /**
+   * 星の平面だけを横へずらす量(px)。地色と天の川は動かさない
+   * （参照 animateBG は #bgstars だけを translate する）。
+   *
+   * この値は **ネイティブの transform** で消費する。Skia の Group transform に
+   * すると Canvas が毎フレーム塗り直しになり、発熱対策で積み上げた
+   * 「動かしている間は Canvas を触らない」という前提が崩れる。
+   */
+  parallaxX?: SharedValue<number>;
 };
 
 const BackdropSkyImpl: React.FC<BackdropSkyProps> = ({
   width: W,
   height: H,
   paused = false,
+  parallaxX,
 }) => {
   const scale = W / REF_W;
 
@@ -303,7 +319,11 @@ const BackdropSkyImpl: React.FC<BackdropSkyProps> = ({
 
   const clouds = useMemo(buildClouds, []);
   const nebStarGroups = useMemo(() => buildStarGroups(W, H), [W, H]);
-  const starLayers = useMemo<BuiltLayer[]>(() => buildLayers(W, H), [W, H]);
+  // 横へずらす分だけ平面を広げておく（端の帯の星は反対側へも複製される）。
+  // ずらさないビルドでは 0 ＝ 従来どおり画面幅ぴったりの平面。
+  const margin = parallaxX ? STAR_PARALLAX_MARGIN : 0;
+  const planeW = W + margin * 2;
+  const starLayers = useMemo<BuiltLayer[]>(() => buildLayers(W, H, margin), [W, H, margin]);
   // 明滅する群 / 動かさない群へ振り分ける（星の位置・径・分布は不変）。
   // live はこの Canvas、still は下の StaticStars（塗り直されない Canvas）へ。
   const split = useMemo<SplitLayer[]>(() => splitLayers(starLayers), [starLayers]);
@@ -363,40 +383,66 @@ const BackdropSkyImpl: React.FC<BackdropSkyProps> = ({
           ))}
         </Group>
       )}
-
-      {/* ── .bgstars（明滅する群だけ）。遠景→近景の順（参照の DOM 生成順）──
-          残りの星は StaticStars が別 Canvas で持つ。星同士の重なりは点なので
-          描画順が入れ替わっても知覚差は出ない */}
-      {DEBUG_SKY.showStars &&
-        split.map((l) =>
-          l.live.map((g, gi) => (
-            <TwinkleLayer
-              key={`${l.layerIndex}-${gi}`}
-              g={g}
-              spec={l.spec}
-              layerIndex={l.layerIndex}
-              clock={clock}
-              stop={stop}
-            />
-          )),
-        )}
     </Canvas>
     ),
-    [W, H, scale, clouds, nebStarGroups, split, clock, stop],
+    [W, H, scale, clouds, nebStarGroups, clock, stop],
   );
 
-  // 静的な星は別 Canvas。天の川の screen 合成グループの外側に srcOver で重なる
-  // 点は、これまで同じ Canvas の最後に描いていたときと合成結果が変わらない。
-  return (
-    <>
-      {tree}
-      {DEBUG_SKY.showStars && (
+  // ── 星の平面（.bgstars）──────────────────────────────────────
+  // 地色・天の川とは別の Canvas に分ける。参照と同じく星だけが横へ動くので、
+  // 動かすたびに地色と天の川まで塗り直させないため。
+  // 明滅する群 / 静的な群の分割はこれまでどおり（StaticStars 参照）。
+  const starPlane = useMemo(
+    () => (
+      <>
+        <Canvas
+          style={[StyleSheet.absoluteFill, { width: planeW, height: H }]}
+          pointerEvents="none"
+        >
+          {split.map((l) =>
+            l.live.map((g, gi) => (
+              <TwinkleLayer
+                key={`${l.layerIndex}-${gi}`}
+                g={g}
+                spec={l.spec}
+                layerIndex={l.layerIndex}
+                clock={clock}
+                stop={stop}
+              />
+            )),
+          )}
+        </Canvas>
         <StaticStars
-          width={W}
+          width={planeW}
           height={H}
           layers={split}
           bodyColor={DEBUG_SKY.proofOfLife ? PROOF_COLOR : STAR_COLOR}
         />
+      </>
+    ),
+    [planeW, H, split, clock, stop],
+  );
+
+  // 平面の横ずらし。ネイティブの transform なので Canvas は塗り直されない。
+  const planeStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: parallaxX ? parallaxX.value : 0 }],
+  }));
+
+  // 星は地色・天の川の外側へ srcOver で重なる。同じ Canvas の最後に描いていた
+  // ときと合成結果は変わらない。
+  return (
+    <>
+      {tree}
+      {DEBUG_SKY.showStars && (
+        <Animated.View
+          style={[
+            { position: 'absolute', left: -margin, top: 0, width: planeW, height: H },
+            planeStyle,
+          ]}
+          pointerEvents="none"
+        >
+          {starPlane}
+        </Animated.View>
       )}
     </>
   );

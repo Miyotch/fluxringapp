@@ -49,6 +49,7 @@ import { previewUrl } from '../lib/r2';
 import { CardFace } from '../components/CardFace';
 import { BackdropSky } from '../components/BackdropSky';
 import { BackdropVeil } from '../components/BackdropVeil';
+import { CardVeil } from '../components/CardVeil';
 import { CardGround } from '../components/CardGround';
 import { StarSeal } from '../components/StarSeal';
 import {
@@ -59,7 +60,7 @@ import { BuyButton } from '../components/BuyButton';
 import { WishlistStar } from '../components/WishlistStar';
 import { PurchaseModal } from '../components/PurchaseModal';
 import { EqBars } from '../components/EqBars';
-import { BellIcon, PreviewIcon } from '../components/icons';
+import { PreviewIcon } from '../components/icons';
 import { useTopInset } from '../lib/safeArea';
 import { PurchaseParticles } from '../components/PurchaseParticles';
 import { PURCHASE, HOME_INTRO, homeCardWidth } from '../constants/design-tokens';
@@ -90,6 +91,23 @@ const CAR_SETTLE = 0.8;      // 整定しきい値 px（参照 |dragX-carTarget|
 const CAR_LAND_MS = 800;     // 着地フェード（参照 landT0 から 800ms）
 const CAR_AXIS = 6;          // 軸判定＝タップ境界（参照 moved の 6px）
 const CAR_DT_MAX = 0.05;     // 1フレームで進める上限（秒）
+
+// ── 宇宙空間の手ざわり（参照 fr_v98_FIX-cardaction.html の cardaction-controller）──
+// 参照 2940行: swipe(x) は指の移動量 delta を 0.60 倍で溜め、animateBG（606行）が
+// そこへさらに 0.28 を掛けて星の平面をずらす。実効の追従率は 0.168。
+// こちらは溜めずに dragX へ直結させる（＝カードが戻れば星も中央へ戻る）ので、
+// 溜まりぶんが乗らないぶん少し弱めて 0.13 にしてある。
+const STAR_PARALLAX_K = 0.13;
+// 平面のずれの上限(px)。StarField.STAR_PARALLAX_MARGIN より必ず小さくすること
+// （超えると広げた帯を使い切って、平面の縁＝星のない帯が画面へ入ってくる）。
+const STAR_PARALLAX_MAX = 60;
+// カードが着地して dragX が 0 に戻る瞬間、星まで同じフレームで飛ばすと弾む。
+// 参照 2973行の平滑化（時定数 90ms）に相当する尺で、少し遅れて中央へ滑らせる。
+const STAR_RETURN_MS = 420;
+// 参照 2999行: card.style.transform ... scale(1 - press*.035)
+const CARD_PRESS_SCALE = 0.035;
+// 参照 2995行: 指が 7px 動いたら「押した」を取り消す（＝スワイプの入り口）
+const CARD_PRESS_SLOP = 7;
 
 // カードが表からこれ以上傾いたら接地影を消して固定する（参照の hideEls 相当）
 const GROUND_HIDE_DEG = 8;
@@ -157,6 +175,15 @@ type Props = {
   introOnMount?: boolean;
   /** intro が終わった（または reduce-motion で一斉フェードし終えた）ことを親へ返す */
   onIntroDone?: () => void;
+  /**
+   * フッターがこの画面の上へ重なって描かれるときの、その高さ(px)。
+   *
+   * フッターを透明にして星空を透かすため、App.tsx はホームでだけフッターを
+   * 絶対配置でかぶせる＝この画面の描画領域が画面の高さいっぱいになる。
+   * 背景（星・天の川・調律陣の Canvas）はその全面を使い、**カードと下部
+   * クロームの位置決めだけ** この値を差し引いて、従来と同じ見えを保つ。
+   */
+  bottomInset?: number;
 };
 
 // フォールバック用スタブ（App からは stubData を渡す）
@@ -189,6 +216,7 @@ export const DiscoverScreen: React.FC<Props> = ({
   onPlay,
   introOnMount = false,
   onIntroDone,
+  bottomInset = 0,
 }) => {
   // ウィッシュから飛んできたときは、その曲のカードを最初に表示する。
   const initialIndex = focusTrackId
@@ -238,6 +266,24 @@ export const DiscoverScreen: React.FC<Props> = ({
   // intro が永久に始まらなくなる。
   const onIntroDoneRef = useRef(onIntroDone);
   onIntroDoneRef.current = onIntroDone;
+
+  // ── カードを開いているあいだの暗転（参照 .device.ca-detail）──────
+  // 参照 2878行: .ca-veil は opacity .8s cubic-bezier(.2,.7,.2,1) で 0→1、
+  // 同時に調律陣（#frSeal*）が .32 まで沈む（2881行）。
+  // 値は JS 側の RNAnimated で持ち、消費側はラッパの opacity だけ＝
+  // ネイティブドライバで完結し、Skia の Canvas は一切塗り直されない。
+  const detail = useRef(new RNAnimated.Value(0)).current;
+  const sealDim = useRef(
+    detail.interpolate({ inputRange: [0, 1], outputRange: [1, 0.32] }),
+  ).current;
+  useEffect(() => {
+    RNAnimated.timing(detail, {
+      toValue: flipped ? 1 : 0,
+      duration: flipped ? 800 : 650,
+      easing: RNEasing.bezier(0.2, 0.7, 0.2, 1),
+      useNativeDriver: true,
+    }).start();
+  }, [flipped, detail]);
 
   const sealScale = useRef(
     intro.seal.interpolate({ inputRange: [0, 1], outputRange: [HOME_INTRO.sealScaleFrom, 1] }),
@@ -332,13 +378,20 @@ export const DiscoverScreen: React.FC<Props> = ({
   // （参照 _dv3d.layout: S = min(1.28, 枠幅*0.86/カード幅, 枠高*0.82/カード高)）。
   // CardGL 自身に frame を渡し、裏面の実倍率は CardGL 内部の computeBackScale に
   // 任せる（下部クロームは固定位置になったので、ここで揃えて計算する必要はない）。
-  const cardFrame = useMemo(() => ({ width: screenW, height: slideH }), [screenW, slideH]);
+  // フッターがかぶさるぶんを差し引いた「カードの居場所」。背景 Canvas は
+  // slideH（画面いっぱい）のままで、位置決めだけこちらを使う。
+  const contentH = Math.max(0, slideH - bottomInset);
+  const cardCenterY = contentH / 2;
+  const cardFrame = useMemo(
+    () => ({ width: screenW, height: contentH }),
+    [screenW, contentH],
+  );
 
   // 購入ボタン／ウィッシュ星の位置は裏返し時も動かさず固定にする
   // （iPhone 16 で、裏面のカードが拡大されるのに合わせてボタンが下へスライドし、
   // ガタつくとの指摘のため）。裏面は computeBackScale で枠内に収まるよう
   // クランプ済みなので、固定位置のままでも大きくはみ出さない。
-  const BOTTOM_BASE = 100 + slideH * 0.02;
+  const BOTTOM_BASE = bottomInset + 100 + contentH * 0.02;
 
   // 購入確定時のカード発光・浮遊。発光は CardGL の purchaseGlow（枠＋外周グロー）へ
   // 渡し、浮遊は中央スロットの transform（centerStyle）へ合成する。
@@ -380,6 +433,10 @@ export const DiscoverScreen: React.FC<Props> = ({
   const claimed = useSharedValue(0);
   /** 着地フェード（参照 lk = 着地からの経過/800ms） */
   const landFade = useSharedValue(1);
+  /** 星の平面の横ずれ(px)。BackdropSky がネイティブ transform で消費する */
+  const starParallax = useSharedValue(0);
+  /** 0..1 のカードの押し込み量（参照 state.press） */
+  const cardPress = useSharedValue(0);
 
   // ── アイドルフロート（v99-tsubasa）──────────────────────────
   // 参照は dragging / carouselActive / 裏返し中(aProg>0.02) で 0 へ収束させる。
@@ -495,14 +552,24 @@ export const DiscoverScreen: React.FC<Props> = ({
         carTarget.value = 0;
         pendingDir.value = 0;
         carBusy.value = 0;
+        // 星だけは同じフレームで飛ばさず、遅れて中央へ戻す
+        starParallax.value = withTiming(0, {
+          duration: STAR_RETURN_MS,
+          easing: Easing.out(Easing.cubic),
+        });
         // 曲を差し替えるときは、ここで中央スロットを消しておく。
         // activeIndex の更新は runOnJS 経由で 1〜2 フレーム遅れるため、
         // 消さずに dragX=0 へ飛ばすと「古い絵柄が中央で一瞬光る」。
         if (dir !== 0) landFade.value = 0;
         runOnJS(finishCarousel)(dir);
+      } else {
+        // 曲送りのアニメ中も、指で引いていたときと同じ割合で星を連れていく
+        // （参照 landSwipe の coast に相当する「送りのあいだも動き続ける」ぶん）
+        const raw = dragX.value * STAR_PARALLAX_K;
+        starParallax.value = Math.max(-STAR_PARALLAX_MAX, Math.min(STAR_PARALLAX_MAX, raw));
       }
     },
-    [finishCarousel, dragX, carTarget, pendingDir, carBusy, landFade],
+    [finishCarousel, dragX, carTarget, pendingDir, carBusy, landFade, starParallax],
   );
 
   const carFrame = useFrameCallback(carTick, false);
@@ -521,17 +588,36 @@ export const DiscoverScreen: React.FC<Props> = ({
         .enabled(!flipped)
         .activeOffsetX([-CAR_AXIS, CAR_AXIS])
         .failOffsetY([-CAR_AXIS, CAR_AXIS])
-        .onBegin(() => {
+        .onBegin((e) => {
           'worklet';
           // 参照 down(): 送りアニメ中と裏返し中は操作権を渡さない
           claimed.value = carBusy.value === 0 && Math.abs(cardRotation.value) < 90 ? 1 : 0;
           if (claimed.value) scrolling.value = 1;
+          // 参照 2993行: card への pointerdown で pressTo=1。ステージ全面ではなく
+          // カードの矩形に触れたときだけ沈める（周りの余白を押しても反応しない）。
+          if (
+            claimed.value &&
+            Math.abs(e.x - screenW / 2) <= cardW / 2 &&
+            Math.abs(e.y - cardCenterY) <= cardH / 2
+          ) {
+            cardPress.value = withTiming(1, { duration: 90, easing: Easing.out(Easing.quad) });
+          }
         })
         .onUpdate((e) => {
           'worklet';
           if (!claimed.value) return;
           // 参照 move(): dragX = 指の移動量そのまま（1:1・上限なし）
           dragX.value = e.translationX;
+          // 参照 2995行: 7px 動いたら「押した」を取り消す
+          if (
+            Math.abs(e.translationX) > CARD_PRESS_SLOP ||
+            Math.abs(e.translationY) > CARD_PRESS_SLOP
+          ) {
+            cardPress.value = withTiming(0, { duration: 160, easing: Easing.out(Easing.quad) });
+          }
+          // 星の平面は指の 13% だけ連れていく（上限つき）
+          const raw = e.translationX * STAR_PARALLAX_K;
+          starParallax.value = Math.max(-STAR_PARALLAX_MAX, Math.min(STAR_PARALLAX_MAX, raw));
         })
         .onEnd((e) => {
           'worklet';
@@ -556,6 +642,8 @@ export const DiscoverScreen: React.FC<Props> = ({
           'worklet';
           scrolling.value = 0;
           claimed.value = 0;
+          // 参照 release(): pointerup / cancel / blur のいずれでも押し込みを戻す
+          cardPress.value = withTiming(0, { duration: 220, easing: Easing.out(Easing.quad) });
         }),
     [
       flipped,
@@ -568,6 +656,12 @@ export const DiscoverScreen: React.FC<Props> = ({
       pendingDir,
       carTarget,
       startCarousel,
+      starParallax,
+      cardPress,
+      screenW,
+      cardW,
+      cardH,
+      cardCenterY,
     ],
   );
 
@@ -580,7 +674,8 @@ export const DiscoverScreen: React.FC<Props> = ({
     transform: [
       { translateX: dragX.value },
       { translateY: floatY.value + cardTranslateY.value },
-      { scale: cardScale.value },
+      // 参照 2999行: scale(1 - press*.035)。購入演出の cardScale へ乗算で合成する
+      { scale: cardScale.value * (1 - cardPress.value * CARD_PRESS_SCALE) },
     ],
   }));
   // 隣カードは参照どおり等倍・不透明度1（縮小もフェードも掛けない）
@@ -756,7 +851,12 @@ export const DiscoverScreen: React.FC<Props> = ({
           style={[StyleSheet.absoluteFill, { opacity: intro.sky }]}
           pointerEvents="none"
         >
-          <BackdropSky width={screenW} height={slideH} paused={cardSpinning} />
+          <BackdropSky
+            width={screenW}
+            height={slideH}
+            paused={cardSpinning}
+            parallaxX={starParallax}
+          />
         </RNAnimated.View>
       )}
 
@@ -770,15 +870,18 @@ export const DiscoverScreen: React.FC<Props> = ({
           ]}
           pointerEvents="none"
         >
-          <StarSeal
-            width={screenW}
-            height={slideH}
-            centerX={screenW / 2}
-            centerY={slideH / 2}
-            cardWidth={cardW}
-            paused={cardSpinning}
-            style={styles.sealLayer}
-          />
+          {/* カードを開いているあいだは調律陣も沈める（参照 .ca-detail #frSeal*） */}
+          <RNAnimated.View style={[StyleSheet.absoluteFill, { opacity: sealDim }]}>
+            <StarSeal
+              width={screenW}
+              height={slideH}
+              centerX={screenW / 2}
+              centerY={cardCenterY}
+              cardWidth={cardW}
+              paused={cardSpinning}
+              style={styles.sealLayer}
+            />
+          </RNAnimated.View>
         </RNAnimated.View>
       )}
 
@@ -792,6 +895,17 @@ export const DiscoverScreen: React.FC<Props> = ({
           pointerEvents="none"
         >
           <BackdropVeil width={screenW} height={slideH} />
+        </RNAnimated.View>
+      )}
+
+      {/* 参照 .ca-veil。カードを開くと背景だけが沈む（カードより下に置く）。
+          幕そのものは静的な Canvas で、濃さはこのラッパの opacity が持つ。 */}
+      {slideH > 0 && !DEBUG_BACKDROP_ONLY && (
+        <RNAnimated.View
+          style={[StyleSheet.absoluteFill, { opacity: detail }]}
+          pointerEvents="none"
+        >
+          <CardVeil width={screenW} height={slideH} />
         </RNAnimated.View>
       )}
 
@@ -813,7 +927,7 @@ export const DiscoverScreen: React.FC<Props> = ({
             width={screenW}
             height={slideH}
             centerX={screenW / 2}
-            centerY={slideH / 2}
+            centerY={cardCenterY}
             cardW={cardW}
             cardH={cardH}
             fade={groundFade}
@@ -827,7 +941,7 @@ export const DiscoverScreen: React.FC<Props> = ({
               FlatList の paging では確定しきい値が画面幅の半分になってしまい、
               参照の 37.7px＋500px/s とは別物の操作感だった。 */}
           <GestureDetector gesture={carouselGesture}>
-            <View style={[styles.stage, { height: slideH }]} pointerEvents="box-none">
+            <View style={[styles.stage, { height: contentH }]} pointerEvents="box-none">
               {/* 隣接カード（参照 peekL/peekR）。等倍・不透明度1で dragX±STEP。
                   静止時は opacity 0 ＝ 合成から外れるだけで、毎フレームの
                   描画コストは持たない（中身は静止した Skia レイヤー） */}
@@ -882,17 +996,15 @@ export const DiscoverScreen: React.FC<Props> = ({
           ]}
           pointerEvents="box-none"
         >
-          {/* 右上: ベル／EQメーター／試聴アイコンを横一列に並べる。EQ は試聴中だけ
-              動く（試聴を止めたらボリュームアニメーションも消える）。
-              top は曲名（texts）と同じ topRightY + 5 にして高さを揃える。 */}
+          {/* 右上: EQメーター／試聴アイコン。EQ は試聴中だけ動く（試聴を止めたら
+              ボリュームアニメーションも消える）。
+              top は曲名（texts）と同じ topRightY + 5 にして高さを揃える。
+              ※ 通知ベルは 2026-09-07 に撤去（ホームの空を邪魔しないため）。
+                 通知一覧そのものは残っているので、導線が要るなら別の場所へ置く。 */}
           <View style={[styles.topRight, { top: topRightY + 5 }]} pointerEvents="box-none">
             <View style={styles.iconsRow1}>
-              <Pressable onPress={onOpenNotifications} hitSlop={10} style={styles.bell}>
-                <BellIcon size={24} />
-                {hasUnread && <View style={styles.bdot} />}
-              </Pressable>
               {/* EqBars は非アクティブ時 null を返すため、幅固定のスロットで囲って
-                  試聴の開始/停止でベルや試聴アイコンの位置が動かないようにする */}
+                  試聴の開始/停止で試聴アイコンの位置が動かないようにする */}
               <View style={styles.eqSlot}>
                 <EqBars active={isPreviewing} />
               </View>
