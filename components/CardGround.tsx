@@ -25,7 +25,7 @@
 import React from 'react';
 import { StyleProp, ViewStyle } from 'react-native';
 import { Canvas, Group, Circle, RadialGradient, Blur, vec } from '@shopify/react-native-skia';
-import { useDerivedValue, SharedValue } from 'react-native-reanimated';
+import Animated, { useAnimatedStyle, SharedValue } from 'react-native-reanimated';
 
 /** 参照実装のカード幅（CSS の px 値はこの幅で定義されている） */
 const REF_W = 188.6;
@@ -73,8 +73,6 @@ export type CardGroundProps = {
 };
 
 const CardGroundImpl: React.FC<CardGroundProps> = ({
-  width,
-  height,
   centerX,
   centerY,
   cardW,
@@ -93,52 +91,81 @@ const CardGroundImpl: React.FC<CardGroundProps> = ({
   const gh0 = cardH * 0.16;
   const cy0 = centerY + cardH * 0.5 + gh0 * 0.3;
 
-  const opacity = useDerivedValue(
-    () => BASE_OPACITY * (fade?.value ?? 1) * (1 + (lift?.value ?? 0) * 0.14),
-    [fade, lift],
-  );
+  // ── Canvas を楕円のタイトボックスまで縮める ──────────────────────
+  // 全画面（screenW × slideH）で持つ必要はまったく無い。3x 機だと 2.86Mpx =
+  // 11.4MB の Metal drawable を、幅 0.86w・高さ 0.16h の楕円ひとつのために
+  // 確保していた。ぼかしの裾ぶん（4σ）だけ余白を取れば足りる。
+  // 箱の中心がちょうど楕円の中心 (centerX, cy0) になるように取るのが要点で、
+  // これで下の RN transform のピボット（ビュー中心）が Skia 版のピボットと
+  // 一致し、変換式が単純な平行移動＋拡縮に落ちる。
+  const m = Math.ceil(SIGMA * s * 4) + 2;
+  const bw = gw0 + m * 2;
+  const bh = gh0 + m * 2;
+  const bx = centerX - bw / 2;
+  const by = cy0 - bh / 2;
 
-  // 基準楕円（gw0 × gh0）に対する lift ぶんの伸縮＋横ドラッグ追従。
-  // gh の変化で中心も動く: cy = ... + gh*0.3 なので Δcy = -gh0 * 0.015 * lift
-  const liftTransform = useDerivedValue(() => {
+  // ── 動くものは全部 Skia の外（RN のコンポジタ）へ ────────────────
+  // 以前は opacity と transform を Skia の <Group> に渡していたが、RN Skia は
+  // Canvas 単位でしか再描画できないため、値が変わるたびに全画面 Canvas が
+  // clear + ガウシアン込みで塗り直されていた。アイドル時ですら useIdleFloat の
+  // ±3px がこれを毎フレーム誘発していた（60〜120fps）。
+  //
+  // opacity は単なるアルファ乗算、transform は「中心ピボットの拡縮 ＋ 平行移動」
+  // で、どちらも RN の Animated.View で 1:1 に書ける。移すと Canvas 配下の
+  // SharedValue がゼロになり、sksg/Container の startMapper が張られない＝
+  // マウント時に 1 回描いて以降は一切再ラスタライズしない。
+  //
+  // 元の Skia 版 CTM:
+  //   T(dragX) · T(centerX) · T(0, cy0 - k·l) · S(sx,sy) · T(-centerX) · T(0,-cy0)
+  // ＝ ピボット (centerX, cy0) まわりの拡縮 → (dragX, -k·l) の平行移動。
+  // ビュー中心が (centerX, cy0) なので、RN 側は拡縮と平行移動を並べるだけでよい。
+  const animStyle = useAnimatedStyle(() => {
     const l = lift?.value ?? 0;
     const sc = scale?.value ?? 1;
-    return [
-      { translateX: dragX?.value ?? 0 },
-      { translateX: centerX },
-      { translateY: cy0 - gh0 * 0.015 * l },
-      { scaleX: (1 - l * 0.07) * sc },
-      { scaleY: (1 - l * 0.05) * sc },
-      { translateX: -centerX },
-      { translateY: -cy0 },
-    ];
-  }, [lift, dragX, scale]);
+    return {
+      opacity: BASE_OPACITY * (fade?.value ?? 1) * (1 + l * 0.14),
+      transform: [
+        { translateX: dragX?.value ?? 0 },
+        // gh の変化で中心も動く: cy = ... + gh*0.3 なので Δcy = -gh0 * 0.015 * lift
+        { translateY: -gh0 * 0.015 * l },
+        { scaleX: (1 - l * 0.07) * sc },
+        { scaleY: (1 - l * 0.05) * sc },
+      ],
+    };
+  }, [fade, lift, dragX, scale]);
 
   return (
-    <Canvas style={[{ width, height }, style]} pointerEvents="none">
-      <Group opacity={opacity} transform={liftTransform}>
-        {/* 正円を縦へ潰して楕円化（Skia の RadialGradient は円のみ） */}
-        <Group
-          transform={[
-            { translateX: centerX },
-            { translateY: cy0 },
-            { scaleY: gh0 / gw0 },
-            { translateX: -centerX },
-            { translateY: -cy0 },
-          ]}
-        >
-          <Circle cx={centerX} cy={cy0} r={gw0 / 2}>
-            <RadialGradient
-              c={vec(centerX, cy0)}
-              r={gw0 / 2}
-              positions={STOPS}
-              colors={COLORS}
-            />
-            <Blur blur={SIGMA * s} />
-          </Circle>
+    <Animated.View
+      pointerEvents="none"
+      style={[style, { position: 'absolute', left: bx, top: by, width: bw, height: bh }, animStyle]}
+    >
+      <Canvas style={{ width: bw, height: bh }} pointerEvents="none">
+        {/* 箱をずらしたぶんの平行移動。ここが平行移動「だけ」であることが重要で、
+            拡縮を混ぜると CTM 経由で <Blur> の σ まで写像されてぼかしが変わる。 */}
+        <Group transform={[{ translateX: -bx }, { translateY: -by }]}>
+          {/* 正円を縦へ潰して楕円化（Skia の RadialGradient は円のみ） */}
+          <Group
+            transform={[
+              { translateX: centerX },
+              { translateY: cy0 },
+              { scaleY: gh0 / gw0 },
+              { translateX: -centerX },
+              { translateY: -cy0 },
+            ]}
+          >
+            <Circle cx={centerX} cy={cy0} r={gw0 / 2}>
+              <RadialGradient
+                c={vec(centerX, cy0)}
+                r={gw0 / 2}
+                positions={STOPS}
+                colors={COLORS}
+              />
+              <Blur blur={SIGMA * s} />
+            </Circle>
+          </Group>
         </Group>
-      </Group>
-    </Canvas>
+      </Canvas>
+    </Animated.View>
   );
 };
 

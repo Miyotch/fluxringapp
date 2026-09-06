@@ -98,10 +98,11 @@ export const STUB_OWNED: CollectionItem[] = [
   { id: 'mesh', title: '白鉛筆 I（仮）', artworkUrl: artUri('mesh'), owned: true, audioKey: 'mesh', glowColor: 'rgba(232,226,210,.40)', glowColor2: 'rgba(180,174,158,.16)' },
 ];
 
-export const STUB_WISHLIST: CollectionItem[] = [
-  { id: 'kite', title: '白鉛筆 II（仮）', artworkUrl: artUri('kite'), owned: false, priceLabel: buyLabel(), glowColor: 'rgba(214,218,226,.40)', glowColor2: 'rgba(160,164,176,.16)' },
-  { id: 'bloom', title: '白鉛筆 III（仮）', artworkUrl: artUri('bloom'), owned: false, priceLabel: buyLabel(), glowColor: 'rgba(196,210,228,.40)', glowColor2: 'rgba(146,160,186,.16)' },
-];
+// STUB_WISHLIST（kite / bloom の固定2件）は廃止した。
+// ウィッシュリストに並ぶのは「ユーザーが★を付けた未所有の作品」で、スタブで固定してしまうと
+// ★を押してもウィッシュリストに入らない（＝課金導線の入口が切れる）状態がそのまま残る。
+// いまは App.tsx が useWishlist の集合と STUB_TRACKS からウィッシュリストを組み立てる。
+// 初回起動時のウィッシュリストは空で、空状態のカードが出る。
 
 export const STUB_NOTICES: Notice[] = [
   { id: 'n1', title: '今月の一曲を更新しました', date: '2026.06.20', unread: true, body: '新しい一曲が届きました。' },
