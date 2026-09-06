@@ -13,8 +13,9 @@
  *
  * 認証: メールは lib/firebaseAuth.signIn、Apple は components/AppleButton、
  *   Google は下部のフック内蔵ボタン（未設定時はクラッシュ回避のため分離）。
- *   新規作成（new）はモック同様クレデンシャルを取らず post へ進み、社会連携
- *   （Google/Apple）が実アカウント作成を担う。
+ *   新規作成（new）は screens/AuthScreen.tsx（mode="signup"）でメール/パスワード
+ *   を収集し signUp を実行、成功後に post（表示名→情景→ギフト）へ進む。
+ *   P0 4枚目の Google/Apple ボタンは従来どおり post を経ずそのままアプリへ入る。
  */
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
@@ -59,6 +60,7 @@ import {
 } from '../constants/authConfig';
 import { signIn, signInWithGoogleToken } from '../lib/firebaseAuth';
 import { useTopInset } from '../lib/safeArea';
+import { AuthScreen } from './AuthScreen';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -295,7 +297,7 @@ type Props = {
   onAgreeConsent: () => void;
 };
 
-type Screen = 'launch' | 'p0' | 'post' | 'login' | 'consent';
+type Screen = 'launch' | 'p0' | 'auth' | 'post' | 'login' | 'consent';
 
 export const LaunchFlow: React.FC<Props> = ({
   initialScreen,
@@ -340,9 +342,17 @@ export const LaunchFlow: React.FC<Props> = ({
 
       {screen === 'p0' && (
         <P0
-          onSignup={() => setScreen('post')}
+          onSignup={() => setScreen('auth')}
           onEnterApp={onEnterApp}
           onToLogin={() => setScreen('login')}
+        />
+      )}
+
+      {screen === 'auth' && (
+        <AuthScreen
+          mode="signup"
+          onSwitchMode={() => setScreen('login')}
+          onAuthenticated={() => setScreen('post')}
         />
       )}
 
