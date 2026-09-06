@@ -90,7 +90,7 @@ export const STUB_TRACKS: Track[] = [
   },
 ];
 
-// audioKey は R2 の音源キー（preview/{key}.mp3 / full/{key}.mp3）。
+// audioKey は R2 の音源キー（preview/{key}.wav / full/{key}.wav）。
 // モックの音源は blue/white/red の3つ想定なので所有曲もこれに揃える。
 export const STUB_OWNED: CollectionItem[] = [
   { id: 'blue', title: '冬明け', artworkUrl: artUri('blue'), owned: true, audioKey: 'blue', glowColor: 'rgba(96,206,224,.42)', glowColor2: 'rgba(70,132,224,.16)' },

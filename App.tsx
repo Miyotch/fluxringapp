@@ -29,6 +29,7 @@ import { LanguageProvider } from './lib/i18n';
 import { onUserChanged, deleteAccount, signOut } from './lib/firebaseAuth';
 import { usePurchaseFlow } from './lib/usePurchaseFlow';
 import { useSoundPreviews } from './lib/useSoundPreviews';
+import { useArticles } from './lib/useArticles';
 import { useWishlist } from './lib/useWishlist';
 import { prefetchArtwork } from './constants/artwork';
 import { ANIM, HOME_INTRO } from './constants/design-tokens';
@@ -175,6 +176,9 @@ function AppInner() {
       })),
     [soundPreviews],
   );
+
+  // メディア画面の記事一覧。Firestore の article コレクションから新着順で取得
+  const articles = useArticles();
 
   // 所有集合。STUB_OWNED は Firestore を繋ぐまでの土台（デモの見え方を保つため）で、
   // 購入で増えたぶんを足し込む。**Firestore 接続後はこの seed を外すこと**——
@@ -556,7 +560,7 @@ function AppInner() {
             />
           )}
 
-          {tab === 'media' && <MediaScreen />}
+          {tab === 'media' && <MediaScreen articles={articles} />}
 
           {tab === 'settings' && (
             <SettingsScreen
