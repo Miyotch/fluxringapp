@@ -33,6 +33,7 @@ import {
   Text as SkText,
   Image as SkiaImage,
   Paint,
+  RadialGradient,
   Blur,
   DashPathEffect,
   PaintStyle,
@@ -77,6 +78,9 @@ const N_SPARKS = 18;
 // 本数を 1/3（45→15）へ、尾の長さを半分へ落とす。
 const PULSE_KEEP_EVERY = 6;   // 生成後に何本おきに残すか（6 = 1/6・45→8本）
 const PULSE_TAIL_SCALE = 0.5; // 尾の長さ倍率
+// 光点の頭の半径（p.sz 比）。平らな円だった頃は 1.7。放射グラデで裾を作る
+// ぶん少し広げ、芯の見かけの大きさは同じくらいに保つ。
+const PULSE_HEAD_R = 2.6;
 
 // 交点のシャープ層。旧値（光条長5.5・光条0.55・コア0.95）は参照より強く、
 // 交点が大きな十字星になっていた。参照は小さな芯＋淡い裾なので抑える。
@@ -771,7 +775,25 @@ const Car: React.FC<{
         strokeWidth={1.1 * s}
         strokeCap="round"
       />
-      <Circle c={head} r={p.sz * 1.7 * s} color="#E4F6FC" opacity={Math.min(0.31, p.al * 0.7)} />
+      {/* 光点の頭。0.2.0 (16) の発熱対策で実行時ぼかしを全廃したとき、ここが
+          「輪郭のはっきりした平らな円」になった。実機では調律陣の弧・目盛・
+          銘文の上に灰色の円板が乗って見え、星が調律陣より手前にあるように
+          読めていた（2026-09-07 岡さん指摘）。
+          参照 HTML と同じ「あらかじめぼかした頭」へ戻す。ぼかしフィルタは
+          使わず、放射グラデの円で減衰を作るので saveLayer はゼロのまま
+          （星のハローと同じ手・StarField.tsx 参照）＝発熱対策は崩さない。 */}
+      <Circle c={head} r={PULSE_HEAD_R * p.sz * s}>
+        <RadialGradient
+          c={head}
+          r={PULSE_HEAD_R * p.sz * s}
+          colors={[
+            `rgba(228,246,252,${Math.min(0.31, p.al * 0.7).toFixed(3)})`,
+            `rgba(228,246,252,${(Math.min(0.31, p.al * 0.7) * 0.62).toFixed(3)})`,
+            'rgba(228,246,252,0)',
+          ]}
+          positions={[0, 0.3, 1]}
+        />
+      </Circle>
     </>
   );
 };
