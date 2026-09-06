@@ -43,6 +43,7 @@ import { COLOR, SPACE, TRANSPORT, homeCardWidth } from '../constants/design-toke
 import { formatTime } from '../lib/audio';
 import { useTopInset, useBottomInset } from '../lib/safeArea';
 import { fullAudioUrl, previewUrl } from '../lib/r2';
+import { logPlayback } from '../lib/logPlayback';
 import { NUM_FONT, JP_SERIF_FONT } from '../constants/fonts';
 
 export type PlayerTrack = {
@@ -323,6 +324,18 @@ export const PlayerScreen: React.FC<Props> = ({
   const playing = status.playing;
   const progress = duration > 0 ? Math.min(1, position / duration) : 0;
   const loading = !!sourceUri && !status.isLoaded && !error;
+
+  // 再生履歴（本編）の記録。position を ref に逃がしておき、曲送り／戻り／
+  // 画面を離れるとき（＝このトラックの effect がクリーンアップされるとき）に
+  // その時点までの再生秒数を1件だけ記録する。ユーザーには見せない裏の記録。
+  const positionRef = useRef(0);
+  useEffect(() => { positionRef.current = position; }, [position]);
+  useEffect(() => {
+    return () => {
+      logPlayback({ trackId: track.id, title: track.title, durationSec: positionRef.current });
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [track.id]);
 
   const togglePlay = useCallback(() => {
     if (playing) player.pause();
