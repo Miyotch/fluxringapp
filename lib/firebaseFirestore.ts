@@ -65,6 +65,20 @@ export const subscribeArtworks = (
     snap => callback(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
   )
 
+// ── メディア：記事一覧を新着順で購読（コレクション article）───
+export const articlesCol = () => collection(db, 'article')
+
+export const subscribeArticles = (
+  count: number,
+  callback: (docs: Array<{ id: string } & Record<string, unknown>>) => void,
+  onError?: (e: Error) => void,
+): Unsubscribe =>
+  onSnapshot(
+    query(articlesCol(), orderBy('published', 'desc'), limit(count)),
+    snap => callback(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+    onError,
+  )
+
 // ── 楽曲の試聴URL（sound/{id}.r2_preview）をリアルタイム監視 ───
 // ドキュメントが無い／フィールドが空文字・未設定なら null（試聴なし）を返す。
 export const subscribeSoundPreview = (
