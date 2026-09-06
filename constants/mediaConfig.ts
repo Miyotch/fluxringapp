@@ -11,14 +11,16 @@
  *                       tracks/{id}.r2_preview_url に完全URLを入れる運用が優先され、
  *                       未設定のときだけこのベースURLからフォールバック構築する）
  *
- *   workerUrl      … フル音源の署名付きURLを発行する Cloudflare Worker のURL。
- *                    非公開バケットを Firebase 認証＋所有権で保護する。
- *                    例: https://fluxring-audio.<subdomain>.workers.dev
- *                    → GET {workerUrl}/track/{audioKey}  (Authorization: Bearer <idToken>)
- *                      → { "url": "<署名付き短命URL>" }
+ *   workerUrl      … IAP購入検証エンドポイント（constants/iapConfig.ts の
+ *                    /iap/verify）のベースURL。未実装・未設定（空文字）。
  *
- * ※ フル音源は有料（¥2,500 買い切り）のため公開しない。必ず Worker 経由で
- *   所有権を確認してから署名付きURLを返す（infra/r2-audio-worker.js 参照）。
+ * ※ フル音源URL（tracks/{id}.r2_url）は lib/r2.ts が Firestore から直接読む。
+ *   infra/r2-audio-worker.js（Firebase認証＋所有権確認を挟んで非公開バケットから
+ *   配信するテンプレート）は実際にはデプロイされておらず、R2バケットも公開設定の
+ *   ため、現状のアクセス制御はアプリのUI上のみ（URLを知っていれば誰でも取得できる）。
+ *   本当の意味でのアクセス制御が必要になったら、Workerを実際にデプロイして
+ *   workerUrlを設定するか、Firestoreセキュリティルール側でr2_urlを購入者のみ
+ *   読める場所に分離する対応が要る。
  */
 
 import Constants from 'expo-constants'
@@ -34,4 +36,3 @@ export const R2_PREVIEW_BASE = (r2.previewBaseUrl ?? '').replace(/\/+$/, '')
 export const R2_WORKER_URL = (r2.workerUrl ?? '').replace(/\/+$/, '')
 
 export const isPreviewConfigured = Boolean(R2_PREVIEW_BASE)
-export const isFullAudioConfigured = Boolean(R2_WORKER_URL)

@@ -1,21 +1,20 @@
 /**
  * useTracks.ts — Firestore の tracks コレクションを新着順で購読
  * ------------------------------------------------------------------
- * CMS（Firebaseコンソール等）から追加された楽曲を、同梱の STUB_TRACKS
- * （v98_FIX ハンドオフの初期5作品）に加えて Discover に出す。
- * DiscoverScreen の Track 型へ、Firestore 側のフィールド名
- * （title/scene/artworkUrl/artistId/glow/glow2/story/tuning/price/
- *  r2_preview_url）を変換して渡す。
+ * 画面に表示する楽曲・カードはすべてこの tracks コレクションを参照する
+ * （同梱の STUB_TRACKS は使わない）。DiscoverScreen の Track 型へ、
+ * Firestore 側のフィールド名（title/scene/artworkUrl/artistId/glow/glow2/
+ * story/tuning/price/r2_preview_url）を変換して渡す。
  *
  * ・audioKey / id は Firestore のドキュメントID をそのまま使う
- *   （所有権 users/{uid}/purchases/{trackId} と Worker の
+ *   （所有権 users/{uid}/purchases/{trackId} と lib/r2.ts の
  *   tracks/{audioKey}.r2_url 解決が同じ文字列を前提にしているため、
  *   ドキュメント内の audioKey フィールドは使わない）。
  * ・tuning フィールドは ["432Hz","純正律"] のように周波数と調律名が
  *   混在した配列で保存されているため、"Hz" を含む要素を frequencies、
  *   それ以外を tuning ラベルとして振り分ける。
- * ・back.serial（通し番号）はここでは付けない。STUB_TRACKS との結合後、
- *   その並び順から連番を振る（App.tsx 側）。
+ * ・back.serial（通し番号）はここでは付けない。取得した並び順から
+ *   連番を振る（App.tsx 側）。
  */
 
 import { useEffect, useState } from 'react';
