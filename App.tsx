@@ -31,6 +31,7 @@ import { usePurchaseFlow } from './lib/usePurchaseFlow';
 import { useTrackPreviews } from './lib/useTrackPreviews';
 import { useTracks } from './lib/useTracks';
 import { useArtists } from './lib/useArtists';
+import { useUserProfileSync } from './lib/useUserProfileSync';
 import { useArticles } from './lib/useArticles';
 import { useWishlist } from './lib/useWishlist';
 import { prefetchArtwork } from './constants/artwork';
@@ -157,6 +158,11 @@ function AppInner() {
   // アプリ内課金と所有権。アプリ全体で1つだけ持つ（ストア接続・購入イベントの
   // 購読・未完了トランザクションの引き取りが二重に走らないようにするため）。
   const { controller: purchase, ownedIds, restore } = usePurchaseFlow();
+
+  // Firebase Authentication ⇔ Firestore users/{uid} の同期。
+  // 新規登録・ログイン・セッション復元のたびに Auth 側のプロフィールを
+  // users/{uid} へ書き込む（従来はどこにも書いておらず連動していなかった）。
+  useUserProfileSync();
 
   // ウィッシュリスト。ホームの★とコレクションのウィッシュリストは同じ1つの集合を見る。
   // ここに一本化するまでは DiscoverScreen のローカル state に閉じていて、
