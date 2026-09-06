@@ -78,6 +78,7 @@ export function useTracks(count = 50): Track[] {
               title: str(data.title) ?? '',
               subtitle: str(data.scene),
               artistName: artist?.name ?? '',
+              artistId,
               artworkUrl: str(data.artworkUrl) ?? '',
               audioKey: d.id,
               previewUrl: str(data.r2_preview_url) ?? null,

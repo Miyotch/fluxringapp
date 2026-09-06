@@ -30,6 +30,7 @@ import { onUserChanged, deleteAccount, signOut } from './lib/firebaseAuth';
 import { usePurchaseFlow } from './lib/usePurchaseFlow';
 import { useTrackPreviews } from './lib/useTrackPreviews';
 import { useTracks } from './lib/useTracks';
+import { useArtists } from './lib/useArtists';
 import { useArticles } from './lib/useArticles';
 import { useWishlist } from './lib/useWishlist';
 import { prefetchArtwork } from './constants/artwork';
@@ -50,7 +51,7 @@ import {
   DocumentScreen,
 } from './screens/SettingsDetailScreens';
 import { NotificationsScreen } from './screens/NotificationsScreen';
-import { ArtistScreen } from './screens/ArtistScreen';
+import { ArtistScreen, ArtistTrack } from './screens/ArtistScreen';
 import { StoryScreen } from './screens/StoryScreen';
 import { PlayerScreen, PlayerTrack } from './screens/PlayerScreen';
 import type { CardOrigin, CardOriginItem } from './components/CardAfterimage';
@@ -61,8 +62,6 @@ import {
   STUB_TRACKS,
   STUB_OWNED,
   STUB_NOTICES,
-  STUB_ARTISTS,
-  STUB_ARTIST_TRACKS,
   STUB_STORY,
   STUB_VIP_CARDS,
 } from './constants/stubData';
@@ -299,6 +298,30 @@ function AppInner() {
     [discoverTracks, ownedTrackIds],
   );
 
+  // 設定 →「Artistのご紹介」。Firestore の artists コレクションが正。
+  const artists = useArtists();
+
+  // 作家ごとの楽曲一覧（所有=明 / 未所有=影）。discoverTracks（STUB_TRACKS＋
+  // Firestore の tracks）を artistId で振り分ける。STUB_TRACKS 側は artistId を
+  // 持たないため、氏名一致（空白を無視）で補う（同じ「岡ナオキ」を指すため）。
+  const tracksByArtist = useMemo(() => {
+    const idByName = new Map(artists.map((a) => [a.name.replace(/\s+/g, ''), a.id] as const));
+    const map: Record<string, ArtistTrack[]> = {};
+    for (const tr of discoverTracks) {
+      const artistId = tr.artistId ?? idByName.get(tr.artistName.replace(/\s+/g, ''));
+      if (!artistId) continue;
+      (map[artistId] ??= []).push({
+        id: tr.id,
+        title: tr.title,
+        artworkUrl: tr.artworkUrl,
+        owned: ownedTrackIds.has(tr.id),
+        glowColor: tr.glowColor,
+        glowColor2: tr.glowColor2,
+      });
+    }
+    return map;
+  }, [discoverTracks, artists, ownedTrackIds]);
+
   const goApp = useCallback(() => {
     // アプリへ入るときはオンボ済みとして記録（次回はログイン画面から）
     AsyncStorage.setItem(KEY_ONBOARDED, '1').catch(() => {});
@@ -445,8 +468,8 @@ function AppInner() {
   if (overlay === 'artist') {
     return (
       <ArtistScreen
-        artists={STUB_ARTISTS}
-        tracksByArtist={STUB_ARTIST_TRACKS}
+        artists={artists}
+        tracksByArtist={tracksByArtist}
         onBackToSettings={() => {
           setOverlay(null);
           setTab('settings');
