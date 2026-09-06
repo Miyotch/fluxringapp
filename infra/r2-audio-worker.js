@@ -45,6 +45,30 @@
  *   full/{audioKey}.wav     ← フル音源（このWorker経由のみ）
  *   （試聴は別の公開バケット: preview/{audioKey}.wav）
  * ------------------------------------------------------------------
+ *
+ * 【未実装】/iap/verify（購入検証。constants/iapConfig.ts が呼び先として
+ *   期待するエンドポイント）はこのファイルにまだ実装していない。
+ *   lib/usePurchaseFlow.ts は現在 MOCK_PURCHASES=true で実際のIAPを
+ *   通さずに成功扱いにしているため、実際の購入イベントは今のところ
+ *   どこにも記録されない。実装するときは、App Store Server API /
+ *   Google Play Developer API でレシートを検証したうえで、
+ *     1) users/{uid}/purchases/{trackId} に所有権を書く（lib/ownership.ts）
+ *     2) 下記スキーマで purchase_history に購入イベント1件を追記する
+ *   の両方を1つのトランザクション的な処理として行うこと。
+ *
+ *   purchase_history コレクション（ドキュメントIDは自動採番・購入ごとに1件）:
+ *     uid           string   購入したユーザーのFirebase uid
+ *     trackId       string   users/{uid}/purchases/{trackId} と同じ値（=audioKey）
+ *     productId     string   ストアの商品ID（例: com.fluxring.app.track.blue）
+ *     platform      string   'ios' | 'android'
+ *     transactionId string   ストアのトランザクションID
+ *     purchaseToken string|null  Android purchaseToken / iOS JWS（OpenIAP仕様で同じ場所に入る）
+ *     priceJpy      number   購入時点の価格（円。constants/pricing.ts の値を購入時に固定して記録）
+ *     verified      boolean  レシート検証に成功したか
+ *     source        string   'store'（ストア課金） | 'grant'（無料付与・運営による手動付与）
+ *     purchasedAt   Timestamp
+ *     revokedAt     Timestamp|null  返金・失効時に設定（users/{uid}/purchases と同じ扱い）
+ * ------------------------------------------------------------------
  */
 
 const CORS = {
