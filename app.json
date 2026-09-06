@@ -34,7 +34,7 @@
           }
         ]
       },
-      "buildNumber": "40"
+      "buildNumber": "41"
     },
     "android": {
       "package": "com.fluxring.app",
@@ -43,7 +43,7 @@
         "foregroundImage": "./icon.png",
         "backgroundColor": "#0E0C20"
       },
-      "versionCode": 35
+      "versionCode": 36
     },
     "plugins": [
       "expo-apple-authentication",
