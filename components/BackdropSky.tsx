@@ -74,13 +74,9 @@ import {
   vec,
   type SkRSXform,
   type SkColor,
+  type Transforms3d,
 } from '@shopify/react-native-skia';
-import Animated, {
-  useSharedValue,
-  useDerivedValue,
-  useAnimatedStyle,
-  type SharedValue,
-} from 'react-native-reanimated';
+import { useSharedValue, useDerivedValue, type SharedValue } from 'react-native-reanimated';
 import { useBackdropClock } from '../lib/usePausableClock';
 
 import {
@@ -276,9 +272,10 @@ export type BackdropSkyProps = {
    * 画面幅 W で割った余りへ畳んでから使う。星の平面は周期 W のタイルなので、
    * W をまたぐ瞬間の絵は 0 のときと同じ＝継ぎ目なしで無限に流れる。
    *
-   * この値は **ネイティブの transform** で消費する。Skia の Group transform に
-   * すると Canvas が毎フレーム塗り直しになり、発熱対策で積み上げた
-   * 「動かしている間は Canvas を触らない」という前提が崩れる。
+   * ずらしは **Skia の Group transform** で当てる。親 View をネイティブに
+   * ずらすほうが塗り直しゼロで安上がりだが、Android では Canvas が親の
+   * transform に付いてこない場合があり、実機（0.3.0 (38)）で星が動かなかった。
+   * 塗り直しは横スワイプの最中だけなので、確実に効くほうを採る。
    */
   parallaxX?: SharedValue<number>;
 };
@@ -321,10 +318,10 @@ const BackdropSkyImpl: React.FC<BackdropSkyProps> = ({
 
   const clouds = useMemo(buildClouds, []);
   const nebStarGroups = useMemo(() => buildStarGroups(W, H), [W, H]);
-  // 横へ流すビルドでは、星の平面を周期 W のタイル（幅 2W）にしておく。
-  // 流さないビルドでは従来どおり画面幅ぴったりの平面。
+  // 横へ流すビルドでは、星を x と x+W の 2 か所へ置いた周期 W のタイル
+  // （パスの座標が [0,2W) に広がる）にしておく。Canvas の大きさは画面のまま
+  // ＝メモリは増えず、はみ出したぶんは Skia がクリップする。
   const tiled = !!parallaxX;
-  const planeW = tiled ? W * 2 : W;
   const starLayers = useMemo<BuiltLayer[]>(() => buildLayers(W, H, tiled), [W, H, tiled]);
   // 明滅する群 / 動かさない群へ振り分ける（星の位置・径・分布は不変）。
   // live はこの Canvas、still は下の StaticStars（塗り直されない Canvas）へ。
@@ -390,17 +387,24 @@ const BackdropSkyImpl: React.FC<BackdropSkyProps> = ({
     [W, H, scale, clouds, nebStarGroups, clock, stop],
   );
 
-  // ── 星の平面（.bgstars）──────────────────────────────────────
-  // 地色・天の川とは別の Canvas に分ける。参照と同じく星だけが横へ動くので、
-  // 動かすたびに地色と天の川まで塗り直させないため。
-  // 明滅する群 / 静的な群の分割はこれまでどおり（StaticStars 参照）。
-  const starPlane = useMemo(
+  // ── 星の平面の横ずらし ──────────────────────────────────────
+  //
+  // パスは [0, 2W) に広がっていて、内容は周期 W（星 x と x+W が同じ絵）。
+  // 平面座標を -W + t（t は溜まった移動量の W の余り）へ置くと、画面 [0,W) に
+  // 出るのは平面 [W-t, 2W-t) ⊂ [0,2W)。t が W をまたいで 0 へ戻る瞬間の絵は
+  // 直前と 1 ドットも違わないので、継ぎ目なしで無限に流れる。
+  const starShift = useDerivedValue<Transforms3d>(() => {
+    if (!parallaxX || W <= 0) return [{ translateX: 0 }];
+    const m = parallaxX.value % W;
+    return [{ translateX: (m < 0 ? m + W : m) - W }];
+  }, [parallaxX]);
+
+  // 明滅する群だけを持つ Canvas。地色・天の川とは分けてあるので、星を流しても
+  // 天の川の screen 合成（全画面 saveLayer）までは巻き込まない。
+  const starTree = useMemo(
     () => (
-      <>
-        <Canvas
-          style={[StyleSheet.absoluteFill, { width: planeW, height: H }]}
-          pointerEvents="none"
-        >
+      <Canvas style={[StyleSheet.absoluteFill, { width: W, height: H }]} pointerEvents="none">
+        <Group transform={tiled ? starShift : undefined}>
           {split.map((l) =>
             l.live.map((g, gi) => (
               <TwinkleLayer
@@ -413,44 +417,29 @@ const BackdropSkyImpl: React.FC<BackdropSkyProps> = ({
               />
             )),
           )}
-        </Canvas>
-        <StaticStars
-          width={planeW}
-          height={H}
-          layers={split}
-          bodyColor={DEBUG_SKY.proofOfLife ? PROOF_COLOR : STAR_COLOR}
-        />
-      </>
+        </Group>
+      </Canvas>
     ),
-    [planeW, H, split, clock, stop],
+    [W, H, split, clock, stop, tiled, starShift],
   );
 
-  // 平面の横ずらし。ネイティブの transform なので Canvas は塗り直されない。
-  //
-  // 溜まった移動量を W の余り [0, W) へ畳む。平面は左端を -W に置いてあるので、
-  // ずらし量 0 では複製側（平面座標 W..2W）が、W では原本側（0..W）が画面に
-  // 出る。中身は同じなので、余りが W → 0 へ飛ぶ瞬間に絵は 1 ドットも動かない。
-  const planeStyle = useAnimatedStyle(() => {
-    if (!parallaxX || W <= 0) return { transform: [{ translateX: 0 }] };
-    const t = parallaxX.value % W;
-    return { transform: [{ translateX: t < 0 ? t + W : t }] };
-  });
-
   // 星は地色・天の川の外側へ srcOver で重なる。同じ Canvas の最後に描いていた
-  // ときと合成結果は変わらない。
+  // ときと合成結果は変わらない。調律陣（StarSeal）はこれより後ろの兄弟なので、
+  // 星は今までどおり調律陣の下。
   return (
     <>
       {tree}
       {DEBUG_SKY.showStars && (
-        <Animated.View
-          style={[
-            { position: 'absolute', left: tiled ? -W : 0, top: 0, width: planeW, height: H },
-            planeStyle,
-          ]}
-          pointerEvents="none"
-        >
-          {starPlane}
-        </Animated.View>
+        <>
+          {starTree}
+          <StaticStars
+            width={W}
+            height={H}
+            layers={split}
+            bodyColor={DEBUG_SKY.proofOfLife ? PROOF_COLOR : STAR_COLOR}
+            transform={tiled ? starShift : undefined}
+          />
+        </>
       )}
     </>
   );

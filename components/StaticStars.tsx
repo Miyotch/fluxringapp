@@ -35,6 +35,7 @@ import {
   type SkRSXform,
 } from '@shopify/react-native-skia';
 import type { SharedValue } from 'react-native-reanimated';
+import type { Transforms3d } from '@shopify/react-native-skia';
 
 import {
   STAR_COLOR,
@@ -135,6 +136,18 @@ export type StaticStarsProps = {
   /** StarField.splitLayers() の結果。ここでは still 側だけを描く */
   layers: SplitLayer[];
   bodyColor?: string;
+  /**
+   * 星の平面の横ずらし（BackdropSky が作る周期 W の巻き戻し済み transform）。
+   *
+   * ここへ SharedValue を渡した瞬間、この Canvas は「値が変わったフレームだけ」
+   * 塗り直される側になる。上の但し書きの唯一の例外で、意図的に許している：
+   *   ・値が動くのは横スワイプの最中だけ（指を離して整定したら止まる）
+   *   ・止まっている間の塗り直し回数はこれまでどおりゼロ
+   * ネイティブの transform（親 View をずらす）なら塗り直しゼロにできるが、
+   * Android では Skia の Canvas が親の transform に付いてこない場合があり、
+   * 実機で星が動かなかった。確実に効く Skia 内部の変換を採る。
+   */
+  transform?: SharedValue<Transforms3d>;
 };
 
 const StaticStarsImpl: React.FC<StaticStarsProps> = ({
@@ -142,6 +155,7 @@ const StaticStarsImpl: React.FC<StaticStarsProps> = ({
   height: H,
   layers,
   bodyColor,
+  transform,
 }) => {
   // ── この Canvas に SharedValue を持ち込まないこと ──────────────
   // opacity は stillOpacity() が返す素の数値。clock も paused も参照しない。
@@ -154,21 +168,23 @@ const StaticStarsImpl: React.FC<StaticStarsProps> = ({
   const tree = useMemo(
     () => (
       <Canvas style={[StyleSheet.absoluteFill, { width: W, height: H }]} pointerEvents="none">
-        {layers.map((l) =>
-          l.still.map((g, gi) => (
-            <StarGroupPaint
-              key={`${l.layerIndex}-${gi}`}
-              g={g}
-              spec={l.spec}
-              layerIndex={l.layerIndex}
-              opacity={stillOpacity(g)}
-              bodyColor={bodyColor}
-            />
-          )),
-        )}
+        <Group transform={transform}>
+          {layers.map((l) =>
+            l.still.map((g, gi) => (
+              <StarGroupPaint
+                key={`${l.layerIndex}-${gi}`}
+                g={g}
+                spec={l.spec}
+                layerIndex={l.layerIndex}
+                opacity={stillOpacity(g)}
+                bodyColor={bodyColor}
+              />
+            )),
+          )}
+        </Group>
       </Canvas>
     ),
-    [W, H, layers, bodyColor],
+    [W, H, layers, bodyColor, transform],
   );
 
   return tree;

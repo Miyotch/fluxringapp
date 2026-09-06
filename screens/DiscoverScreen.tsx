@@ -84,7 +84,13 @@ const DEBUG_BACKDROP_ONLY = false;
 // 500px/s より 5 倍以上重かった（＝「フリックがきかない」の直接原因）。
 const CAR_THRESH_R = 0.20;   // 確定しきい値（カード幅比・参照 THRESH=CARDW*0.20）
 const CAR_FAST_MIN_R = 0.06; // 速度成立時の最小移動量（参照 CARDW*0.06）
-const CAR_FADE_R = 0.55;     // 中央カードが消えきる距離（参照 CARDW*0.55）
+// 中央カードが消えきる距離。参照は CARDW*0.55（＝隣の札との間隔 STEP の 1/3）
+// だったが、実機で「スワイプの途中、画面の真ん中に札が1枚も無い時間」ができた
+// （2026-09-07 岡さん指摘）。参照は札どうしが STEP＝札幅の 1.7 倍も離れている
+// ので、出ていく札が STEP の 1/3 で消えてしまうと、入ってくる札が届くまでの間が
+// 空になる。消えきる距離を STEP そのものにすると、出ていく札は隣のスロットへ
+// 着いた瞬間にちょうど 0 になる＝中央がいつもどちらかの札で埋まる。
+const CAR_FADE_R = 0.55; // ※ 現在は未使用（carGeo.fade は step を使う）
 const CAR_VEL = 500;         // フリック速度しきい値 px/s（参照 0.5px/ms）
 const CAR_LERP = 0.22;       // 毎フレームの寄せ（参照 dragX += (target-dragX)*0.22）
 const CAR_SETTLE = 0.8;      // 整定しきい値 px（参照 |dragX-carTarget| < 0.8）
@@ -94,20 +100,21 @@ const CAR_SETTLE = 0.8;      // 整定しきい値 px（参照 |dragX-carTarget|
 // ことだけなので、その数フレームさえ隠せれば長さは要らない。
 // ease-in（立ち上がりが遅い曲線）と組み合わせて、最初の 3 フレームはほぼ 0、
 // 200ms で完全に戻る＝目には「沈まずにそのまま入れ替わる」ようにする。
-const CAR_LAND_MS = 200;
+const CAR_LAND_MS = 200; // ※ 現在は未使用（着地の暗転そのものを廃止した）
 const CAR_AXIS = 6;          // 軸判定＝タップ境界（参照 moved の 6px）
 const CAR_DT_MAX = 0.05;     // 1フレームで進める上限（秒）
 
 // ── 宇宙空間の手ざわり（参照 fr_v98_FIX-cardaction.html の cardaction-controller）──
-// 参照 2940行: swipe(x) は指の移動量 delta を 0.60 倍で溜め、animateBG（606行）が
-// そこへさらに 0.28 を掛けて星の平面をずらす。実効の追従率は 0.168。
+// 星の平面の追従率。溜めた量は **戻さない**ので、スワイプを重ねるほど星空は
+// 一方向へ流れ続ける。平面は周期 W のタイル（StarField.buildLayers の repeatX）
+// なので、溜まった量が画面幅を越えても継ぎ目は出ない。
 //
-// 溜めた量は **戻さない**。カードが次の札へ入れ替わっても星はその場に残るので、
-// スワイプを重ねるほど星空は一方向へ流れ続ける（＝ずっと移動して見える）。
-// 平面は周期 W のタイル（StarField.buildLayers の repeatX）なので、溜まった量が
-// 画面幅を越えても継ぎ目は出ない。1 スワイプあたりの流れは STEP×K ≒ 60px 前後、
-// 画面幅ぶん流れるのに 6〜7 スワイプかかる。
-const STAR_PARALLAX_K = 0.168;
+// 参照の実効値は 0.168（1 スワイプ＝約 60px）だったが、実機ではほとんど動いて
+// 見えなかった。岡さんの「1→2 で星の場所が変わり、2→3 で 1 の状態へ戻る」に
+// 合わせ、**1 スワイプ＝画面幅の半分**にする。ちょうど 2 スワイプで平面が
+// 一周（＝元の絵）へ戻り、しかも周期タイルなので継ぎ目は出ない。
+// 追従率は端末ごとに STEP から逆算する（下の carGeo.starK）。
+const STAR_SWIPE_TRAVEL_R = 0.5; // 1 スワイプで流れる量（画面幅比）
 // 参照 2999行: card.style.transform ... scale(1 - press*.035)
 const CARD_PRESS_SCALE = 0.035;
 // 参照 2995行: 指が 7px 動いたら「押した」を取り消す（＝スワイプの入り口）
@@ -418,7 +425,6 @@ export const DiscoverScreen: React.FC<Props> = ({
     () => ({
       thresh: cardW * CAR_THRESH_R,
       fastMin: cardW * CAR_FAST_MIN_R,
-      fade: cardW * CAR_FADE_R,
       // 参照 STEP = 190 + CARDW/2 + THRESH（隣カードとの中心間距離）。
       // 先頭の 190 は参照デバイス(380px幅)基準の実寸なので、カードと同じ
       // 倍率（cardW/188.59）でスケールする
@@ -426,6 +432,10 @@ export const DiscoverScreen: React.FC<Props> = ({
     }),
     [cardW],
   );
+  // 出ていく札が消えきる距離＝隣のスロットまでの距離。中央が空く時間をなくす
+  const carFade = carGeo.step;
+  // 1 スワイプ（＝札1枚ぶんの移動 STEP）でちょうど画面幅の半分だけ星を流す
+  const starK = carGeo.step > 0 ? (screenW * STAR_SWIPE_TRAVEL_R) / carGeo.step : 0;
   /** カードの横位置(px)。指に 1:1 で追従し、離すと 0 か ±STEP へ寄る */
   const dragX = useSharedValue(0);
   const carTarget = useSharedValue(0);
@@ -435,7 +445,20 @@ export const DiscoverScreen: React.FC<Props> = ({
   const pendingDir = useSharedValue(0);
   /** このジェスチャが操作権を取ったか（アニメ中に触られたら 0 のまま） */
   const claimed = useSharedValue(0);
-  /** 着地フェード（参照 lk = 着地からの経過/800ms） */
+  /**
+   * 1 = 整定して JS へ受け渡し済み（絵柄の差し替え待ち）。
+   * setActive(false) が JS 経由で届くまでフレームコールバックは動き続けるので、
+   * これが無いと同じ整定を何度も JS へ投げてしまう。
+   */
+  const settling = useSharedValue(0);
+  /**
+   * 着地フェード（参照 lk = 着地からの経過/800ms）。
+   *
+   * 2026-09-07 以降は常に 1。札の受け渡しは finishCarousel が
+   * 「絵柄の差し替えと dragX の巻き戻しを同じ JS タスクでやる」ことで
+   * 継ぎ目なく済ませており、中央スロットを暗転させる必要がなくなった。
+   * 購入演出など別の用途で使う余地を残して値だけ置いてある。
+   */
   const landFade = useSharedValue(1);
   /**
    * 星の平面の横ずれ(px)。**溜め込む一方**で、カードが入れ替わっても戻さない。
@@ -475,11 +498,11 @@ export const DiscoverScreen: React.FC<Props> = ({
     if (Math.abs(cardRotation.value) > GROUND_HIDE_DEG) return 0;
     const fore = Math.abs(Math.cos((cardRotation.value * Math.PI) / 180));
     const slide = Math.min(
-      Math.max(0, 1 - Math.abs(dragX.value) / carGeo.fade),
+      Math.max(0, 1 - Math.abs(dragX.value) / carFade),
       landFade.value,
     );
     return fore * slide;
-  }, [cardRotation, dragX, landFade, carGeo]);
+  }, [cardRotation, dragX, landFade, carFade]);
 
   // 回転中（＝表を向いていない）かどうか。true の間は背景の時計を止める。
   // 参照の星と天の川は CSS コンポジタで回るのでメインスレッド負荷が構造的に
@@ -523,22 +546,42 @@ export const DiscoverScreen: React.FC<Props> = ({
   const carFrameRef = useRef<{ setActive: (a: boolean) => void } | null>(null);
   const count = tracks.length;
 
-  /** 整定した瞬間の後始末。dir!==0 なら曲を確定して着地フェードを始める */
+  /**
+   * 整定した瞬間の後始末。
+   *
+   * ここがカードの受け渡しの要。**絵柄の差し替えと dragX の巻き戻しを同じ
+   * JS タスクでやる**のが肝で、そうすると
+   *   直前: 中央スロット＝古い絵柄（dragX=-STEP・不透明度0）／隣スロット＝
+   *         新しい絵柄（画面中央・不透明度1）
+   *   直後: 中央スロット＝新しい絵柄（dragX=0・不透明度1）／隣スロットは退避
+   * となり、画面の絵は前後で同じになる＝継ぎ目が出ない。
+   *
+   * 以前は整定した瞬間に UI スレッドで dragX=0 とし、中央スロットを暗転
+   * （landFade=0）させてから、JS が絵柄を差し替えた後にフェードで戻していた。
+   * 暗転している間は隣スロットも中央から外れるので、**中央に札が1枚も無い
+   * 時間**ができる。その長さは JS スレッドの遅れ次第で、フェードを 800ms から
+   * 200ms に縮めても体感が変わらなかったのはこのため（2026-09-07）。
+   */
   const finishCarousel = useCallback(
     (dir: number) => {
       carFrameRef.current?.setActive(false);
-      if (dir === 0) return;
-      // 参照 ORDER は循環（端で止まらない）
-      setActiveIndex((i) => (((i + dir) % count) + count) % count);
-      setFlipped(false);
-      // 旧カードの回転角が残ると落影・接地影が戻らないのでリセット
-      cardRotation.value = 0;
-      // 購入の呼吸が途中でも、曲が変わったら消す（次のカードへ持ち越さない）
-      cardGlow.value = 0;
-      // 参照 landT0: 着地から 800ms かけて中央カードを戻す（0 は整定時に設定済み）
-      landFade.value = withTiming(1, { duration: CAR_LAND_MS, easing: Easing.in(Easing.quad) });
+      if (dir !== 0) {
+        // 参照 ORDER は循環（端で止まらない）
+        setActiveIndex((i) => (((i + dir) % count) + count) % count);
+        setFlipped(false);
+        // 旧カードの回転角が残ると落影・接地影が戻らないのでリセット
+        cardRotation.value = 0;
+        // 購入の呼吸が途中でも、曲が変わったら消す（次のカードへ持ち越さない）
+        cardGlow.value = 0;
+      }
+      dragX.value = 0;
+      carTarget.value = 0;
+      settling.value = 0;
+      // 新しいタッチを受け付けるのはここまで来てから。整定直後〜差し替えまでの
+      // 数フレームに触られると、隣スロットが中央から外れて絵が飛ぶ。
+      carBusy.value = 0;
     },
-    [count, cardRotation, cardGlow, landFade],
+    [count, cardRotation, cardGlow, dragX, carTarget, carBusy, settling],
   );
 
   const startCarousel = useCallback(() => {
@@ -550,41 +593,30 @@ export const DiscoverScreen: React.FC<Props> = ({
   const carTick = useCallback(
     (info: { timeSincePreviousFrame: number | null }) => {
       'worklet';
+      if (settling.value) return; // 受け渡し待ち。ここから先はもう触らない
       const dt = Math.min((info.timeSincePreviousFrame ?? 1000 / 60) / 1000, CAR_DT_MAX);
       // 参照は 0.22/frame 固定。120Hz 端末で 2 倍速にならないよう時間で補正する
       const k = 1 - Math.pow(1 - CAR_LERP, dt * 60);
       dragX.value += (carTarget.value - dragX.value) * k;
       // 送りのアニメ中も、指で引いていたときと同じ割合で星を連れていく
       // （参照 landSwipe の coast に相当する「送りのあいだも動き続ける」ぶん）
-      starTravel.value += (dragX.value - starLastDrag.value) * STAR_PARALLAX_K;
+      starTravel.value += (dragX.value - starLastDrag.value) * starK;
       starLastDrag.value = dragX.value;
       if (Math.abs(dragX.value - carTarget.value) < CAR_SETTLE) {
         const dir = pendingDir.value;
-        // 参照: 確定でもスナップバックでも最後は dragX=0（新しい札が中央に出る）
-        dragX.value = 0;
-        carTarget.value = 0;
+        // 端数だけ消す。dragX を 0 へ戻すのは finishCarousel（＝絵柄の差し替えと
+        // 同じ JS タスク）の仕事。ここで戻すと、差し替えが届くまでの数フレーム
+        // 中央に札が1枚も無くなる。
+        dragX.value = carTarget.value;
         pendingDir.value = 0;
-        carBusy.value = 0;
+        settling.value = 1;
         // 参照 landSwipe と同じ: 札は中央へ戻るが、星の平面は動かさない。
         // 差分の基準だけ 0 へ戻して、dragX の巻き戻しが星へ伝わらないようにする。
         starLastDrag.value = 0;
-        // 曲を差し替えるときは、ここで中央スロットを消しておく。
-        // activeIndex の更新は runOnJS 経由で 1〜2 フレーム遅れるため、
-        // 消さずに dragX=0 へ飛ばすと「古い絵柄が中央で一瞬光る」。
-        if (dir !== 0) landFade.value = 0;
         runOnJS(finishCarousel)(dir);
       }
     },
-    [
-      finishCarousel,
-      dragX,
-      carTarget,
-      pendingDir,
-      carBusy,
-      landFade,
-      starTravel,
-      starLastDrag,
-    ],
+    [finishCarousel, dragX, carTarget, pendingDir, starTravel, starLastDrag, starK, settling],
   );
 
   const carFrame = useFrameCallback(carTick, false);
@@ -632,8 +664,8 @@ export const DiscoverScreen: React.FC<Props> = ({
           ) {
             cardPress.value = withTiming(0, { duration: 160, easing: Easing.out(Easing.quad) });
           }
-          // 星の平面は指の移動量の 16.8% ぶんだけ一緒に流れる（溜めっぱなし）
-          starTravel.value += (e.translationX - starLastDrag.value) * STAR_PARALLAX_K;
+          // 星の平面は指の移動量に比例して一緒に流れる（溜めっぱなし）
+          starTravel.value += (e.translationX - starLastDrag.value) * starK;
           starLastDrag.value = e.translationX;
         })
         .onEnd((e) => {
@@ -675,6 +707,7 @@ export const DiscoverScreen: React.FC<Props> = ({
       startCarousel,
       starTravel,
       starLastDrag,
+      starK,
       cardPress,
       screenW,
       cardW,
@@ -686,7 +719,7 @@ export const DiscoverScreen: React.FC<Props> = ({
   // ── スロットの見た目（参照 applyCarousel 710-718行）──────────────
   const centerStyle = useAnimatedStyle(() => ({
     // 参照 slideFade = max(0, 1-|dragX|/(CARDW*0.55))、着地中は lk と min 合成
-    opacity: Math.min(Math.max(0, 1 - Math.abs(dragX.value) / carGeo.fade), landFade.value),
+    opacity: Math.min(Math.max(0, 1 - Math.abs(dragX.value) / carFade), landFade.value),
     // 購入演出の持ち上げ(cardTranslateY)・拡大(cardScale)もここへ合成する。
     // style 配列を足すと transform ごと後勝ちで置き換わるため、1本にまとめる。
     transform: [
