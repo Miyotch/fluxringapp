@@ -3,9 +3,22 @@
  * ==================================================================
  * 役割: 非公開 R2 バケットのフル音源を、
  *   1) Firebase ID トークンを検証（本人確認）
- *   2) 所有権を確認（購入済みか）
- *   3) Range 対応でストリーミング（シーク可能）
+ *   2) 所有権を確認（購入済みか。Firestore users/{uid}/purchases/{audioKey}）
+ *   3) 配信するオブジェクトの場所を Firestore sound/{audioKey}.r2_url から解決
+ *   4) Range 対応でストリーミング（シーク可能）
  * して返す。試聴（preview/*.wav）は公開バケット/カスタムドメインで別配信。
+ *
+ * ⚠️ セキュリティ注意（重要・デプロイ前に必ず確認）:
+ *   sound/{id} ドキュメントは r2_preview を「未購入ユーザーも含む全員」に
+ *   試聴用として公開する必要があるため、Firestore セキュリティルール上
+ *   クライアント（Firebase Auth の ID トークン経由）から読み取り可能になって
+ *   いるはず。r2_url を同じドキュメント・同じ読み取り権限の場所に置くと、
+ *   クライアントが Firestore を直接読むだけで購入前でもフル音源の場所が
+ *   見えてしまい、この Worker の所有権確認が無意味になる。
+ *   → r2_url は r2_preview と分離し（例: 別ドキュメント／サブコレクション
+ *     sound/{id}/private/full）、そちらはクライアントからの読み取りを
+ *     `allow read: if false;` にした上で、この Worker（サービスアカウントの
+ *     OAuth トークン＝セキュリティルールの対象外）だけが読める運用にすること。
  *
  * ------------------------------------------------------------------
  * デプロイ:
@@ -19,11 +32,16 @@
  *     [vars]
  *       FIREBASE_PROJECT_ID = "sound-curtain-5unwwh"
  *       DEV_ALLOW_ALL = "true"     # ⚠️ 購入実装前のテスト用。本番では "false" or 削除
+ *       FIRESTORE_TOKEN = "..."    # サービスアカウントのOAuth2アクセストークン
+ *                                  # （購入確認・r2_url解決の Firestore REST 読み取りに使用。
+ *                                  #   有効期限が短いため、実運用では Secrets + 定期更新、
+ *                                  #   または Workers から都度 SA 認証してトークンを発行する
+ *                                  #   仕組みに置き換えること）
  *
  *   $ wrangler deploy
  *   → app.json の extra.r2.workerUrl にこの Worker の URL を設定。
  *
- * バケット構成（例）:
+ * バケット構成（例・sound/{id}.r2_url 未設定時のフォールバック）:
  *   full/{audioKey}.wav     ← フル音源（このWorker経由のみ）
  *   （試聴は別の公開バケット: preview/{audioKey}.wav）
  * ------------------------------------------------------------------
@@ -55,17 +73,23 @@ export default {
     }
     const uid = claims.user_id || claims.sub;
 
-    // 2) 所有権確認（購入済みか）
-    //    TODO: Firestore REST 等で users/{uid}/purchases/{audioKey} の存在を確認する。
-    //    例（Firestore REST・要 SA トークン or ルール）:
-    //      GET https://firestore.googleapis.com/v1/projects/{pid}/databases/(default)/documents/users/{uid}/purchases/{audioKey}
+    // 2) 所有権確認（購入済みか。Firestore users/{uid}/purchases/{audioKey}）
     const owns = await checkOwnership(env, uid, audioKey);
     if (!owns) return json({ error: 'forbidden' }, 403);
 
-    // 3) R2 から Range 対応でストリーミング（アプリはこの Worker URL を直接再生してもよい）
+    // 3) 配信するオブジェクトの場所を解決する。
+    //    sound/{audioKey}.r2_url が設定されていればそれを優先し（完全URL／
+    //    バケット相対パスのどちらでも objectKey として解釈できるようにする）、
+    //    未設定・取得失敗時は旧来の固定命名規則 `full/{audioKey}.wav` にフォールバックする。
+    //    このFirestore読み取りはサービスアカウントのトークンで行うため、
+    //    クライアント（Firebase Authの一般ユーザー）からは r2_url は見えない前提。
+    const soundFields = await firestoreGetDoc(env, `sound/${encodeURIComponent(audioKey)}`);
+    const r2Url = soundFields ? firestoreFieldString(soundFields, 'r2_url') : null;
+    const objectKey = r2Url ? toObjectKey(r2Url) : `full/${audioKey}.wav`;
+
+    // 4) R2 から Range 対応でストリーミング（アプリはこの Worker URL を直接再生してもよい）
     //    ※ アプリの lib/r2.ts は { url } を期待するので、署名URL方式にする場合は
     //      ここで presigned URL を作って json({ url }) を返す実装に差し替える。
-    const objectKey = `full/${audioKey}.wav`;
     const range = parseRange(request.headers.get('Range'));
     const obj = await env.AUDIO.get(objectKey, range ? { range } : undefined);
     if (!obj) return json({ error: 'object not found', objectKey }, 404);
@@ -112,20 +136,53 @@ function parseRange(h) {
 /**
  * 所有権確認: uid が audioKey を購入済みかを返す。
  * - env.DEV_ALLOW_ALL === "true" のときは常に許可（購入実装前のテスト用・本番では外す）。
- * - 本番は Firestore の購入レコード users/{uid}/purchases/{audioKey} の存在で判定。
- *   ・セキュリティルールで本人読み取り可にしておくか、SA トークンで REST を叩く。
+ * - 本番は Firestore の購入レコード users/{uid}/purchases/{audioKey} の存在で判定
+ *   （lib/ownership.ts と同じく revokedAt が立っていれば返金・失効として未所有扱い）。
+ *   env.FIRESTORE_TOKEN が未設定のときは安全側に倒して未所有扱いにする。
  */
 async function checkOwnership(env, uid, audioKey) {
   if (env.DEV_ALLOW_ALL === 'true') return true; // ⚠️ テスト用バイパス（本番で必ず無効化）
 
-  // 例: Firestore REST（要 SA アクセストークン env.FIRESTORE_TOKEN、または公開ルール）
-  // const pid = env.FIREBASE_PROJECT_ID;
-  // const url = `https://firestore.googleapis.com/v1/projects/${pid}/databases/(default)/documents/users/${uid}/purchases/${audioKey}`;
-  // const r = await fetch(url, { headers: { Authorization: `Bearer ${env.FIRESTORE_TOKEN}` } });
-  // return r.ok;
+  const fields = await firestoreGetDoc(
+    env,
+    `users/${encodeURIComponent(uid)}/purchases/${encodeURIComponent(audioKey)}`,
+  );
+  if (!fields) return false; // ドキュメント無し／読み取り不可＝未所有扱い
+  return !fields.revokedAt;
+}
 
-  // TODO: 購入データ構造が確定したら上記を有効化する。暫定は未所有扱い。
-  return false;
+/**
+ * Firestore REST でドキュメント1件を取得する（サービスアカウントの OAuth トークンが必要）。
+ * env.FIRESTORE_TOKEN が無い、またはドキュメントが存在しない場合は null を返す。
+ * 戻り値は Firestore REST のネイティブ形式（{ フィールド名: { stringValue, booleanValue, ... } }）。
+ */
+async function firestoreGetDoc(env, path) {
+  if (!env.FIRESTORE_TOKEN) return null;
+  const pid = env.FIREBASE_PROJECT_ID;
+  const url = `https://firestore.googleapis.com/v1/projects/${pid}/databases/(default)/documents/${path}`;
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${env.FIRESTORE_TOKEN}` } });
+  if (!res.ok) return null;
+  const data = await res.json();
+  return data.fields || null;
+}
+
+/** Firestore REST のフィールド値（stringValue）を取り出す。空文字・未設定は null。 */
+function firestoreFieldString(fields, name) {
+  const v = fields?.[name]?.stringValue;
+  return typeof v === 'string' && v.trim() !== '' ? v : null;
+}
+
+/**
+ * sound/{id}.r2_url の値を R2 の objectKey（バケット相対パス）に変換する。
+ * 完全URL（例: "https://.../full/blue.wav"）が入っていれば pathname を、
+ * バケット相対パス（例: "full/blue.wav"）がそのまま入っていればそれを使う。
+ */
+function toObjectKey(value) {
+  try {
+    return new URL(value).pathname.replace(/^\/+/, '');
+  } catch {
+    return value.replace(/^\/+/, '');
+  }
 }
 
 // Google securetoken の JWK（WebCrypto で直接 import できる）。短時間キャッシュ推奨。
