@@ -2,7 +2,7 @@
   "expo": {
     "name": "FLUX RING",
     "slug": "fluxring",
-    "version": "0.3.0",
+    "version": "0.1.0",
     "scheme": "fluxring",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
@@ -13,19 +13,15 @@
       "backgroundColor": "#0E0C20",
       "resizeMode": "contain"
     },
-    "assetBundlePatterns": [
-      "**/*"
-    ],
+    "assetBundlePatterns": ["**/*"],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.fluxring.tsubasa",
+      "bundleIdentifier": "com.fluxring.app",
       "usesAppleSignIn": true,
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "CADisableMinimumFrameDurationOnPhone": false,
-        "UIBackgroundModes": [
-          "audio"
-        ],
+        "UIBackgroundModes": ["audio"],
         "CFBundleURLTypes": [
           {
             "CFBundleURLSchemes": [
@@ -33,8 +29,7 @@
             ]
           }
         ]
-      },
-      "buildNumber": "44"
+      }
     },
     "android": {
       "package": "com.fluxring.app",
@@ -42,8 +37,7 @@
       "adaptiveIcon": {
         "foregroundImage": "./icon.png",
         "backgroundColor": "#0E0C20"
-      },
-      "versionCode": 39
+      }
     },
     "plugins": [
       "expo-apple-authentication",
@@ -58,7 +52,7 @@
     ],
     "extra": {
       "eas": {
-        "projectId": "3f8e6ff1-9678-408d-91d9-decd7bb57674"
+        "projectId": "d94a1082-9da2-459a-88b4-cd593c16eed3"
       },
       "googleAuth": {
         "webClientId": "496626750767-n83khmlpafnl9qo5c7mdahk0nbbrhhcv.apps.googleusercontent.com",
@@ -72,7 +66,6 @@
       "iap": {
         "verifyUrl": ""
       }
-    },
-    "owner": "tsubasa.miyazaki"
+    }
   }
 }
