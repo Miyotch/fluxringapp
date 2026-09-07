@@ -301,6 +301,12 @@ export const DiscoverScreen: React.FC<Props> = ({
   const sealDim = useRef(
     detail.interpolate({ inputRange: [0, 1], outputRange: [1, 0.32] }),
   ).current;
+  // 左上の曲名は表面のときだけ出す。裏面へ回すとフェードアウトし、表へ戻ると
+  // フェードインする（参照 .device.ca-detail .texts）。裏面は刻印面そのものが
+  // 主役なので、表の情報を残すと二重に読ませることになる。
+  const titleFade = useRef(
+    detail.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }),
+  ).current;
   useEffect(() => {
     RNAnimated.timing(detail, {
       toValue: flipped ? 1 : 0,
@@ -1149,9 +1155,12 @@ export const DiscoverScreen: React.FC<Props> = ({
           {/* タイトル（1行のみ。eyeコピー・情景サブタイトルはモック確定値により非表示）。
               右上のアイコン列（topRight）と同じ top・高さで縦中央揃えにし、
               アイコンの縦位置とタイトルの縦位置をぴったり揃える。 */}
-          <View style={[styles.texts, { top: topRightY + 5 }]} pointerEvents="none">
+          <RNAnimated.View
+            style={[styles.texts, { top: topRightY + 5, opacity: titleFade }]}
+            pointerEvents="none"
+          >
             <Text style={styles.title} numberOfLines={1}>{active?.title}</Text>
-          </View>
+          </RNAnimated.View>
         </RNAnimated.View>
 
         {/* intro⑤ : 下部クローム（購入ボタン＋★）。最後に下から入る */}
