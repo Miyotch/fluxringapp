@@ -114,7 +114,15 @@ const CAR_DT_MAX = 0.05;     // 1フレームで進める上限（秒）
 // 合わせ、**1 スワイプ＝画面幅の半分**にする。ちょうど 2 スワイプで平面が
 // 一周（＝元の絵）へ戻り、しかも周期タイルなので継ぎ目は出ない。
 // 追従率は端末ごとに STEP から逆算する（下の carGeo.starK）。
-const STAR_SWIPE_TRAVEL_R = 0.5; // 1 スワイプで流れる量（画面幅比）
+const STAR_SWIPE_TRAVEL_R = 0.5; // 1 スワイプで流れる量（画面幅比・近景の星）
+// 天の川（雲＋星520）の横揺れ。近景の星の移動量に対する比。
+// 2026-09-07 岡さん指摘: 天の川の星 520 個と調律陣の点列が動かず、散らばった星 479 個
+// だけが流れるので「星の板が描き割りの上を滑る」ように見えていた。天の川も同じ
+// 向きへ小さく動かして、空全体を 1 つの奥行きにする。1 スワイプで 0.22×0.5W ≒ 120px。
+// 斜めの帯は無限に繋げられないので、着地後にゆっくり 0 へ戻す（雲は柔らかいので
+// 戻りは目に付かない）。
+const NEB_PARALLAX = 0.22;
+const NEB_RETURN_MS = 1800;
 // 参照 2999行: card.style.transform ... scale(1 - press*.035)
 const CARD_PRESS_SCALE = 0.035;
 // 参照 2995行: 指が 7px 動いたら「押した」を取り消す（＝スワイプの入り口）
@@ -442,6 +450,7 @@ export const DiscoverScreen: React.FC<Props> = ({
   const carFade = carGeo.step;
   // 1 スワイプ（＝札1枚ぶんの移動 STEP）でちょうど画面幅の半分だけ星を流す
   const starK = carGeo.step > 0 ? (screenW * STAR_SWIPE_TRAVEL_R) / carGeo.step : 0;
+  const nebK = starK * NEB_PARALLAX;
   /** カードの横位置(px)。指に 1:1 で追従し、離すと 0 か ±STEP へ寄る */
   const offsetX = useSharedValue(0);
   const carTarget = useSharedValue(0);
@@ -489,6 +498,10 @@ export const DiscoverScreen: React.FC<Props> = ({
    * BackdropSky が画面幅の余りへ畳んで Skia の transform で消費する。
    */
   const starTravel = useDerivedValue(() => offsetX.value * starK, [offsetX, starK]);
+  /** 天の川の横揺れ(px)。有界で、着地後に 0 へ戻る */
+  const nebSway = useSharedValue(0);
+  /** ジェスチャ開始時の nebSway（戻り途中に触られても飛ばないよう原点にする） */
+  const nebStart = useSharedValue(0);
   /** 0..1 のカードの押し込み量（参照 state.press） */
   const cardPress = useSharedValue(0);
 
@@ -619,6 +632,7 @@ export const DiscoverScreen: React.FC<Props> = ({
       // 参照は 0.22/frame 固定。120Hz 端末で 2 倍速にならないよう時間で補正する
       const k = 1 - Math.pow(1 - CAR_LERP, dt * 60);
       offsetX.value += (carTarget.value - offsetX.value) * k;
+      nebSway.value = nebStart.value + (offsetX.value - gestureStart.value) * nebK;
       if (Math.abs(offsetX.value - carTarget.value) < CAR_SETTLE) {
         const dir = pendingDir.value;
         // 端数だけ消す。原点（baseShift）を送るのは finishCarousel の仕事で、
@@ -626,10 +640,15 @@ export const DiscoverScreen: React.FC<Props> = ({
         offsetX.value = carTarget.value;
         pendingDir.value = 0;
         settling.value = 1;
+        // 天の川は星と違って無限に繋げられないので、着地後にゆっくり元へ戻す
+        nebSway.value = withTiming(0, {
+          duration: NEB_RETURN_MS,
+          easing: Easing.out(Easing.cubic),
+        });
         runOnJS(finishCarousel)(dir);
       }
     },
-    [finishCarousel, offsetX, carTarget, pendingDir, settling],
+    [finishCarousel, offsetX, carTarget, pendingDir, settling, nebSway, nebStart, gestureStart, nebK],
   );
 
   const carFrame = useFrameCallback(carTick, false);
@@ -655,6 +674,7 @@ export const DiscoverScreen: React.FC<Props> = ({
           if (claimed.value) scrolling.value = 1;
           // 指の移動量はここを原点にする（見た目 0 ＝ offsetX が baseShift のとき）
           gestureStart.value = offsetX.value;
+          nebStart.value = nebSway.value;
           // 参照 2993行: card への pointerdown で pressTo=1。ステージ全面ではなく
           // カードの矩形に触れたときだけ沈める（周りの余白を押しても反応しない）。
           if (
@@ -670,6 +690,7 @@ export const DiscoverScreen: React.FC<Props> = ({
           if (!claimed.value) return;
           // 参照 move(): 見た目の位置＝指の移動量そのまま（1:1・上限なし）
           offsetX.value = gestureStart.value + e.translationX;
+          nebSway.value = nebStart.value + e.translationX * nebK;
           // 参照 2995行: 7px 動いたら「押した」を取り消す
           if (
             Math.abs(e.translationX) > CARD_PRESS_SLOP ||
@@ -717,6 +738,9 @@ export const DiscoverScreen: React.FC<Props> = ({
       startCarousel,
       offsetX,
       gestureStart,
+      nebSway,
+      nebStart,
+      nebK,
       cardPress,
       screenW,
       cardW,
@@ -935,6 +959,7 @@ export const DiscoverScreen: React.FC<Props> = ({
             paused={cardSpinning}
             parallaxX={starTravel}
             occluder={sealInk}
+            nebulaX={nebSway}
           />
         </RNAnimated.View>
       )}

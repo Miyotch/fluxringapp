@@ -107,6 +107,12 @@ export type LayerSpec = {
   halo: number;                // 参照 box-shadow の径倍率（0=なし）
   haloRGB: string;             // ハロー色（'r,g,b'）
   haloA: number;               // ハロー色の α（参照 box-shadow の α）
+  /**
+   * 横パララックスの速度比（近景 = 1.0 基準）。
+   * 遠い層ほど小さくして、空を「1枚の板」ではなく「奥行きのある無数の星」に見せる
+   * （2026-09-07）。周期 W のタイルは層ごとに独立して巻き戻るので継ぎ目は出ない。
+   */
+  parallax: number;
 };
 
 // liveGroups の配分（2026-09-05）。毎フレームの仕事は「明滅する星」だけが作る。
@@ -116,10 +122,13 @@ export type LayerSpec = {
 // 明滅の mapper は 21本（(30) 56本 / (33) 38本）。生きた星の塗り面積も (33) を
 // 約 2 割下回る。密度だけ (30) へ戻して負荷は (33) より軽い、が狙い。
 const LAYERS: LayerSpec[] = [
-  { n: N0, groups: 8,  liveGroups: 0,                 sMin: 0.5, sMax: 1.0, oMin: 0.05, oMax: 0.16, halo: 0,   haloRGB: '',            haloA: 0 },
-  { n: N1, groups: 12, liveGroups: 3,                 sMin: 1.1, sMax: 1.7, oMin: 0.2,  oMax: 0.4,  halo: 1.3, haloRGB: '200,220,255', haloA: 0.35 },
-  { n: N2, groups: N2, liveGroups: Math.round(N2 / 2), sMin: 2.0, sMax: 2.9, oMin: 0.42, oMax: 0.62, halo: 2.2, haloRGB: '200,230,250', haloA: 0.7 },
+  { n: N0, groups: 8,  liveGroups: 0,                 sMin: 0.5, sMax: 1.0, oMin: 0.05, oMax: 0.16, halo: 0,   haloRGB: '',            haloA: 0,    parallax: 0.6 },
+  { n: N1, groups: 12, liveGroups: 3,                 sMin: 1.1, sMax: 1.7, oMin: 0.2,  oMax: 0.4,  halo: 1.3, haloRGB: '200,220,255', haloA: 0.35, parallax: 0.8 },
+  { n: N2, groups: N2, liveGroups: Math.round(N2 / 2), sMin: 2.0, sMax: 2.9, oMin: 0.42, oMax: 0.62, halo: 2.2, haloRGB: '200,230,250', haloA: 0.7,  parallax: 1.0 },
 ];
+
+/** 層の数（BackdropSky が層ごとの transform を作るときの固定値） */
+export const STAR_LAYER_COUNT = LAYERS.length;
 
 // 決定論ハッシュ（0..1）— NebulaBand と同方式
 function hash(x: number): number {

@@ -196,6 +196,7 @@ export type StaticStarsProps = {
   bodyColor?: string;
   /**
    * 星の平面の横ずらし（BackdropSky が作る周期 W の巻き戻し済み transform）。
+   * 層ごとに 1 本（layerIndex で引く）。遠い層ほど小さく動く。
    *
    * ここへ SharedValue を渡した瞬間、この Canvas は「値が変わったフレームだけ」
    * 塗り直される側になる。上の但し書きの唯一の例外で、意図的に許している：
@@ -205,7 +206,7 @@ export type StaticStarsProps = {
    * Android では Skia の Canvas が親の transform に付いてこない場合があり、
    * 実機で星が動かなかった。確実に効く Skia 内部の変換を採る。
    */
-  transform?: SharedValue<Transforms3d>;
+  transforms?: SharedValue<Transforms3d>[];
   /** 調律陣の彫刻シルエット。この Canvas の星からこの形を dstOut で抜く */
   occluder?: SealInkImage;
 };
@@ -215,7 +216,7 @@ const StaticStarsImpl: React.FC<StaticStarsProps> = ({
   height: H,
   layers,
   bodyColor,
-  transform,
+  transforms,
   occluder,
 }) => {
   // ── この Canvas に SharedValue を持ち込まないこと ──────────────
@@ -229,25 +230,25 @@ const StaticStarsImpl: React.FC<StaticStarsProps> = ({
   const tree = useMemo(
     () => (
       <Canvas style={[StyleSheet.absoluteFill, { width: W, height: H }]} pointerEvents="none">
-        <Group transform={transform}>
-          {layers.map((l) =>
-            l.still.map((g, gi) => (
+        {layers.map((l) => (
+          <Group key={l.layerIndex} transform={transforms?.[l.layerIndex]}>
+            {l.still.map((g, gi) => (
               <StarGroupPaint
-                key={`${l.layerIndex}-${gi}`}
+                key={gi}
                 g={g}
                 spec={l.spec}
                 layerIndex={l.layerIndex}
                 opacity={stillOpacity(g)}
                 bodyColor={bodyColor}
               />
-            )),
-          )}
-        </Group>
+            ))}
+          </Group>
+        ))}
         {/* 星を削る。パララックスの Group の外＝画面固定。この Canvas の星にだけ効く */}
         <SealOccluder ink={occluder} />
       </Canvas>
     ),
-    [W, H, layers, bodyColor, transform, occluder],
+    [W, H, layers, bodyColor, transforms, occluder],
   );
 
   return tree;
