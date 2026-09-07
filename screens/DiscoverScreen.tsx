@@ -564,6 +564,27 @@ export const DiscoverScreen: React.FC<Props> = ({
     },
     [baseShift],
   );
+
+  // ── 調律陣は「裏返している間」だけ止める ───────────────────────
+  //
+  // 2026-09-07 岡さん指摘。横スワイプ中は星も天の川もカードも動いているのに、
+  // 調律陣だけ paused で時計ごと止まり、呼吸も走る光点もスパークも凍っていた。
+  // 画面で唯一まったく生きていない層になるので、位置が同じでも「描き割り」に
+  // 見え、星が手前にあるという読みを強めていた。
+  //
+  // 横スワイプ中は動かし続ける。裏返しの最中は
+  //   ・カードの GL（3D・テクスチャ）が重い
+  //   ・調律陣自体が sealDim で 0.32 まで沈むので、動いていても見えない
+  // ので従来どおり止める。止める条件から曲送りぶん（offsetX / carBusy）だけを
+  // 外した形で、発熱対策の効きどころは残している。
+  const [cardFlipping, setCardFlipping] = useState(false);
+  useAnimatedReaction(
+    () => Math.abs(cardRotation.value) > SPIN_PAUSE_DEG,
+    (now, prev) => {
+      if (prev !== null && now !== prev) runOnJS(setCardFlipping)(now);
+    },
+    [],
+  );
   // 試聴プレイヤー（30秒・公開URL）
   const preview = useAudioPlayer();
 
@@ -982,7 +1003,7 @@ export const DiscoverScreen: React.FC<Props> = ({
               centerX={screenW / 2}
               centerY={cardCenterY}
               cardWidth={cardW}
-              paused={cardSpinning}
+              paused={cardFlipping}
               style={styles.sealLayer}
               onInkImage={handleSealInk}
             />
