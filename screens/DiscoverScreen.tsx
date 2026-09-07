@@ -51,7 +51,7 @@ import { BackdropSky } from '../components/BackdropSky';
 import { BackdropVeil } from '../components/BackdropVeil';
 import { CardVeil } from '../components/CardVeil';
 import { CardGround } from '../components/CardGround';
-import { StarSeal } from '../components/StarSeal';
+import { StarSeal, type SealInkImage } from '../components/StarSeal';
 import {
   CardGL,
   CARD_ASPECT,
@@ -237,6 +237,12 @@ export const DiscoverScreen: React.FC<Props> = ({
   // タイトルは右上アイコン列と同じ top（topRightY + 5）を使い、縦位置を揃える。
   const topRightY = useTopInset(8);
   const [slideH, setSlideH] = useState(0);
+  // 調律陣が焼いた彫刻シルエット。星の平面をこの形で削るためだけに使う。
+  // 調律陣そのものの描画には関与しない（BackdropSky → StaticStars の SealOccluder）。
+  const [sealInk, setSealInk] = useState<SealInkImage>(null);
+  // setState をそのまま渡すと、関数を「更新関数」と解釈されてしまう。
+  // 参照も固定して StarSeal の React.memo を壊さない。
+  const handleSealInk = useCallback((ink: SealInkImage) => setSealInk(ink), []);
   const [activeIndex, setActiveIndex] = useState(initialIndex);
   const [flipped, setFlipped] = useState(false); // アクティブカードが裏面か（横スクロール可否用）
   // アクティブカードの表面からの回転角（度）。focus-dim（背景暗転）の駆動用
@@ -928,6 +934,7 @@ export const DiscoverScreen: React.FC<Props> = ({
             height={slideH}
             paused={cardSpinning}
             parallaxX={starTravel}
+            occluder={sealInk}
           />
         </RNAnimated.View>
       )}
@@ -952,6 +959,7 @@ export const DiscoverScreen: React.FC<Props> = ({
               cardWidth={cardW}
               paused={cardSpinning}
               style={styles.sealLayer}
+              onInkImage={handleSealInk}
             />
           </RNAnimated.View>
         </RNAnimated.View>

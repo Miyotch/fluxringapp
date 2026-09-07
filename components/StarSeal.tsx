@@ -3,6 +3,10 @@
  * ------------------------------------------------------------------
  * 参照: star_seal_standalone（v98_FIX 原文切出し）。3層構成を Skia で移植:
  *   ① ink : 静的彫刻層（Canvas2D → Skia Path/Text）
+ *       線・文字の α は 0.12〜0.34（文字のみ最大 0.42）。かなり透明で、
+ *       ほぼ不透明な星（StarField の近景は α 0.84〜0.98）の上に重ねても
+ *       輝度が 238→208 程度にしか落ちない＝星が手前に見える原因になる。
+ *       彫刻を濃くすると見た目が変わるので、対処は星側で行う（onInkImage）。
  *       二重リング・外方波及帯（72目盛/232菱形/260点列/352複線/316点列/
  *       390目盛/435円/24放射/ローマ数字リング）・縄目帯・目盛144・十二芒星・
  *       放射24・モノコード弦＋比率目盛・2/1回帰弧・6弁ロゼット・頂点菱形・
@@ -22,7 +26,7 @@
  * paused / reduce-motion で動的要素停止（ink/glow は静的表示）。
  */
 
-import React, { useMemo, useEffect, useState } from 'react';
+import React, { useMemo, useEffect, useRef, useState } from 'react';
 import { AccessibilityInfo, Platform, PixelRatio, StyleProp, ViewStyle } from 'react-native';
 import {
   Canvas,
@@ -135,35 +139,6 @@ const HEX_HALO_OPACITY = 0.12;
 
 const ink = (a: number) => `rgba(150,190,210,${a})`;
 const lab = (a: number) => `rgba(178,198,216,${a})`;
-
-// ── 彫刻層の「裏当て」（2026-09-07 岡さん指摘の追加調査で対応） ──
-//
-// 星が調律陣より手前にあるように見える、という指摘を実機収録で1フレームずつ
-// 確認した。z順（BackdropSky→StarSeal の JSX 順）は正しく、Android でも
-// Canvas は既定で SkiaTextureView（opaque prop 未使用）＝通常の View と同じ
-// ペイント順に従う（elevation/zIndex もこのファイル・呼び出し側どちらにも
-// 無い）。参照 fr_v99_tsubasa.html の DOM 順（nebBand→bgstars→frSealGL→
-// frSealInk→frSealSig→bgvig）も同一で、星は彫刻層より必ず先に描かれる。
-//
-// 原因は順序ではなく透過度だった。彫刻層 ink() は rgba(150,190,210,0.12〜0.45)
-// という薄い線・文字で、対して近景の星は StarField.tsx の o0 が最大 0.95 まで
-// 出るほぼ不透明な白。薄い線を不透明に近い星の上へ重ねても、線のアルファが
-// 低いぶん星の色がほとんど透けるので、「星が線の上にある」ように見える。
-// これは参照 HTML 自身も同じ数値（このファイルの ink() 自体が参照の
-// Canvas2D 描画値をそのまま移植したもの）を使っており、参照でも起きる
-// 現象——つまり星と彫刻の重なりそのものは意図された見た目で、直すべきは
-// 「線・文字が星の上で読めること」であって、星を暗く沈めることではない
-// （沈めると調律陣の広い範囲で星が消え、宇宙空間の質感を損なう）。
-//
-// 対処は彫刻の各線・文字の下に、同じ形のわずかに太い「暗い裏地」を先に
-// 焼くこと。星と重ならない大部分の見た目は変えず（背景そのものが近い
-// 濃紺なので裏地はほぼ見えない）、星と重なった箇所だけ星を弱めてから
-// 本来の薄い線を重ねるので、線が確実に前へ出る。焼き込み時の1回だけの
-// コストで、実行時の負荷は増えない。
-const INK_BACKING_COLOR = 'rgba(6,7,18,0.6)';
-const INK_BACKING_SCALE = 2.4;  // 線幅に対する裏地の倍率
-const INK_BACKING_MIN = 1.5;    // 極細線（0.5*s 前後）でも裏地が機能する下限幅(px)
-const INK_TEXT_BACKING_WIDTH = 1.5; // 文字の縁取り幅(px)
 
 // 彫刻層を焼くときの最大 DPR。3x 機では全画面 RGBA が約 10MB になるため上限を置く。
 // 髪の毛のような細線が主体なので 2 未満へ落とすと目に見えて甘くなる。
@@ -860,6 +835,12 @@ const Spark: React.FC<{
 
 // ══════ 本体 ══════
 
+/**
+ * 焼き上がった彫刻層（ink）と、それを焼いた寸法。
+ * 星の層が dstOut のマスクとして使う（components/StaticStars.tsx の SealOccluder）。
+ */
+export type SealInkImage = { image: SkImage; width: number; height: number } | null;
+
 export type StarSealProps = {
   width: number;
   height: number;
@@ -869,6 +850,18 @@ export type StarSealProps = {
   cardWidth?: number;
   paused?: boolean;
   style?: StyleProp<ViewStyle>;
+  /**
+   * 焼き上がった彫刻層（ink）の一枚絵を親へ渡す。
+   *
+   * 星の層がこれを dstOut で重ねて「線・文字の形に星を削る」ために使う
+   * （2026-09-07）。星と調律陣の描画順は元から正しく、星が手前に見えていたのは
+   * 彫刻の線が薄すぎて（α 0.12〜0.34）ほぼ不透明な星（α 0.84〜0.98）を
+   * 隠せないため。彫刻側を濃くすると見た目が変わってしまうので、
+   * 代わりに星側を彫刻の形でくり抜く。
+   *
+   * ここで渡すのは焼いた画像そのもので、この層の描画には一切影響しない。
+   */
+  onInkImage?: (ink: SealInkImage) => void;
 };
 
 const StarSealImpl: React.FC<StarSealProps> = ({
@@ -879,6 +872,7 @@ const StarSealImpl: React.FC<StarSealProps> = ({
   cardWidth,
   paused = false,
   style,
+  onInkImage,
 }) => {
   // ── 参照モデル（v98_FIX / StarSeal.tsx ハンドオフ）──
   // 陣は内部座標 380×760 の箱に描かれ、箱ごと **均等スケール** で表示される。
@@ -946,49 +940,6 @@ const StarSealImpl: React.FC<StarSealProps> = ({
     const canvas = surface.getCanvas();
     canvas.scale(dpr, dpr);
 
-    // ── 裏当て（星を弱めてから本来の線・文字を重ねる） ──
-    // 全て同じ暗色・不透明度で、本来のパスより太いストローク／縁取りにして
-    // 先に焼く。星と重ならない場所は背景と同系色なのでほぼ見えない。
-    const backingPaint = () => {
-      const p = Skia.Paint();
-      p.setAntiAlias(true);
-      p.setColor(Skia.Color(INK_BACKING_COLOR));
-      return p;
-    };
-    for (const g of geo.strokes) {
-      const bp = backingPaint();
-      bp.setStyle(PaintStyle.Stroke);
-      bp.setStrokeWidth(Math.max(g.width * INK_BACKING_SCALE, INK_BACKING_MIN));
-      if (g.dash) bp.setPathEffect(Skia.PathEffect.MakeDash(g.dash));
-      canvas.drawPath(g.path, bp);
-    }
-    for (const g of geo.fills) {
-      // このバージョンの PaintStyle に StrokeAndFill が無いため Fill＋Stroke の
-      // 2 回描きで面積をひとまわり太らせる（Fill だけだと輪郭は太らない）。
-      const bpFill = backingPaint();
-      bpFill.setStyle(PaintStyle.Fill);
-      canvas.drawPath(g.path, bpFill);
-      const bpStroke = backingPaint();
-      bpStroke.setStyle(PaintStyle.Stroke);
-      bpStroke.setStrokeWidth(INK_BACKING_MIN);
-      canvas.drawPath(g.path, bpStroke);
-    }
-    for (const t of geo.texts) {
-      const font = fonts.get(Math.round(t.size * 10)) ?? null;
-      if (!font) continue;
-      const w = estWidth(t.text, t.size, font);
-      const dx = t.align === 'c' ? -w / 2 : t.align === 'r' ? -w : 0;
-      const bp = backingPaint();
-      bp.setStyle(PaintStyle.Stroke);
-      bp.setStrokeWidth(INK_TEXT_BACKING_WIDTH);
-      canvas.save();
-      canvas.translate(t.x, t.y);
-      if (t.rot) canvas.rotate((t.rot * 180) / Math.PI, 0, 0);
-      canvas.drawText(t.text, dx, t.voff, bp, font);
-      canvas.restore();
-    }
-
-    // ── 本来の彫刻（薄い線・文字） ──
     for (const g of geo.strokes) {
       const paint = Skia.Paint();
       paint.setAntiAlias(true);
@@ -1030,6 +981,17 @@ const StarSealImpl: React.FC<StarSealProps> = ({
     // estWidth は毎レンダー再生成される純関数なので依存に入れない
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [geo, fonts, W, H, cx, cy, s]);
+
+  // 焼き上がりを親へ通知する。星の層がこれを dstOut のマスクに使う。
+  // inkImage は cachedImage 由来で参照が安定しているので、実際に焼き直された
+  // ときだけ 1 回走る。onInkImage は依存に入れない（親がインライン関数を渡すと
+  // 毎レンダー張り直しになるため。値の変化は inkImage だけで判定する）。
+  const onInkImageRef = useRef(onInkImage);
+  onInkImageRef.current = onInkImage;
+  useEffect(() => {
+    onInkImageRef.current?.(inkImage ? { image: inkImage, width: W, height: H } : null);
+    return () => onInkImageRef.current?.(null);
+  }, [inkImage, W, H]);
 
   // ── ②＋②' 発光層も 1 枚の SkImage へ焼く（bakeGlowImage のコメント参照） ──
   const glowImage = useMemo(() => {

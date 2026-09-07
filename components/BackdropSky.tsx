@@ -95,7 +95,8 @@ import {
   type TwinkleGroup,
   type LayerSpec,
 } from './StarField';
-import { StarGroupPaint, StaticStars } from './StaticStars';
+import { StarGroupPaint, StaticStars, SealOccluder } from './StaticStars';
+import type { SealInkImage } from './StarSeal';
 import {
   makeBlurredRadialSprite,
   fullSprite,
@@ -278,6 +279,13 @@ export type BackdropSkyProps = {
    * 塗り直しは横スワイプの最中だけなので、確実に効くほうを採る。
    */
   parallaxX?: SharedValue<number>;
+  /**
+   * 調律陣の彫刻シルエット。星の平面からこの形を dstOut で抜き、星が彫刻の
+   * 後ろへ回って見えるようにする（components/StaticStars.tsx の SealOccluder）。
+   * 地色・天の川の Canvas には **絶対に入れない**（不透明な塗りがあるため、
+   * 抜くと背景そのものに穴が空く）。
+   */
+  occluder?: SealInkImage;
 };
 
 const BackdropSkyImpl: React.FC<BackdropSkyProps> = ({
@@ -285,6 +293,7 @@ const BackdropSkyImpl: React.FC<BackdropSkyProps> = ({
   height: H,
   paused = false,
   parallaxX,
+  occluder,
 }) => {
   const scale = W / REF_W;
 
@@ -418,9 +427,11 @@ const BackdropSkyImpl: React.FC<BackdropSkyProps> = ({
             )),
           )}
         </Group>
+        {/* 星を削る。パララックスの Group の外＝画面固定 */}
+        <SealOccluder ink={occluder} />
       </Canvas>
     ),
-    [W, H, split, clock, stop, tiled, starShift],
+    [W, H, split, clock, stop, tiled, starShift, occluder],
   );
 
   // 星は地色・天の川の外側へ srcOver で重なる。同じ Canvas の最後に描いていた
@@ -438,6 +449,7 @@ const BackdropSkyImpl: React.FC<BackdropSkyProps> = ({
             layers={split}
             bodyColor={DEBUG_SKY.proofOfLife ? PROOF_COLOR : STAR_COLOR}
             transform={tiled ? starShift : undefined}
+            occluder={occluder}
           />
         </>
       )}
