@@ -153,6 +153,9 @@ export type Track = {
   owned?: boolean;
   glowColor?: string;
   glowColor2?: string;
+  /** 販売期間。type==='always' は常時、'limited' は startAt〜endAt の間のみ販売
+   *  （未設定側は無期限扱い）。Firestore tracks/{id}.sale から。 */
+  sale?: { type: 'always' | 'limited'; startAt: number | null; endAt: number | null };
   // 裏面（タップで表示する説明）
   back?: {
     serial?: string;         // 'No. 001'
@@ -163,6 +166,15 @@ export type Track = {
     artist?: string;         // 'NAOKI OKA'
   };
 };
+
+/** 現在この楽曲が販売期間内か（sale未設定・type==='always' は常に true） */
+export function isTrackOnSale(track: Pick<Track, 'sale'>, now: number = Date.now()): boolean {
+  const sale = track.sale;
+  if (!sale || sale.type === 'always') return true;
+  if (sale.startAt != null && now < sale.startAt) return false;
+  if (sale.endAt != null && now > sale.endAt) return false;
+  return true;
+}
 
 type Props = {
   tracks?: Track[];

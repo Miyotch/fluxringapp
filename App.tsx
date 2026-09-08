@@ -38,7 +38,7 @@ import { ANIM, HOME_INTRO } from './constants/design-tokens';
 
 import { Footer, TabKey } from './components/Footer';
 import { LaunchFlow, LaunchScreen, ConsentJoin } from './screens/LaunchFlow';
-import { DiscoverScreen } from './screens/DiscoverScreen';
+import { DiscoverScreen, isTrackOnSale } from './screens/DiscoverScreen';
 import { CollectionScreen, CollectionItem } from './screens/CollectionScreen';
 import { MediaScreen } from './screens/MediaScreen';
 import { SettingsScreen, SettingsKey } from './screens/SettingsScreen';
@@ -194,6 +194,16 @@ function AppInner() {
 
   // 所有集合。Firestore（購入で増えたぶん）が正。
   const ownedTrackIds = useMemo(() => new Set<string>(ownedIds), [ownedIds]);
+
+  // ホーム（ディスカバー）に出す楽曲 = 販売期間内（sale.type==='always'、または
+  // 'limited' で startAt〜endAt の範囲内）のものだけに絞る。ただし既に所有している
+  // 曲は販売期間を過ぎていてもホームから消さない（買った作品が急に見えなくなるのを防ぐ）。
+  // コレクション側（ownedItems/wishlistItems/allWorkItems/playerTracks）は
+  // discoverTracks をそのまま使う＝販売期間に関わらずカタログ全体を扱う。
+  const homeTracks = useMemo(
+    () => discoverTracks.filter((t) => isTrackOnSale(t) || ownedTrackIds.has(t.id)),
+    [discoverTracks, ownedTrackIds],
+  );
 
   // コレクション（マイコレ）。作品データは discoverTracks（tracks コレクション）
   // の全曲から所有ぶんを引く。
@@ -515,7 +525,7 @@ function AppInner() {
         <View style={styles.body}>
           {tab === 'home' && (
             <DiscoverScreen
-              tracks={discoverTracks}
+              tracks={homeTracks}
               focusTrackId={homeFocusId}
               ownedIds={ownedTrackIds}
               wishlistIds={wishlist.ids}
