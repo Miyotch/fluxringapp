@@ -782,8 +782,9 @@ export const CollectionScreen: React.FC<Props> = ({
         pointerEvents={detail ? 'none' : 'auto'}
       >
         {SEGMENTS.map((k) => {
-          // 参照 .cnt: 0 件のときは数字を出さない（空の枠を数字で強調しない）
-          const count = k === 'mine' ? owned.length : k === 'wish' ? wishlist.length : 0;
+          // 参照 .cnt: 0 件のときは数字を出さない（空の枠を数字で強調しない）。
+          // ウィッシュタブだけは数字を出さない（表示名のみ）。
+          const count = k === 'mine' ? owned.length : 0;
           const label =
             k === 'all'
               ? t('collection.all')
