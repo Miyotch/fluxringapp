@@ -28,13 +28,16 @@ import { StyleSheet } from 'react-native';
 import {
   Atlas,
   Canvas,
+  ColorMatrix,
   Group,
+  Image as SkiaImage,
   Path,
   Skia,
   type SkColor,
   type SkRSXform,
 } from '@shopify/react-native-skia';
 import type { SharedValue } from 'react-native-reanimated';
+import type { Transforms3d } from '@shopify/react-native-skia';
 
 import {
   STAR_COLOR,
@@ -45,6 +48,7 @@ import {
   type TwinkleGroup,
 } from './StarField';
 import { makeGlowSprite, fullSprite, cachedImage, ATLAS_TINT } from '../lib/skiaSprites';
+import type { SealInkImage } from './StarSeal';
 
 /** ハロースプライト一辺。芯 + 3σ がちょうど収まる比率を層ごとに計算する */
 export const HALO_SPRITE_PX = 96;
@@ -129,12 +133,82 @@ export const StarGroupPaint: React.FC<{
   );
 };
 
+// ══════ 調律陣のシルエットで星を削る ══════
+//
+// 星が調律陣より手前に見えるのは描画順の問題ではない（順序は BackdropSky →
+// StarSeal で正しく、Android でも Skia Canvas は既定で TextureView ＝通常の
+// View と同じペイント順に従う）。原因は濃度差で、彫刻の線は α 0.12〜0.34 の
+// 薄い塗り、対して近景の星は α 0.84〜0.98 のほぼ不透明な白。薄い線は明るい星を
+// 覆い隠せない（輝度 238 → 208 程度にしか落ちない）。
+//
+// 彫刻側を濃くすると見た目が変わってしまう（2026-09-07 に一度やって、線の両側に
+// 暗い縁が付き「黒い線画」になった）。そこで **星の平面から彫刻の形を抜く**。
+// 調律陣の Canvas には一切触れないので、彫刻の見え方は 1 ドットも変わらない。
+//
+//   dstOut: r = d * (1 - sa)   （BlendMode.d.ts:37）
+//
+// ── なぜ ColorMatrix で α を増幅するのか ──
+// 焼いた ink 画像をそのまま使うと sa が薄すぎて効かない。極細線はアンチエイリアス
+// で被覆が 0.5 前後しかないため、実効 α は 0.16 × 0.54 ≒ 0.086 ＝星は 91% 残る。
+// 同じ絵を何回も重ねれば削れるが、全画面の転送を回数ぶん払うことになる。
+// α だけを GAIN 倍してクランプすれば、1 回の転送で済み、しかもクランプ後も
+// 被覆の比率は残るので形は鈍らない。
+const SEAL_MASK_GAIN = 8;       // α の増幅率（min(1, α*GAIN) でクランプされる）
+const SEAL_MASK_STRENGTH = 0.8; // 削りの上限。1 未満にして硬い切り欠きを避ける
+
+// 4x5 カラーマトリクス。RGB は素通しで、α 行だけ GAIN 倍する
+const SEAL_MASK_MATRIX = [
+  1, 0, 0, 0, 0,
+  0, 1, 0, 0, 0,
+  0, 0, 1, 0, 0,
+  0, 0, 0, SEAL_MASK_GAIN, 0,
+];
+
+/**
+ * 星より **あと**、かつ横パララックスの `<Group transform>` の **外** に置くこと。
+ * マスクは画面に固定で、星の平面だけが横へ流れるため、中に入れると陣とずれて流れる。
+ *
+ * ink が null（MakeOffscreen が使えない端末）のときは何も描かない＝従来の見た目。
+ */
+export const SealOccluder: React.FC<{ ink?: SealInkImage }> = ({ ink }) => {
+  if (!ink) return null;
+  return (
+    <SkiaImage
+      image={ink.image}
+      x={0}
+      y={0}
+      width={ink.width}
+      height={ink.height}
+      fit="fill"
+      blendMode="dstOut"
+      opacity={SEAL_MASK_STRENGTH}
+    >
+      <ColorMatrix matrix={SEAL_MASK_MATRIX} />
+    </SkiaImage>
+  );
+};
+
 export type StaticStarsProps = {
   width: number;
   height: number;
   /** StarField.splitLayers() の結果。ここでは still 側だけを描く */
   layers: SplitLayer[];
   bodyColor?: string;
+  /**
+   * 星の平面の横ずらし（BackdropSky が作る周期 W の巻き戻し済み transform）。
+   * 層ごとに 1 本（layerIndex で引く）。遠い層ほど小さく動く。
+   *
+   * ここへ SharedValue を渡した瞬間、この Canvas は「値が変わったフレームだけ」
+   * 塗り直される側になる。上の但し書きの唯一の例外で、意図的に許している：
+   *   ・値が動くのは横スワイプの最中だけ（指を離して整定したら止まる）
+   *   ・止まっている間の塗り直し回数はこれまでどおりゼロ
+   * ネイティブの transform（親 View をずらす）なら塗り直しゼロにできるが、
+   * Android では Skia の Canvas が親の transform に付いてこない場合があり、
+   * 実機で星が動かなかった。確実に効く Skia 内部の変換を採る。
+   */
+  transforms?: SharedValue<Transforms3d>[];
+  /** 調律陣の彫刻シルエット。この Canvas の星からこの形を dstOut で抜く */
+  occluder?: SealInkImage;
 };
 
 const StaticStarsImpl: React.FC<StaticStarsProps> = ({
@@ -142,6 +216,8 @@ const StaticStarsImpl: React.FC<StaticStarsProps> = ({
   height: H,
   layers,
   bodyColor,
+  transforms,
+  occluder,
 }) => {
   // ── この Canvas に SharedValue を持ち込まないこと ──────────────
   // opacity は stillOpacity() が返す素の数値。clock も paused も参照しない。
@@ -154,21 +230,25 @@ const StaticStarsImpl: React.FC<StaticStarsProps> = ({
   const tree = useMemo(
     () => (
       <Canvas style={[StyleSheet.absoluteFill, { width: W, height: H }]} pointerEvents="none">
-        {layers.map((l) =>
-          l.still.map((g, gi) => (
-            <StarGroupPaint
-              key={`${l.layerIndex}-${gi}`}
-              g={g}
-              spec={l.spec}
-              layerIndex={l.layerIndex}
-              opacity={stillOpacity(g)}
-              bodyColor={bodyColor}
-            />
-          )),
-        )}
+        {layers.map((l) => (
+          <Group key={l.layerIndex} transform={transforms?.[l.layerIndex]}>
+            {l.still.map((g, gi) => (
+              <StarGroupPaint
+                key={gi}
+                g={g}
+                spec={l.spec}
+                layerIndex={l.layerIndex}
+                opacity={stillOpacity(g)}
+                bodyColor={bodyColor}
+              />
+            ))}
+          </Group>
+        ))}
+        {/* 星を削る。パララックスの Group の外＝画面固定。この Canvas の星にだけ効く */}
+        <SealOccluder ink={occluder} />
       </Canvas>
     ),
-    [W, H, layers, bodyColor],
+    [W, H, layers, bodyColor, transforms, occluder],
   );
 
   return tree;

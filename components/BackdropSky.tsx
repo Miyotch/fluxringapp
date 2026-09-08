@@ -74,6 +74,7 @@ import {
   vec,
   type SkRSXform,
   type SkColor,
+  type Transforms3d,
 } from '@shopify/react-native-skia';
 import { useSharedValue, useDerivedValue, type SharedValue } from 'react-native-reanimated';
 import { useBackdropClock } from '../lib/usePausableClock';
@@ -94,7 +95,8 @@ import {
   type TwinkleGroup,
   type LayerSpec,
 } from './StarField';
-import { StarGroupPaint, StaticStars } from './StaticStars';
+import { StarGroupPaint, StaticStars, SealOccluder } from './StaticStars';
+import type { SealInkImage } from './StarSeal';
 import {
   makeBlurredRadialSprite,
   fullSprite,
@@ -264,12 +266,57 @@ export type BackdropSkyProps = {
   height: number;
   /** ホーム以外を表示している間は true にして明滅を止める（参照 __frSealPause 相当） */
   paused?: boolean;
+  /**
+   * 星の平面だけを横へずらす、**溜め込んだ**移動量(px)。符号つき・上限なし。
+   * 地色と天の川は動かさない（参照 animateBG は #bgstars だけを translate する）。
+   *
+   * 画面幅 W で割った余りへ畳んでから使う。星の平面は周期 W のタイルなので、
+   * W をまたぐ瞬間の絵は 0 のときと同じ＝継ぎ目なしで無限に流れる。
+   *
+   * ずらしは **Skia の Group transform** で当てる。親 View をネイティブに
+   * ずらすほうが塗り直しゼロで安上がりだが、Android では Canvas が親の
+   * transform に付いてこない場合があり、実機（0.3.0 (38)）で星が動かなかった。
+   * 塗り直しは横スワイプの最中だけなので、確実に効くほうを採る。
+   */
+  parallaxX?: SharedValue<number>;
+  /**
+   * 調律陣の彫刻シルエット。星の平面からこの形を dstOut で抜き、星が彫刻の
+   * 後ろへ回って見えるようにする（components/StaticStars.tsx の SealOccluder）。
+   * 地色・天の川の Canvas には **絶対に入れない**（不透明な塗りがあるため、
+   * 抜くと背景そのものに穴が空く）。
+   */
+  occluder?: SealInkImage;
+  /**
+   * 天の川（雲＋星520）の横揺れ(px)。星の平面と同じ向きに、ずっと小さく動かす
+   * （2026-09-07）。いちばん遠い層なので星より遅く、斜めの帯は無限に繋げられない
+   * ので、着地後に呼び出し側がゆっくり 0 へ戻す。雲と星を 1 つの組として動かす
+   * ため、星が帯から抜け出すことはない。
+   *
+   * 値が動いている間だけこの Canvas が塗り直される（静止中は従来どおりゼロ）。
+   */
+  nebulaX?: SharedValue<number>;
 };
+
+/** 星 1 層ぶんの横ずらし。溜まった移動量 × 層の速度比を W の余りへ畳む */
+function useLayerShift(
+  parallaxX: SharedValue<number> | undefined,
+  W: number,
+  rate: number,
+): SharedValue<Transforms3d> {
+  return useDerivedValue<Transforms3d>(() => {
+    if (!parallaxX || W <= 0) return [{ translateX: 0 }];
+    const m = (parallaxX.value * rate) % W;
+    return [{ translateX: (m < 0 ? m + W : m) - W }];
+  }, [parallaxX, W, rate]);
+}
 
 const BackdropSkyImpl: React.FC<BackdropSkyProps> = ({
   width: W,
   height: H,
   paused = false,
+  parallaxX,
+  occluder,
+  nebulaX,
 }) => {
   const scale = W / REF_W;
 
@@ -303,7 +350,11 @@ const BackdropSkyImpl: React.FC<BackdropSkyProps> = ({
 
   const clouds = useMemo(buildClouds, []);
   const nebStarGroups = useMemo(() => buildStarGroups(W, H), [W, H]);
-  const starLayers = useMemo<BuiltLayer[]>(() => buildLayers(W, H), [W, H]);
+  // 横へ流すビルドでは、星を x と x+W の 2 か所へ置いた周期 W のタイル
+  // （パスの座標が [0,2W) に広がる）にしておく。Canvas の大きさは画面のまま
+  // ＝メモリは増えず、はみ出したぶんは Skia がクリップする。
+  const tiled = !!parallaxX;
+  const starLayers = useMemo<BuiltLayer[]>(() => buildLayers(W, H, tiled), [W, H, tiled]);
   // 明滅する群 / 動かさない群へ振り分ける（星の位置・径・分布は不変）。
   // live はこの Canvas、still は下の StaticStars（塗り直されない Canvas）へ。
   const split = useMemo<SplitLayer[]>(() => splitLayers(starLayers), [starLayers]);
@@ -325,6 +376,12 @@ const BackdropSkyImpl: React.FC<BackdropSkyProps> = ({
   //   W/H/scale … 画面サイズが変わったときだけ
   //   clouds/nebStarGroups/starLayers … useMemo 済み
   //   clock/stop … useSharedValue 由来で参照が固定
+  // 天の川の横揺れ（呼び出し側が有界に動かして戻す）。tree より前に宣言する
+  const nebShift = useDerivedValue<Transforms3d>(
+    () => [{ translateX: nebulaX ? nebulaX.value : 0 }],
+    [nebulaX],
+  );
+
   const tree = useMemo(
     () => (
     <Canvas style={[StyleSheet.absoluteFill, { width: W, height: H }]} pointerEvents="none">
@@ -357,46 +414,83 @@ const BackdropSkyImpl: React.FC<BackdropSkyProps> = ({
           ここでの ImageFilter は不要（saveLayer は合成のためだけ） */}
       {DEBUG_SKY.showNebula && (
         <Group layer={<Paint blendMode="screen" />}>
-          <CloudAtlas clouds={clouds} W={W} H={H} scale={scale} clock={clock} stop={stop} />
-          {nebStarGroups.map((g, i) => (
-            <NebStarLayer key={i} g={g} clock={clock} stop={stop} />
-          ))}
+          {/* 雲と星520を 1 つの組として横に揺らす（いちばん遠い層＝小さく） */}
+          <Group transform={nebShift}>
+            <CloudAtlas clouds={clouds} W={W} H={H} scale={scale} clock={clock} stop={stop} />
+            {nebStarGroups.map((g, i) => (
+              <NebStarLayer key={i} g={g} clock={clock} stop={stop} />
+            ))}
+          </Group>
         </Group>
       )}
-
-      {/* ── .bgstars（明滅する群だけ）。遠景→近景の順（参照の DOM 生成順）──
-          残りの星は StaticStars が別 Canvas で持つ。星同士の重なりは点なので
-          描画順が入れ替わっても知覚差は出ない */}
-      {DEBUG_SKY.showStars &&
-        split.map((l) =>
-          l.live.map((g, gi) => (
-            <TwinkleLayer
-              key={`${l.layerIndex}-${gi}`}
-              g={g}
-              spec={l.spec}
-              layerIndex={l.layerIndex}
-              clock={clock}
-              stop={stop}
-            />
-          )),
-        )}
     </Canvas>
     ),
-    [W, H, scale, clouds, nebStarGroups, split, clock, stop],
+    [W, H, scale, clouds, nebStarGroups, clock, stop, nebShift],
   );
 
-  // 静的な星は別 Canvas。天の川の screen 合成グループの外側に srcOver で重なる
-  // 点は、これまで同じ Canvas の最後に描いていたときと合成結果が変わらない。
+  // ── 星の平面の横ずらし ──────────────────────────────────────
+  //
+  // パスは [0, 2W) に広がっていて、内容は周期 W（星 x と x+W が同じ絵）。
+  // 平面座標を -W + t（t は溜まった移動量の W の余り）へ置くと、画面 [0,W) に
+  // 出るのは平面 [W-t, 2W-t) ⊂ [0,2W)。t が W をまたいで 0 へ戻る瞬間の絵は
+  // 直前と 1 ドットも違わないので、継ぎ目なしで無限に流れる。
+  //
+  // 層ごとに速度比（LayerSpec.parallax: 遠 0.6 / 中 0.8 / 近 1.0）を掛けて別々に
+  // 畳む。近くの明るい星は速く、遠くの淡い星はゆっくり流れ、空が「板」ではなく
+  // 奥行きを持つ。層の数は StarField.LAYERS で固定（3）なのでフックも 3 本固定。
+  const rate0 = split[0]?.spec.parallax ?? 1;
+  const rate1 = split[1]?.spec.parallax ?? 1;
+  const rate2 = split[2]?.spec.parallax ?? 1;
+  const shift0 = useLayerShift(parallaxX, W, rate0);
+  const shift1 = useLayerShift(parallaxX, W, rate1);
+  const shift2 = useLayerShift(parallaxX, W, rate2);
+  const starShifts = useMemo(() => [shift0, shift1, shift2], [shift0, shift1, shift2]);
+
+
+  // 明滅する群だけを持つ Canvas。地色・天の川とは分けてあるので、星を流しても
+  // 天の川の screen 合成（全画面 saveLayer）までは巻き込まない。
+  const starTree = useMemo(
+    () => (
+      <Canvas style={[StyleSheet.absoluteFill, { width: W, height: H }]} pointerEvents="none">
+        {split.map((l) => (
+          <Group key={l.layerIndex} transform={tiled ? starShifts[l.layerIndex] : undefined}>
+            {l.live.map((g, gi) => (
+              <TwinkleLayer
+                key={gi}
+                g={g}
+                spec={l.spec}
+                layerIndex={l.layerIndex}
+                clock={clock}
+                stop={stop}
+              />
+            ))}
+          </Group>
+        ))}
+        {/* 星を削る。パララックスの Group の外＝画面固定 */}
+        <SealOccluder ink={occluder} />
+      </Canvas>
+    ),
+    [W, H, split, clock, stop, tiled, starShifts, occluder],
+  );
+
+  // 星は地色・天の川の外側へ srcOver で重なる。同じ Canvas の最後に描いていた
+  // ときと合成結果は変わらない。調律陣（StarSeal）はこれより後ろの兄弟なので、
+  // 星は今までどおり調律陣の下。
   return (
     <>
       {tree}
       {DEBUG_SKY.showStars && (
-        <StaticStars
-          width={W}
-          height={H}
-          layers={split}
-          bodyColor={DEBUG_SKY.proofOfLife ? PROOF_COLOR : STAR_COLOR}
-        />
+        <>
+          {starTree}
+          <StaticStars
+            width={W}
+            height={H}
+            layers={split}
+            bodyColor={DEBUG_SKY.proofOfLife ? PROOF_COLOR : STAR_COLOR}
+            transforms={tiled ? starShifts : undefined}
+            occluder={occluder}
+          />
+        </>
       )}
     </>
   );

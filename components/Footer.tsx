@@ -45,14 +45,25 @@ type FooterProps = {
   onChange: (key: TabKey) => void;
   /** VIP が未成約のときロックマークを重ねる */
   vipLocked?: boolean;
+  /**
+   * 下地と境界線を外して、背後の画面をそのまま透かす。
+   * ホームでだけ true にして、星空がフッターの裏まで続いて見えるようにする
+   * （呼び出し側はこのときフッターを絶対配置で画面へかぶせること）。
+   */
+  transparent?: boolean;
 };
 
-export const Footer: React.FC<FooterProps> = ({ active, onChange, vipLocked = true }) => {
+export const Footer: React.FC<FooterProps> = ({
+  active,
+  onChange,
+  vipLocked = true,
+  transparent = false,
+}) => {
   const t = useT();
   // ホームインジケータ（34pt）を避ける。従来の固定値を下回らないようにする。
   const padBottom = useBottomInset(Platform.OS === 'ios' ? 20 : 12);
   return (
-    <View style={[styles.bar, { paddingBottom: padBottom }]}>
+    <View style={[styles.bar, transparent && styles.barTransparent, { paddingBottom: padBottom }]}>
       {/* タブ上端の金インジケータ（v99 fr_v99_tsubasa .tb.on::before 相当）。
           各タブ Pressable は bar 内で縦中央寄せ（高さがコンテンツ依存）のため、
           インジケータはタブの内側ではなく bar 直下の専用オーバーレイ行に、
@@ -129,6 +140,11 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: COLOR.border,
     backgroundColor: 'rgba(23,20,48,0.92)',
+  },
+  // 透明フッター（ホーム）。下地も境界線も消して、背後の空をそのまま出す
+  barTransparent: {
+    backgroundColor: 'transparent',
+    borderTopWidth: 0,
   },
   // bar の最上端（paddingTop の外側）に重ねる、タブと同じ5分割のオーバーレイ行。
   indicatorRow: {
