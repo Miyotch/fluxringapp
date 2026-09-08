@@ -429,10 +429,9 @@ export const PlayerScreen: React.FC<Props> = ({
         </Pressable>
       </Animated.View>
 
-      {/* 曲名・情景（カードの上・左寄せ）。ヘッダーと同じタイミングでフェードイン */}
+      {/* 曲名（カードの上・左寄せ）。ヘッダーと同じタイミングでフェードイン */}
       <Animated.View style={[styles.meta, headerAnimStyle]}>
         <Text style={styles.title} numberOfLines={1}>{track.title}</Text>
-        {track.subtitle && <Text style={styles.subtitle} numberOfLines={1}>{track.subtitle}</Text>}
         {phase === 'playing' && loading && <Text style={styles.subtitle}>読み込み中…</Text>}
         {error && <Text style={styles.err}>{error}</Text>}
       </Animated.View>
