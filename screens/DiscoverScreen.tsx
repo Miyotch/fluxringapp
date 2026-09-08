@@ -616,13 +616,20 @@ export const DiscoverScreen: React.FC<Props> = ({
     [active],
   );
 
-  // 試聴は自動開始しない（スピーカーボタンの押下だけをトリガーにする）。
-  // 曲を切り替えたら再生中の試聴は止める。
+  // 試聴はカードが切り替わるたび（起動直後の最初のカードも含む）自動で始まる。
+  // 試聴URLが無ければ何もしない。スピーカーボタンは手動での一時停止／再開に使う。
   // ※フェードインは音源ファイル側で定義する方針のため、アプリ側では行わない。
   useEffect(() => {
     preview.pause();
     setPlayingId(null);
-  }, [activeIndex, preview]);
+    if (!active) return;
+    const url = active.previewUrl ?? previewUrl(active.audioKey);
+    if (!url) return;
+    preview.replace({ uri: url });
+    preview.play();
+    setPlayingId(active.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeIndex, active?.id, active?.previewUrl, active?.audioKey, preview]);
 
   const togglePreview = useCallback(() => {
     if (!active) return;
