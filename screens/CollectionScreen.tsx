@@ -38,7 +38,8 @@ import Animated, {
 } from 'react-native-reanimated';
 import { CardGL, CARD_BACK_SCALE_MAX } from '../components/CardGL';
 import { homeCardWidth } from '../constants/design-tokens';
-import Svg, { Defs, LinearGradient as SvgLinear, Stop, Rect, RadialGradient as SvgRadial } from 'react-native-svg';
+import Svg, { Defs, LinearGradient as SvgLinear, Stop, Rect } from 'react-native-svg';
+import { CR, CreditsBackdrop } from '../components/CreditsBackdrop';
 import { PurchaseModal } from '../components/PurchaseModal';
 import { StarIcon } from '../components/icons';
 import type { CardOrigin, CardOriginItem } from '../components/CardAfterimage';
@@ -160,19 +161,7 @@ const C = {
 //        読めてしまうので、実体のある作品数より先は Coming Soon に置き換える。
 type MineSlot = { key: string; item: CollectionItem | null; no: string; soon: boolean };
 
-// パネル背景: radial #14122e → #0a0a1c 46% → #05040c
-const PanelBackground: React.FC<{ w: number; h: number }> = ({ w, h }) => (
-  <Svg style={StyleSheet.absoluteFill} width={w} height={h} pointerEvents="none">
-    <Defs>
-      <SvgRadial id="colbg" cx="50%" cy="34%" r="120%">
-        <Stop offset="0" stopColor="#14122e" />
-        <Stop offset="0.46" stopColor="#0a0a1c" />
-        <Stop offset="1" stopColor="#05040c" />
-      </SvgRadial>
-    </Defs>
-    <Rect x="0" y="0" width={w} height={h} fill="url(#colbg)" />
-  </Svg>
-);
+// 背景は設定配下（CREDITS等）と同じ CreditsBackdrop を使う（components/CreditsBackdrop.tsx）。
 
 // 上端フェード（原本の mask-image:linear-gradient(transparent 0, #000 22px) 相当）
 const TopFade: React.FC<{ w: number }> = ({ w }) => (
@@ -765,8 +754,8 @@ export const CollectionScreen: React.FC<Props> = ({
 
   return (
     <View style={styles.root}>
-      <StatusBar barStyle="light-content" backgroundColor="#0a0a1c" />
-      <PanelBackground w={screenW} h={screenH} />
+      <StatusBar barStyle="light-content" backgroundColor={CR.deepest} />
+      <CreditsBackdrop w={screenW} h={screenH} />
 
       {/* タイトル（.skh: 上58px / 18px / 字間.05em）
           作品詳細が開いている間は消す。見出し「コレクション」と詳細の「戻る」は
@@ -1031,7 +1020,7 @@ export const CollectionScreen: React.FC<Props> = ({
 };
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#0a0a1c' },
+  root: { flex: 1, backgroundColor: CR.deepest },
 
   // .skh: padding 58px 22px 6px / 18px / 字間.05em / #ECEEF7
   skh: {

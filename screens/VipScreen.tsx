@@ -34,6 +34,7 @@ import Animated, {
 import { ArtworkCard } from '../components/ArtworkCard';
 import { LockIcon } from '../components/icons';
 import { COLOR, SPACE, RADIUS } from '../constants/design-tokens';
+import { CR, CreditsBackdrop } from '../components/CreditsBackdrop';
 import { NUM_FONT } from '../constants/fonts';
 import { useTopInset } from '../lib/safeArea';
 
@@ -57,11 +58,13 @@ type Props = {
 };
 
 export const VipScreen: React.FC<Props> = ({ locked, cards = [], onSubmitCode }) => {
+  const { width: screenW, height: screenH } = useWindowDimensions();
   // ── 未成約（ロック） ──
   if (locked) {
     return (
       <View style={styles.root}>
-        <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
+        <StatusBar barStyle="light-content" backgroundColor={CR.deepest} />
+        <CreditsBackdrop w={screenW} h={screenH} />
         <View style={styles.lockBody}>
           <View style={styles.lockBadge}>
             <LockIcon size={26} color={COLOR.auraCyan} />
@@ -85,7 +88,7 @@ const VipUnlocked: React.FC<{ cards: VipCard[]; onSubmitCode?: (code: string) =>
   cards,
   onSubmitCode,
 }) => {
-  const { width: screenW } = useWindowDimensions();
+  const { width: screenW, height: screenH } = useWindowDimensions();
   const cardW = Math.min(screenW - 120, 220);
   const [code, setCode] = useState('');
   const headingTop = useTopInset(16); // 従来 60px（=44+16）
@@ -116,7 +119,8 @@ const VipUnlocked: React.FC<{ cards: VipCard[]; onSubmitCode?: (code: string) =>
 
   return (
     <View style={styles.root}>
-      <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
+      <StatusBar barStyle="light-content" backgroundColor={CR.deepest} />
+      <CreditsBackdrop w={screenW} h={screenH} />
 
       <Text style={[styles.vipHeading, { paddingTop: headingTop }]}>あなたの音</Text>
 
@@ -186,7 +190,7 @@ const VipUnlocked: React.FC<{ cards: VipCard[]; onSubmitCode?: (code: string) =>
 };
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: COLOR.bg },
+  root: { flex: 1, backgroundColor: CR.deepest },
 
   // lock
   lockBody: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: SPACE.md, paddingHorizontal: SPACE.xl },
