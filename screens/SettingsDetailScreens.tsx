@@ -16,12 +16,15 @@ import React, { useState } from 'react';
 import {
   View,
   Text,
+  TextInput,
   Pressable,
   ScrollView,
   StyleSheet,
   StatusBar,
   Linking,
   Modal,
+  KeyboardAvoidingView,
+  Platform,
   useWindowDimensions,
 } from 'react-native';
 import Svg, { Defs, LinearGradient as SvgLinear, Stop, Rect, Path } from 'react-native-svg';
@@ -29,6 +32,7 @@ import { COLOR, SPACE, RADIUS } from '../constants/design-tokens';
 import { NUM_FONT, JP_SERIF_FONT } from '../constants/fonts';
 import { useT, useI18n, Lang } from '../lib/i18n';
 import { useAuthUser } from '../lib/useAuthUser';
+import { submitInquiry } from '../lib/submitInquiry';
 import { useTopInset, useBottomInset } from '../lib/safeArea';
 import { CR, CreditsBackdrop } from '../components/CreditsBackdrop';
 
@@ -280,37 +284,144 @@ export const LanguageScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => 
 // サポート
 // ─────────────────────────────────────────────
 
+type SupportView = 'list' | 'form' | 'sent';
+
 export const SupportScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const t = useT();
   const { width: screenW, height: screenH } = useWindowDimensions();
+  const user = useAuthUser();
+  const [view, setView] = useState<SupportView>('list');
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState(user?.email ?? '');
+  const [message, setMessage] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // 「戻る」はフォーム／送信完了からは一覧へ、一覧からは設定へ
+  const handleBack = () => {
+    if (view === 'list') {
+      onBack();
+      return;
+    }
+    setError(null);
+    setView('list');
+  };
+
+  const handleSubmit = async () => {
+    if (!email.trim() || !message.trim()) {
+      setError(t('support.inquiry.error'));
+      return;
+    }
+    setError(null);
+    setSubmitting(true);
+    try {
+      await submitInquiry({ name, email, message });
+      setView('sent');
+    } catch {
+      setError(t('support.inquiry.sendError'));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
     <View style={s.root}>
       <StatusBar barStyle="light-content" backgroundColor={CR.deepest} />
       <CreditsBackdrop w={screenW} h={screenH} />
-      <SubHeader title={t('support.title')} onBack={onBack} />
-      <ScrollView contentContainerStyle={s.body} showsVerticalScrollIndicator={false}>
-        <Text style={[s.paragraph, s.supportLead]}>{t('support.body')}</Text>
+      <SubHeader title={t('support.title')} onBack={handleBack} />
 
-        {/* TODO: 実際の問い合わせ先メール / フォーム URL に差し替え */}
-        <Pressable
-          style={s.row}
-          onPress={() => Linking.openURL('mailto:support@fluxring.app').catch(() => {})}
-        >
-          <View style={s.rowText}>
-            <Text style={s.rowLabel}>{t('support.mail')}</Text>
-            <Text style={s.rowSub}>support@fluxring.app</Text>
-          </View>
-          <Text style={s.chevron}>›</Text>
-        </Pressable>
+      {view === 'list' && (
+        <ScrollView contentContainerStyle={s.body} showsVerticalScrollIndicator={false}>
+          <Text style={[s.paragraph, s.supportLead]}>{t('support.body')}</Text>
 
-        <Pressable
-          style={s.row}
-          onPress={() => Linking.openURL('https://fluxring.app/faq').catch(() => {})}
+          <Pressable style={s.row} onPress={() => setView('form')}>
+            <Text style={s.rowLabel}>{t('support.inquiry')}</Text>
+            <Text style={s.chevron}>›</Text>
+          </Pressable>
+
+          <Pressable
+            style={s.row}
+            onPress={() => Linking.openURL('https://fluxring.app/faq').catch(() => {})}
+          >
+            <Text style={s.rowLabel}>{t('support.faq')}</Text>
+            <Text style={s.chevron}>›</Text>
+          </Pressable>
+        </ScrollView>
+      )}
+
+      {view === 'form' && (
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
-          <Text style={s.rowLabel}>{t('support.faq')}</Text>
-          <Text style={s.chevron}>›</Text>
-        </Pressable>
-      </ScrollView>
+          <ScrollView contentContainerStyle={s.body} showsVerticalScrollIndicator={false}>
+            <Text style={[s.paragraph, s.supportLead]}>{t('support.inquiry.lead')}</Text>
+
+            <View style={s.formField}>
+              <Text style={s.formLabel}>{t('support.inquiry.name')}</Text>
+              <TextInput
+                style={s.formInput}
+                value={name}
+                onChangeText={setName}
+                placeholder={t('support.inquiry.namePlaceholder')}
+                placeholderTextColor={COLOR.textSecondary}
+              />
+            </View>
+
+            <View style={s.formField}>
+              <Text style={s.formLabel}>{t('support.inquiry.email')}</Text>
+              <TextInput
+                style={s.formInput}
+                value={email}
+                onChangeText={setEmail}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+                placeholder="you@example.com"
+                placeholderTextColor={COLOR.textSecondary}
+              />
+            </View>
+
+            <View style={s.formField}>
+              <Text style={s.formLabel}>{t('support.inquiry.message')}</Text>
+              <TextInput
+                style={[s.formInput, s.formInputMulti]}
+                value={message}
+                onChangeText={setMessage}
+                multiline
+                numberOfLines={6}
+                textAlignVertical="top"
+                placeholder={t('support.inquiry.messagePlaceholder')}
+                placeholderTextColor={COLOR.textSecondary}
+              />
+            </View>
+
+            {error && <Text style={s.formError}>{error}</Text>}
+
+            <Pressable
+              style={({ pressed }) => [s.primaryBtn, (pressed || submitting) && { opacity: 0.7 }]}
+              onPress={handleSubmit}
+              disabled={submitting}
+            >
+              <Text style={s.primaryLabel}>
+                {submitting ? t('support.inquiry.sending') : t('support.inquiry.submit')}
+              </Text>
+            </Pressable>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      )}
+
+      {view === 'sent' && (
+        <View style={s.sentWrap}>
+          <Text style={s.modalTitle}>{t('support.inquiry.sentTitle')}</Text>
+          <Text style={[s.paragraph, { textAlign: 'center', marginTop: SPACE.sm }]}>
+            {t('support.inquiry.sentMessage')}
+          </Text>
+          <Pressable style={[s.primaryBtn, s.sentBtn]} onPress={onBack}>
+            <Text style={s.primaryLabel}>{t('common.close')}</Text>
+          </Pressable>
+        </View>
+      )}
     </View>
   );
 };
@@ -1158,10 +1269,7 @@ const s = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: COLOR.border,
   },
-  rowText: { flex: 1, gap: 3 },
   rowLabel: { color: COLOR.textPrimary, fontSize: 15, letterSpacing: 0.3, fontFamily: JP_SERIF_FONT },
-  // メールアドレス表示のみに使う欧文行（SupportScreen）
-  rowSub: { color: COLOR.textSecondary, fontSize: 12, letterSpacing: 0.24, fontFamily: NUM_FONT },
   chevron: { color: COLOR.textSecondary, fontSize: 18 },
   check: { color: COLOR.auraCyan, fontSize: 16 },
 
@@ -1191,6 +1299,25 @@ const s = StyleSheet.create({
     alignItems: 'center',
   },
   primaryLabel: { color: COLOR.textPrimary, fontSize: 15, fontWeight: '600', letterSpacing: 0.3, fontFamily: JP_SERIF_FONT },
+
+  // ── サポート「お問い合わせ」フォーム ──
+  formField: { gap: 6 },
+  formLabel: { color: COLOR.textSecondary, fontSize: 12, letterSpacing: 0.24, fontFamily: JP_SERIF_FONT },
+  formInput: {
+    borderWidth: 1,
+    borderColor: COLOR.border,
+    borderRadius: RADIUS.md,
+    paddingHorizontal: SPACE.md,
+    paddingVertical: 12,
+    color: COLOR.textPrimary,
+    fontSize: 14,
+    fontFamily: JP_SERIF_FONT,
+    backgroundColor: 'rgba(34,36,69,0.30)',
+  },
+  formInputMulti: { height: 140, paddingTop: 12 },
+  formError: { color: COLOR.badge, fontSize: 12.5, lineHeight: 19, letterSpacing: 0.24 },
+  sentWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: SPACE.xl },
+  sentBtn: { alignSelf: 'stretch', marginTop: SPACE.xl },
 
   // ── 退会確認モーダル ──
   modalScrim: {
