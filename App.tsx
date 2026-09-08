@@ -50,7 +50,6 @@ import {
   InfoScreen,
   DocumentScreen,
 } from './screens/SettingsDetailScreens';
-import { NotificationsScreen } from './screens/NotificationsScreen';
 import { ArtistScreen, ArtistTrack } from './screens/ArtistScreen';
 import { StoryScreen } from './screens/StoryScreen';
 import { PlayerScreen, PlayerTrack } from './screens/PlayerScreen';
@@ -71,7 +70,7 @@ type Phase = 'launch' | 'app';
 // フッタータブから開く主要画面
 type TabScreen = TabKey;
 // タブの上に重ねるモーダル的画面
-type Overlay = 'story' | 'player' | 'notifications' | 'artist' | null;
+type Overlay = 'story' | 'player' | 'artist' | null;
 
 // 規約・PP の現行バージョン（重要事項の同意型パネルの施行日）。
 // 同意済みバージョンがこれと異なると起動時に consent 画面を出す。
@@ -446,18 +445,6 @@ function AppInner() {
     );
   }
 
-  if (overlay === 'notifications') {
-    return (
-      <NotificationsScreen
-        notices={STUB_NOTICES}
-        onBack={() => setOverlay(null)}
-        onOpen={() => {
-          /* TODO: 通知本文へ */
-        }}
-      />
-    );
-  }
-
   if (overlay === 'artist') {
     return (
       <ArtistScreen
@@ -524,9 +511,7 @@ function AppInner() {
           {tab === 'home' && (
             <DiscoverScreen
               tracks={discoverTracks}
-              hasUnread
               focusTrackId={homeFocusId}
-              onOpenNotifications={() => setOverlay('notifications')}
               ownedIds={ownedTrackIds}
               wishlistIds={wishlist.ids}
               onToggleWishlist={wishlist.toggle}
@@ -593,6 +578,10 @@ function AppInner() {
               onLoadMoreArticles={articleFeed.loadMore}
               hasMoreArticles={articleFeed.hasMore}
               loadingMoreArticles={articleFeed.loading}
+              notices={STUB_NOTICES}
+              onOpenNotice={() => {
+                /* TODO: 通知本文へ */
+              }}
             />
           )}
 

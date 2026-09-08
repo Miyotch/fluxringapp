@@ -59,7 +59,7 @@ import { BuyButton } from '../components/BuyButton';
 import { WishlistStar } from '../components/WishlistStar';
 import { PurchaseModal } from '../components/PurchaseModal';
 import { EqBars } from '../components/EqBars';
-import { BellIcon, PreviewIcon } from '../components/icons';
+import { PreviewIcon } from '../components/icons';
 import { useTopInset } from '../lib/safeArea';
 import { PurchaseParticles } from '../components/PurchaseParticles';
 import { PURCHASE, HOME_INTRO, homeCardWidth } from '../constants/design-tokens';
@@ -129,8 +129,6 @@ export type Track = {
 
 type Props = {
   tracks?: Track[];
-  hasUnread?: boolean;
-  onOpenNotifications?: () => void;
   /** 購入が**成立した**ときだけ呼ばれる（キャンセル・失敗では呼ばない） */
   onBuy?: (track: Track) => void;
   /** 起動時に最初に表示するカードの id（コレクションのウィッシュから飛んできたとき用） */
@@ -178,8 +176,6 @@ const FALLBACK: Track[] = [
 
 export const DiscoverScreen: React.FC<Props> = ({
   tracks = FALLBACK,
-  hasUnread = true,
-  onOpenNotifications,
   onBuy,
   focusTrackId,
   ownedIds,
@@ -889,17 +885,13 @@ export const DiscoverScreen: React.FC<Props> = ({
           ]}
           pointerEvents="box-none"
         >
-          {/* 右上: ベル／EQメーター／試聴アイコンを横一列に並べる。EQ は試聴中だけ
+          {/* 右上: EQメーター／試聴アイコンを横一列に並べる。EQ は試聴中だけ
               動く（試聴を止めたらボリュームアニメーションも消える）。
               top は曲名（texts）と同じ topRightY + 5 にして高さを揃える。 */}
           <View style={[styles.topRight, { top: topRightY + 5 }]} pointerEvents="box-none">
             <View style={styles.iconsRow1}>
-              <Pressable onPress={onOpenNotifications} hitSlop={10} style={styles.bell}>
-                <BellIcon size={24} />
-                {hasUnread && <View style={styles.bdot} />}
-              </Pressable>
               {/* EqBars は非アクティブ時 null を返すため、幅固定のスロットで囲って
-                  試聴の開始/停止でベルや試聴アイコンの位置が動かないようにする */}
+                  試聴の開始/停止で試聴アイコンの位置が動かないようにする */}
               <View style={styles.eqSlot}>
                 <EqBars active={isPreviewing} />
               </View>
@@ -1012,11 +1004,6 @@ const styles = StyleSheet.create({
   // EqBars は非アクティブ時 null を返すため、これで囲わないと行の幅が
   // 詰まり、右寄せの行内でベルの位置が動いてしまう。
   eqSlot: { width: 14, alignItems: 'center', justifyContent: 'center' },
-  bell: {},
-  bdot: {
-    position: 'absolute', top: -1, right: -1,
-    width: 6, height: 6, borderRadius: 3, backgroundColor: C.badge,
-  },
   // height はアイコン列（topRight の iconsRow1）と同じ 24px にして
   // justifyContent:'center' で縦中央を揃える（フォント行送りの誤差を吸収する）
   texts: { position: 'absolute', left: 22, right: 120, height: 24, justifyContent: 'center' },

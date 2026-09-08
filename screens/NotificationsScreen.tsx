@@ -1,8 +1,8 @@
 /**
- * NotificationsScreen.tsx — 通知一覧
+ * NotificationsScreen.tsx — 通知一覧（「あなた宛」）
  * ------------------------------------------------------------------
- * ワイヤーフレーム 04 / 通知一覧 ベル:
- *   ・ホーム右上のベルから開く専用画面
+ * ワイヤーフレーム 04 / 通知一覧:
+ *   ・メディア画面の「あなた宛」タブの中身として表示する（単独の画面ではない）
  *   ・時系列降順（タイトル＋日付）→ タップで本文へ
  *   ・未読は行頭に控えめな赤い点のみ（数字なし）
  *   ・全員/個別の配信は運営側で出し分け（ユーザーには区別を出さない）
@@ -10,16 +10,8 @@
  */
 
 import React from 'react';
-import {
-  View,
-  Text,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  StatusBar,
-} from 'react-native';
+import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { COLOR, SPACE } from '../constants/design-tokens';
-import { useTopInset } from '../lib/safeArea';
 import { NUM_FONT } from '../constants/fonts';
 
 export type Notice = {
@@ -32,57 +24,29 @@ export type Notice = {
 
 type Props = {
   notices: Notice[];
-  onBack: () => void;
   onOpen: (id: string) => void;
 };
 
-export const NotificationsScreen: React.FC<Props> = ({ notices, onBack, onOpen }) => {
-  const headerTop = useTopInset(8); // 従来 52px（=44+8）
-  return (
-    <View style={styles.root}>
-      <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
-
-      <View style={[styles.header, { paddingTop: headerTop }]}>
-        <Pressable onPress={onBack} hitSlop={12}>
-          <Text style={styles.back}>‹ ホーム</Text>
-        </Pressable>
-        <Text style={styles.h1}>通知</Text>
-        <View style={{ width: 60 }} />
-      </View>
-
-      <ScrollView showsVerticalScrollIndicator={false}>
-        {notices.map((n) => (
-          <Pressable key={n.id} style={styles.row} onPress={() => onOpen(n.id)}>
-            <View style={styles.dotCol}>
-              {n.unread && <View style={styles.unreadDot} />}
-            </View>
-            <View style={styles.textCol}>
-              <Text style={[styles.title, n.unread && styles.titleUnread]} numberOfLines={2}>
-                {n.title}
-              </Text>
-              <Text style={styles.date}>{n.date}</Text>
-            </View>
-          </Pressable>
-        ))}
-      </ScrollView>
-    </View>
-  );
-};
+export const NotificationsList: React.FC<Props> = ({ notices, onOpen }) => (
+  <View style={styles.root}>
+    {notices.map((n) => (
+      <Pressable key={n.id} style={styles.row} onPress={() => onOpen(n.id)}>
+        <View style={styles.dotCol}>
+          {n.unread && <View style={styles.unreadDot} />}
+        </View>
+        <View style={styles.textCol}>
+          <Text style={[styles.title, n.unread && styles.titleUnread]} numberOfLines={2}>
+            {n.title}
+          </Text>
+          <Text style={styles.date}>{n.date}</Text>
+        </View>
+      </Pressable>
+    ))}
+  </View>
+);
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: COLOR.bg },
-  header: {
-    // 既定値。実機では SafeArea の top を加味して JSX 側で上書き
-    paddingTop: 52,
-    paddingHorizontal: SPACE.lg,
-    paddingBottom: SPACE.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  // .skback: 12px / 字間.05em / #AEB4D6
-  back: { color: COLOR.textBack, fontSize: 12, letterSpacing: 0.6 },
-  h1: { color: COLOR.textPrimary, fontSize: 16, fontWeight: '600', letterSpacing: 1 },
+  root: { paddingBottom: 40 },
   row: {
     flexDirection: 'row',
     paddingVertical: SPACE.md,
@@ -100,4 +64,4 @@ const styles = StyleSheet.create({
   date: { color: COLOR.textSecondary, fontSize: 11, letterSpacing: 0.5, fontFamily: NUM_FONT },
 });
 
-export default NotificationsScreen;
+export default NotificationsList;
