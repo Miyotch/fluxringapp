@@ -1212,7 +1212,9 @@ const styles = StyleSheet.create({
   // zIndex はカードより手前に置くため。RN は後ろの兄弟が上に描かれるので、
   // これが無いとフリップした裏面が「戻る」の上に被って押せなくなる。
   workBack: { alignSelf: 'flex-start', zIndex: 2 },
-  workBackLabel: { color: C.back, fontSize: 12, letterSpacing: 0.6 },
+  // 他画面の「戻る」導線（PlayerScreen の navText 等）と書体を揃えて明朝に。
+  // 字間は指示により今までの 0.6 より狭く 0.2 へ
+  workBackLabel: { color: C.back, fontSize: 12, letterSpacing: 0.2, fontFamily: JP_SERIF_FONT },
   // 参照 .wcard 164x246（枠幅380基準 = 43%）。実寸は workCardW/H で渡す。
   // borderRadius / overflow は付けない — 角丸はカード自身（CardGL）が持っており、
   // ここでクリップすると裏面の拡大分と落影が切れる。

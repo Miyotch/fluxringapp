@@ -59,6 +59,7 @@ import {
 import { BuyButton } from '../components/BuyButton';
 import { PurchaseModal } from '../components/PurchaseModal';
 import { PreviewIcon, StarIcon } from '../components/icons';
+import { EqBars } from '../components/EqBars';
 import { useTopInset } from '../lib/safeArea';
 import { PurchaseParticles } from '../components/PurchaseParticles';
 import { PURCHASE, HOME_INTRO, homeCardWidth } from '../constants/design-tokens';
@@ -257,8 +258,8 @@ export const DiscoverScreen: React.FC<Props> = ({
   const initialIndex = focusTrackId
     ? Math.max(0, tracks.findIndex((t) => t.id === focusTrackId))
     : 0;
-  // タイトルはセーフエリア下へ寄せる。旧・右上アイコン列（撤去済み）と
-  // 同じ top（topRightY + 5）を引き続き使い、縦位置を据え置く。
+  // タイトルはセーフエリア下へ寄せる。右上のEQメーターと同じ top
+  // （topRightY + 5 + TITLE_CHAR_SIZE）を使い、高さを揃える。
   const topRightY = useTopInset(8);
   const [slideH, setSlideH] = useState(0);
   // 調律陣が焼いた彫刻シルエット。星の平面をこの形で削るためだけに使う。
@@ -1160,8 +1161,16 @@ export const DiscoverScreen: React.FC<Props> = ({
         >
           {/* ※ 通知ベルは撤去済み（ホームの空を邪魔しないため）。通知一覧は
                  メディア画面の「あなた宛」タブへ統合した（screens/MediaScreen.tsx）。
-              ※ 右上のEQメーター／試聴アイコンも撤去済み。試聴のトグルはカード下部の
-                 acts行（★／試聴／購入する）に一本化した（同じ togglePreview を使う）。 */}
+              ※ 右上の試聴アイコン（スピーカー）は撤去済み。試聴のトグルはカード下部の
+                 acts行（★／試聴／購入する）に一本化した（同じ togglePreview を使う）。
+                 EQメーターだけは残す（タップ不要の演出のため pointerEvents="none"）。
+                 top はタイトルと同じ高さ（topRightY + 5 + TITLE_CHAR_SIZE）に揃える。 */}
+          <View
+            style={[styles.topRight, { top: topRightY + 5 + TITLE_CHAR_SIZE }]}
+            pointerEvents="none"
+          >
+            <EqBars active={isPreviewing} />
+          </View>
 
           {/* タイトル（1行のみ。eyeコピー・情景サブタイトルはモック確定値により非表示）。
               「1文字分下・1文字分内側へ」の指示により、title のフォントサイズ
@@ -1283,6 +1292,8 @@ const styles = StyleSheet.create({
   hidden: { opacity: 0 },
 
   chrome: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
+  // 右上のEQメーターのみ（試聴アイコンは撤去済み。カード下部のacts行に一本化）
+  topRight: { position: 'absolute', top: 22, right: 20, alignItems: 'flex-end' },
   // height24・justifyContent:'center' は撤去済みの旧・右上アイコン列と高さを
   // 揃えていた名残り（フォント行送りの誤差を吸収するため維持）。
   // left は旧位置22pxから TITLE_CHAR_SIZE（1文字分）だけ内側へ寄せた。
