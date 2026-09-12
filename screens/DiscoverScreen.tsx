@@ -58,7 +58,6 @@ import {
 } from '../components/CardGL';
 import { BuyButton } from '../components/BuyButton';
 import { PurchaseModal } from '../components/PurchaseModal';
-import { EqBars } from '../components/EqBars';
 import { PreviewIcon, StarIcon } from '../components/icons';
 import { useTopInset } from '../lib/safeArea';
 import { PurchaseParticles } from '../components/PurchaseParticles';
@@ -253,8 +252,8 @@ export const DiscoverScreen: React.FC<Props> = ({
   const initialIndex = focusTrackId
     ? Math.max(0, tracks.findIndex((t) => t.id === focusTrackId))
     : 0;
-  // 上部クローム（右上アイコン／タイトル）はセーフエリア下へ寄せる。
-  // タイトルは右上アイコン列と同じ top（topRightY + 5）を使い、縦位置を揃える。
+  // タイトルはセーフエリア下へ寄せる。旧・右上アイコン列（撤去済み）と
+  // 同じ top（topRightY + 5）を引き続き使い、縦位置を据え置く。
   const topRightY = useTopInset(8);
   const [slideH, setSlideH] = useState(0);
   // 調律陣が焼いた彫刻シルエット。星の平面をこの形で削るためだけに使う。
@@ -1154,27 +1153,14 @@ export const DiscoverScreen: React.FC<Props> = ({
           ]}
           pointerEvents="box-none"
         >
-          {/* 右上: EQメーター／試聴アイコン。EQ は試聴中だけ動く（試聴を止めたら
-              ボリュームアニメーションも消える）。
-              top は曲名（texts）と同じ topRightY + 5 にして高さを揃える。
-              ※ 通知ベルは撤去済み（ホームの空を邪魔しないため）。通知一覧は
-                 メディア画面の「あなた宛」タブへ統合した（screens/MediaScreen.tsx）。 */}
-          <View style={[styles.topRight, { top: topRightY + 5 }]} pointerEvents="box-none">
-            <View style={styles.iconsRow1}>
-              {/* EqBars は非アクティブ時 null を返すため、幅固定のスロットで囲って
-                  試聴の開始/停止で試聴アイコンの位置が動かないようにする */}
-              <View style={styles.eqSlot}>
-                <EqBars active={isPreviewing} />
-              </View>
-              <Pressable onPress={togglePreview} hitSlop={10}>
-                <PreviewIcon size={24} on={isPreviewing} />
-              </Pressable>
-            </View>
-          </View>
+          {/* ※ 通知ベルは撤去済み（ホームの空を邪魔しないため）。通知一覧は
+                 メディア画面の「あなた宛」タブへ統合した（screens/MediaScreen.tsx）。
+              ※ 右上のEQメーター／試聴アイコンも撤去済み。試聴のトグルはカード下部の
+                 acts行（★／試聴／購入する）に一本化した（同じ togglePreview を使う）。 */}
 
           {/* タイトル（1行のみ。eyeコピー・情景サブタイトルはモック確定値により非表示）。
-              右上のアイコン列（topRight）と同じ top・高さで縦中央揃えにし、
-              アイコンの縦位置とタイトルの縦位置をぴったり揃える。 */}
+              旧・右上アイコン列と同じ top（topRightY + 5）を引き続き使い、
+              アイコン撤去前と同じ縦位置のまま据え置く。 */}
           <RNAnimated.View
             style={[styles.texts, { top: topRightY + 5, opacity: titleFade }]}
             pointerEvents="none"
@@ -1291,14 +1277,8 @@ const styles = StyleSheet.create({
   hidden: { opacity: 0 },
 
   chrome: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
-  topRight: { position: 'absolute', top: 22, right: 20, alignItems: 'flex-end' },
-  iconsRow1: { flexDirection: 'row', alignItems: 'center', gap: 13 },
-  // EqBars 自身の幅（4本×2px＋間隔3×2px＝14px）に合わせた固定スロット。
-  // EqBars は非アクティブ時 null を返すため、これで囲わないと行の幅が
-  // 詰まり、右寄せの行内でベルの位置が動いてしまう。
-  eqSlot: { width: 14, alignItems: 'center', justifyContent: 'center' },
-  // height はアイコン列（topRight の iconsRow1）と同じ 24px にして
-  // justifyContent:'center' で縦中央を揃える（フォント行送りの誤差を吸収する）
+  // height24・justifyContent:'center' は撤去済みの旧・右上アイコン列と高さを
+  // 揃えていた名残り（フォント行送りの誤差を吸収するため維持）
   texts: { position: 'absolute', left: 22, right: 120, height: 24, justifyContent: 'center' },
   // .title: 18px / 字間.05em / text-shadow 0 1px 10px rgba(0,0,0,.5)
   title: {
