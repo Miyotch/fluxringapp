@@ -23,11 +23,15 @@ expo-env.d.ts
 *.log
 
 # Firebase / secrets
+# ※ google-services.json / GoogleService-Info.plist はここで除外しない。
+#   アプリのバイナリに同梱されて配布される設定ファイルで、中のAPIキーも
+#   バンドルID/パッケージ名で用途が制限される前提の値なので秘匿情報ではない
+#   （Google/Expo とも版管理に含めてよいとしている）。除外していると
+#   EAS Build 側にファイルが無く、config plugin が失敗する。
+#   秘匿すべきなのは下のサービスアカウントキー（サーバ権限を持つ）のほう。
 *.json.key
 service-account.json
 *-service-account.json
-google-services.json
-GoogleService-Info.plist
 .env
 .env.local
 .env.*
