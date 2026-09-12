@@ -161,8 +161,10 @@ export type Track = {
   owned?: boolean;
   glowColor?: string;
   glowColor2?: string;
-  /** 販売期間。type==='always' は常時、'limited' は startAt〜endAt の間のみ販売
-   *  （未設定側は無期限扱い）。Firestore tracks/{id}.sale から。 */
+  /** 販売期間。startAt は type によって意味が変わる（同じフィールドを兼用する運用）:
+   *    type==='limited' → 販売開始日（〜endAt の間だけ販売。どちらも未設定側は無期限扱い）
+   *    type==='always'  → 公開日（この日以降ずっと表示。endAt は使わない）
+   *  Firestore tracks/{id}.sale から。 */
   sale?: { type: 'always' | 'limited'; startAt: number | null; endAt: number | null };
   // 裏面（タップで表示する説明）
   back?: {
@@ -176,12 +178,18 @@ export type Track = {
   };
 };
 
-/** 現在この楽曲が販売期間内か（sale未設定・type==='always' は常に true） */
+/**
+ * 現在この楽曲をホームに出してよいか。
+ *   type==='limited' → startAt（販売開始日）〜endAt（販売終了日）の間だけ true
+ *   type==='always'  → startAt（公開日）以降ずっと true（endAtは見ない）
+ *   sale未設定       → 常に true（従来どおり）
+ * startAt/endAtの「未設定」は各側とも無期限（下限／上限なし）として扱う。
+ */
 export function isTrackOnSale(track: Pick<Track, 'sale'>, now: number = Date.now()): boolean {
   const sale = track.sale;
-  if (!sale || sale.type === 'always') return true;
+  if (!sale) return true;
   if (sale.startAt != null && now < sale.startAt) return false;
-  if (sale.endAt != null && now > sale.endAt) return false;
+  if (sale.type === 'limited' && sale.endAt != null && now > sale.endAt) return false;
   return true;
 }
 
