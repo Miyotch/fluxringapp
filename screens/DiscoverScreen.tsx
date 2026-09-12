@@ -150,6 +150,9 @@ export type Track = {
   audioKey: string;         // R2 音源キー（試聴は公開・フルは署名付き）
   previewUrl: string | null;
   priceLabel: string;
+  /** 購入時点の価格（円）。purchase_history への記録用。未設定は標準単価扱い。
+   *  Firestore tracks/{id}.price から。 */
+  priceJpy?: number;
   owned?: boolean;
   glowColor?: string;
   glowColor2?: string;
@@ -922,7 +925,7 @@ export const DiscoverScreen: React.FC<Props> = ({
     const target = purchaseTarget;
     if (!target) return;
     setPlayingId(null);
-    purchase?.start(target.id);
+    purchase?.start(target.id, target.priceJpy);
   }, [purchaseTarget, purchase]);
 
   // モーダルを閉じる（キャンセル／閉じる／暗幕タップ）。所有状態は変えない

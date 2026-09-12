@@ -106,6 +106,7 @@ export function useTracks(count = 50): Track[] {
               audioKey: d.id,
               previewUrl: str(data.r2_preview_url) ?? null,
               priceLabel: buyLabel(price),
+              priceJpy: price,
               glowColor: str(data.glow),
               glowColor2: str(data.glow2),
               sale: parseSale(data.sale),

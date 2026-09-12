@@ -47,6 +47,7 @@ import {
   saveCachedOwnedIds,
   subscribeOwnedIds,
 } from './ownership'
+import { recordMockPurchase } from './purchaseHistory'
 
 /**
  * busy のまま何のイベントも来なかったときに、モーダルを閉じられる状態へ戻すまでの時間(ms)。
@@ -81,8 +82,12 @@ export type PurchaseController = {
   displayPriceOf: (trackId: string) => string | undefined
   /** ストアから商品が1件も引けていない（未登録／審査未通過／有償アプリ契約未完了） */
   notRegistered: boolean
-  /** 購入開始。金額タップと確定ボタンの両方が同じここへ入る */
-  start: (trackId: string) => void
+  /**
+   * 購入開始。金額タップと確定ボタンの両方が同じここへ入る。
+   * priceJpy は MOCK_PURCHASES 中に purchase_history へ記録する購入時点の価格。
+   * 呼び出し側が Track.priceJpy を渡す（未指定なら標準単価にフォールバック）。
+   */
+  start: (trackId: string, priceJpy?: number) => void
   /** モーダルを閉じるときに呼ぶ（状態を idle へ戻す） */
   dismiss: () => void
   /**
@@ -119,6 +124,10 @@ export function usePurchaseFlow(): PurchaseFlow {
   // いま購入しようとしている trackId。ストアのエラーが productId を持たずに
   // 返ってくることがある（already-owned / pending）ため、その補完に使う。
   const targetTrackIdRef = useRef<string | null>(null)
+  // MOCK_PURCHASES 中に Firestore へ記録する価格（purchase_history.priceJpy）。
+  // start() の呼び出し元（画面側）が渡した値を、非同期の watchdog 発火まで
+  // 保持しておくために ref に置く。
+  const targetPriceJpyRef = useRef<number | undefined>(undefined)
   const watchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const clearWatchdog = useCallback(() => {
@@ -154,6 +163,19 @@ export function usePurchaseFlow(): PurchaseFlow {
           setReason(undefined)
           grantLocally(outcome.trackId)
           emitSuccess(outcome.trackId)
+          // MOCK_PURCHASES 中は実IAPの検証・権利付与を通らないため、ここで
+          // 疑似購入として Firestore に記録する（本番実装時はサーバ側に置き換え、
+          // この呼び出しごと削除する。lib/purchaseHistory.ts 冒頭コメント参照）。
+          if (MOCK_PURCHASES && uidRef.current) {
+            recordMockPurchase({
+              uid: uidRef.current,
+              trackId: outcome.trackId,
+              priceJpy: targetPriceJpyRef.current,
+            }).catch(() => {
+              // 記録に失敗しても購入体験（ローカル所有化）は既に成立しているため、
+              // ここで状態を failed に戻したりはしない。監査ログが1件抜けるだけ。
+            })
+          }
           break
         case 'cancelled':
           // ユーザー自身が取り消した操作。エラー文言も演出も出さない
@@ -292,10 +314,11 @@ export function usePurchaseFlow(): PurchaseFlow {
 
   // ── 画面へ渡す操作 ──
   const start = useCallback(
-    (trackId: string) => {
+    (trackId: string, priceJpy?: number) => {
       if (inFlightRef.current) return
       inFlightRef.current = true
       targetTrackIdRef.current = trackId
+      targetPriceJpyRef.current = priceJpy
       setState('busy')
       setReason(undefined)
 

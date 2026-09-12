@@ -284,6 +284,7 @@ function AppInner() {
           glowColor: tr.glowColor,
           glowColor2: tr.glowColor2,
           back: tr.back,
+          priceJpy: tr.priceJpy,
         })),
     [discoverTracks, wishlist.ids, ownedTrackIds],
   );
@@ -304,6 +305,7 @@ function AppInner() {
         glowColor: tr.glowColor,
         glowColor2: tr.glowColor2,
         back: tr.back,
+        priceJpy: tr.priceJpy,
       })),
     [discoverTracks, ownedTrackIds],
   );

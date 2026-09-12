@@ -58,6 +58,8 @@ export type CollectionItem = {
   owned: boolean;
   audioKey?: string;         // R2 音源キー（再生画面へ）
   priceLabel?: string;       // ウィッシュ用
+  /** 購入時点の価格（円）。purchase_history への記録用。未設定は標準単価扱い。 */
+  priceJpy?: number;
   serialNo?: string;         // 'No. 003'。ウィッシュリストとマイコレを同じ番号軸で読ませる
   subtitle?: string;         // 情景の言葉（作品詳細の1行）
   /** 試聴URL。null/未設定なら audioKey から R2 の固定名で組む。どちらも無ければ試聴なし */
@@ -1010,7 +1012,7 @@ export const CollectionScreen: React.FC<Props> = ({
         // 金額 / 確定ボタンのどちらも OS の課金シートを起動する。
         // 所有化と onBuy は成立してから（上の purchase.onSuccess）行う。
         onConfirm={() => {
-          if (purchaseTarget) purchase?.start(purchaseTarget.id);
+          if (purchaseTarget) purchase?.start(purchaseTarget.id, purchaseTarget.priceJpy);
         }}
         onCancel={() => {
           setPurchaseTarget(null);
