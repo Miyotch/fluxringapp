@@ -1,13 +1,15 @@
 /**
- * MediaScreen.tsx — メディア（記事 / SNS）
+ * MediaScreen.tsx — メディア（あなた宛 / メディア）
  * ------------------------------------------------------------------
- * ワイヤーフレーム 03 / メディア 記事:
- *   ・上部に SNS アイコン常設（Instagram / note / 他）
- *   ・下に記事一覧（新しいものが上）
- *   ・記事＝件名＋中身（ブログURL/YouTube/テキスト/画像を任意入力、入れた要素だけ表示）
+ * ワイヤーフレーム 03 / メディア 記事 + 通知一覧の統合:
+ *   ・タブ切替（あなた宛 / メディア）。ホーム画面のベルはここに統合したため廃止。
+ *   ・あなた宛: 通知一覧（旧 NotificationsScreen）。時系列降順・未読は赤い点のみ
+ *   ・メディア: 上部に SNS アイコン常設（Instagram / note / 他）＋下に記事一覧
+ *     （記事＝件名＋中身。ブログURL/YouTube/テキスト/画像を任意入力、入れた要素だけ表示）
+ *   ・背景は設定配下（CREDITS等）と同じ CreditsBackdrop
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -18,11 +20,14 @@ import {
   StyleSheet,
   StatusBar,
   Linking,
+  useWindowDimensions,
 } from 'react-native';
 import { COLOR, SPACE, RADIUS } from '../constants/design-tokens';
+import { CR, CreditsBackdrop } from '../components/CreditsBackdrop';
 import { useTopInset } from '../lib/safeArea';
 import { NUM_FONT } from '../constants/fonts';
 import { InstagramIcon } from '../components/icons';
+import { NotificationsList, type Notice } from './NotificationsScreen';
 
 type Sns = {
   key: string;
@@ -45,6 +50,8 @@ type Article = {
   linkUrl?: string;      // ブログURL/YouTube（任意）
 };
 
+type MediaTab = 'you' | 'media';
+
 type Props = {
   sns?: Sns[];
   articles?: Article[];
@@ -54,6 +61,10 @@ type Props = {
   hasMoreArticles?: boolean;
   /** 次ページ取得中かどうか（ボタンをローディング表示にする） */
   loadingMoreArticles?: boolean;
+  /** 「あなた宛」タブに出す通知一覧 */
+  notices?: Notice[];
+  /** 通知タップ→本文へ（未指定なら何もしない） */
+  onOpenNotice?: (id: string) => void;
 };
 
 const DEFAULT_SNS: Sns[] = [
@@ -101,75 +112,133 @@ export const MediaScreen: React.FC<Props> = ({
   onLoadMoreArticles,
   hasMoreArticles = false,
   loadingMoreArticles = false,
+  notices = [],
+  onOpenNotice,
 }) => {
+  const { width: screenW, height: screenH } = useWindowDimensions();
   const barTop = useTopInset(12); // 従来 56px（=44+12）
+  const [tab, setTab] = useState<MediaTab>('media');
+  const hasUnread = notices.some((n) => n.unread);
+
   return (
     <View style={styles.root}>
-      <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
+      <StatusBar barStyle="light-content" backgroundColor={CR.deepest} />
+      <CreditsBackdrop w={screenW} h={screenH} />
 
-      {/* SNS 常設 */}
-      <View style={[styles.snsBar, { paddingTop: barTop }]}>
-        {sns.map((s) => (
-          <Pressable
-            key={s.key}
-            style={[
-              styles.snsBtn,
-              s.badgeBg != null && { backgroundColor: s.badgeBg },
-              s.badgeBorder != null && { borderColor: s.badgeBorder },
-            ]}
-            onPress={() => Linking.openURL(s.url).catch(() => {})}
-            accessibilityLabel={s.label}
-          >
-            {s.IconComponent ? (
-              <s.IconComponent size={26} />
-            ) : s.icon ? (
-              <Image source={s.icon} style={styles.snsIcon} resizeMode="contain" />
-            ) : (
-              <Text style={styles.snsLabel}>{s.label}</Text>
-            )}
-          </Pressable>
-        ))}
+      {/* タブ（あなた宛 / メディア） */}
+      <View style={[styles.tabBar, { paddingTop: barTop }]}>
+        <Pressable style={styles.tab} onPress={() => setTab('you')}>
+          <View style={styles.tabLabelRow}>
+            <Text style={[styles.tabText, tab === 'you' && styles.tabTextOn]}>あなた宛</Text>
+            {hasUnread && <View style={styles.tabDot} />}
+          </View>
+          {tab === 'you' && <View style={styles.tabUnderline} />}
+        </Pressable>
+        <Pressable style={styles.tab} onPress={() => setTab('media')}>
+          <Text style={[styles.tabText, tab === 'media' && styles.tabTextOn]}>メディア</Text>
+          {tab === 'media' && <View style={styles.tabUnderline} />}
+        </Pressable>
       </View>
 
-      {/* 記事一覧（新しいものが上） */}
-      <ScrollView
-        contentContainerStyle={styles.list}
-        showsVerticalScrollIndicator={false}
-      >
-        {articles.map((a) => (
-          <Pressable
-            key={a.id}
-            style={styles.article}
-            onPress={() => a.linkUrl && Linking.openURL(a.linkUrl).catch(() => {})}
+      {tab === 'you' ? (
+        <ScrollView showsVerticalScrollIndicator={false}>
+          {notices.length === 0 ? (
+            <Text style={styles.emptyText}>お知らせはまだありません。</Text>
+          ) : (
+            <NotificationsList notices={notices} onOpen={(id) => onOpenNotice?.(id)} />
+          )}
+        </ScrollView>
+      ) : (
+        <>
+          {/* SNS 常設 */}
+          <View style={styles.snsBar}>
+            {sns.map((s) => (
+              <Pressable
+                key={s.key}
+                style={[
+                  styles.snsBtn,
+                  s.badgeBg != null && { backgroundColor: s.badgeBg },
+                  s.badgeBorder != null && { borderColor: s.badgeBorder },
+                ]}
+                onPress={() => Linking.openURL(s.url).catch(() => {})}
+                accessibilityLabel={s.label}
+              >
+                {s.IconComponent ? (
+                  <s.IconComponent size={26} />
+                ) : s.icon ? (
+                  <Image source={s.icon} style={styles.snsIcon} resizeMode="contain" />
+                ) : (
+                  <Text style={styles.snsLabel}>{s.label}</Text>
+                )}
+              </Pressable>
+            ))}
+          </View>
+
+          {/* 記事一覧（新しいものが上） */}
+          <ScrollView
+            contentContainerStyle={styles.list}
+            showsVerticalScrollIndicator={false}
           >
-            <Text style={styles.articleDate}>{a.date}</Text>
-            <Text style={styles.articleTitle}>件名：{a.title}</Text>
-            {/* 入れた要素だけ表示 */}
-            {a.thumbnailUrl && (
-              <Image source={{ uri: a.thumbnailUrl }} style={styles.thumb} resizeMode="cover" />
+            {articles.map((a) => (
+              <Pressable
+                key={a.id}
+                style={styles.article}
+                onPress={() => a.linkUrl && Linking.openURL(a.linkUrl).catch(() => {})}
+              >
+                <Text style={styles.articleDate}>{a.date}</Text>
+                <Text style={styles.articleTitle}>件名：{a.title}</Text>
+                {/* 入れた要素だけ表示 */}
+                {a.thumbnailUrl && (
+                  <Image source={{ uri: a.thumbnailUrl }} style={styles.thumb} resizeMode="cover" />
+                )}
+                {a.body && <Text style={styles.articleBody}>{a.body}</Text>}
+              </Pressable>
+            ))}
+            {hasMoreArticles && (
+              <Pressable
+                style={({ pressed }) => [styles.moreBtn, pressed && { opacity: 0.7 }]}
+                onPress={onLoadMoreArticles}
+                disabled={loadingMoreArticles}
+              >
+                <Text style={styles.moreLabel}>{loadingMoreArticles ? '読み込み中…' : 'もっと見る'}</Text>
+              </Pressable>
             )}
-            {a.body && <Text style={styles.articleBody}>{a.body}</Text>}
-          </Pressable>
-        ))}
-        {hasMoreArticles && (
-          <Pressable
-            style={({ pressed }) => [styles.moreBtn, pressed && { opacity: 0.7 }]}
-            onPress={onLoadMoreArticles}
-            disabled={loadingMoreArticles}
-          >
-            <Text style={styles.moreLabel}>{loadingMoreArticles ? '読み込み中…' : 'もっと見る'}</Text>
-          </Pressable>
-        )}
-      </ScrollView>
+          </ScrollView>
+        </>
+      )}
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: COLOR.bg },
-  snsBar: {
+  root: { flex: 1, backgroundColor: CR.deepest },
+  tabBar: {
     // 既定値。実機では SafeArea の top を加味して JSX 側で上書き
     paddingTop: 56,
+    paddingHorizontal: SPACE.lg,
+    flexDirection: 'row',
+    gap: SPACE.lg,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: COLOR.border,
+  },
+  tab: { paddingBottom: SPACE.sm, alignItems: 'center' },
+  tabLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  tabText: { color: COLOR.textSecondary, fontSize: 13, letterSpacing: 1.3, fontWeight: '600' },
+  tabTextOn: { color: COLOR.textPrimary },
+  tabDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: COLOR.badge },
+  tabUnderline: {
+    position: 'absolute', left: 0, right: 0, bottom: 0,
+    height: 1.5, borderRadius: 1, backgroundColor: COLOR.auraCyan,
+  },
+  emptyText: {
+    color: COLOR.textSecondary,
+    fontSize: 13,
+    textAlign: 'center',
+    marginTop: SPACE.xl,
+    paddingHorizontal: SPACE.lg,
+  },
+  snsBar: {
+    paddingTop: SPACE.lg,
     paddingBottom: SPACE.md,
     paddingHorizontal: SPACE.lg,
     flexDirection: 'row',

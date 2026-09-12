@@ -38,10 +38,11 @@ import { ANIM, HOME_INTRO } from './constants/design-tokens';
 
 import { Footer, TabKey } from './components/Footer';
 import { LaunchFlow, LaunchScreen, ConsentJoin } from './screens/LaunchFlow';
-import { DiscoverScreen } from './screens/DiscoverScreen';
+import { DiscoverScreen, isTrackOnSale } from './screens/DiscoverScreen';
 import { CollectionScreen, CollectionItem } from './screens/CollectionScreen';
 import { MediaScreen } from './screens/MediaScreen';
 import { SettingsScreen, SettingsKey } from './screens/SettingsScreen';
+import { BackgroundLayersScreen } from './screens/BackgroundLayersScreen';
 import {
   AccountScreen,
   RestoreScreen,
@@ -50,7 +51,6 @@ import {
   InfoScreen,
   DocumentScreen,
 } from './screens/SettingsDetailScreens';
-import { NotificationsScreen } from './screens/NotificationsScreen';
 import { ArtistScreen, ArtistTrack } from './screens/ArtistScreen';
 import { StoryScreen } from './screens/StoryScreen';
 import { PlayerScreen, PlayerTrack } from './screens/PlayerScreen';
@@ -71,7 +71,7 @@ type Phase = 'launch' | 'app';
 // フッタータブから開く主要画面
 type TabScreen = TabKey;
 // タブの上に重ねるモーダル的画面
-type Overlay = 'story' | 'player' | 'notifications' | 'artist' | null;
+type Overlay = 'story' | 'player' | 'artist' | null;
 
 // 規約・PP の現行バージョン（重要事項の同意型パネルの施行日）。
 // 同意済みバージョンがこれと異なると起動時に consent 画面を出す。
@@ -196,6 +196,16 @@ function AppInner() {
   // 所有集合。Firestore（購入で増えたぶん）が正。
   const ownedTrackIds = useMemo(() => new Set<string>(ownedIds), [ownedIds]);
 
+  // ホーム（ディスカバー）に出す楽曲 = 販売期間内（sale.type==='always'、または
+  // 'limited' で startAt〜endAt の範囲内）のものだけに絞る。ただし既に所有している
+  // 曲は販売期間を過ぎていてもホームから消さない（買った作品が急に見えなくなるのを防ぐ）。
+  // コレクション側（ownedItems/wishlistItems/allWorkItems/playerTracks）は
+  // discoverTracks をそのまま使う＝販売期間に関わらずカタログ全体を扱う。
+  const homeTracks = useMemo(
+    () => discoverTracks.filter((t) => isTrackOnSale(t) || ownedTrackIds.has(t.id)),
+    [discoverTracks, ownedTrackIds],
+  );
+
   // コレクション（マイコレ）。作品データは discoverTracks（tracks コレクション）
   // の全曲から所有ぶんを引く。
   const ownedItems = useMemo<CollectionItem[]>(
@@ -238,6 +248,7 @@ function AppInner() {
         tuning: tr.back?.tuning,
         frequencies: tr.back?.frequencies,
         artist: tr.back?.artist,
+        useCases: tr.back?.useCases,
       })),
     [discoverTracks, ownedTrackIds],
   );
@@ -274,6 +285,7 @@ function AppInner() {
           glowColor: tr.glowColor,
           glowColor2: tr.glowColor2,
           back: tr.back,
+          priceJpy: tr.priceJpy,
         })),
     [discoverTracks, wishlist.ids, ownedTrackIds],
   );
@@ -294,6 +306,7 @@ function AppInner() {
         glowColor: tr.glowColor,
         glowColor2: tr.glowColor2,
         back: tr.back,
+        priceJpy: tr.priceJpy,
       })),
     [discoverTracks, ownedTrackIds],
   );
@@ -451,18 +464,6 @@ function AppInner() {
     );
   }
 
-  if (overlay === 'notifications') {
-    return (
-      <NotificationsScreen
-        notices={STUB_NOTICES}
-        onBack={() => setOverlay(null)}
-        onOpen={() => {
-          /* TODO: 通知本文へ */
-        }}
-      />
-    );
-  }
-
   if (overlay === 'artist') {
     return (
       <ArtistScreen
@@ -512,6 +513,8 @@ function AppInner() {
         return <DocumentScreen kind="privacy" onBack={back} />;
       case 'tokushoho':
         return <DocumentScreen kind="tokushoho" onBack={back} />;
+      case 'backgroundLayers':
+        return <BackgroundLayersScreen onBack={back} />;
     }
   }
 
@@ -528,10 +531,8 @@ function AppInner() {
         <View style={styles.body}>
           {tab === 'home' && (
             <DiscoverScreen
-              tracks={discoverTracks}
-              hasUnread
+              tracks={homeTracks}
               focusTrackId={homeFocusId}
-              onOpenNotifications={() => setOverlay('notifications')}
               ownedIds={ownedTrackIds}
               wishlistIds={wishlist.ids}
               onToggleWishlist={wishlist.toggle}
@@ -599,6 +600,10 @@ function AppInner() {
               onLoadMoreArticles={articleFeed.loadMore}
               hasMoreArticles={articleFeed.hasMore}
               loadingMoreArticles={articleFeed.loading}
+              notices={STUB_NOTICES}
+              onOpenNotice={() => {
+                /* TODO: 通知本文へ */
+              }}
             />
           )}
 

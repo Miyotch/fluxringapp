@@ -16,20 +16,26 @@ import React, { useState } from 'react';
 import {
   View,
   Text,
+  TextInput,
   Pressable,
   ScrollView,
   StyleSheet,
   StatusBar,
   Linking,
   Modal,
+  KeyboardAvoidingView,
+  Platform,
   useWindowDimensions,
 } from 'react-native';
-import Svg, { Defs, LinearGradient as SvgLinear, RadialGradient as SvgRadial, Stop, Rect, Circle, Path } from 'react-native-svg';
+import Svg, { Defs, LinearGradient as SvgLinear, Stop, Rect, Path } from 'react-native-svg';
 import { COLOR, SPACE, RADIUS } from '../constants/design-tokens';
 import { NUM_FONT, JP_SERIF_FONT } from '../constants/fonts';
 import { useT, useI18n, Lang } from '../lib/i18n';
 import { useAuthUser } from '../lib/useAuthUser';
+import { submitInquiry, type InquiryType } from '../lib/submitInquiry';
+import { useQuestionListUrl } from '../lib/remoteConfig';
 import { useTopInset, useBottomInset } from '../lib/safeArea';
+import { CR, CreditsBackdrop } from '../components/CreditsBackdrop';
 
 // ─────────────────────────────────────────────
 // 共通サブヘッダー（戻る＋タイトル）
@@ -279,37 +285,186 @@ export const LanguageScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => 
 // サポート
 // ─────────────────────────────────────────────
 
+type SupportView = 'list' | 'form' | 'sent';
+
+// 問い合わせの種類。表示ラベルは i18n キー経由（lib/i18n.tsx の support.inquiry.type.*）
+const INQUIRY_TYPES: { key: InquiryType; labelKey: string }[] = [
+  { key: 'bug', labelKey: 'support.inquiry.type.bug' },
+  { key: 'billing', labelKey: 'support.inquiry.type.billing' },
+  { key: 'other', labelKey: 'support.inquiry.type.other' },
+];
+
 export const SupportScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const t = useT();
   const { width: screenW, height: screenH } = useWindowDimensions();
+  const user = useAuthUser();
+  // よくある質問のリンク先（Remote Config の question_list。運営がFirebase
+  // コンソールから編集する）。取得できるまで／失敗時はデフォルトURLのまま
+  const questionListUrl = useQuestionListUrl();
+  const [view, setView] = useState<SupportView>('list');
+  const [type, setType] = useState<InquiryType>('bug');
+  const [typeOpen, setTypeOpen] = useState(false);
+  const [message, setMessage] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // 「戻る」はフォーム／送信完了からは一覧へ、一覧からは設定へ
+  const handleBack = () => {
+    if (view === 'list') {
+      onBack();
+      return;
+    }
+    setError(null);
+    setTypeOpen(false);
+    setView('list');
+  };
+
+  const handleSubmit = async () => {
+    if (!message.trim()) {
+      setError(t('support.inquiry.error'));
+      return;
+    }
+    setError(null);
+    setSubmitting(true);
+    try {
+      await submitInquiry({ type, message });
+      setView('sent');
+    } catch {
+      setError(t('support.inquiry.sendError'));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
     <View style={s.root}>
       <StatusBar barStyle="light-content" backgroundColor={CR.deepest} />
       <CreditsBackdrop w={screenW} h={screenH} />
-      <SubHeader title={t('support.title')} onBack={onBack} />
-      <ScrollView contentContainerStyle={s.body} showsVerticalScrollIndicator={false}>
-        <Text style={[s.paragraph, s.supportLead]}>{t('support.body')}</Text>
+      <SubHeader title={t('support.title')} onBack={handleBack} />
 
-        {/* TODO: 実際の問い合わせ先メール / フォーム URL に差し替え */}
-        <Pressable
-          style={s.row}
-          onPress={() => Linking.openURL('mailto:support@fluxring.app').catch(() => {})}
-        >
-          <View style={s.rowText}>
-            <Text style={s.rowLabel}>{t('support.mail')}</Text>
-            <Text style={s.rowSub}>support@fluxring.app</Text>
-          </View>
-          <Text style={s.chevron}>›</Text>
-        </Pressable>
+      {view === 'list' && (
+        <ScrollView contentContainerStyle={s.body} showsVerticalScrollIndicator={false}>
+          <Text style={[s.paragraph, s.supportLead]}>{t('support.body')}</Text>
 
-        <Pressable
-          style={s.row}
-          onPress={() => Linking.openURL('https://fluxring.app/faq').catch(() => {})}
+          <Pressable style={s.row} onPress={() => setView('form')}>
+            <Text style={s.rowLabel}>{t('support.inquiry')}</Text>
+            <Text style={s.chevron}>›</Text>
+          </Pressable>
+
+          <Pressable
+            style={s.row}
+            onPress={() => Linking.openURL(questionListUrl).catch(() => {})}
+          >
+            <Text style={s.rowLabel}>{t('support.faq')}</Text>
+            <Text style={s.chevron}>›</Text>
+          </Pressable>
+        </ScrollView>
+      )}
+
+      {view === 'form' && (
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
-          <Text style={s.rowLabel}>{t('support.faq')}</Text>
-          <Text style={s.chevron}>›</Text>
-        </Pressable>
-      </ScrollView>
+          <ScrollView contentContainerStyle={s.body} showsVerticalScrollIndicator={false}>
+            <Text style={[s.paragraph, s.supportLead]}>{t('support.inquiry.lead')}</Text>
+
+            {/* 送信元メールアドレス（編集不可・アカウントのメールをそのまま表示）。
+                自由入力にすると別人のメールアドレスを騙って送れてしまうため、
+                ログイン中アカウントの値をそのまま使う（lib/submitInquiry.ts 参照） */}
+            {user?.email && (
+              <View style={s.formField}>
+                <Text style={s.formLabel}>{t('support.inquiry.email')}</Text>
+                <View style={[s.formInput, s.formStatic]}>
+                  <Text style={s.formStaticText}>{user.email}</Text>
+                </View>
+              </View>
+            )}
+
+            <View style={s.formField}>
+              <Text style={s.formLabel}>{t('support.inquiry.type')}</Text>
+              <Pressable
+                style={[s.formInput, s.formSelect]}
+                onPress={() => setTypeOpen((o) => !o)}
+                accessibilityRole="button"
+                accessibilityLabel={t('support.inquiry.type')}
+              >
+                <Text style={s.formSelectValue}>
+                  {t(INQUIRY_TYPES.find((opt) => opt.key === type)?.labelKey ?? '')}
+                </Text>
+                <Text style={s.formSelectChevron}>{typeOpen ? '︿' : '﹀'}</Text>
+              </Pressable>
+              {typeOpen && (
+                <View style={s.formSelectMenu}>
+                  {INQUIRY_TYPES.map((opt, i) => (
+                    <Pressable
+                      key={opt.key}
+                      style={[
+                        s.formSelectOption,
+                        i === INQUIRY_TYPES.length - 1 && { borderBottomWidth: 0 },
+                      ]}
+                      onPress={() => {
+                        setType(opt.key);
+                        setTypeOpen(false);
+                      }}
+                    >
+                      <Text style={s.rowLabel}>{t(opt.labelKey)}</Text>
+                      {type === opt.key && <Text style={s.check}>✓</Text>}
+                    </Pressable>
+                  ))}
+                </View>
+              )}
+            </View>
+
+            <View style={s.formField}>
+              <Text style={s.formLabel}>{t('support.inquiry.message')}</Text>
+              <TextInput
+                style={[s.formInput, s.formInputMulti]}
+                value={message}
+                onChangeText={setMessage}
+                multiline
+                numberOfLines={6}
+                textAlignVertical="top"
+                placeholder={t('support.inquiry.messagePlaceholder')}
+                placeholderTextColor={COLOR.textSecondary}
+              />
+            </View>
+
+            {error && <Text style={s.formError}>{error}</Text>}
+
+            <Pressable
+              style={({ pressed }) => [s.primaryBtn, (pressed || submitting) && { opacity: 0.7 }]}
+              onPress={handleSubmit}
+              disabled={submitting}
+            >
+              <Text style={s.primaryLabel}>
+                {submitting ? t('support.inquiry.sending') : t('support.inquiry.submit')}
+              </Text>
+            </Pressable>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      )}
+
+      {view === 'sent' && (
+        <View style={s.sentWrap}>
+          <Text style={s.modalTitle}>{t('support.inquiry.sentTitle')}</Text>
+          <Text style={[s.paragraph, { textAlign: 'center', marginTop: SPACE.sm }]}>
+            {t('support.inquiry.sentMessage')}
+          </Text>
+          {/* 元の画面（サポート一覧）へ戻れるようにする。設定まで抜けてしまう
+              onBack ではなく、フォームを開く前にいた一覧へ戻す */}
+          <Pressable
+            style={[s.primaryBtn, s.sentBtn]}
+            onPress={() => {
+              setMessage('');
+              setType('bug');
+              setView('list');
+            }}
+          >
+            <Text style={s.primaryLabel}>{t('support.inquiry.backToList')}</Text>
+          </Pressable>
+        </View>
+      )}
     </View>
   );
 };
@@ -835,11 +990,13 @@ const tk = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#05040c' },
   body: { paddingHorizontal: 24, paddingBottom: 96 },
   row: { paddingVertical: 19, borderBottomWidth: 1, borderBottomColor: TK.line },
-  dt: { fontSize: 13, color: TK.sub, letterSpacing: 0.6, marginBottom: 6, fontFamily: JP_SERIF_FONT },
+  // タイトル(項目名)16px・内容13pxの指示により、dt/ddTextの大小関係を入れ替えた
+  dt: { fontSize: 16, color: TK.sub, letterSpacing: 0.6, marginBottom: 6, fontFamily: JP_SERIF_FONT },
   dd: { gap: 4 },
   // 数字が並ぶため EB Garamond（等幅寄りの数字グリフ）を当てる。和文はOSフォールバック。
-  // 視認性向上のため 14 → 16（lineHeight は 1.9 倍のまま）
-  ddText: { fontSize: 16, color: TK.ink, lineHeight: 30.4, fontFamily: NUM_FONT },
+  // 内容は指示により 13。行間は同じ13px向けの note と揃えて22にした
+  // （旧16px向けの30.4のままだと13pxに対して行間が空きすぎるため）
+  ddText: { fontSize: 13, color: TK.ink, lineHeight: 22, fontFamily: NUM_FONT },
   valueLine: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 },
   list: { gap: 2 },
   listItem: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: 6, paddingVertical: 2 },
@@ -855,64 +1012,8 @@ const tk = StyleSheet.create({
   foot: { marginTop: 48, fontSize: 11, color: TK.sub, letterSpacing: 0.55, fontFamily: NUM_FONT },
 });
 
-// CREDITS 画面のカラー定義（添付デザイン仕様に準拠）。設定配下の各末端画面の
-// 背景も CREDITS と揃えるため、CR.deepest / CreditsBackdrop はこのファイル内で共用する。
-const CR = {
-  page: '#0E0C20',
-  deepest: '#05040c',
-  text: '#ECEEF7',
-  sub: '#9498BE',
-  tertiary: 'rgba(236, 238, 247, 0.30)',
-  cyan: '#60CEE0',
-  violet: '#7C62D6',
-  border: '#3A3D72',
-} as const;
-
-// 背景: 中央上部が明るい放射状グラデーション＋3つのソフトなオーラ（blur近似はエッジが
-// 透明に落ちる radial gradient で代替。RN には CSS の filter:blur 相当がないため）。
-// CREDITS 以外の設定末端画面（アカウント/購入の復元/言語/サポート/読み物/情報/特商法）
-// でも同じ背景として使う。
-const CreditsBackdrop: React.FC<{ w: number; h: number }> = ({ w, h }) => (
-  <View style={StyleSheet.absoluteFill} pointerEvents="none">
-    <Svg width={w} height={h} style={StyleSheet.absoluteFill}>
-      <Defs>
-        <SvgRadial id="crbg" cx="50%" cy="0%" r="85%">
-          <Stop offset="0.28" stopColor="#15132e" />
-          <Stop offset="0.55" stopColor="#0c0a1f" />
-          <Stop offset="1" stopColor="#07060f" />
-        </SvgRadial>
-      </Defs>
-      <Rect x={0} y={0} width={w} height={h} fill="url(#crbg)" />
-    </Svg>
-    <Svg width={300} height={300} style={{ position: 'absolute', left: -80, top: -60 }}>
-      <Defs>
-        <SvgRadial id="crb1" cx="50%" cy="50%" r="50%">
-          <Stop offset="0" stopColor="#5868E2" stopOpacity={0.2} />
-          <Stop offset="1" stopColor="#5868E2" stopOpacity={0} />
-        </SvgRadial>
-      </Defs>
-      <Circle cx={150} cy={150} r={150} fill="url(#crb1)" />
-    </Svg>
-    <Svg width={260} height={260} style={{ position: 'absolute', right: -90, top: 280 }}>
-      <Defs>
-        <SvgRadial id="crb2" cx="50%" cy="50%" r="50%">
-          <Stop offset="0" stopColor={CR.cyan} stopOpacity={0.1} />
-          <Stop offset="1" stopColor={CR.cyan} stopOpacity={0} />
-        </SvgRadial>
-      </Defs>
-      <Circle cx={130} cy={130} r={130} fill="url(#crb2)" />
-    </Svg>
-    <Svg width={220} height={220} style={{ position: 'absolute', left: 20, bottom: -80 }}>
-      <Defs>
-        <SvgRadial id="crb3" cx="50%" cy="50%" r="50%">
-          <Stop offset="0" stopColor={CR.violet} stopOpacity={0.14} />
-          <Stop offset="1" stopColor={CR.violet} stopOpacity={0} />
-        </SvgRadial>
-      </Defs>
-      <Circle cx={110} cy={110} r={110} fill="url(#crb3)" />
-    </Svg>
-  </View>
-);
+// CR / CreditsBackdrop（CREDITS 画面と同じ背景）は components/CreditsBackdrop.tsx へ
+// 移動した（コレクション／メディア／VIP等、設定配下以外の画面でも使うため）。
 
 // 両端が透明にフェードする水平線（Founderブロック下のシアン光条／区切り線に共用）
 const FadeLine: React.FC<{ w: number; h: number; color: string; style?: object }> = ({
@@ -1213,10 +1314,7 @@ const s = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: COLOR.border,
   },
-  rowText: { flex: 1, gap: 3 },
   rowLabel: { color: COLOR.textPrimary, fontSize: 15, letterSpacing: 0.3, fontFamily: JP_SERIF_FONT },
-  // メールアドレス表示のみに使う欧文行（SupportScreen）
-  rowSub: { color: COLOR.textSecondary, fontSize: 12, letterSpacing: 0.24, fontFamily: NUM_FONT },
   chevron: { color: COLOR.textSecondary, fontSize: 18 },
   check: { color: COLOR.auraCyan, fontSize: 16 },
 
@@ -1232,9 +1330,11 @@ const s = StyleSheet.create({
     fontFamily: JP_SERIF_FONT,
   },
   docSection: { gap: 6 },
+  // タイトル(見出し)16px・内容(本文)13pxの指示により、見出しはそのまま・本文はここで縮小
   docHeading: { color: COLOR.textPrimary, fontSize: 16, fontWeight: '700', letterSpacing: 0.32, fontFamily: JP_SERIF_FONT },
-  // 視認性向上のため 14 → 16
-  docBody: { color: COLOR.textPrimary, fontSize: 16, lineHeight: 29, letterSpacing: 0.32, fontFamily: JP_SERIF_FONT },
+  // 本文は指示により 16 → 13。行間は tk.note と同じ13px向けの値(22)に合わせた
+  // （16px向けの29のままだと13pxに対して行間が空きすぎるため）
+  docBody: { color: COLOR.textPrimary, fontSize: 13, lineHeight: 22, letterSpacing: 0.32, fontFamily: JP_SERIF_FONT },
   note: { color: COLOR.auraCyan, fontSize: 13, textAlign: 'center', letterSpacing: 0.26, fontFamily: JP_SERIF_FONT },
 
   primaryBtn: {
@@ -1246,6 +1346,50 @@ const s = StyleSheet.create({
     alignItems: 'center',
   },
   primaryLabel: { color: COLOR.textPrimary, fontSize: 15, fontWeight: '600', letterSpacing: 0.3, fontFamily: JP_SERIF_FONT },
+
+  // ── サポート「お問い合わせ」フォーム ──
+  formField: { gap: 6 },
+  formLabel: { color: COLOR.textSecondary, fontSize: 12, letterSpacing: 0.24, fontFamily: JP_SERIF_FONT },
+  formInput: {
+    borderWidth: 1,
+    borderColor: COLOR.border,
+    borderRadius: RADIUS.md,
+    paddingHorizontal: SPACE.md,
+    paddingVertical: 12,
+    color: COLOR.textPrimary,
+    fontSize: 14,
+    fontFamily: JP_SERIF_FONT,
+    backgroundColor: 'rgba(34,36,69,0.30)',
+  },
+  formInputMulti: { height: 140, paddingTop: 12 },
+  // 送信元メールアドレス（編集不可の表示専用行）。枠は formInput と同じにして
+  // フォーム内の見た目を揃えつつ、地色を少し弱めて「編集できない」ことを示す
+  formStatic: { backgroundColor: 'rgba(34,36,69,0.18)' },
+  formStaticText: { color: COLOR.textSecondary, fontSize: 14, fontFamily: JP_SERIF_FONT },
+  // お問い合わせの種類（プルダウン）
+  formSelect: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  formSelectValue: { color: COLOR.textPrimary, fontSize: 14, fontFamily: JP_SERIF_FONT },
+  formSelectChevron: { color: COLOR.textSecondary, fontSize: 12 },
+  formSelectMenu: {
+    marginTop: 6,
+    borderWidth: 1,
+    borderColor: COLOR.border,
+    borderRadius: RADIUS.md,
+    backgroundColor: '#14132a',
+    overflow: 'hidden',
+  },
+  formSelectOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 13,
+    paddingHorizontal: SPACE.md,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: COLOR.border,
+  },
+  formError: { color: COLOR.badge, fontSize: 12.5, lineHeight: 19, letterSpacing: 0.24 },
+  sentWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: SPACE.xl },
+  sentBtn: { alignSelf: 'stretch', marginTop: SPACE.xl },
 
   // ── 退会確認モーダル ──
   modalScrim: {

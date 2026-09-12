@@ -37,6 +37,9 @@ export type CardBackData = {
   tuning?: string;         // 調律名（例: '純正律'）
   frequencies?: string[];  // 周波数のみ（例: ['432 Hz', '7.83 Hz']）
   artist?: string;         // 'NAOKI OKA'
+  /** 用途タグ（例: ['睡眠', '勉強', '集中力']）。Story の真下に「- case -」の
+   *  見出しとともに並べる。Firestore tracks/{id}.useCases から。 */
+  useCases?: string[];
 };
 
 // 磨きアルミの帯色
@@ -385,6 +388,8 @@ export function renderAluminumInkPixels(
   // 最大4行・1行20文字・合計80文字までの固定文字数で折り返す
   // （幅ベースだと半角文字混じりで1行の文字数がぶれるため、文字数優先の指定）。
   // ゾーン[470, H-460]の中央に文字ブロックを配置（__dvMakeInk 準拠）。
+  // storyBottom は Story 最終行のベースライン。この下に「- case -」を積む。
+  let storyBottom = 470;
   if (data.story) {
     const fs = 42;
     const lh = 72;
@@ -411,7 +416,46 @@ export function renderAluminumInkPixels(
     for (const ln of lines) {
       if (y > zoneBottom - lh) break;
       printAlum(c, ln, blockX, y, fs, '300', alum(1), STORY_LETTER_SPACING, 'l');
+      storyBottom = y;
       y += lh;
+    }
+  }
+
+  // ── 「- case -」＋ 用途タグ（Story の真下） ──
+  // 見出しは「ー 調律 ー」と同じ字送り（32px/weight300/字間8px/alpha.75）、
+  // タグ本体は調律の行と同じ（40px/weight300/字間6px）にして、裏面の
+  // 見出し＋内容という既存のリズムに合わせる。
+  // 位置は固定座標ではなく Story の最終行ベースラインからの相対にする
+  // （Story は行数に応じてゾーン内で上下に動くため、固定だと本文が短い
+  //  カードで間延びしたり、長いカードで重なったりする）。
+  const useCases = (data.useCases ?? []).map((s) => s.trim()).filter(Boolean);
+  if (useCases.length > 0) {
+    const CASE_FS = 40;
+    const CASE_LS = 6;
+    const CASE_LH = 58;
+    const caseFont = makeFont(CASE_FS, '300', INK_FONT);
+    const maxW = W - 224; // Story ブロックと同程度の左右マージン
+    // 全角スペース区切りで詰め、はみ出す手前で折り返す（最大2行）
+    const lines: string[] = [];
+    let cur = '';
+    for (const tag of useCases) {
+      const next = cur ? cur + '　' + tag : tag;
+      if (cur && measureAlumWidth(next, CASE_FS, caseFont, CASE_LS) > maxW) {
+        lines.push(cur);
+        if (lines.length >= 2) { cur = ''; break; }
+        cur = tag;
+      } else {
+        cur = next;
+      }
+    }
+    if (cur && lines.length < 2) lines.push(cur);
+
+    let y = storyBottom + 78;
+    printAlum(c, '- case -', cx, y, 32, '300', alum(0.75), 8, 'c');
+    y += CASE_LH;
+    for (const ln of lines) {
+      printAlum(c, ln, cx, y, CASE_FS, '300', alum(1), CASE_LS, 'c');
+      y += CASE_LH;
     }
   }
 

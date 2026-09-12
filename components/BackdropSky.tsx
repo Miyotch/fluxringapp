@@ -295,6 +295,16 @@ export type BackdropSkyProps = {
    * 値が動いている間だけこの Canvas が塗り直される（静止中は従来どおりゼロ）。
    */
   nebulaX?: SharedValue<number>;
+  /**
+   * 運営調整用の星雲（天の川＝雲＋星520）レイヤーの位置・大きさ（lib/backgroundLayers.ts
+   * config/backgroundLayers.nebula）。既定は offsetX/offsetY=0・scale=1＝現状の位置・
+   * 大きさのまま。nebShift（横揺れアニメ）の**外側**に掛けるので、揺れの中心点ごと
+   * ずれる・拡大縮小される。地色（.bgbase）・調律陣の彫刻抜き（SealOccluder、別Canvas）
+   * には影響しない。
+   */
+  nebulaOffsetX?: number;
+  nebulaOffsetY?: number;
+  nebulaScale?: number;
 };
 
 /** 星 1 層ぶんの横ずらし。溜まった移動量 × 層の速度比を W の余りへ畳む */
@@ -317,6 +327,9 @@ const BackdropSkyImpl: React.FC<BackdropSkyProps> = ({
   parallaxX,
   occluder,
   nebulaX,
+  nebulaOffsetX = 0,
+  nebulaOffsetY = 0,
+  nebulaScale = 1,
 }) => {
   const scale = W / REF_W;
 
@@ -382,6 +395,22 @@ const BackdropSkyImpl: React.FC<BackdropSkyProps> = ({
     [nebulaX],
   );
 
+  // 運営調整（星雲の位置・大きさ）。SharedValueではなくただの数値なので
+  // useDerivedValue は不要（useMemoで十分。値が変わるのは設定画面での
+  // 保存のような稀な操作のときだけ）
+  const nebAdjust = useMemo<Transforms3d>(
+    () => [
+      { translateX: nebulaOffsetX },
+      { translateY: nebulaOffsetY },
+      { translateX: W / 2 },
+      { translateY: H * 0.28 },
+      { scale: nebulaScale },
+      { translateX: -(W / 2) },
+      { translateY: -(H * 0.28) },
+    ],
+    [nebulaOffsetX, nebulaOffsetY, nebulaScale, W, H],
+  );
+
   const tree = useMemo(
     () => (
     <Canvas style={[StyleSheet.absoluteFill, { width: W, height: H }]} pointerEvents="none">
@@ -413,19 +442,24 @@ const BackdropSkyImpl: React.FC<BackdropSkyProps> = ({
           mix-blend-mode:screen。雲のぼかしはスプライトへ焼き込み済みなので
           ここでの ImageFilter は不要（saveLayer は合成のためだけ） */}
       {DEBUG_SKY.showNebula && (
-        <Group layer={<Paint blendMode="screen" />}>
-          {/* 雲と星520を 1 つの組として横に揺らす（いちばん遠い層＝小さく） */}
-          <Group transform={nebShift}>
-            <CloudAtlas clouds={clouds} W={W} H={H} scale={scale} clock={clock} stop={stop} />
-            {nebStarGroups.map((g, i) => (
-              <NebStarLayer key={i} g={g} clock={clock} stop={stop} />
-            ))}
+        // 運営調整（星雲の位置・大きさ）。既定値(0,0,1)では何もしないのと同じ。
+        // W/2, H*0.28 を中心にスケールしてから offsetX/Y だけ平行移動する
+        // （.bgbase の中心と同じ基準点。雲・星の分布そのものは不変）。
+        <Group transform={nebAdjust}>
+          <Group layer={<Paint blendMode="screen" />}>
+            {/* 雲と星520を 1 つの組として横に揺らす（いちばん遠い層＝小さく） */}
+            <Group transform={nebShift}>
+              <CloudAtlas clouds={clouds} W={W} H={H} scale={scale} clock={clock} stop={stop} />
+              {nebStarGroups.map((g, i) => (
+                <NebStarLayer key={i} g={g} clock={clock} stop={stop} />
+              ))}
+            </Group>
           </Group>
         </Group>
       )}
     </Canvas>
     ),
-    [W, H, scale, clouds, nebStarGroups, clock, stop, nebShift],
+    [W, H, scale, clouds, nebStarGroups, clock, stop, nebShift, nebAdjust],
   );
 
   // ── 星の平面の横ずらし ──────────────────────────────────────

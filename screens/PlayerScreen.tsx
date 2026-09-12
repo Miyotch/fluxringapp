@@ -61,6 +61,7 @@ export type PlayerTrack = {
   tuning?: string;           // 調律名（例: '純正律'）
   frequencies?: string[];    // 周波数のみ（例: ['432 Hz', '7.83 Hz']）
   artist?: string;           // 'NAOKI OKA'
+  useCases?: string[];       // 用途タグ（例: ['睡眠', '勉強', '集中力']）
 };
 
 type Props = {
@@ -429,10 +430,9 @@ export const PlayerScreen: React.FC<Props> = ({
         </Pressable>
       </Animated.View>
 
-      {/* 曲名・情景（カードの上・左寄せ）。ヘッダーと同じタイミングでフェードイン */}
+      {/* 曲名（カードの上・左寄せ）。ヘッダーと同じタイミングでフェードイン */}
       <Animated.View style={[styles.meta, headerAnimStyle]}>
         <Text style={styles.title} numberOfLines={1}>{track.title}</Text>
-        {track.subtitle && <Text style={styles.subtitle} numberOfLines={1}>{track.subtitle}</Text>}
         {phase === 'playing' && loading && <Text style={styles.subtitle}>読み込み中…</Text>}
         {error && <Text style={styles.err}>{error}</Text>}
       </Animated.View>
@@ -473,6 +473,7 @@ export const PlayerScreen: React.FC<Props> = ({
               tuning: track.tuning,
               frequencies: track.frequencies,
               artist: track.artist ?? 'NAOKI OKA',
+              useCases: track.useCases,
             }}
           />
         </Animated.View>

@@ -38,7 +38,8 @@ import Animated, {
 } from 'react-native-reanimated';
 import { CardGL, CARD_BACK_SCALE_MAX } from '../components/CardGL';
 import { homeCardWidth } from '../constants/design-tokens';
-import Svg, { Defs, LinearGradient as SvgLinear, Stop, Rect, RadialGradient as SvgRadial } from 'react-native-svg';
+import Svg, { Defs, LinearGradient as SvgLinear, Stop, Rect } from 'react-native-svg';
+import { CR, CreditsBackdrop } from '../components/CreditsBackdrop';
 import { PurchaseModal } from '../components/PurchaseModal';
 import { StarIcon } from '../components/icons';
 import type { CardOrigin, CardOriginItem } from '../components/CardAfterimage';
@@ -57,6 +58,8 @@ export type CollectionItem = {
   owned: boolean;
   audioKey?: string;         // R2 音源キー（再生画面へ）
   priceLabel?: string;       // ウィッシュ用
+  /** 購入時点の価格（円）。purchase_history への記録用。未設定は標準単価扱い。 */
+  priceJpy?: number;
   serialNo?: string;         // 'No. 003'。ウィッシュリストとマイコレを同じ番号軸で読ませる
   subtitle?: string;         // 情景の言葉（作品詳細の1行）
   /** 試聴URL。null/未設定なら audioKey から R2 の固定名で組む。どちらも無ければ試聴なし */
@@ -71,6 +74,7 @@ export type CollectionItem = {
     tuning?: string;
     frequencies?: string[];
     artist?: string;
+    useCases?: string[];
   };
 };
 
@@ -160,19 +164,7 @@ const C = {
 //        読めてしまうので、実体のある作品数より先は Coming Soon に置き換える。
 type MineSlot = { key: string; item: CollectionItem | null; no: string; soon: boolean };
 
-// パネル背景: radial #14122e → #0a0a1c 46% → #05040c
-const PanelBackground: React.FC<{ w: number; h: number }> = ({ w, h }) => (
-  <Svg style={StyleSheet.absoluteFill} width={w} height={h} pointerEvents="none">
-    <Defs>
-      <SvgRadial id="colbg" cx="50%" cy="34%" r="120%">
-        <Stop offset="0" stopColor="#14122e" />
-        <Stop offset="0.46" stopColor="#0a0a1c" />
-        <Stop offset="1" stopColor="#05040c" />
-      </SvgRadial>
-    </Defs>
-    <Rect x="0" y="0" width={w} height={h} fill="url(#colbg)" />
-  </Svg>
-);
+// 背景は設定配下（CREDITS等）と同じ CreditsBackdrop を使う（components/CreditsBackdrop.tsx）。
 
 // 上端フェード（原本の mask-image:linear-gradient(transparent 0, #000 22px) 相当）
 const TopFade: React.FC<{ w: number }> = ({ w }) => (
@@ -392,6 +384,7 @@ export const CollectionScreen: React.FC<Props> = ({
             tuning: detail.back?.tuning,
             frequencies: detail.back?.frequencies,
             artist: detail.back?.artist ?? 'NAOKI OKA',
+            useCases: detail.back?.useCases,
           }
         : undefined,
     [detail],
@@ -765,8 +758,8 @@ export const CollectionScreen: React.FC<Props> = ({
 
   return (
     <View style={styles.root}>
-      <StatusBar barStyle="light-content" backgroundColor="#0a0a1c" />
-      <PanelBackground w={screenW} h={screenH} />
+      <StatusBar barStyle="light-content" backgroundColor={CR.deepest} />
+      <CreditsBackdrop w={screenW} h={screenH} />
 
       {/* タイトル（.skh: 上58px / 18px / 字間.05em）
           作品詳細が開いている間は消す。見出し「コレクション」と詳細の「戻る」は
@@ -782,8 +775,9 @@ export const CollectionScreen: React.FC<Props> = ({
         pointerEvents={detail ? 'none' : 'auto'}
       >
         {SEGMENTS.map((k) => {
-          // 参照 .cnt: 0 件のときは数字を出さない（空の枠を数字で強調しない）
-          const count = k === 'mine' ? owned.length : k === 'wish' ? wishlist.length : 0;
+          // 参照 .cnt: 0 件のときは数字を出さない（空の枠を数字で強調しない）。
+          // ウィッシュタブだけは数字を出さない（表示名のみ）。
+          const count = k === 'mine' ? owned.length : 0;
           const label =
             k === 'all'
               ? t('collection.all')
@@ -1018,7 +1012,7 @@ export const CollectionScreen: React.FC<Props> = ({
         // 金額 / 確定ボタンのどちらも OS の課金シートを起動する。
         // 所有化と onBuy は成立してから（上の purchase.onSuccess）行う。
         onConfirm={() => {
-          if (purchaseTarget) purchase?.start(purchaseTarget.id);
+          if (purchaseTarget) purchase?.start(purchaseTarget.id, purchaseTarget.priceJpy);
         }}
         onCancel={() => {
           setPurchaseTarget(null);
@@ -1030,7 +1024,7 @@ export const CollectionScreen: React.FC<Props> = ({
 };
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#0a0a1c' },
+  root: { flex: 1, backgroundColor: CR.deepest },
 
   // .skh: padding 58px 22px 6px / 18px / 字間.05em / #ECEEF7
   skh: {
@@ -1218,7 +1212,9 @@ const styles = StyleSheet.create({
   // zIndex はカードより手前に置くため。RN は後ろの兄弟が上に描かれるので、
   // これが無いとフリップした裏面が「戻る」の上に被って押せなくなる。
   workBack: { alignSelf: 'flex-start', zIndex: 2 },
-  workBackLabel: { color: C.back, fontSize: 12, letterSpacing: 0.6 },
+  // 他画面の「戻る」導線（PlayerScreen の navText 等）と書体を揃えて明朝に。
+  // 字間は指示により今までの 0.6 より狭く 0.2 へ
+  workBackLabel: { color: C.back, fontSize: 12, letterSpacing: 0.2, fontFamily: JP_SERIF_FONT },
   // 参照 .wcard 164x246（枠幅380基準 = 43%）。実寸は workCardW/H で渡す。
   // borderRadius / overflow は付けない — 角丸はカード自身（CardGL）が持っており、
   // ここでクリップすると裏面の拡大分と落影が切れる。

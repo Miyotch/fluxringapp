@@ -20,6 +20,8 @@ import { db } from './firebase'
 // ── コレクション参照 ──────────────────────────────
 export const artworksCol = () => collection(db, 'artworks')
 export const artistsCol  = () => collection(db, 'artists')
+// SNSアイコンのマスタ（アイコン画像URL・表示名）。artists.snsLinks[].typeId から引く
+export const snsTypeCol  = () => collection(db, 'sns_type')
 export const usersCol    = () => collection(db, 'users')
 // 楽曲情報（サムネイル・R2音源URL等）。旧 sound コレクションから移行。
 // ドキュメントIDが所有権判定のtrackId（= audioKey）と一致する前提。

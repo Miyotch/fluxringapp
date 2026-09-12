@@ -57,15 +57,15 @@ import {
   CARD_ASPECT,
 } from '../components/CardGL';
 import { BuyButton } from '../components/BuyButton';
-import { WishlistStar } from '../components/WishlistStar';
 import { PurchaseModal } from '../components/PurchaseModal';
+import { PreviewIcon, StarIcon } from '../components/icons';
 import { EqBars } from '../components/EqBars';
-import { PreviewIcon } from '../components/icons';
 import { useTopInset } from '../lib/safeArea';
 import { PurchaseParticles } from '../components/PurchaseParticles';
 import { PURCHASE, HOME_INTRO, homeCardWidth } from '../constants/design-tokens';
 import { formatPrice, TRACK_PRICE_JPY } from '../constants/pricing';
 import { JP_SERIF_FONT } from '../constants/fonts';
+import { useBackgroundLayersConfig } from '../lib/backgroundLayers';
 import type { PurchaseController } from '../lib/usePurchaseFlow';
 
 // ── 表示スイッチ ──────────────────────────────────────────────
@@ -133,10 +133,16 @@ const GROUND_HIDE_DEG = 8;
 // これ以上傾いている間は背景（天の川・星・調律陣の光点）の時計を止める
 const SPIN_PAUSE_DEG = 2;
 
+// ホーム左上の曲名タイトルの位置調整に使う「1文字分」の基準値。
+// styles.title の fontSize と同じにして、和文全角1文字ぶん
+// 下げる／内側へ寄せるという指示をそのまま数値化する。
+const TITLE_CHAR_SIZE = 20;
+
 const C = {
   page: '#0E0C20',
   text: '#ECEEF7',
   sub: '#9498BE',
+  cyan: '#60CEE0',
   badge: '#E0584E',
 } as const;
 
@@ -150,9 +156,17 @@ export type Track = {
   audioKey: string;         // R2 音源キー（試聴は公開・フルは署名付き）
   previewUrl: string | null;
   priceLabel: string;
+  /** 購入時点の価格（円）。purchase_history への記録用。未設定は標準単価扱い。
+   *  Firestore tracks/{id}.price から。 */
+  priceJpy?: number;
   owned?: boolean;
   glowColor?: string;
   glowColor2?: string;
+  /** 販売期間。startAt は type によって意味が変わる（同じフィールドを兼用する運用）:
+   *    type==='limited' → 販売開始日（〜endAt の間だけ販売。どちらも未設定側は無期限扱い）
+   *    type==='always'  → 公開日（この日以降ずっと表示。endAt は使わない）
+   *  Firestore tracks/{id}.sale から。 */
+  sale?: { type: 'always' | 'limited'; startAt: number | null; endAt: number | null };
   // 裏面（タップで表示する説明）
   back?: {
     serial?: string;         // 'No. 001'
@@ -161,13 +175,27 @@ export type Track = {
     tuning?: string;         // 調律名（例: '純正律'）
     frequencies?: string[];  // 周波数のみ（例: ['432 Hz', '7.83 Hz']）
     artist?: string;         // 'NAOKI OKA'
+    useCases?: string[];     // 用途タグ（例: ['睡眠', '勉強', '集中力']）
   };
 };
 
+/**
+ * 現在この楽曲をホームに出してよいか。
+ *   type==='limited' → startAt（販売開始日）〜endAt（販売終了日）の間だけ true
+ *   type==='always'  → startAt（公開日）以降ずっと true（endAtは見ない）
+ *   sale未設定       → 常に true（従来どおり）
+ * startAt/endAtの「未設定」は各側とも無期限（下限／上限なし）として扱う。
+ */
+export function isTrackOnSale(track: Pick<Track, 'sale'>, now: number = Date.now()): boolean {
+  const sale = track.sale;
+  if (!sale) return true;
+  if (sale.startAt != null && now < sale.startAt) return false;
+  if (sale.type === 'limited' && sale.endAt != null && now > sale.endAt) return false;
+  return true;
+}
+
 type Props = {
   tracks?: Track[];
-  hasUnread?: boolean;
-  onOpenNotifications?: () => void;
   /** 購入が**成立した**ときだけ呼ばれる（キャンセル・失敗では呼ばない） */
   onBuy?: (track: Track) => void;
   /** 起動時に最初に表示するカードの id（コレクションのウィッシュから飛んできたとき用） */
@@ -224,8 +252,6 @@ const FALLBACK: Track[] = [
 
 export const DiscoverScreen: React.FC<Props> = ({
   tracks = FALLBACK,
-  hasUnread = true,
-  onOpenNotifications,
   onBuy,
   focusTrackId,
   ownedIds,
@@ -241,8 +267,8 @@ export const DiscoverScreen: React.FC<Props> = ({
   const initialIndex = focusTrackId
     ? Math.max(0, tracks.findIndex((t) => t.id === focusTrackId))
     : 0;
-  // 上部クローム（右上アイコン／タイトル）はセーフエリア下へ寄せる。
-  // タイトルは右上アイコン列と同じ top（topRightY + 5）を使い、縦位置を揃える。
+  // タイトルはセーフエリア下へ寄せる。右上のEQメーターと同じ top
+  // （topRightY + 5 + TITLE_CHAR_SIZE）を使い、高さを揃える。
   const topRightY = useTopInset(8);
   const [slideH, setSlideH] = useState(0);
   // 調律陣が焼いた彫刻シルエット。星の平面をこの形で削るためだけに使う。
@@ -413,6 +439,10 @@ export const DiscoverScreen: React.FC<Props> = ({
   // slideH（画面いっぱい）のままで、位置決めだけこちらを使う。
   const contentH = Math.max(0, slideH - bottomInset);
   const cardCenterY = contentH / 2;
+
+  // 星雲・魔法陣（調律陣）レイヤーの運営調整（設定→背景レイヤー調整のスライダー）。
+  // 既定値(offsetX/Y=0・scale=1)では今の位置・大きさのまま変わらない。
+  const layerAdjust = useBackgroundLayersConfig();
   const cardFrame = useMemo(
     () => ({ width: screenW, height: contentH }),
     [screenW, contentH],
@@ -835,18 +865,26 @@ export const DiscoverScreen: React.FC<Props> = ({
             tuning: active.back?.tuning,
             frequencies: active.back?.frequencies,
             artist: active.back?.artist,
+            useCases: active.back?.useCases,
           }
         : undefined,
     [active],
   );
 
-  // 試聴は自動開始しない（スピーカーボタンの押下だけをトリガーにする）。
-  // 曲を切り替えたら再生中の試聴は止める。
+  // 試聴はカードが切り替わるたび（起動直後の最初のカードも含む）自動で始まる。
+  // 試聴URLが無ければ何もしない。スピーカーボタンは手動での一時停止／再開に使う。
   // ※フェードインは音源ファイル側で定義する方針のため、アプリ側では行わない。
   useEffect(() => {
     preview.pause();
     setPlayingId(null);
-  }, [activeIndex, preview]);
+    if (!active) return;
+    const url = active.previewUrl ?? previewUrl(active.audioKey);
+    if (!url) return;
+    preview.replace({ uri: url });
+    preview.play();
+    setPlayingId(active.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeIndex, active?.id, active?.previewUrl, active?.audioKey, preview]);
 
   const togglePreview = useCallback(() => {
     if (!active) return;
@@ -905,7 +943,7 @@ export const DiscoverScreen: React.FC<Props> = ({
     const target = purchaseTarget;
     if (!target) return;
     setPlayingId(null);
-    purchase?.start(target.id);
+    purchase?.start(target.id, target.priceJpy);
   }, [purchaseTarget, purchase]);
 
   // モーダルを閉じる（キャンセル／閉じる／暗幕タップ）。所有状態は変えない
@@ -987,6 +1025,9 @@ export const DiscoverScreen: React.FC<Props> = ({
             parallaxX={starTravel}
             occluder={sealInk}
             nebulaX={nebSway}
+            nebulaOffsetX={layerAdjust.nebula.offsetX}
+            nebulaOffsetY={layerAdjust.nebula.offsetY}
+            nebulaScale={layerAdjust.nebula.scale}
           />
         </RNAnimated.View>
       )}
@@ -1006,9 +1047,9 @@ export const DiscoverScreen: React.FC<Props> = ({
             <StarSeal
               width={screenW}
               height={slideH}
-              centerX={screenW / 2}
-              centerY={cardCenterY}
-              cardWidth={cardW}
+              centerX={screenW / 2 + layerAdjust.seal.offsetX}
+              centerY={cardCenterY + layerAdjust.seal.offsetY}
+              cardWidth={cardW * layerAdjust.seal.scale}
               paused={cardFlipping}
               style={styles.sealLayer}
               onInkImage={handleSealInk}
@@ -1134,29 +1175,25 @@ export const DiscoverScreen: React.FC<Props> = ({
           ]}
           pointerEvents="box-none"
         >
-          {/* 右上: EQメーター／試聴アイコン。EQ は試聴中だけ動く（試聴を止めたら
-              ボリュームアニメーションも消える）。
-              top は曲名（texts）と同じ topRightY + 5 にして高さを揃える。
-              ※ 通知ベルは 2026-09-07 に撤去（ホームの空を邪魔しないため）。
-                 通知一覧そのものは残っているので、導線が要るなら別の場所へ置く。 */}
-          <View style={[styles.topRight, { top: topRightY + 5 }]} pointerEvents="box-none">
-            <View style={styles.iconsRow1}>
-              {/* EqBars は非アクティブ時 null を返すため、幅固定のスロットで囲って
-                  試聴の開始/停止で試聴アイコンの位置が動かないようにする */}
-              <View style={styles.eqSlot}>
-                <EqBars active={isPreviewing} />
-              </View>
-              <Pressable onPress={togglePreview} hitSlop={10}>
-                <PreviewIcon size={24} on={isPreviewing} />
-              </Pressable>
-            </View>
+          {/* ※ 通知ベルは撤去済み（ホームの空を邪魔しないため）。通知一覧は
+                 メディア画面の「あなた宛」タブへ統合した（screens/MediaScreen.tsx）。
+              ※ 右上の試聴アイコン（スピーカー）は撤去済み。試聴のトグルはカード下部の
+                 acts行（★／試聴／購入する）に一本化した（同じ togglePreview を使う）。
+                 EQメーターだけは残す（タップ不要の演出のため pointerEvents="none"）。
+                 top はタイトルと同じ高さ（topRightY + 5 + TITLE_CHAR_SIZE）に揃える。 */}
+          <View
+            style={[styles.topRight, { top: topRightY + 5 + TITLE_CHAR_SIZE }]}
+            pointerEvents="none"
+          >
+            <EqBars active={isPreviewing} />
           </View>
 
           {/* タイトル（1行のみ。eyeコピー・情景サブタイトルはモック確定値により非表示）。
-              右上のアイコン列（topRight）と同じ top・高さで縦中央揃えにし、
-              アイコンの縦位置とタイトルの縦位置をぴったり揃える。 */}
+              「1文字分下・1文字分内側へ」の指示により、title のフォントサイズ
+              （TITLE_CHAR_SIZE=20）を1文字分の基準にして、旧位置（topRightY + 5 /
+              left: 22）からそれぞれ+20した。 */}
           <RNAnimated.View
-            style={[styles.texts, { top: topRightY + 5, opacity: titleFade }]}
+            style={[styles.texts, { top: topRightY + 5 + TITLE_CHAR_SIZE, opacity: titleFade }]}
             pointerEvents="none"
           >
             <Text style={styles.title} numberOfLines={1}>{active?.title}</Text>
@@ -1171,27 +1208,46 @@ export const DiscoverScreen: React.FC<Props> = ({
           ]}
           pointerEvents="box-none"
         >
-          {/* 下部: 購入ボタン ＋ ウィッシュ星。裏返し中も位置は固定のまま動かさない。 */}
+          {/* 下部: ★ウィッシュ ／ 試聴（スピーカー） ／ 購入するの3手。
+              コレクションの作品詳細と同じ並び・寸法に揃える。
+              所有済みは再生ボタン1つだけ（従来どおり）。裏返し中も位置は動かさない。 */}
           <View style={[styles.bottom, { bottom: BOTTOM_BASE }]} pointerEvents="box-none">
             {(() => {
               const owned = isOwned(active);
+              if (owned) {
+                return <BuyButton owned onPress={handleBuy} />;
+              }
               return (
-                <>
+                <View style={styles.acts}>
+                  <Pressable
+                    style={({ pressed }) => [styles.actStar, pressed && { opacity: 0.85 }]}
+                    hitSlop={6}
+                    accessibilityRole="button"
+                    accessibilityLabel="ウィッシュリスト"
+                    onPress={() => active && toggleWishlist(active.id)}
+                  >
+                    <StarIcon size={17} filled={active ? wishlist.has(active.id) : false} />
+                  </Pressable>
+
+                  {/* 試聴の再生／停止。アイコンは右上の試聴アイコンと同じスピーカー */}
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.actBtn,
+                      isPreviewing && styles.actBtnOn,
+                      pressed && { opacity: 0.85 },
+                    ]}
+                    accessibilityRole="button"
+                    accessibilityLabel="試聴"
+                    onPress={togglePreview}
+                  >
+                    <PreviewIcon size={19} on={isPreviewing} />
+                  </Pressable>
+
                   <BuyButton
-                    owned={owned}
                     priceLabel={active ? purchase?.displayPriceOf(active.id) : undefined}
                     onPress={handleBuy}
                   />
-                  {/* 所有済みでは星を非表示 */}
-                  {!owned && (
-                    <View style={styles.starSlot}>
-                      <WishlistStar
-                        inWishlist={active ? wishlist.has(active.id) : false}
-                        onToggle={() => active && toggleWishlist(active.id)}
-                      />
-                    </View>
-                  )}
-                </>
+                </View>
               );
             })()}
           </View>
@@ -1252,20 +1308,12 @@ const styles = StyleSheet.create({
   hidden: { opacity: 0 },
 
   chrome: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
+  // 右上のEQメーターのみ（試聴アイコンは撤去済み。カード下部のacts行に一本化）
   topRight: { position: 'absolute', top: 22, right: 20, alignItems: 'flex-end' },
-  iconsRow1: { flexDirection: 'row', alignItems: 'center', gap: 13 },
-  // EqBars 自身の幅（4本×2px＋間隔3×2px＝14px）に合わせた固定スロット。
-  // EqBars は非アクティブ時 null を返すため、これで囲わないと行の幅が
-  // 詰まり、右寄せの行内でベルの位置が動いてしまう。
-  eqSlot: { width: 14, alignItems: 'center', justifyContent: 'center' },
-  bell: {},
-  bdot: {
-    position: 'absolute', top: -1, right: -1,
-    width: 6, height: 6, borderRadius: 3, backgroundColor: C.badge,
-  },
-  // height はアイコン列（topRight の iconsRow1）と同じ 24px にして
-  // justifyContent:'center' で縦中央を揃える（フォント行送りの誤差を吸収する）
-  texts: { position: 'absolute', left: 22, right: 120, height: 24, justifyContent: 'center' },
+  // height24・justifyContent:'center' は撤去済みの旧・右上アイコン列と高さを
+  // 揃えていた名残り（フォント行送りの誤差を吸収するため維持）。
+  // left は旧位置22pxから TITLE_CHAR_SIZE（1文字分）だけ内側へ寄せた。
+  texts: { position: 'absolute', left: 22 + TITLE_CHAR_SIZE, right: 120, height: 24, justifyContent: 'center' },
   // .title: 18px / 字間.05em / text-shadow 0 1px 10px rgba(0,0,0,.5)
   title: {
     fontSize: 20,
@@ -1283,7 +1331,20 @@ const styles = StyleSheet.create({
     position: 'absolute', left: 0, right: 0,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
   },
-  starSlot: { position: 'absolute', left: '50%', marginLeft: 64 + 12 },
+  // ★／試聴／購入の3手（CollectionScreen の作品詳細と同じ寸法・字組）
+  acts: { flexDirection: 'row', gap: 9, alignItems: 'center' },
+  actStar: {
+    width: 42, height: 42, borderRadius: 21,
+    borderWidth: 1, borderColor: 'rgba(96,206,224,0.3)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  actBtn: {
+    paddingVertical: 11, paddingHorizontal: 20, borderRadius: 12,
+    borderWidth: 1, borderColor: 'rgba(96,206,224,0.4)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  // 試聴中は枠を強めて「いま鳴っている」を示す（色は変えない＝シアン一本のまま）
+  actBtnOn: { borderColor: C.cyan, backgroundColor: 'rgba(96,206,224,0.12)' },
 
   transport: {
     paddingVertical: 16, paddingHorizontal: 20, borderRadius: 16,

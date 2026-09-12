@@ -16,6 +16,8 @@ import React, { useState } from 'react';
 import {
   View,
   Text,
+  Image,
+  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -28,12 +30,22 @@ import { COLOR, SPACE, RADIUS } from '../constants/design-tokens';
 import { NUM_FONT, JP_SERIF_FONT } from '../constants/fonts';
 import { SubHeader } from './SettingsDetailScreens';
 
+// SNSリンク1件（artists.snsLinks[].typeId を sns_type コレクションで解決したもの）
+export type ArtistSnsLink = {
+  id: string;       // typeId（Reactのkey用）
+  name: string;     // sns_type.name（例: 'X' / 'Instagram' / 'Note'）
+  iconUrl: string;  // sns_type.iconUrl
+  url: string;      // artists.snsLinks[].url（タップで開く先）
+};
+
 export type Artist = {
   id: string;
   name: string;
   nameEn: string;
   role: string;          // 例: '作曲・音響'
   bio: string;           // 来歴・哲学
+  portraitUrl?: string;  // artists.portraitUrl。未設定なら従来どおりの色つき円
+  sns?: ArtistSnsLink[]; // artists.snsLinks。未設定/空なら非表示
 };
 
 export type ArtistTrack = {
@@ -81,7 +93,11 @@ export const ArtistScreen: React.FC<Props> = ({
                 setStage('profile');
               }}
             >
-              <View style={styles.avatarSm} />
+              <View style={styles.avatarSm}>
+                {a.portraitUrl && (
+                  <Image source={{ uri: a.portraitUrl }} style={styles.avatarSmImg} />
+                )}
+              </View>
               <View style={styles.artistRowText}>
                 <Text style={styles.artistRowName}>{a.name}</Text>
                 <Text style={styles.artistRowSub}>
@@ -105,9 +121,32 @@ export const ArtistScreen: React.FC<Props> = ({
         <SubHeader title="作家" onBack={() => setStage('list')} />
         <ScrollView contentContainerStyle={styles.profileBody} showsVerticalScrollIndicator={false}>
           {/* 円ポートレート（人物は円） */}
-          <View style={styles.avatarLg} />
+          <View style={styles.avatarLg}>
+            {selected.portraitUrl && (
+              <Image source={{ uri: selected.portraitUrl }} style={styles.avatarLgImg} />
+            )}
+          </View>
           <Text style={styles.profileName}>{selected.name}</Text>
           <Text style={styles.profileNameEn}>{selected.nameEn.toUpperCase()}</Text>
+
+          {/* SNS（artists.snsLinks を sns_type で解決した画像を横並びで表示。
+              タップで各リンク先を開く） */}
+          {selected.sns && selected.sns.length > 0 && (
+            <View style={styles.snsRow}>
+              {selected.sns.map((link) => (
+                <Pressable
+                  key={link.id}
+                  style={({ pressed }) => [styles.snsBtn, pressed && { opacity: 0.7 }]}
+                  onPress={() => Linking.openURL(link.url).catch(() => {})}
+                  accessibilityRole="link"
+                  accessibilityLabel={link.name}
+                >
+                  <Image source={{ uri: link.iconUrl }} style={styles.snsIcon} resizeMode="contain" />
+                </Pressable>
+              ))}
+            </View>
+          )}
+
           <Text style={styles.profileBio}>{selected.bio}</Text>
 
           {/* 楽曲一覧へ */}
@@ -185,7 +224,9 @@ const styles = StyleSheet.create({
     backgroundColor: COLOR.layer,
     borderWidth: 1,
     borderColor: COLOR.border,
+    overflow: 'hidden',
   },
+  avatarSmImg: { width: '100%', height: '100%' },
   artistRowText: { flex: 1, gap: 3 },
   artistRowName: {
     color: COLOR.textPrimary,
@@ -209,7 +250,22 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLOR.border,
     marginVertical: SPACE.lg,
+    overflow: 'hidden',
   },
+  avatarLgImg: { width: '100%', height: '100%' },
+  // SNS（プロフィール名の下・来歴の上。MediaScreenのSNS常設バーと同じ見た目に揃える）
+  snsRow: { flexDirection: 'row', justifyContent: 'center', gap: SPACE.md, marginTop: SPACE.md },
+  snsBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: RADIUS.full,
+    borderWidth: 1,
+    borderColor: COLOR.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(34,36,69,0.30)',
+  },
+  snsIcon: { width: 26, height: 26 },
   profileName: {
     color: COLOR.textPrimary,
     fontSize: 22,
