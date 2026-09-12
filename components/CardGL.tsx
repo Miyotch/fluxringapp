@@ -372,6 +372,10 @@ function remapUV(geo: THREE.BufferGeometry, w: number, h: number) {
   uv.needsUpdate = true;
 }
 
+// 表面の絵が読み込めたことを待つ上限(ms)。これを過ぎたら前の絵で居座らせない。
+// 実測の入れ替わりは1〜2フレームなので、ここに届くのは異常系だけ。
+const FRONT_SWAP_WAIT_MS = 600;
+
 // ── 裏面刻印テクスチャのキャッシュ ────────────────────────────────
 // 曲を送るたびに renderAluminumInkPixels が Skia.Surface.Make(1024,1536) を
 // 起こし、数十回の drawText を流し、readPixels で 6.3MB を吸い出し、さらに
@@ -536,26 +540,32 @@ const CardMesh: React.FC<{
   useEffect(() => {
     if (!backData) return;
     if (backStyle === 'aluminum') {
-      try {
-        // 内容でキーを引く。backData は DiscoverScreen 側で useMemo 済みだが、
-        // 参照ではなく中身でキーにしておくと、別経路（再生画面・作品詳細）から
-        // 同じ作品を開いたときにも当たる。
-        const key = `alum|${JSON.stringify(backData)}`;
-        let tex = inkTexCache.get(key);
-        if (!tex) {
-          const res = renderAluminumInkPixels(backData);
-          if (res) {
-            tex = pixelsToTexture(res);
-            inkTexCache.set(key, tex);
+      // 1024x1536 の刻印を**同期で**焼くので、札が入れ替わったフレームにそのまま
+      // 乗せると JS が数十 ms 止まり、表面の絵の差し替えがそのぶん遅れる
+      // （＝前の札が中央に残る時間が伸びる）。裏面は裏返すまで見えないので、
+      // 次のフレームへ逃がす（2026-09-12）。
+      const raf = requestAnimationFrame(() => {
+        try {
+          // 内容でキーを引く。backData は DiscoverScreen 側で useMemo 済みだが、
+          // 参照ではなく中身でキーにしておくと、別経路（再生画面・作品詳細）から
+          // 同じ作品を開いたときにも当たる。
+          const key = `alum|${JSON.stringify(backData)}`;
+          let tex = inkTexCache.get(key);
+          if (!tex) {
+            const res = renderAluminumInkPixels(backData);
+            if (res) {
+              tex = pixelsToTexture(res);
+              inkTexCache.set(key, tex);
+            }
           }
-        }
-        // ここで prev?.dispose() をしてはいけない。テクスチャの所有者は
-        // キャッシュに移っており、差し替えのたびに解放すると、キャッシュに
-        // 載ったままの生きたテクスチャを壊してしまう。症状は「1曲戻ったときだけ
-        // 裏面が真っ黒」という再現条件つきの形で出る。解放は追い出し時だけ。
-        if (tex) setInkTex(tex);
-      } catch {}
-      return;
+          // ここで prev?.dispose() をしてはいけない。テクスチャの所有者は
+          // キャッシュに移っており、差し替えのたびに解放すると、キャッシュに
+          // 載ったままの生きたテクスチャを壊してしまう。症状は「1曲戻ったときだけ
+          // 裏面が真っ黒」という再現条件つきの形で出る。解放は追い出し時だけ。
+          if (tex) setInkTex(tex);
+        } catch {}
+      });
+      return () => cancelAnimationFrame(raf);
     }
     let alive = true;
     (async () => {
@@ -921,6 +931,30 @@ export const CardGL: React.FC<CardGLProps> = ({
   const overlayTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (overlayTimer.current) clearTimeout(overlayTimer.current); }, []);
 
+  // ── 表面の絵の差し替え（札の入れ替わりで前の絵が残らないようにする）──
+  //
+  // RN の <Image> は source を差し替えても、新しいビットマップが用意できるまで
+  // **前の絵を出したまま**で、用意できた瞬間に無変化で入れ替わる。ホームの表面は
+  // このオーバーレイ1枚なので、入れ替えの直後だけ「前の札が中央に残っていて、
+  // 少ししてカチッと切り替わる」ように見えていた（2026-09-12 岡さん指摘）。
+  // 位置の受け渡し（offsetX / baseShift）は 2026-09-07 に直したが、絵のほうは
+  // 手つかずで、隣で JS が詰まるほど待ち時間が伸びて見えるようになっていた。
+  //
+  // 2枚を uri で key 付けして重ね、**読み込みが終わってから**表示を入れ替える。
+  // key が uri なのでネイティブの Image ビューはそのまま残り（＝復号済みの
+  // ビットマップを持ったまま）不透明度が 0→1 になるだけ＝継ぎ目が出ない。
+  // 待っているあいだ中央に出ているのは隣スロットから受け取った同じ絵なので、
+  // 待たされても「関係ない絵」にはならない。
+  const [shownUri, setShownUri] = useState(frontUri);
+  const pendingUri = frontUri !== shownUri ? frontUri : null;
+  // 保険: onLoad も onError も来ない絵（キャッシュの取りこぼし等）で前の絵に
+  // 居座られないよう、一定時間で強制的に入れ替える。
+  useEffect(() => {
+    if (pendingUri === null) return;
+    const id = setTimeout(() => setShownUri(pendingUri), FRONT_SWAP_WAIT_MS);
+    return () => clearTimeout(id);
+  }, [pendingUri]);
+
   // 復帰時の短いクロスフェード（GL 面 → オーバーレイの差をならす）
   const overlayOpacity = useSharedValue(1);
   const overlayStyle = useAnimatedStyle(() => ({ opacity: overlayOpacity.value }));
@@ -1272,11 +1306,27 @@ export const CardGL: React.FC<CardGLProps> = ({
       {isFlip && overlayVisible && (
         <Animated.View style={[StyleSheet.absoluteFill, overlayStyle]}>
           <Pressable style={StyleSheet.absoluteFill} onPress={flipToBack}>
-            <Image
-              source={{ uri: frontUri }}
-              style={{ width, height, borderRadius: CORNER_RATIO * width }}
-              resizeMode="cover"
-            />
+            {/* 出ている絵（shownUri）と、読み込み待ちの絵（pendingUri）を重ねる。
+                待ちのほうは opacity 0 のまま載せておき、読み込めた時点で
+                shownUri に昇格させる＝そのフレームで不透明度だけが入れ替わる。 */}
+            {(pendingUri === null ? [shownUri] : [shownUri, pendingUri]).map((uri) => (
+              <Image
+                key={uri}
+                source={{ uri }}
+                style={{
+                  position: 'absolute',
+                  left: 0,
+                  top: 0,
+                  width,
+                  height,
+                  borderRadius: CORNER_RATIO * width,
+                  opacity: uri === shownUri ? 1 : 0,
+                }}
+                resizeMode="cover"
+                onLoad={uri === pendingUri ? () => setShownUri(uri) : undefined}
+                onError={uri === pendingUri ? () => setShownUri(uri) : undefined}
+              />
+            ))}
             {/* v99-tsubasa の表面オーバーレイ（面内減光・金の内枠・下端の内側シャドウ） */}
             <CardSurface width={width} height={height} />
           </Pressable>

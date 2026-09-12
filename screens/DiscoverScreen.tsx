@@ -880,9 +880,16 @@ export const DiscoverScreen: React.FC<Props> = ({
     if (!active) return;
     const url = active.previewUrl ?? previewUrl(active.audioKey);
     if (!url) return;
-    preview.replace({ uri: url });
-    preview.play();
-    setPlayingId(active.id);
+    // 音源の差し替えと再生開始は、札が入れ替わったフレームには乗せない。
+    // ここは JS スレッドで数十 ms かかることがあり、同じフレームに置くと
+    // 表面の絵の差し替えがそのぶん遅れて「前の札が残る」ように見える。
+    // 1 フレーム後ろへ逃がす（2026-09-12）。
+    const raf = requestAnimationFrame(() => {
+      preview.replace({ uri: url });
+      preview.play();
+      setPlayingId(active.id);
+    });
+    return () => cancelAnimationFrame(raf);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeIndex, active?.id, active?.previewUrl, active?.audioKey, preview]);
 
