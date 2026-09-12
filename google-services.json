@@ -1,0 +1,90 @@
+{
+  "project_info": {
+    "project_number": "496626750767",
+    "project_id": "sound-curtain-5unwwh",
+    "storage_bucket": "sound-curtain-5unwwh.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:496626750767:android:2ff6f203337bda5da57dda",
+        "android_client_info": {
+          "package_name": "com.fluxring.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "496626750767-n83khmlpafnl9qo5c7mdahk0nbbrhhcv.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDmWCjRppNROA59mMFzDtt6aM_KON2mY18"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "496626750767-n83khmlpafnl9qo5c7mdahk0nbbrhhcv.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "496626750767-knrhh331fj12oamcti28n5io24v15rvu.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.mycompany.soundcurtain"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:496626750767:android:d25ba61bfcfed395a57dda",
+        "android_client_info": {
+          "package_name": "com.mycompany.soundcurtain"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "496626750767-gjnsibirk4ta7ek0uuopu08rs768e66q.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.mycompany.soundcurtain",
+            "certificate_hash": "9bbb3186b2189ef16d8f272bdab59362c395cbb4"
+          }
+        },
+        {
+          "client_id": "496626750767-n83khmlpafnl9qo5c7mdahk0nbbrhhcv.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDmWCjRppNROA59mMFzDtt6aM_KON2mY18"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "496626750767-n83khmlpafnl9qo5c7mdahk0nbbrhhcv.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "496626750767-knrhh331fj12oamcti28n5io24v15rvu.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.mycompany.soundcurtain"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
