@@ -131,6 +131,11 @@ const GROUND_HIDE_DEG = 8;
 // これ以上傾いている間は背景（天の川・星・調律陣の光点）の時計を止める
 const SPIN_PAUSE_DEG = 2;
 
+// ホーム左上の曲名タイトルの位置調整に使う「1文字分」の基準値。
+// styles.title の fontSize と同じにして、和文全角1文字ぶん
+// 下げる／内側へ寄せるという指示をそのまま数値化する。
+const TITLE_CHAR_SIZE = 20;
+
 const C = {
   page: '#0E0C20',
   text: '#ECEEF7',
@@ -1159,10 +1164,11 @@ export const DiscoverScreen: React.FC<Props> = ({
                  acts行（★／試聴／購入する）に一本化した（同じ togglePreview を使う）。 */}
 
           {/* タイトル（1行のみ。eyeコピー・情景サブタイトルはモック確定値により非表示）。
-              旧・右上アイコン列と同じ top（topRightY + 5）を引き続き使い、
-              アイコン撤去前と同じ縦位置のまま据え置く。 */}
+              「1文字分下・1文字分内側へ」の指示により、title のフォントサイズ
+              （TITLE_CHAR_SIZE=20）を1文字分の基準にして、旧位置（topRightY + 5 /
+              left: 22）からそれぞれ+20した。 */}
           <RNAnimated.View
-            style={[styles.texts, { top: topRightY + 5, opacity: titleFade }]}
+            style={[styles.texts, { top: topRightY + 5 + TITLE_CHAR_SIZE, opacity: titleFade }]}
             pointerEvents="none"
           >
             <Text style={styles.title} numberOfLines={1}>{active?.title}</Text>
@@ -1278,8 +1284,9 @@ const styles = StyleSheet.create({
 
   chrome: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
   // height24・justifyContent:'center' は撤去済みの旧・右上アイコン列と高さを
-  // 揃えていた名残り（フォント行送りの誤差を吸収するため維持）
-  texts: { position: 'absolute', left: 22, right: 120, height: 24, justifyContent: 'center' },
+  // 揃えていた名残り（フォント行送りの誤差を吸収するため維持）。
+  // left は旧位置22pxから TITLE_CHAR_SIZE（1文字分）だけ内側へ寄せた。
+  texts: { position: 'absolute', left: 22 + TITLE_CHAR_SIZE, right: 120, height: 24, justifyContent: 'center' },
   // .title: 18px / 字間.05em / text-shadow 0 1px 10px rgba(0,0,0,.5)
   title: {
     fontSize: 20,
