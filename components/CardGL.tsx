@@ -42,7 +42,7 @@
  * 注意: expo-gl / three はネイティブ依存。反映には EAS 再ビルドが必要。
  */
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { View, Image, Pressable, PanResponder, StyleSheet, StyleProp, ViewStyle } from 'react-native';
 import { Canvas, useFrame, useThree } from '@react-three/fiber/native';
 import * as THREE from 'three';
@@ -371,10 +371,6 @@ function remapUV(geo: THREE.BufferGeometry, w: number, h: number) {
   }
   uv.needsUpdate = true;
 }
-
-// 表面の絵が読み込めたことを待つ上限(ms)。これを過ぎたら前の絵で居座らせない。
-// 実測の入れ替わりは1〜2フレームなので、ここに届くのは異常系だけ。
-const FRONT_SWAP_WAIT_MS = 600;
 
 // ── 裏面刻印テクスチャのキャッシュ ────────────────────────────────
 // 曲を送るたびに renderAluminumInkPixels が Skia.Surface.Make(1024,1536) を
@@ -769,6 +765,8 @@ const CardMesh: React.FC<{
 export type CardGLProps = {
   /** 表面に貼る作品画像URL */
   frontUri: string;
+  /** 隣の札の作品画像。先に読み込ませておき、札が入れ替わっても読み込み待ちを作らない */
+  preloadUris?: string[];
   /** レイアウト上の表示サイズ(px) */
   width: number;
   height: number;
@@ -819,6 +817,7 @@ export type CardGLProps = {
 
 export const CardGL: React.FC<CardGLProps> = ({
   frontUri,
+  preloadUris,
   width,
   height,
   backData,
@@ -933,27 +932,47 @@ export const CardGL: React.FC<CardGLProps> = ({
 
   // ── 表面の絵の差し替え（札の入れ替わりで前の絵が残らないようにする）──
   //
-  // RN の <Image> は source を差し替えても、新しいビットマップが用意できるまで
-  // **前の絵を出したまま**で、用意できた瞬間に無変化で入れ替わる。ホームの表面は
-  // このオーバーレイ1枚なので、入れ替えの直後だけ「前の札が中央に残っていて、
-  // 少ししてカチッと切り替わる」ように見えていた（2026-09-12 岡さん指摘）。
-  // 位置の受け渡し（offsetX / baseShift）は 2026-09-07 に直したが、絵のほうは
-  // 手つかずで、隣で JS が詰まるほど待ち時間が伸びて見えるようになっていた。
+  // ホームの表面は、GL のテクスチャではなくこのオーバーレイの <Image> 1枚。
+  // RN の Image は source の uri を差し替えても、新しいビットマップが用意
+  // できるまで**前の絵を出したまま**で、用意できた瞬間に無変化で入れ替わる。
+  // そのため札の入れ替わりの直後だけ、中央に前の札の絵が数フレーム残って
+  // 見えていた（2026-09-12 の実機収録で 2 フレーム＝約33ms を確認）。
   //
-  // 2枚を uri で key 付けして重ね、**読み込みが終わってから**表示を入れ替える。
-  // key が uri なのでネイティブの Image ビューはそのまま残り（＝復号済みの
-  // ビットマップを持ったまま）不透明度が 0→1 になるだけ＝継ぎ目が出ない。
-  // 待っているあいだ中央に出ているのは隣スロットから受け取った同じ絵なので、
-  // 待たされても「関係ない絵」にはならない。
-  const [shownUri, setShownUri] = useState(frontUri);
-  const pendingUri = frontUri !== shownUri ? frontUri : null;
-  // 保険: onLoad も onError も来ない絵（キャッシュの取りこぼし等）で前の絵に
-  // 居座られないよう、一定時間で強制的に入れ替える。
+  // 「読み込めてから入れ替える」だけでは直らない。待っているあいだ中央に出る
+  // のは結局その前の絵で、症状そのものだからである（最初の手当てで実証）。
+  //
+  // 直し方は、待たなくてよい状態を作っておくこと。**隣の札の絵も、はじめから
+  // 不透明度 0 で重ねて載せておく**。uri で key を付けてあるので、札が入れ
+  // 替わった瞬間にネイティブの Image ビューは作り直されず、復号済みの
+  // ビットマップを持ったまま不透明度が 0→1 になるだけで済む。読み込みは
+  // スワイプが始まるより前に終わっているので、入れ替えは 1 フレームで完結する。
+  const loadedRef = useRef<Set<string>>(new Set());
+  const [, bumpLoaded] = useReducer((n: number) => n + 1, 0);
+  // 直前に出していた絵。frontUri がまだ読めていないときだけ、これで場を持たせる
+  const lastShownRef = useRef(frontUri);
+  const shownUri = loadedRef.current.has(frontUri) ? frontUri : lastShownRef.current;
   useEffect(() => {
-    if (pendingUri === null) return;
-    const id = setTimeout(() => setShownUri(pendingUri), FRONT_SWAP_WAIT_MS);
-    return () => clearTimeout(id);
-  }, [pendingUri]);
+    lastShownRef.current = shownUri;
+  }, [shownUri]);
+  // 裏返しのあいだオーバーレイごと外れるので、読み込み済みの記録も畳む。
+  // 残しておくと、戻った直後のスワイプで「載っているはずの絵」を出しに行き、
+  // まだ描けていないビューを見せてしまう。
+  useEffect(() => {
+    if (!overlayVisible) loadedRef.current.clear();
+  }, [overlayVisible]);
+  const handleFrontLoaded = (uri: string) => {
+    if (loadedRef.current.has(uri)) return;
+    loadedRef.current.add(uri);
+    // いま出したい絵が読めたのなら、その場で描き直して入れ替える
+    if (uri === frontUri) bumpLoaded();
+  };
+  // 表面に載せる絵の一覧（重複は落とす）。先頭から順に重なり、shownUri だけが見える。
+  const frontLayers = useMemo(() => {
+    const list = [lastShownRef.current, frontUri, ...(preloadUris ?? [])];
+    return list.filter((u, i) => !!u && list.indexOf(u) === i);
+    // shownUri を依存に入れて、出す絵が変わるたび並びを組み直す
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [frontUri, preloadUris, shownUri]);
 
   // 復帰時の短いクロスフェード（GL 面 → オーバーレイの差をならす）
   const overlayOpacity = useSharedValue(1);
@@ -1306,10 +1325,10 @@ export const CardGL: React.FC<CardGLProps> = ({
       {isFlip && overlayVisible && (
         <Animated.View style={[StyleSheet.absoluteFill, overlayStyle]}>
           <Pressable style={StyleSheet.absoluteFill} onPress={flipToBack}>
-            {/* 出ている絵（shownUri）と、読み込み待ちの絵（pendingUri）を重ねる。
-                待ちのほうは opacity 0 のまま載せておき、読み込めた時点で
-                shownUri に昇格させる＝そのフレームで不透明度だけが入れ替わる。 */}
-            {(pendingUri === null ? [shownUri] : [shownUri, pendingUri]).map((uri) => (
+            {/* いま出す絵と、隣の札の絵を重ねて載せる。見えるのは shownUri の1枚だけで、
+                残りは opacity 0 のまま先に読み込ませておく。札が入れ替わっても
+                ビューは作り直されないので、不透明度が入れ替わるだけで済む。 */}
+            {frontLayers.map((uri) => (
               <Image
                 key={uri}
                 source={{ uri }}
@@ -1323,8 +1342,9 @@ export const CardGL: React.FC<CardGLProps> = ({
                   opacity: uri === shownUri ? 1 : 0,
                 }}
                 resizeMode="cover"
-                onLoad={uri === pendingUri ? () => setShownUri(uri) : undefined}
-                onError={uri === pendingUri ? () => setShownUri(uri) : undefined}
+                fadeDuration={0}
+                onLoad={() => handleFrontLoaded(uri)}
+                onError={() => handleFrontLoaded(uri)}
               />
             ))}
             {/* v99-tsubasa の表面オーバーレイ（面内減光・金の内枠・下端の内側シャドウ） */}

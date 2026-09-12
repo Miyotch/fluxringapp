@@ -850,6 +850,17 @@ export const DiscoverScreen: React.FC<Props> = ({
   const prevTrack = tracks[(((activeIndex - 1) % count) + count) % count];
   const nextTrack = tracks[(((activeIndex + 1) % count) + count) % count];
 
+  // 中央の札へ、隣の札の絵も先に渡しておく。CardGL 側が不透明度 0 で重ねて
+  // 読み込んでおくので、札が入れ替わっても表面の絵の読み込み待ちが出ない
+  // （待ちが出ると、そのあいだ中央に前の札の絵が残って見える）。
+  const peekUris = useMemo(
+    () =>
+      count > 1
+        ? ([prevTrack?.artworkUrl, nextTrack?.artworkUrl].filter(Boolean) as string[])
+        : [],
+    [count, prevTrack, nextTrack],
+  );
+
   // 裏面の刻印テクスチャ（1024x1536）は backData が変わるたび同期生成される。
   // インラインのオブジェクトリテラルだと再レンダーのたびに別物と見なされ、
   // フリップのたびに 6MB のラスタライズで JS が止まり、その直後の 1 フレームで
@@ -1152,6 +1163,7 @@ export const DiscoverScreen: React.FC<Props> = ({
                       mode="flip"
                       backStyle="aluminum"
                       frontUri={active.artworkUrl}
+                      preloadUris={peekUris}
                       width={cardW}
                       height={cardH}
                       shadow
