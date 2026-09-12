@@ -57,10 +57,9 @@ import {
   CARD_ASPECT,
 } from '../components/CardGL';
 import { BuyButton } from '../components/BuyButton';
-import { WishlistStar } from '../components/WishlistStar';
 import { PurchaseModal } from '../components/PurchaseModal';
 import { EqBars } from '../components/EqBars';
-import { PreviewIcon } from '../components/icons';
+import { PreviewIcon, StarIcon } from '../components/icons';
 import { useTopInset } from '../lib/safeArea';
 import { PurchaseParticles } from '../components/PurchaseParticles';
 import { PURCHASE, HOME_INTRO, homeCardWidth } from '../constants/design-tokens';
@@ -137,6 +136,7 @@ const C = {
   page: '#0E0C20',
   text: '#ECEEF7',
   sub: '#9498BE',
+  cyan: '#60CEE0',
   badge: '#E0584E',
 } as const;
 
@@ -1186,27 +1186,46 @@ export const DiscoverScreen: React.FC<Props> = ({
           ]}
           pointerEvents="box-none"
         >
-          {/* 下部: 購入ボタン ＋ ウィッシュ星。裏返し中も位置は固定のまま動かさない。 */}
+          {/* 下部: ★ウィッシュ ／ 試聴（スピーカー） ／ 購入するの3手。
+              コレクションの作品詳細と同じ並び・寸法に揃える。
+              所有済みは再生ボタン1つだけ（従来どおり）。裏返し中も位置は動かさない。 */}
           <View style={[styles.bottom, { bottom: BOTTOM_BASE }]} pointerEvents="box-none">
             {(() => {
               const owned = isOwned(active);
+              if (owned) {
+                return <BuyButton owned onPress={handleBuy} />;
+              }
               return (
-                <>
+                <View style={styles.acts}>
+                  <Pressable
+                    style={({ pressed }) => [styles.actStar, pressed && { opacity: 0.85 }]}
+                    hitSlop={6}
+                    accessibilityRole="button"
+                    accessibilityLabel="ウィッシュリスト"
+                    onPress={() => active && toggleWishlist(active.id)}
+                  >
+                    <StarIcon size={17} filled={active ? wishlist.has(active.id) : false} />
+                  </Pressable>
+
+                  {/* 試聴の再生／停止。アイコンは右上の試聴アイコンと同じスピーカー */}
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.actBtn,
+                      isPreviewing && styles.actBtnOn,
+                      pressed && { opacity: 0.85 },
+                    ]}
+                    accessibilityRole="button"
+                    accessibilityLabel="試聴"
+                    onPress={togglePreview}
+                  >
+                    <PreviewIcon size={19} on={isPreviewing} />
+                  </Pressable>
+
                   <BuyButton
-                    owned={owned}
                     priceLabel={active ? purchase?.displayPriceOf(active.id) : undefined}
                     onPress={handleBuy}
                   />
-                  {/* 所有済みでは星を非表示 */}
-                  {!owned && (
-                    <View style={styles.starSlot}>
-                      <WishlistStar
-                        inWishlist={active ? wishlist.has(active.id) : false}
-                        onToggle={() => active && toggleWishlist(active.id)}
-                      />
-                    </View>
-                  )}
-                </>
+                </View>
               );
             })()}
           </View>
@@ -1293,7 +1312,20 @@ const styles = StyleSheet.create({
     position: 'absolute', left: 0, right: 0,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
   },
-  starSlot: { position: 'absolute', left: '50%', marginLeft: 64 + 12 },
+  // ★／試聴／購入の3手（CollectionScreen の作品詳細と同じ寸法・字組）
+  acts: { flexDirection: 'row', gap: 9, alignItems: 'center' },
+  actStar: {
+    width: 42, height: 42, borderRadius: 21,
+    borderWidth: 1, borderColor: 'rgba(96,206,224,0.3)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  actBtn: {
+    paddingVertical: 11, paddingHorizontal: 20, borderRadius: 12,
+    borderWidth: 1, borderColor: 'rgba(96,206,224,0.4)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  // 試聴中は枠を強めて「いま鳴っている」を示す（色は変えない＝シアン一本のまま）
+  actBtnOn: { borderColor: C.cyan, backgroundColor: 'rgba(96,206,224,0.12)' },
 
   transport: {
     paddingVertical: 16, paddingHorizontal: 20, borderRadius: 16,
