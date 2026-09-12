@@ -33,6 +33,7 @@ import { NUM_FONT, JP_SERIF_FONT } from '../constants/fonts';
 import { useT, useI18n, Lang } from '../lib/i18n';
 import { useAuthUser } from '../lib/useAuthUser';
 import { submitInquiry, type InquiryType } from '../lib/submitInquiry';
+import { useQuestionListUrl } from '../lib/remoteConfig';
 import { useTopInset, useBottomInset } from '../lib/safeArea';
 import { CR, CreditsBackdrop } from '../components/CreditsBackdrop';
 
@@ -297,6 +298,9 @@ export const SupportScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const t = useT();
   const { width: screenW, height: screenH } = useWindowDimensions();
   const user = useAuthUser();
+  // よくある質問のリンク先（Remote Config の question_list。運営がFirebase
+  // コンソールから編集する）。取得できるまで／失敗時はデフォルトURLのまま
+  const questionListUrl = useQuestionListUrl();
   const [view, setView] = useState<SupportView>('list');
   const [type, setType] = useState<InquiryType>('bug');
   const [typeOpen, setTypeOpen] = useState(false);
@@ -349,7 +353,7 @@ export const SupportScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
 
           <Pressable
             style={s.row}
-            onPress={() => Linking.openURL('https://fluxring.app/faq').catch(() => {})}
+            onPress={() => Linking.openURL(questionListUrl).catch(() => {})}
           >
             <Text style={s.rowLabel}>{t('support.faq')}</Text>
             <Text style={s.chevron}>›</Text>

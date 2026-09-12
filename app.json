@@ -18,6 +18,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.fluxring.app",
       "usesAppleSignIn": true,
+      "googleServicesFile": "./GoogleService-Info.plist",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "CADisableMinimumFrameDurationOnPhone": false,
@@ -33,6 +34,7 @@
     },
     "android": {
       "package": "com.fluxring.app",
+      "googleServicesFile": "./google-services.json",
       "edgeToEdgeEnabled": true,
       "adaptiveIcon": {
         "foregroundImage": "./icon.png",
@@ -40,6 +42,7 @@
       }
     },
     "plugins": [
+      "@react-native-firebase/app",
       "expo-apple-authentication",
       "expo-iap",
       [
