@@ -947,11 +947,13 @@ const tk = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#05040c' },
   body: { paddingHorizontal: 24, paddingBottom: 96 },
   row: { paddingVertical: 19, borderBottomWidth: 1, borderBottomColor: TK.line },
-  dt: { fontSize: 13, color: TK.sub, letterSpacing: 0.6, marginBottom: 6, fontFamily: JP_SERIF_FONT },
+  // タイトル(項目名)16px・内容13pxの指示により、dt/ddTextの大小関係を入れ替えた
+  dt: { fontSize: 16, color: TK.sub, letterSpacing: 0.6, marginBottom: 6, fontFamily: JP_SERIF_FONT },
   dd: { gap: 4 },
   // 数字が並ぶため EB Garamond（等幅寄りの数字グリフ）を当てる。和文はOSフォールバック。
-  // 視認性向上のため 14 → 16（lineHeight は 1.9 倍のまま）
-  ddText: { fontSize: 16, color: TK.ink, lineHeight: 30.4, fontFamily: NUM_FONT },
+  // 内容は指示により 13。行間は同じ13px向けの note と揃えて22にした
+  // （旧16px向けの30.4のままだと13pxに対して行間が空きすぎるため）
+  ddText: { fontSize: 13, color: TK.ink, lineHeight: 22, fontFamily: NUM_FONT },
   valueLine: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 },
   list: { gap: 2 },
   listItem: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: 6, paddingVertical: 2 },
@@ -1285,9 +1287,11 @@ const s = StyleSheet.create({
     fontFamily: JP_SERIF_FONT,
   },
   docSection: { gap: 6 },
+  // タイトル(見出し)16px・内容(本文)13pxの指示により、見出しはそのまま・本文はここで縮小
   docHeading: { color: COLOR.textPrimary, fontSize: 16, fontWeight: '700', letterSpacing: 0.32, fontFamily: JP_SERIF_FONT },
-  // 視認性向上のため 14 → 16
-  docBody: { color: COLOR.textPrimary, fontSize: 16, lineHeight: 29, letterSpacing: 0.32, fontFamily: JP_SERIF_FONT },
+  // 本文は指示により 16 → 13。行間は tk.note と同じ13px向けの値(22)に合わせた
+  // （16px向けの29のままだと13pxに対して行間が空きすぎるため）
+  docBody: { color: COLOR.textPrimary, fontSize: 13, lineHeight: 22, letterSpacing: 0.32, fontFamily: JP_SERIF_FONT },
   note: { color: COLOR.auraCyan, fontSize: 13, textAlign: 'center', letterSpacing: 0.26, fontFamily: JP_SERIF_FONT },
 
   primaryBtn: {
