@@ -61,6 +61,7 @@ export type PlayerTrack = {
   tuning?: string;           // 調律名（例: '純正律'）
   frequencies?: string[];    // 周波数のみ（例: ['432 Hz', '7.83 Hz']）
   artist?: string;           // 'NAOKI OKA'
+  useCases?: string[];       // 用途タグ（例: ['睡眠', '勉強', '集中力']）
 };
 
 type Props = {
@@ -472,6 +473,7 @@ export const PlayerScreen: React.FC<Props> = ({
               tuning: track.tuning,
               frequencies: track.frequencies,
               artist: track.artist ?? 'NAOKI OKA',
+              useCases: track.useCases,
             }}
           />
         </Animated.View>

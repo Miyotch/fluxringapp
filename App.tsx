@@ -247,6 +247,7 @@ function AppInner() {
         tuning: tr.back?.tuning,
         frequencies: tr.back?.frequencies,
         artist: tr.back?.artist,
+        useCases: tr.back?.useCases,
       })),
     [discoverTracks, ownedTrackIds],
   );

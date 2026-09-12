@@ -26,6 +26,14 @@ import { buyLabel } from '../constants/pricing';
 const str = (v: unknown): string | undefined =>
   typeof v === 'string' && v.trim() !== '' ? v : undefined;
 
+// 用途タグ（tracks/{id}.useCases）。ラベル文字列の配列で保存されている
+// （マスタの use_case コレクションと同じ表記）。想定外の型は落とす。
+function parseUseCases(v: unknown): string[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const tags = v.map(str).filter((s): s is string => !!s);
+  return tags.length > 0 ? tags : undefined;
+}
+
 type ArtistInfo = { name?: string; nameRoman?: string };
 
 function splitTuning(tuning: unknown): { tuningLabel?: string; frequencies?: string[] } {
@@ -106,6 +114,7 @@ export function useTracks(count = 50): Track[] {
                 tuning: tuningLabel,
                 frequencies,
                 artist: artist?.nameRoman?.toUpperCase(),
+                useCases: parseUseCases(data.useCases),
               },
             };
             return track;

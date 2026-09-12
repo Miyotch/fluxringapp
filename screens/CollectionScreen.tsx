@@ -72,6 +72,7 @@ export type CollectionItem = {
     tuning?: string;
     frequencies?: string[];
     artist?: string;
+    useCases?: string[];
   };
 };
 
@@ -381,6 +382,7 @@ export const CollectionScreen: React.FC<Props> = ({
             tuning: detail.back?.tuning,
             frequencies: detail.back?.frequencies,
             artist: detail.back?.artist ?? 'NAOKI OKA',
+            useCases: detail.back?.useCases,
           }
         : undefined,
     [detail],

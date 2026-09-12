@@ -164,6 +164,7 @@ export type Track = {
     tuning?: string;         // 調律名（例: '純正律'）
     frequencies?: string[];  // 周波数のみ（例: ['432 Hz', '7.83 Hz']）
     artist?: string;         // 'NAOKI OKA'
+    useCases?: string[];     // 用途タグ（例: ['睡眠', '勉強', '集中力']）
   };
 };
 
@@ -843,6 +844,7 @@ export const DiscoverScreen: React.FC<Props> = ({
             tuning: active.back?.tuning,
             frequencies: active.back?.frequencies,
             artist: active.back?.artist,
+            useCases: active.back?.useCases,
           }
         : undefined,
     [active],
