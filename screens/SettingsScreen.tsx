@@ -10,13 +10,17 @@
  *   4. 言語
  *   5. サポート
  *   6. 情報              （CREDITS / 利用規約 / プライバシー / 特商法 / バージョン）
- *   7. サインアウト
+ *   7. 背景レイヤー調整  （ホームの星雲・魔法陣の位置/大きさをスライダーで調整）
+ *   8. サインアウト
  *
  * CLAUDE.md の遷移図「アカウント / 購入の復元 → Artistのご紹介 → 言語 / サポート / 情報」
  * と同じ粒度。規約類の4点は 6.情報 の下にまとめ、退会は 1.アカウント の中に置く。
  *
- *   ※ 再生設定・通知設定・テーマ切替・カスタマイズ・EQ は置かない。
+ *   ※ 再生設定・通知設定・テーマ切替・EQ は置かない。
  *   ※ 通知は設定に入れず、ホーム右上のベルへ。
+ *   ※ 2026-09-12: 「7. 背景レイヤー調整」は上の方針の例外として追加した
+ *      （運営がホーム背景の星雲・魔法陣の位置/大きさを実機ビルド無しで
+ *      調整できるようにする、という明示の依頼による）。
  */
 
 import React from 'react';
@@ -43,7 +47,8 @@ export type SettingsKey =
   | 'thanks'
   | 'terms'
   | 'privacy'
-  | 'tokushoho';
+  | 'tokushoho'
+  | 'backgroundLayers';
 
 type Props = {
   onSelect: (key: SettingsKey) => void;
@@ -65,6 +70,7 @@ export const SettingsScreen: React.FC<Props> = ({ onSelect, onSignOut }) => {
     // CREDITS は「情報」の下ではなく、利用規約・プライバシーと同じ扱いで第1階層に置く
     { key: 'thanks', label: t('settings.thanks') },
     { key: 'info', label: t('settings.info') },
+    { key: 'backgroundLayers', label: t('settings.backgroundLayers') },
     { key: 'signout', label: t('settings.signout') },
   ];
 

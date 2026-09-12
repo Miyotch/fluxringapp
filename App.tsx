@@ -42,6 +42,7 @@ import { DiscoverScreen, isTrackOnSale } from './screens/DiscoverScreen';
 import { CollectionScreen, CollectionItem } from './screens/CollectionScreen';
 import { MediaScreen } from './screens/MediaScreen';
 import { SettingsScreen, SettingsKey } from './screens/SettingsScreen';
+import { BackgroundLayersScreen } from './screens/BackgroundLayersScreen';
 import {
   AccountScreen,
   RestoreScreen,
@@ -512,6 +513,8 @@ function AppInner() {
         return <DocumentScreen kind="privacy" onBack={back} />;
       case 'tokushoho':
         return <DocumentScreen kind="tokushoho" onBack={back} />;
+      case 'backgroundLayers':
+        return <BackgroundLayersScreen onBack={back} />;
     }
   }
 

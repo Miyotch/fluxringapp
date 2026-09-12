@@ -65,6 +65,7 @@ import { PurchaseParticles } from '../components/PurchaseParticles';
 import { PURCHASE, HOME_INTRO, homeCardWidth } from '../constants/design-tokens';
 import { formatPrice, TRACK_PRICE_JPY } from '../constants/pricing';
 import { JP_SERIF_FONT } from '../constants/fonts';
+import { useBackgroundLayersConfig } from '../lib/backgroundLayers';
 import type { PurchaseController } from '../lib/usePurchaseFlow';
 
 // ── 表示スイッチ ──────────────────────────────────────────────
@@ -438,6 +439,10 @@ export const DiscoverScreen: React.FC<Props> = ({
   // slideH（画面いっぱい）のままで、位置決めだけこちらを使う。
   const contentH = Math.max(0, slideH - bottomInset);
   const cardCenterY = contentH / 2;
+
+  // 星雲・魔法陣（調律陣）レイヤーの運営調整（設定→背景レイヤー調整のスライダー）。
+  // 既定値(offsetX/Y=0・scale=1)では今の位置・大きさのまま変わらない。
+  const layerAdjust = useBackgroundLayersConfig();
   const cardFrame = useMemo(
     () => ({ width: screenW, height: contentH }),
     [screenW, contentH],
@@ -1020,6 +1025,9 @@ export const DiscoverScreen: React.FC<Props> = ({
             parallaxX={starTravel}
             occluder={sealInk}
             nebulaX={nebSway}
+            nebulaOffsetX={layerAdjust.nebula.offsetX}
+            nebulaOffsetY={layerAdjust.nebula.offsetY}
+            nebulaScale={layerAdjust.nebula.scale}
           />
         </RNAnimated.View>
       )}
@@ -1039,9 +1047,9 @@ export const DiscoverScreen: React.FC<Props> = ({
             <StarSeal
               width={screenW}
               height={slideH}
-              centerX={screenW / 2}
-              centerY={cardCenterY}
-              cardWidth={cardW}
+              centerX={screenW / 2 + layerAdjust.seal.offsetX}
+              centerY={cardCenterY + layerAdjust.seal.offsetY}
+              cardWidth={cardW * layerAdjust.seal.scale}
               paused={cardFlipping}
               style={styles.sealLayer}
               onInkImage={handleSealInk}
