@@ -32,7 +32,7 @@ import { COLOR, SPACE, RADIUS } from '../constants/design-tokens';
 import { NUM_FONT, JP_SERIF_FONT } from '../constants/fonts';
 import { useT, useI18n, Lang } from '../lib/i18n';
 import { useAuthUser } from '../lib/useAuthUser';
-import { submitInquiry } from '../lib/submitInquiry';
+import { submitInquiry, type InquiryType } from '../lib/submitInquiry';
 import { useTopInset, useBottomInset } from '../lib/safeArea';
 import { CR, CreditsBackdrop } from '../components/CreditsBackdrop';
 
@@ -286,13 +286,20 @@ export const LanguageScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => 
 
 type SupportView = 'list' | 'form' | 'sent';
 
+// 問い合わせの種類。表示ラベルは i18n キー経由（lib/i18n.tsx の support.inquiry.type.*）
+const INQUIRY_TYPES: { key: InquiryType; labelKey: string }[] = [
+  { key: 'bug', labelKey: 'support.inquiry.type.bug' },
+  { key: 'billing', labelKey: 'support.inquiry.type.billing' },
+  { key: 'other', labelKey: 'support.inquiry.type.other' },
+];
+
 export const SupportScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const t = useT();
   const { width: screenW, height: screenH } = useWindowDimensions();
   const user = useAuthUser();
   const [view, setView] = useState<SupportView>('list');
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState(user?.email ?? '');
+  const [type, setType] = useState<InquiryType>('bug');
+  const [typeOpen, setTypeOpen] = useState(false);
   const [message, setMessage] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -304,18 +311,19 @@ export const SupportScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       return;
     }
     setError(null);
+    setTypeOpen(false);
     setView('list');
   };
 
   const handleSubmit = async () => {
-    if (!email.trim() || !message.trim()) {
+    if (!message.trim()) {
       setError(t('support.inquiry.error'));
       return;
     }
     setError(null);
     setSubmitting(true);
     try {
-      await submitInquiry({ name, email, message });
+      await submitInquiry({ type, message });
       setView('sent');
     } catch {
       setError(t('support.inquiry.sendError'));
@@ -357,29 +365,51 @@ export const SupportScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           <ScrollView contentContainerStyle={s.body} showsVerticalScrollIndicator={false}>
             <Text style={[s.paragraph, s.supportLead]}>{t('support.inquiry.lead')}</Text>
 
-            <View style={s.formField}>
-              <Text style={s.formLabel}>{t('support.inquiry.name')}</Text>
-              <TextInput
-                style={s.formInput}
-                value={name}
-                onChangeText={setName}
-                placeholder={t('support.inquiry.namePlaceholder')}
-                placeholderTextColor={COLOR.textSecondary}
-              />
-            </View>
+            {/* 送信元メールアドレス（編集不可・アカウントのメールをそのまま表示）。
+                自由入力にすると別人のメールアドレスを騙って送れてしまうため、
+                ログイン中アカウントの値をそのまま使う（lib/submitInquiry.ts 参照） */}
+            {user?.email && (
+              <View style={s.formField}>
+                <Text style={s.formLabel}>{t('support.inquiry.email')}</Text>
+                <View style={[s.formInput, s.formStatic]}>
+                  <Text style={s.formStaticText}>{user.email}</Text>
+                </View>
+              </View>
+            )}
 
             <View style={s.formField}>
-              <Text style={s.formLabel}>{t('support.inquiry.email')}</Text>
-              <TextInput
-                style={s.formInput}
-                value={email}
-                onChangeText={setEmail}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoCorrect={false}
-                placeholder="you@example.com"
-                placeholderTextColor={COLOR.textSecondary}
-              />
+              <Text style={s.formLabel}>{t('support.inquiry.type')}</Text>
+              <Pressable
+                style={[s.formInput, s.formSelect]}
+                onPress={() => setTypeOpen((o) => !o)}
+                accessibilityRole="button"
+                accessibilityLabel={t('support.inquiry.type')}
+              >
+                <Text style={s.formSelectValue}>
+                  {t(INQUIRY_TYPES.find((opt) => opt.key === type)?.labelKey ?? '')}
+                </Text>
+                <Text style={s.formSelectChevron}>{typeOpen ? '︿' : '﹀'}</Text>
+              </Pressable>
+              {typeOpen && (
+                <View style={s.formSelectMenu}>
+                  {INQUIRY_TYPES.map((opt, i) => (
+                    <Pressable
+                      key={opt.key}
+                      style={[
+                        s.formSelectOption,
+                        i === INQUIRY_TYPES.length - 1 && { borderBottomWidth: 0 },
+                      ]}
+                      onPress={() => {
+                        setType(opt.key);
+                        setTypeOpen(false);
+                      }}
+                    >
+                      <Text style={s.rowLabel}>{t(opt.labelKey)}</Text>
+                      {type === opt.key && <Text style={s.check}>✓</Text>}
+                    </Pressable>
+                  ))}
+                </View>
+              )}
             </View>
 
             <View style={s.formField}>
@@ -417,8 +447,17 @@ export const SupportScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           <Text style={[s.paragraph, { textAlign: 'center', marginTop: SPACE.sm }]}>
             {t('support.inquiry.sentMessage')}
           </Text>
-          <Pressable style={[s.primaryBtn, s.sentBtn]} onPress={onBack}>
-            <Text style={s.primaryLabel}>{t('common.close')}</Text>
+          {/* 元の画面（サポート一覧）へ戻れるようにする。設定まで抜けてしまう
+              onBack ではなく、フォームを開く前にいた一覧へ戻す */}
+          <Pressable
+            style={[s.primaryBtn, s.sentBtn]}
+            onPress={() => {
+              setMessage('');
+              setType('bug');
+              setView('list');
+            }}
+          >
+            <Text style={s.primaryLabel}>{t('support.inquiry.backToList')}</Text>
           </Pressable>
         </View>
       )}
@@ -1319,6 +1358,31 @@ const s = StyleSheet.create({
     backgroundColor: 'rgba(34,36,69,0.30)',
   },
   formInputMulti: { height: 140, paddingTop: 12 },
+  // 送信元メールアドレス（編集不可の表示専用行）。枠は formInput と同じにして
+  // フォーム内の見た目を揃えつつ、地色を少し弱めて「編集できない」ことを示す
+  formStatic: { backgroundColor: 'rgba(34,36,69,0.18)' },
+  formStaticText: { color: COLOR.textSecondary, fontSize: 14, fontFamily: JP_SERIF_FONT },
+  // お問い合わせの種類（プルダウン）
+  formSelect: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  formSelectValue: { color: COLOR.textPrimary, fontSize: 14, fontFamily: JP_SERIF_FONT },
+  formSelectChevron: { color: COLOR.textSecondary, fontSize: 12 },
+  formSelectMenu: {
+    marginTop: 6,
+    borderWidth: 1,
+    borderColor: COLOR.border,
+    borderRadius: RADIUS.md,
+    backgroundColor: '#14132a',
+    overflow: 'hidden',
+  },
+  formSelectOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 13,
+    paddingHorizontal: SPACE.md,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: COLOR.border,
+  },
   formError: { color: COLOR.badge, fontSize: 12.5, lineHeight: 19, letterSpacing: 0.24 },
   sentWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: SPACE.xl },
   sentBtn: { alignSelf: 'stretch', marginTop: SPACE.xl },
