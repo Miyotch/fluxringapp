@@ -25,7 +25,9 @@
   },
   "submit": {
     "production": {
-      "ios": {},
+      "ios": {
+        "ascAppId": "6775842241"
+      },
       "android": {
         "serviceAccountKeyPath": "env:EXPO_SERVICE_ACCOUNT_KEY",
         "track": "internal"
