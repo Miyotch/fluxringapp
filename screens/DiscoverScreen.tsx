@@ -42,8 +42,10 @@ import Animated, {
   withSequence,
   withDelay,
   Easing,
+  useReducedMotion,
 } from 'react-native-reanimated';
 import { useIdleFloat } from '../lib/useIdleFloat';
+import { useBackdropClock } from '../lib/usePausableClock';
 import { useAudioPlayer } from 'expo-audio';
 import { previewUrl } from '../lib/r2';
 import { CardFace } from '../components/CardFace';
@@ -51,7 +53,7 @@ import { BackdropSky } from '../components/BackdropSky';
 import { BackdropVeil } from '../components/BackdropVeil';
 import { CardVeil } from '../components/CardVeil';
 import { CardGround } from '../components/CardGround';
-import { StarSeal, type SealInkImage } from '../components/StarSeal';
+import { StarSeal, sealReachPx, type SealInkImage } from '../components/StarSeal';
 import {
   CardGL,
   CARD_ASPECT,
@@ -123,6 +125,15 @@ const STAR_SWIPE_TRAVEL_R = 0.5; // 1 スワイプで流れる量（画面幅比
 // 戻りは目に付かない）。
 const NEB_PARALLAX = 0.22;
 const NEB_RETURN_MS = 1800;
+// ── 待機中の背景の流れ（2026-09-14 代表指示「ホームにもっと没入感を」）──
+// カードは固定のまま、後ろの星・天の川・調律陣を左へゆっくり流し続ける。
+// 横スワイプの流れはこれまでどおりで、その上に足し算で重なる。
+// 速さは近景の星を基準に「1秒で画面幅の何割進むか」。0.025 ＝ 約40秒で画面を横切る。
+const DRIFT_R_PER_S = 0.025;
+// 基準に対する比。星の層ごとの比（遠 0.6 / 中 0.8 / 近 1.0）は StarField の
+// LayerSpec.parallax がそのまま掛かるので、ここは天の川と調律陣だけ。
+const NEB_DRIFT = 0.4; // 天の川はいちばん遠いので遅く
+const SEAL_DRIFT = 1.0; // 調律陣は星を手前で削っている＝近景の星と同じ速さ
 // 参照 2999行: card.style.transform ... scale(1 - press*.035)
 const CARD_PRESS_SCALE = 0.035;
 // 参照 2995行: 指が 7px 動いたら「押した」を取り消す（＝スワイプの入り口）
@@ -528,12 +539,6 @@ export const DiscoverScreen: React.FC<Props> = ({
    * 購入演出など別の用途で使う余地を残して値だけ置いてある。
    */
   const landFade = useSharedValue(1);
-  /**
-   * 星の平面の横ずれ(px)。offsetX は札を送っても 0 へ戻らない連続量なので、
-   * そこへ係数を掛けるだけで「溜まって戻らない」流れになる。
-   * BackdropSky が画面幅の余りへ畳んで Skia の transform で消費する。
-   */
-  const starTravel = useDerivedValue(() => offsetX.value * starK, [offsetX, starK]);
   /** 天の川の横揺れ(px)。有界で、着地後に 0 へ戻る */
   const nebSway = useSharedValue(0);
   /** ジェスチャ開始時の nebSway（戻り途中に触られても飛ばないよう原点にする） */
@@ -621,6 +626,43 @@ export const DiscoverScreen: React.FC<Props> = ({
     },
     [],
   );
+
+  // ── 待機中の背景の流れ ────────────────────────────────────
+  // 時計は調律陣と同じ条件で止める（裏返している間・アプリが背面・視差を減らす設定）。
+  // 横スワイプ中は止めない。裏面を開いている間は背景が幕で沈んでいるので、
+  // 流れを止めても目に付かず、発熱対策の効きどころは残る。
+  // 時計は動いていた時間だけを積むので、表へ戻したときに位置が飛ばない。
+  const reduceMotion = useReducedMotion();
+  const { clock: driftClock } = useBackdropClock(cardFlipping || reduceMotion);
+  /** 近景の星が 1ms で流れる量(px) */
+  const driftK = (screenW * DRIFT_R_PER_S) / 1000;
+  /**
+   * 星の平面の横ずれ(px)。offsetX は札を送っても 0 へ戻らない連続量なので、
+   * そこへ係数を掛けるだけで「溜まって戻らない」流れになる。待機中の流れは
+   * そこから引く（負＝左）。BackdropSky が画面幅の余りへ畳んで Skia の
+   * transform で消費する。
+   */
+  const starTravel = useDerivedValue(
+    () => offsetX.value * starK - driftClock.value * driftK,
+    [offsetX, starK, driftClock, driftK],
+  );
+  /** 天の川の横ずれ(px)。スワイプの揺れ（着地後に 0 へ戻る）＋待機中の流れ */
+  const nebTravel = useDerivedValue(
+    () => nebSway.value - driftClock.value * driftK * NEB_DRIFT,
+    [nebSway, driftClock, driftK],
+  );
+  // 調律陣の横ずれ(px)。陣は一枚絵なので周期タイルにはできない。中心が
+  // [-reach, W+reach) を一周するように畳み、左で抜けきった瞬間に右の外
+  // （こちらも完全に画面外）へ戻す＝巻き戻しは見えない。
+  // 陣は画面幅の 2.7 倍ほどあるので、一周は iPhone 15 でおよそ 150 秒。
+  const sealReach = sealReachPx(cardW * layerAdjust.seal.scale);
+  const sealCx = screenW / 2 + layerAdjust.seal.offsetX;
+  const sealTravel = useDerivedValue(() => {
+    const period = screenW + 2 * sealReach;
+    const x = sealCx - driftClock.value * driftK * SEAL_DRIFT;
+    const m = (((x + sealReach) % period) + period) % period;
+    return m - sealReach - sealCx;
+  }, [driftClock, driftK, sealReach, sealCx, screenW]);
   // 試聴プレイヤー（30秒・公開URL）
   const preview = useAudioPlayer();
 
@@ -1042,7 +1084,8 @@ export const DiscoverScreen: React.FC<Props> = ({
             paused={cardSpinning}
             parallaxX={starTravel}
             occluder={sealInk}
-            nebulaX={nebSway}
+            occluderX={sealTravel}
+            nebulaX={nebTravel}
             nebulaOffsetX={layerAdjust.nebula.offsetX}
             nebulaOffsetY={layerAdjust.nebula.offsetY}
             nebulaScale={layerAdjust.nebula.scale}
@@ -1071,6 +1114,7 @@ export const DiscoverScreen: React.FC<Props> = ({
               paused={cardFlipping}
               style={styles.sealLayer}
               onInkImage={handleSealInk}
+              shiftX={sealTravel}
             />
           </RNAnimated.View>
         </RNAnimated.View>
