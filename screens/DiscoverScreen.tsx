@@ -106,28 +106,20 @@ const CAR_LAND_MS = 200; // ※ 現在は未使用（着地の暗転そのもの
 const CAR_AXIS = 6;          // 軸判定＝タップ境界（参照 moved の 6px）
 const CAR_DT_MAX = 0.05;     // 1フレームで進める上限（秒）
 
-// ── 宇宙空間の手ざわり（参照 fr_v98_FIX-cardaction.html の cardaction-controller）──
-// 星の平面の追従率。溜めた量は **戻さない**ので、スワイプを重ねるほど星空は
-// 一方向へ流れ続ける。平面は周期 W のタイル（StarField.buildLayers の repeatX）
-// なので、溜まった量が画面幅を越えても継ぎ目は出ない。
+// ── 宇宙空間の手ざわり（2026-09-15 代表指示）─────────────────────
+// 「宇宙を漂っているカード」と「カードを動かしたとき宇宙を移動している感覚」。
+// カードを横へ動かすと、カード以外の背景（星・天の川・調律陣）がカードと同じ速さで
+// 一緒に動く。動いた量は **戻さない**。offsetX は札を送っても 0 へ戻らない連続量
+// なので、そのまま足せばスワイプを重ねるほど背景は流れたままになる。星・天の川は
+// 周期 W のタイル、調律陣は画面外で巻き戻すので、どれだけ溜まっても継ぎ目は出ない。
 //
-// 参照の実効値は 0.168（1 スワイプ＝約 60px）だったが、実機ではほとんど動いて
-// 見えなかった。岡さんの「1→2 で星の場所が変わり、2→3 で 1 の状態へ戻る」に
-// 合わせ、**1 スワイプ＝画面幅の半分**にする。ちょうど 2 スワイプで平面が
-// 一周（＝元の絵）へ戻り、しかも周期タイルなので継ぎ目は出ない。
-// 追従率は端末ごとに STEP から逆算する（下の carGeo.starK）。
-const STAR_SWIPE_TRAVEL_R = 0.5; // 1 スワイプで流れる量（画面幅比・近景の星）
-// 天の川（雲＋星520）の横揺れ。近景の星の移動量に対する比。
-// 2026-09-07 岡さん指摘: 天の川の星 520 個と調律陣の点列が動かず、散らばった星 479 個
-// だけが流れるので「星の板が描き割りの上を滑る」ように見えていた。天の川も同じ
-// 向きへ小さく動かして、空全体を 1 つの奥行きにする。1 スワイプで 0.22×0.5W ≒ 120px。
-// 斜めの帯は無限に繋げられないので、着地後にゆっくり 0 へ戻す（雲は柔らかいので
-// 戻りは目に付かない）。
-const NEB_PARALLAX = 0.22;
-const NEB_RETURN_MS = 1800;
+// 以前は 1 スワイプ＝画面幅の半分だけ星を流し、天の川は小さく揺らして着地後に
+// 0 へ戻していた（2026-09-07）。戻る動きは不要との指示で廃止した。
+// 1 = カードと同じ速さ。層ごとの速度比は掛けない（全層がカードに付いて動く）。
+const SWIPE_FOLLOW = 1.0;
 // ── 待機中の背景の流れ（2026-09-14 代表指示「ホームにもっと没入感を」）──
 // カードは固定のまま、後ろの星・天の川・調律陣を左へゆっくり流し続ける。
-// 横スワイプの流れはこれまでどおりで、その上に足し算で重なる。
+// カードに付いて動く量（SWIPE_FOLLOW）とは足し算で重なる。
 // 速さは近景の星を基準に「1秒で画面幅の何割進むか」。0.025 ＝ 約40秒で画面を横切る。
 const DRIFT_R_PER_S = 0.025;
 // 基準に対する比。星の層ごとの比（遠 0.6 / 中 0.8 / 近 1.0）は StarField の
@@ -495,9 +487,6 @@ export const DiscoverScreen: React.FC<Props> = ({
   );
   // 出ていく札が消えきる距離＝隣のスロットまでの距離。中央が空く時間をなくす
   const carFade = carGeo.step;
-  // 1 スワイプ（＝札1枚ぶんの移動 STEP）でちょうど画面幅の半分だけ星を流す
-  const starK = carGeo.step > 0 ? (screenW * STAR_SWIPE_TRAVEL_R) / carGeo.step : 0;
-  const nebK = starK * NEB_PARALLAX;
   /** カードの横位置(px)。指に 1:1 で追従し、離すと 0 か ±STEP へ寄る */
   const offsetX = useSharedValue(0);
   const carTarget = useSharedValue(0);
@@ -539,10 +528,6 @@ export const DiscoverScreen: React.FC<Props> = ({
    * 購入演出など別の用途で使う余地を残して値だけ置いてある。
    */
   const landFade = useSharedValue(1);
-  /** 天の川の横揺れ(px)。有界で、着地後に 0 へ戻る */
-  const nebSway = useSharedValue(0);
-  /** ジェスチャ開始時の nebSway（戻り途中に触られても飛ばないよう原点にする） */
-  const nebStart = useSharedValue(0);
   /** 0..1 のカードの押し込み量（参照 state.press） */
   const cardPress = useSharedValue(0);
 
@@ -637,19 +622,19 @@ export const DiscoverScreen: React.FC<Props> = ({
   /** 近景の星が 1ms で流れる量(px) */
   const driftK = (screenW * DRIFT_R_PER_S) / 1000;
   /**
-   * 星の平面の横ずれ(px)。offsetX は札を送っても 0 へ戻らない連続量なので、
-   * そこへ係数を掛けるだけで「溜まって戻らない」流れになる。待機中の流れは
-   * そこから引く（負＝左）。BackdropSky が画面幅の余りへ畳んで Skia の
-   * transform で消費する。
+   * 星の平面の待機中の流れ(px・負＝左)。層ごとの速度比（遠 0.6 / 中 0.8 / 近 1.0）は
+   * BackdropSky が掛ける。画面幅の余りへ畳んで Skia の transform で消費する。
    */
-  const starTravel = useDerivedValue(
-    () => offsetX.value * starK - driftClock.value * driftK,
-    [offsetX, starK, driftClock, driftK],
-  );
-  /** 天の川の横ずれ(px)。スワイプの揺れ（着地後に 0 へ戻る）＋待機中の流れ */
+  const starDrift = useDerivedValue(() => -driftClock.value * driftK, [driftClock, driftK]);
+  /**
+   * カードに付いて動く量(px)。offsetX は札を送っても 0 へ戻らない連続量なので、
+   * そのまま使えば「動いたまま戻らない」になる。層の速度比は掛けない。
+   */
+  const cardFollow = useDerivedValue(() => offsetX.value * SWIPE_FOLLOW, [offsetX]);
+  /** 天の川の横ずれ(px)。カードに付いて動く量＋待機中の流れ */
   const nebTravel = useDerivedValue(
-    () => nebSway.value - driftClock.value * driftK * NEB_DRIFT,
-    [nebSway, driftClock, driftK],
+    () => offsetX.value * SWIPE_FOLLOW - driftClock.value * driftK * NEB_DRIFT,
+    [offsetX, driftClock, driftK],
   );
   // 調律陣の横ずれ(px)。陣は一枚絵なので周期タイルにはできない。中心が
   // [-reach, W+reach) を一周するように畳み、左で抜けきった瞬間に右の外
@@ -659,10 +644,11 @@ export const DiscoverScreen: React.FC<Props> = ({
   const sealCx = screenW / 2 + layerAdjust.seal.offsetX;
   const sealTravel = useDerivedValue(() => {
     const period = screenW + 2 * sealReach;
-    const x = sealCx - driftClock.value * driftK * SEAL_DRIFT;
+    // カードに付いて動く量＋待機中の流れ（天の川・星と同じ足し方）
+    const x = sealCx + offsetX.value * SWIPE_FOLLOW - driftClock.value * driftK * SEAL_DRIFT;
     const m = (((x + sealReach) % period) + period) % period;
     return m - sealReach - sealCx;
-  }, [driftClock, driftK, sealReach, sealCx, screenW]);
+  }, [offsetX, driftClock, driftK, sealReach, sealCx, screenW]);
   // 試聴プレイヤー（30秒・公開URL）
   const preview = useAudioPlayer();
 
@@ -731,23 +717,17 @@ export const DiscoverScreen: React.FC<Props> = ({
       // 参照は 0.22/frame 固定。120Hz 端末で 2 倍速にならないよう時間で補正する
       const k = 1 - Math.pow(1 - CAR_LERP, dt * 60);
       offsetX.value += (carTarget.value - offsetX.value) * k;
-      nebSway.value = nebStart.value + (offsetX.value - gestureStart.value) * nebK;
       if (Math.abs(offsetX.value - carTarget.value) < CAR_SETTLE) {
         const dir = pendingDir.value;
         // 端数だけ消す。原点（baseShift）を送るのは finishCarousel の仕事で、
-        // offsetX 自体はここから先も一切動かさない（星の流れも据え置きになる）。
+        // offsetX 自体はここから先も一切動かさない（背景も動いた位置のまま据え置き）。
         offsetX.value = carTarget.value;
         pendingDir.value = 0;
         settling.value = 1;
-        // 天の川は星と違って無限に繋げられないので、着地後にゆっくり元へ戻す
-        nebSway.value = withTiming(0, {
-          duration: NEB_RETURN_MS,
-          easing: Easing.out(Easing.cubic),
-        });
         runOnJS(finishCarousel)(dir);
       }
     },
-    [finishCarousel, offsetX, carTarget, pendingDir, settling, nebSway, nebStart, gestureStart, nebK],
+    [finishCarousel, offsetX, carTarget, pendingDir, settling],
   );
 
   const carFrame = useFrameCallback(carTick, false);
@@ -773,7 +753,6 @@ export const DiscoverScreen: React.FC<Props> = ({
           if (claimed.value) scrolling.value = 1;
           // 指の移動量はここを原点にする（見た目 0 ＝ offsetX が baseShift のとき）
           gestureStart.value = offsetX.value;
-          nebStart.value = nebSway.value;
           // 参照 2993行: card への pointerdown で pressTo=1。ステージ全面ではなく
           // カードの矩形に触れたときだけ沈める（周りの余白を押しても反応しない）。
           if (
@@ -789,7 +768,6 @@ export const DiscoverScreen: React.FC<Props> = ({
           if (!claimed.value) return;
           // 参照 move(): 見た目の位置＝指の移動量そのまま（1:1・上限なし）
           offsetX.value = gestureStart.value + e.translationX;
-          nebSway.value = nebStart.value + e.translationX * nebK;
           // 参照 2995行: 7px 動いたら「押した」を取り消す
           if (
             Math.abs(e.translationX) > CARD_PRESS_SLOP ||
@@ -797,7 +775,7 @@ export const DiscoverScreen: React.FC<Props> = ({
           ) {
             cardPress.value = withTiming(0, { duration: 160, easing: Easing.out(Easing.quad) });
           }
-          // 星は offsetX に比例して流れる（starTravel が派生で追随する）
+          // 背景は offsetX にそのまま付いて動く（cardFollow / nebTravel / sealTravel が派生で追随する）
         })
         .onEnd((e) => {
           'worklet';
@@ -837,9 +815,6 @@ export const DiscoverScreen: React.FC<Props> = ({
       startCarousel,
       offsetX,
       gestureStart,
-      nebSway,
-      nebStart,
-      nebK,
       cardPress,
       screenW,
       cardW,
@@ -1082,7 +1057,8 @@ export const DiscoverScreen: React.FC<Props> = ({
             width={screenW}
             height={slideH}
             paused={cardSpinning}
-            parallaxX={starTravel}
+            parallaxX={starDrift}
+            followX={cardFollow}
             occluder={sealInk}
             occluderX={sealTravel}
             nebulaX={nebTravel}

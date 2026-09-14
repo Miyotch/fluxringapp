@@ -288,6 +288,7 @@ export type BackdropSkyProps = {
   paused?: boolean;
   /**
    * 星の平面だけを横へずらす、**溜め込んだ**移動量(px)。符号つき・上限なし。
+   * 層ごとの速度比（LayerSpec.parallax）を掛けて使う。ホームでは待機中の流れ。
    * 地色と天の川は動かさない（参照 animateBG は #bgstars だけを translate する）。
    *
    * 画面幅 W で割った余りへ畳んでから使う。星の平面は周期 W のタイルなので、
@@ -300,6 +301,12 @@ export type BackdropSkyProps = {
    */
   parallaxX?: SharedValue<number>;
   /**
+   * 星の平面をカードに付けて動かす量(px)。符号つき・上限なし（2026-09-15）。
+   * 層の速度比は **掛けず**、3 層とも同じだけ parallaxX の流れへ足す＝カードと
+   * 同じ速さで一緒に動く。parallaxX を渡したとき（周期タイル）だけ効く。
+   */
+  followX?: SharedValue<number>;
+  /**
    * 調律陣の彫刻シルエット。星の平面からこの形を dstOut で抜き、星が彫刻の
    * 後ろへ回って見えるようにする（components/StaticStars.tsx の SealOccluder）。
    * 地色・天の川の Canvas には **絶対に入れない**（不透明な塗りがあるため、
@@ -308,7 +315,7 @@ export type BackdropSkyProps = {
   occluder?: SealInkImage;
   /**
    * 天の川（雲＋星520）の横ずれ(px)。符号つき・上限なし（2026-09-14 から）。
-   * 星の平面と同じ向きに、ずっと小さく動かす（2026-09-07）。雲と星を 1 つの組と
+   * ホームではカードに付いて動く量＋待機中の流れ（2026-09-15）。雲と星を 1 つの組と
    * して動かすため、星が帯から抜け出すことはない。
    *
    * これを渡すと天の川を周期 W のタイル（雲・星とも x-W / x / x+W の 3 組）にして、
@@ -335,17 +342,21 @@ export type BackdropSkyProps = {
   nebulaScale?: number;
 };
 
-/** 星 1 層ぶんの横ずらし。溜まった移動量 × 層の速度比を W の余りへ畳む */
+/**
+ * 星 1 層ぶんの横ずらし。溜まった移動量 × 層の速度比に、カードに付いて動く量
+ * （比を掛けない）を足して W の余りへ畳む
+ */
 function useLayerShift(
   parallaxX: SharedValue<number> | undefined,
   W: number,
   rate: number,
+  followX: SharedValue<number> | undefined,
 ): SharedValue<Transforms3d> {
   return useDerivedValue<Transforms3d>(() => {
     if (!parallaxX || W <= 0) return [{ translateX: 0 }];
-    const m = (parallaxX.value * rate) % W;
+    const m = (parallaxX.value * rate + (followX ? followX.value : 0)) % W;
     return [{ translateX: (m < 0 ? m + W : m) - W }];
-  }, [parallaxX, W, rate]);
+  }, [parallaxX, W, rate, followX]);
 }
 
 const BackdropSkyImpl: React.FC<BackdropSkyProps> = ({
@@ -353,6 +364,7 @@ const BackdropSkyImpl: React.FC<BackdropSkyProps> = ({
   height: H,
   paused = false,
   parallaxX,
+  followX,
   occluder,
   occluderX,
   nebulaX,
@@ -519,12 +531,13 @@ const BackdropSkyImpl: React.FC<BackdropSkyProps> = ({
   // 層ごとに速度比（LayerSpec.parallax: 遠 0.6 / 中 0.8 / 近 1.0）を掛けて別々に
   // 畳む。近くの明るい星は速く、遠くの淡い星はゆっくり流れ、空が「板」ではなく
   // 奥行きを持つ。層の数は StarField.LAYERS で固定（3）なのでフックも 3 本固定。
+  // カードに付いて動く量（followX）だけは比を掛けず、3 層とも同じだけ動かす。
   const rate0 = split[0]?.spec.parallax ?? 1;
   const rate1 = split[1]?.spec.parallax ?? 1;
   const rate2 = split[2]?.spec.parallax ?? 1;
-  const shift0 = useLayerShift(parallaxX, W, rate0);
-  const shift1 = useLayerShift(parallaxX, W, rate1);
-  const shift2 = useLayerShift(parallaxX, W, rate2);
+  const shift0 = useLayerShift(parallaxX, W, rate0, followX);
+  const shift1 = useLayerShift(parallaxX, W, rate1, followX);
+  const shift2 = useLayerShift(parallaxX, W, rate2, followX);
   const starShifts = useMemo(() => [shift0, shift1, shift2], [shift0, shift1, shift2]);
 
 
