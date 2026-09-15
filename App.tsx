@@ -201,8 +201,15 @@ function AppInner() {
   // 曲は販売期間を過ぎていてもホームから消さない（買った作品が急に見えなくなるのを防ぐ）。
   // コレクション側（ownedItems/wishlistItems/allWorkItems/playerTracks）は
   // discoverTracks をそのまま使う＝販売期間に関わらずカタログ全体を扱う。
+  //
+  // 作品画像（artworkUrl）が空の曲はホームに出さない（2026-09-15 代表決定）。
+  // 登録途中の曲（例: 日没）が混ざると、隣の札が黒い半透明の板になり、中央には
+  // 前の札の絵が残り、起動直後は灰色の無地になっていた。画像が登録されれば自動で並ぶ。
   const homeTracks = useMemo(
-    () => discoverTracks.filter((t) => isTrackOnSale(t) || ownedTrackIds.has(t.id)),
+    () =>
+      discoverTracks.filter(
+        (t) => !!t.artworkUrl && (isTrackOnSale(t) || ownedTrackIds.has(t.id)),
+      ),
     [discoverTracks, ownedTrackIds],
   );
 

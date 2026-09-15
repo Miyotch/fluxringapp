@@ -43,7 +43,16 @@
  */
 
 import React, { useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { View, Image, Pressable, PanResponder, StyleSheet, StyleProp, ViewStyle } from 'react-native';
+import {
+  View,
+  Image,
+  Pressable,
+  PanResponder,
+  StyleSheet,
+  StyleProp,
+  ViewStyle,
+  type GestureResponderEvent,
+} from 'react-native';
 import { Canvas, useFrame, useThree } from '@react-three/fiber/native';
 import * as THREE from 'three';
 import { TextureLoader } from 'expo-three';
@@ -147,6 +156,9 @@ const CARD_RETURN_STIFFNESS = 2.0;
 // タップ判定のしきい値（|dx|+|dy| px）。4px では指の微動でドラッグ扱いになり
 // タップで戻れないことがあったため 16px まで広げてある。
 const TAP_SLOP = 16;
+// タップとみなす押してから離すまでの距離（px・参照 up() の tapDist<10）。
+// 表面の Pressable も裏面の PanResponder もこれで判定する。
+const TAP_DIST = 10;
 
 // ── 購入トランジション「シアンの呼吸」（DESIGN.md PURCHASE） ──
 // box-shadow: 0 0 66px 16px rgba(120,232,255,.78)
@@ -888,6 +900,8 @@ export const CardGL: React.FC<CardGLProps> = ({
   const wrapRef = useRef<View>(null);
   const wrapOrigin = useRef({ x: 0, y: 0 });
   const tapPos = useRef({ x: 0, y: 0 });
+  // 表面 Pressable の押し始め（page 座標）。離した位置との距離でタップか決める
+  const pressStart = useRef({ x: 0, y: 0 });
   const measureWrap = () => {
     wrapRef.current?.measureInWindow((x, y) => {
       wrapOrigin.current = { x, y };
@@ -1143,7 +1157,7 @@ export const CardGL: React.FC<CardGLProps> = ({
           // タップ判定は参照 up() と同じユークリッド距離 <10px（1877行 tapDist<10）。
           // 以前の |dx|+|dy|>4 は実機の指ブレで超えやすく、裏面で「タップしたのに
           // ドラッグ扱いになり正面へ戻れない」原因だった。
-          const isTap = Math.hypot(g.dx, g.dy) < 10;
+          const isTap = Math.hypot(g.dx, g.dy) < TAP_DIST;
           if (isTap && isFlip) {
             // 参照 up(): tapDist<10 かつ mode==='open' のときだけ反応する。
             // closing 中とカルーセル整定中は無視（＝再オープンに化けない）。
@@ -1324,7 +1338,21 @@ export const CardGL: React.FC<CardGLProps> = ({
           RN Image は即時表示されるため、GL テクスチャ生成待ちの無地も隠れる */}
       {isFlip && overlayVisible && (
         <Animated.View style={[StyleSheet.absoluteFill, overlayStyle]}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={flipToBack}>
+          {/* Pressable の onPress は指がカードの矩形内で離れれば、どれだけ動いても
+              発火する。横スワイプが縦ブレでカルーセルに取られなかったとき、その
+              スワイプが「タップ」になって裏返っていた（2026-09-15）。
+              押した位置から TAP_DIST 以上動いたものは裏返さない。 */}
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPressIn={(e: GestureResponderEvent) => {
+              pressStart.current = { x: e.nativeEvent.pageX, y: e.nativeEvent.pageY };
+            }}
+            onPress={(e: GestureResponderEvent) => {
+              const dx = e.nativeEvent.pageX - pressStart.current.x;
+              const dy = e.nativeEvent.pageY - pressStart.current.y;
+              if (Math.hypot(dx, dy) < TAP_DIST) flipToBack();
+            }}
+          >
             {/* いま出す絵と、隣の札の絵を重ねて載せる。見えるのは shownUri の1枚だけで、
                 残りは opacity 0 のまま先に読み込ませておく。札が入れ替わっても
                 ビューは作り直されないので、不透明度が入れ替わるだけで済む。 */}

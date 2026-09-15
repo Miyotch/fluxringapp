@@ -104,6 +104,10 @@ const CAR_SETTLE = 0.8;      // 整定しきい値 px（参照 |dragX-carTarget|
 // 200ms で完全に戻る＝目には「沈まずにそのまま入れ替わる」ようにする。
 const CAR_LAND_MS = 200; // ※ 現在は未使用（着地の暗転そのものを廃止した）
 const CAR_AXIS = 6;          // 軸判定＝タップ境界（参照 moved の 6px）
+// 縦にこれだけ先行したらスワイプを諦める（2026-09-15 に 6 → 24）。
+// 6px だと親指の弧で縦に先にブレただけで失敗し、指はカードの Pressable に残って
+// 離した瞬間に「タップ」＝裏返しになっていた。ホームには縦の操作が無いので緩めてよい。
+const CAR_FAIL_Y = 24;
 const CAR_DT_MAX = 0.05;     // 1フレームで進める上限（秒）
 
 // ── 宇宙空間の手ざわり（2026-09-15 代表指示）─────────────────────
@@ -729,14 +733,14 @@ export const DiscoverScreen: React.FC<Props> = ({
 
   // ── ジェスチャ（参照 down/move/up = 722-728行）────────────────────
   //   ・6px 動くまで活性化しない＝タップは CardGL 側のフリップへ通る
-  //   ・縦に 6px 先行したら失敗（参照の |ax|>=|ay| 軸判定に相当）
+  //   ・縦に CAR_FAIL_Y 先行したら失敗（参照の |ax|>=|ay| 軸判定を親指の弧ぶん緩めたもの）
   //   ・裏面では丸ごと無効（参照 aProg<0.5 の条件）
   const carouselGesture = useMemo(
     () =>
       Gesture.Pan()
         .enabled(!flipped)
         .activeOffsetX([-CAR_AXIS, CAR_AXIS])
-        .failOffsetY([-CAR_AXIS, CAR_AXIS])
+        .failOffsetY([-CAR_FAIL_Y, CAR_FAIL_Y])
         .onBegin((e) => {
           'worklet';
           // 参照 down(): 送りアニメ中と裏返し中は操作権を渡さない
@@ -857,6 +861,19 @@ export const DiscoverScreen: React.FC<Props> = ({
 
   const prevTrack = tracks[(((activeIndex - 1) % count) + count) % count];
   const nextTrack = tracks[(((activeIndex + 1) % count) + count) % count];
+  const prev2Track = tracks[(((activeIndex - 2) % count) + count) % count];
+  const next2Track = tracks[(((activeIndex + 2) % count) + count) % count];
+  // 隣の札に先に載せておく絵。札を送ると、左の札は「いまの札」か「2つ前」に、
+  // 右の札は「いまの札」か「2つ後」に変わるので、その絵を読み込み済みにしておく
+  // （components/CardFace.tsx の layerUris）。
+  const peekLUris = useMemo(
+    () => [prev2Track?.artworkUrl, active?.artworkUrl].filter(Boolean) as string[],
+    [prev2Track?.artworkUrl, active?.artworkUrl],
+  );
+  const peekRUris = useMemo(
+    () => [next2Track?.artworkUrl, active?.artworkUrl].filter(Boolean) as string[],
+    [next2Track?.artworkUrl, active?.artworkUrl],
+  );
 
   // 中央の札へ、隣の札の絵も先に渡しておく。CardGL 側が不透明度 0 で重ねて
   // 読み込んでおくので、札が入れ替わっても表面の絵の読み込み待ちが出ない
@@ -1151,10 +1168,20 @@ export const DiscoverScreen: React.FC<Props> = ({
                 <View style={[styles.slot, baseStyle]} pointerEvents="none">
                   <Animated.View style={[styles.slot, peekVisible]} pointerEvents="none">
                     <Animated.View style={[styles.slot, peekLStyle]} pointerEvents="none">
-                      <CardFace uri={prevTrack.artworkUrl} width={cardW} height={cardH} />
+                      <CardFace
+                        uri={prevTrack.artworkUrl}
+                        layerUris={peekLUris}
+                        width={cardW}
+                        height={cardH}
+                      />
                     </Animated.View>
                     <Animated.View style={[styles.slot, peekRStyle]} pointerEvents="none">
-                      <CardFace uri={nextTrack.artworkUrl} width={cardW} height={cardH} />
+                      <CardFace
+                        uri={nextTrack.artworkUrl}
+                        layerUris={peekRUris}
+                        width={cardW}
+                        height={cardH}
+                      />
                     </Animated.View>
                   </Animated.View>
                 </View>
