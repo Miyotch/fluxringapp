@@ -53,7 +53,7 @@ import { BackdropSky } from '../components/BackdropSky';
 import { BackdropVeil } from '../components/BackdropVeil';
 import { CardVeil } from '../components/CardVeil';
 import { CardGround } from '../components/CardGround';
-import { StarSeal, sealReachPx, type SealInkImage } from '../components/StarSeal';
+import { StarSeal, type SealInkImage } from '../components/StarSeal';
 import {
   CardGL,
   CARD_ASPECT,
@@ -108,24 +108,26 @@ const CAR_DT_MAX = 0.05;     // 1フレームで進める上限（秒）
 
 // ── 宇宙空間の手ざわり（2026-09-15 代表指示）─────────────────────
 // 「宇宙を漂っているカード」と「カードを動かしたとき宇宙を移動している感覚」。
-// カードを横へ動かすと、カード以外の背景（星・天の川・調律陣）がカードと同じ速さで
-// 一緒に動く。動いた量は **戻さない**。offsetX は札を送っても 0 へ戻らない連続量
-// なので、そのまま足せばスワイプを重ねるほど背景は流れたままになる。星・天の川は
-// 周期 W のタイル、調律陣は画面外で巻き戻すので、どれだけ溜まっても継ぎ目は出ない。
+// カードを横へ動かすと、星・天の川がカードと同じ向きに一緒に動く。動いた量は
+// **戻さない**。offsetX は札を送っても 0 へ戻らない連続量なので、そのまま足せば
+// スワイプを重ねるほど背景は流れたままになる。星・天の川は周期 W のタイルなので、
+// どれだけ溜まっても継ぎ目は出ない。
+//
+// 調律陣は **固定**（スワイプにも待機中の流れにも付けない。2026-09-15 修正）。
 //
 // 以前は 1 スワイプ＝画面幅の半分だけ星を流し、天の川は小さく揺らして着地後に
 // 0 へ戻していた（2026-09-07）。戻る動きは不要との指示で廃止した。
-// 1 = カードと同じ速さ。層ごとの速度比は掛けない（全層がカードに付いて動く）。
-const SWIPE_FOLLOW = 1.0;
+// カードの移動量に対する比。0.1 = カードの 1/10（2026-09-15 修正。当初は 1.0）。
+// 層ごとの速度比は掛けない（星 3 層と天の川が同じだけ動く）。
+const SWIPE_FOLLOW = 0.1;
 // ── 待機中の背景の流れ（2026-09-14 代表指示「ホームにもっと没入感を」）──
-// カードは固定のまま、後ろの星・天の川・調律陣を左へゆっくり流し続ける。
+// カードと調律陣は固定のまま、後ろの星・天の川を左へゆっくり流し続ける。
 // カードに付いて動く量（SWIPE_FOLLOW）とは足し算で重なる。
 // 速さは近景の星を基準に「1秒で画面幅の何割進むか」。0.025 ＝ 約40秒で画面を横切る。
 const DRIFT_R_PER_S = 0.025;
 // 基準に対する比。星の層ごとの比（遠 0.6 / 中 0.8 / 近 1.0）は StarField の
-// LayerSpec.parallax がそのまま掛かるので、ここは天の川と調律陣だけ。
+// LayerSpec.parallax がそのまま掛かるので、ここは天の川だけ。
 const NEB_DRIFT = 0.4; // 天の川はいちばん遠いので遅く
-const SEAL_DRIFT = 1.0; // 調律陣は星を手前で削っている＝近景の星と同じ速さ
 // 参照 2999行: card.style.transform ... scale(1 - press*.035)
 const CARD_PRESS_SCALE = 0.035;
 // 参照 2995行: 指が 7px 動いたら「押した」を取り消す（＝スワイプの入り口）
@@ -636,19 +638,8 @@ export const DiscoverScreen: React.FC<Props> = ({
     () => offsetX.value * SWIPE_FOLLOW - driftClock.value * driftK * NEB_DRIFT,
     [offsetX, driftClock, driftK],
   );
-  // 調律陣の横ずれ(px)。陣は一枚絵なので周期タイルにはできない。中心が
-  // [-reach, W+reach) を一周するように畳み、左で抜けきった瞬間に右の外
-  // （こちらも完全に画面外）へ戻す＝巻き戻しは見えない。
-  // 陣は画面幅の 2.7 倍ほどあるので、一周は iPhone 15 でおよそ 150 秒。
-  const sealReach = sealReachPx(cardW * layerAdjust.seal.scale);
-  const sealCx = screenW / 2 + layerAdjust.seal.offsetX;
-  const sealTravel = useDerivedValue(() => {
-    const period = screenW + 2 * sealReach;
-    // カードに付いて動く量＋待機中の流れ（天の川・星と同じ足し方）
-    const x = sealCx + offsetX.value * SWIPE_FOLLOW - driftClock.value * driftK * SEAL_DRIFT;
-    const m = (((x + sealReach) % period) + period) % period;
-    return m - sealReach - sealCx;
-  }, [offsetX, driftClock, driftK, sealReach, sealCx, screenW]);
+  // 調律陣は固定（2026-09-15）。StarSeal の shiftX / 星の彫刻抜きの occluderX は
+  // 渡さない＝陣も抜き形も画面に固定され、陣を外周まで広げて焼く処理も走らない。
   // 試聴プレイヤー（30秒・公開URL）
   const preview = useAudioPlayer();
 
@@ -775,7 +766,7 @@ export const DiscoverScreen: React.FC<Props> = ({
           ) {
             cardPress.value = withTiming(0, { duration: 160, easing: Easing.out(Easing.quad) });
           }
-          // 背景は offsetX にそのまま付いて動く（cardFollow / nebTravel / sealTravel が派生で追随する）
+          // 星・天の川は offsetX の 1/10 だけ付いて動く（cardFollow / nebTravel が派生で追随する）
         })
         .onEnd((e) => {
           'worklet';
@@ -1060,7 +1051,6 @@ export const DiscoverScreen: React.FC<Props> = ({
             parallaxX={starDrift}
             followX={cardFollow}
             occluder={sealInk}
-            occluderX={sealTravel}
             nebulaX={nebTravel}
             nebulaOffsetX={layerAdjust.nebula.offsetX}
             nebulaOffsetY={layerAdjust.nebula.offsetY}
@@ -1090,7 +1080,6 @@ export const DiscoverScreen: React.FC<Props> = ({
               paused={cardFlipping}
               style={styles.sealLayer}
               onInkImage={handleSealInk}
-              shiftX={sealTravel}
             />
           </RNAnimated.View>
         </RNAnimated.View>
