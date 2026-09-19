@@ -11,7 +11,9 @@
  *   5. サポート
  *   6. 情報              （CREDITS / 利用規約 / プライバシー / 特商法 / バージョン）
  *   7. 背景レイヤー調整  （ホームの星雲・魔法陣の位置/大きさをスライダーで調整）
- *   8. サインアウト
+ *   8. ボタン位置調整    （ホームのカード/下部ボタン行・ウィッシュの購入ボタンの
+ *                         縦位置をスライダーで調整）
+ *   9. サインアウト
  *
  * CLAUDE.md の遷移図「アカウント / 購入の復元 → Artistのご紹介 → 言語 / サポート / 情報」
  * と同じ粒度。規約類の4点は 6.情報 の下にまとめ、退会は 1.アカウント の中に置く。
@@ -21,6 +23,9 @@
  *   ※ 2026-09-12: 「7. 背景レイヤー調整」は上の方針の例外として追加した
  *      （運営がホーム背景の星雲・魔法陣の位置/大きさを実機ビルド無しで
  *      調整できるようにする、という明示の依頼による）。
+ *   ※ 2026-09-19: 「8. ボタン位置調整」も同じ例外として追加した
+ *      （ホームのカード/購入ボタン行・ウィッシュの購入ボタンの縦位置を
+ *      実機ビルド無しで調整できるようにする、という明示の依頼による）。
  */
 
 import React from 'react';
@@ -48,7 +53,8 @@ export type SettingsKey =
   | 'terms'
   | 'privacy'
   | 'tokushoho'
-  | 'backgroundLayers';
+  | 'backgroundLayers'
+  | 'layoutAdjust';
 
 type Props = {
   onSelect: (key: SettingsKey) => void;
@@ -71,6 +77,7 @@ export const SettingsScreen: React.FC<Props> = ({ onSelect, onSignOut }) => {
     { key: 'thanks', label: t('settings.thanks') },
     { key: 'info', label: t('settings.info') },
     { key: 'backgroundLayers', label: t('settings.backgroundLayers') },
+    { key: 'layoutAdjust', label: t('settings.layoutAdjust') },
     { key: 'signout', label: t('settings.signout') },
   ];
 

@@ -48,6 +48,7 @@ import { useTopInset } from '../lib/safeArea';
 import { formatPrice, TRACK_PRICE_JPY } from '../constants/pricing';
 import { useAudioPlayer } from 'expo-audio';
 import { previewUrl as r2PreviewUrl } from '../lib/r2';
+import { useLayoutAdjustConfig } from '../lib/layoutAdjust';
 import { NUM_FONT, JP_SERIF_FONT } from '../constants/fonts';
 import type { PurchaseController } from '../lib/usePurchaseFlow';
 
@@ -97,8 +98,6 @@ type Props = {
   onDiscover: () => void;                // 「作品と出会う」→ ディスカバー
   /** ウィッシュリストから外す（タイル右上の★）。未指定なら★を出さない */
   onRemoveWish?: (trackId: string) => void;
-  /** 連作の総数。ウィッシュリストの「どこまで集まったか」を出すために使う */
-  totalWorks?: number;
   /**
    * 連作の全作品（通し番号順）。「すべて」の板をこの並びで描く。
    * 未指定なら所有＋ウィッシュから組み立てる（部品デモ用のフォールバック）。
@@ -111,6 +110,18 @@ type Props = {
   /** 購入フロー。未指定なら購入ボタンは押しても何も起きない */
   purchase?: PurchaseController;
 };
+
+// マイコレ／ウィッシュリストの並び順。両者とも props（owned/wishlist）の順は
+// discoverTracks の取得順（Firestore publishedAt 降順＝新着順）をそのまま
+// 引き継いでいるだけで、通し番号（serialNo）順ではない。マイコレは「前詰め」
+// （所有分を隙間なく先頭から並べる）が確定仕様なので、詰める前に serialNo の
+// 昇順へ並べ替える。serialNo が無い項目は末尾へ回す（相対順は維持＝安定ソート）。
+const serialDigits = (item: CollectionItem): number => {
+  const digits = item.serialNo?.replace(/[^0-9]/g, '');
+  const n = digits ? Number(digits) : NaN;
+  return Number.isFinite(n) ? n : Number.POSITIVE_INFINITY;
+};
+const bySerialAsc = (a: CollectionItem, b: CollectionItem) => serialDigits(a) - serialDigits(b);
 
 // View.measureInWindow はコールバック形式なので、複数タイルを Promise.all で
 // まとめて測れるよう薄くラップする。
@@ -162,7 +173,7 @@ const C = {
 
 // soon … まだ作品が存在しない席。番号を出すと「その番号の作品はもうある」と
 //        読めてしまうので、実体のある作品数より先は Coming Soon に置き換える。
-type MineSlot = { key: string; item: CollectionItem | null; no: string; soon: boolean };
+type MineSlot = { key: string; item: CollectionItem | null; no: string };
 
 // 背景は設定配下（CREDITS等）と同じ CreditsBackdrop を使う（components/CreditsBackdrop.tsx）。
 
@@ -228,7 +239,6 @@ export const CollectionScreen: React.FC<Props> = ({
   onBuy,
   onDiscover,
   onRemoveWish,
-  totalWorks,
   allWorks,
   onToggleWish,
   wishlistIds,
@@ -236,6 +246,9 @@ export const CollectionScreen: React.FC<Props> = ({
 }) => {
   const t = useT();
   const titleTop = useTopInset(14); // 従来 58px（=44+14）
+  // ウィッシュリストの「購入する」ボタンの縦位置の運営調整
+  // （設定→ボタン位置調整のスライダー）。既定値(0)では今の位置のまま変わらない。
+  const layoutAdjust = useLayoutAdjustConfig();
   const { width: screenW, height: screenH } = useWindowDimensions();
   // 参照の既定タブは「すべて」。連作の全体像を先に見せ、そこから所有／欲しいへ絞る。
   const [seg, setSeg] = useState<Segment>('all');
@@ -272,10 +285,10 @@ export const CollectionScreen: React.FC<Props> = ({
     }),
   ).current;
 
-  // ウィッシュの金額表示。ストアのローカライズ価格を正とし、未取得のときだけ
-  // pricing.ts の ¥2,500 にフォールバックする。
-  // （item.priceLabel は buyLabel()＝「購入する ¥2,500」でボタン全体のラベルのため、
-  //   そのまま t('collection.buy', { price }) に渡すと「購入する 購入する ¥2,500」になる）
+  // 購入確認モーダル（PurchaseModal）用の金額表示。ストアのローカライズ価格を
+  // 正とし、未取得のときだけ pricing.ts の ¥2,500 にフォールバックする。
+  // 「購入する」ボタン自体には金額を出さない方針のため、ボタンラベル
+  // （t('collection.buy')）には渡さず、確認モーダルの表示にだけ使う。
   const priceOf = (item: CollectionItem) =>
     purchase?.displayPriceOf(item.id) ?? formatPrice(TRACK_PRICE_JPY);
 
@@ -480,17 +493,17 @@ export const CollectionScreen: React.FC<Props> = ({
   const wishW = (screenW - PAD_X * 2 - WISH_GAP * (WISH_COLS - 1)) / WISH_COLS;
   const wishH = wishW * 1.5;
 
-  // マイコレは常に21枠。所有分を先頭から詰め、残りは通し番号だけの枠。
-  // 実体のある作品数。これより先の席は番号ではなく Coming Soon。
-  // 空席が「未所有（作品はある）」なのか「まだ作品が無い」のかは番号では
-  // 区別できないので、ここだけが判断材料になる。
-  const worksCount = totalWorks ?? works.length;
+  // マイコレ／ウィッシュリストは、通し番号（serialNo）の昇順に並べ替えてから使う
+  // （bySerialAsc）。props の順は discoverTracks の取得順＝新着順のままなので、
+  // 並べ替えないと「前詰め」で詰めた先頭の枠に新着順で入ってしまう。
+  const ownedSorted = useMemo(() => [...owned].sort(bySerialAsc), [owned]);
+  const wishlistSorted = useMemo(() => [...wishlist].sort(bySerialAsc), [wishlist]);
 
+  // マイコレは常に21枠。所有分を先頭から詰め、残りは番号だけの空枠にする。
   const mineSlots: MineSlot[] = Array.from({ length: TOTAL_SLOTS }, (_, i) => ({
-    key: owned[i]?.id ?? `empty-${i}`,
-    item: owned[i] ?? null,
+    key: ownedSorted[i]?.id ?? `empty-${i}`,
+    item: ownedSorted[i] ?? null,
     no: String(i + 1).padStart(2, '0'),
-    soon: i >= worksCount,
   }));
 
   // ── マイコレの1枠 ──
@@ -534,12 +547,10 @@ export const CollectionScreen: React.FC<Props> = ({
           <Text style={styles.filledNum}>{slot.no}</Text>
         </Pressable>
       ) : (
+        // マイコレの空枠は常に番号だけの「空」表示にする（Coming Soon の
+        // 特別扱いはしない。連作の実体数は「すべて」タブ側の判断材料）。
         <View style={[styles.emptySlot, { width: colW, height: colH }]}>
-          {slot.soon ? (
-            <Text style={styles.slotSoon} numberOfLines={2}>{t('collection.comingSoon')}</Text>
-          ) : (
-            <Text style={styles.slotNum}>{slot.no}</Text>
-          )}
+          <Text style={styles.slotNum}>{slot.no}</Text>
         </View>
       )}
     </Animated.View>
@@ -561,8 +572,6 @@ export const CollectionScreen: React.FC<Props> = ({
       key: works[i]?.id ?? `board-empty-${i}`,
       item: works[i] ?? null,
       no: works[i] ? slotNo(works[i], i) : String(i + 1).padStart(2, '0'),
-      // 板は works をそのまま並べるので、item が無い＝まだ作品が無い席
-      soon: !works[i],
     }),
   );
 
@@ -611,22 +620,30 @@ export const CollectionScreen: React.FC<Props> = ({
               <MetalTile uri={item.artworkUrl} w={colW} h={colH} />
               <Text style={styles.filledNum}>{no}</Text>
             </>
-          ) : state === 'wish' ? (
+          ) : (
+            // 未所有（ウィッシュリスト登録の有無を問わず）は、実体のある作品なので
+            // 番号だけの空枠ではなくアートを薄暗く（opacity .52）表示する。
+            // ウィッシュ登録済みだけ★バッジとシアンの縁を足して区別する。
             <View style={[styles.boardWish, { width: colW, height: colH }]}>
               <Image
                 source={{ uri: item.artworkUrl }}
                 style={{ width: colW, height: colH, opacity: 0.52 }}
                 resizeMode="cover"
               />
-              <View style={styles.boardWishEdge} pointerEvents="none" />
-              <Text style={[styles.filledNum, styles.boardWishNum]}>{no}</Text>
-              <View style={styles.boardWishStar} pointerEvents="none">
-                <StarIcon size={13} filled />
-              </View>
-            </View>
-          ) : (
-            <View style={[styles.emptySlot, { width: colW, height: colH }]}>
-              <Text style={styles.slotNum}>{no}</Text>
+              <View
+                style={[styles.boardWishEdge, state !== 'wish' && styles.boardDimEdge]}
+                pointerEvents="none"
+              />
+              <Text
+                style={[styles.filledNum, state === 'wish' ? styles.boardWishNum : styles.boardDimNum]}
+              >
+                {no}
+              </Text>
+              {state === 'wish' && (
+                <View style={styles.boardWishStar} pointerEvents="none">
+                  <StarIcon size={13} filled />
+                </View>
+              )}
             </View>
           )}
         </Pressable>
@@ -721,6 +738,9 @@ export const CollectionScreen: React.FC<Props> = ({
             styles.wishBtn,
             styles.wishActBtn,
             styles.wishBuyBtn,
+            // 試聴ボタンは動かさず、購入するボタンだけ運営調整ぶんずらす
+            // （translateY は layout に影響しないので、横並びの試聴ボタンは動かない）
+            { transform: [{ translateY: layoutAdjust.wishlistBuyOffsetY }] },
             pressed && { opacity: 0.85 },
           ]}
           onPress={() => {
@@ -730,28 +750,19 @@ export const CollectionScreen: React.FC<Props> = ({
           }}
         >
           <Text style={[styles.wishBtnLabel, styles.wishBuyLabel]} numberOfLines={1}>
-            {t('collection.buy', { price: priceOf(item) })}
+            {t('collection.buy')}
           </Text>
         </Pressable>
       </View>
     </Animated.View>
   );
 
-  // ── ウィッシュリストの見出し（集める行 ＋ 直前の移動の一行） ──
-  // 進捗バーは置かない。ウィッシュリストは「まだ持っていない」を並べる場なので、
+  // ── ウィッシュリストの見出し（直前の移動の一行のみ） ──
+  // 「全○作品｜所有○・ウィッシュリスト○」の進捗表示は撤去（2026-09-19 指示）。
+  // 進捗バーも置かない。ウィッシュリストは「まだ持っていない」を並べる場なので、
   // 達成度を煽る形にすると PRICING.md の「煽らない・売り込まない」から外れる。
-  // 連作の総数と、いま自分がどこに居るかだけを静かに示す。
   const renderWishHeader = () => (
     <View style={styles.wishHeader}>
-      {totalWorks != null && (
-        <Text style={styles.wishProgress}>
-          {t('collection.wishProgress', {
-            owned: owned.length,
-            total: totalWorks,
-            wish: wishlist.length,
-          })}
-        </Text>
-      )}
       {!!movedNote && <Text style={styles.wishMoved}>{movedNote}</Text>}
     </View>
   );
@@ -776,8 +787,9 @@ export const CollectionScreen: React.FC<Props> = ({
       >
         {SEGMENTS.map((k) => {
           // 参照 .cnt: 0 件のときは数字を出さない（空の枠を数字で強調しない）。
-          // ウィッシュタブだけは数字を出さない（表示名のみ）。
-          const count = k === 'mine' ? owned.length : 0;
+          // 件数を出すのは「すべて」「マイコレクション」の2タブだけ。ウィッシュ
+          // タブは数字を出さない（表示名のみ。2026-09-19 指示）。
+          const count = k === 'all' ? works.length : k === 'mine' ? owned.length : 0;
           const label =
             k === 'all'
               ? t('collection.all')
@@ -833,7 +845,7 @@ export const CollectionScreen: React.FC<Props> = ({
           </View>
         ) : (
           <FlatList
-            data={wishlist}
+            data={wishlistSorted}
             key="wish"
             keyExtractor={(i) => i.id}
             renderItem={renderWish}
@@ -918,7 +930,6 @@ export const CollectionScreen: React.FC<Props> = ({
 
           {!!detail.serialNo && <Text style={styles.workNo}>{detail.serialNo}</Text>}
           <Text style={styles.workTitle} numberOfLines={1}>{detail.title}</Text>
-          {!!detail.subtitle && <Text style={styles.workSub}>{detail.subtitle}</Text>}
 
           <View style={styles.workActs}>
             {slotState(detail.id) === 'own' ? (
@@ -978,7 +989,7 @@ export const CollectionScreen: React.FC<Props> = ({
                   }}
                 >
                   <Text style={[styles.workBtnLabel, styles.workBtnSolidLabel]} numberOfLines={1}>
-                    {t('collection.buy', { price: priceOf(detail) })}
+                    {t('collection.buy')}
                   </Text>
                 </Pressable>
               </>
@@ -1181,6 +1192,10 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(96,206,224,0.5)',
   },
   boardWishNum: { color: C.cyan, opacity: 0.85 },
+  // ウィッシュに置いていない未所有枠（boardWish と同じ薄暗い表示を、シアンの
+  // 縁＝「ウィッシュリスト登録済み」の意味を持たせずに使うための中立色版）
+  boardDimEdge: { borderColor: C.imgRing },
+  boardDimNum: { color: C.filledNum, opacity: 0.75 },
   boardWishStar: {
     position: 'absolute',
     top: 2,
@@ -1223,15 +1238,6 @@ const styles = StyleSheet.create({
   workCardArea: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   workNo: { marginTop: 22, fontSize: 9.5, letterSpacing: 2.66, color: C.sub, fontFamily: NUM_FONT },
   workTitle: { marginTop: 7, fontSize: 21, letterSpacing: 1.26, color: C.text, fontFamily: JP_SERIF_FONT },
-  workSub: {
-    marginTop: 9,
-    fontSize: 11,
-    letterSpacing: 0.55,
-    color: C.sub,
-    lineHeight: 21,
-    textAlign: 'center',
-    paddingHorizontal: 18,
-  },
   workActs: { flexDirection: 'row', gap: 9, alignItems: 'center', marginTop: 26 },
   workBtn: {
     paddingVertical: 11,
@@ -1256,7 +1262,6 @@ const styles = StyleSheet.create({
 
   // ウィッシュリストの見出し（集める行 ＋ 移動の一行）
   wishHeader: { marginBottom: 14, gap: 8 },
-  wishProgress: { fontSize: 10.5, letterSpacing: 0.63, color: C.sub, fontFamily: NUM_FONT },
   wishMoved: { fontSize: 10.5, letterSpacing: 0.84, color: C.cyan, fontFamily: JP_SERIF_FONT },
 
   // 空状態

@@ -61,6 +61,7 @@ import {
   renderAluminumInkPixels,
   BackPixels,
   CardBackData,
+  ARTIST_HIT_ZONE,
 } from '../lib/cardBackTexture';
 import { CARD_VERTEX_SHADER, ART_FRAGMENT_SHADER, ALUMINUM_FRAGMENT_SHADER } from '../lib/cardShaders';
 import { CardAura } from './CardAura';
@@ -264,6 +265,40 @@ function clampTiltFromBack(q: THREE.Quaternion) {
     TMP_Q2.copy(q);
     q.copy(Q_BACK).slerp(TMP_Q2, CARD_ANG_CLAMP / angle);
   }
+}
+
+// Q_BACK からの傾き角（rad）。clampTiltFromBack と同じ式。
+function angleToQBack(q: THREE.Quaternion): number {
+  const dot = Math.max(-1, Math.min(1, Math.abs(q.dot(Q_BACK))));
+  return 2 * Math.acos(dot);
+}
+// 作家名エリアのヒットテストを信頼してよい傾きの上限（rad）。
+// CARD_ANG_CLAMP（±22°）より狭くして、平面近似の誤差が大きくなる浅い角度では
+// 作家名タップを諦めて通常のフリップへ倒す（実機調整ポイント）。
+const ARTIST_HIT_TILT_MAX = 0.15; // ≈8.6°
+
+/**
+ * タップ位置（ラッパー左上基準・px）が、裏面カードの作家名エリア
+ * （ARTIST_HIT_ZONE）に当たっているかの近似判定。
+ * カードは中心 (width/2, height/2 - liftPx) を基準に backScale 倍で
+ * 描かれるという前提（カードが Q_BACK 付近＝ほぼ平面向きのときだけ成立する
+ * 近似。3D の投影を厳密に解いているわけではない）。
+ */
+function isArtistNameHit(
+  localX: number,
+  localY: number,
+  width: number,
+  height: number,
+  backScale: number,
+  liftPx: number,
+): boolean {
+  if (width <= 0 || height <= 0) return false;
+  const centerX = width / 2;
+  const centerY = height / 2 - liftPx;
+  const halfW = width * backScale * ARTIST_HIT_ZONE.xHalfWidth;
+  const top = centerY + (ARTIST_HIT_ZONE.yTop - 0.5) * height * backScale;
+  const bottom = centerY + (ARTIST_HIT_ZONE.yBottom - 0.5) * height * backScale;
+  return localX >= centerX - halfW && localX <= centerX + halfW && localY >= top && localY <= bottom;
 }
 
 // 決定論ハッシュ（0..1）
@@ -804,6 +839,13 @@ export type CardGLProps = {
    * カード枠（内側1pxのシアン）と靄（外周のシアングロー2層）が同時に灯る。
    */
   purchaseGlow?: SharedValue<number>;
+  /**
+   * 裏面の「作家名 ›」をタップしたときに呼ぶ（未指定ならタップは従来どおり
+   * 常に flipToFront になり、作家名だけの特別扱いはしない）。
+   * ヒットテストは cardBackTexture.ts の ARTIST_HIT_ZONE（UV座標）を
+   * カードの実寸へスケールした近似矩形で行う（実機調整ポイント）。
+   */
+  onArtistPress?: () => void;
   style?: StyleProp<ViewStyle>;
 };
 
@@ -823,6 +865,7 @@ export const CardGL: React.FC<CardGLProps> = ({
   flipProgressOut,
   dragXOut,
   purchaseGlow,
+  onArtistPress,
   style,
 }) => {
   const spin = useRef<SpinState>({
@@ -879,6 +922,17 @@ export const CardGL: React.FC<CardGLProps> = ({
   const wrapRef = useRef<View>(null);
   const wrapOrigin = useRef({ x: 0, y: 0 });
   const tapPos = useRef({ x: 0, y: 0 });
+  // 作家名の当たり判定に要る最新値。pan（PanResponder）の依存配列を
+  // 軽くするため（毎レイアウト変更でハンドラを張り直したくない）、
+  // 値そのものではなく ref 経由で読む。実際の書き込みは backScale/liftPx が
+  // 出そろった後（このコンポーネント下部）で行う。
+  const hitTestRef = useRef({
+    width,
+    height,
+    backScale: 1,
+    liftPx: 0,
+    onArtistPress,
+  });
   const measureWrap = () => {
     wrapRef.current?.measureInWindow((x, y) => {
       wrapOrigin.current = { x, y };
@@ -1095,8 +1149,21 @@ export const CardGL: React.FC<CardGLProps> = ({
             // 参照 up(): tapDist<10 かつ mode==='open' のときだけ反応する。
             // closing 中とカルーセル整定中は無視（＝再オープンに化けない）。
             if (s.mode === 'open') {
-              // 裏面はどこを突いても表へ戻すだけ（作家一覧への遷移は廃止）
-              flipToFront();
+              // 作家名（＋"›"）だけは表へ戻さず、作家画面へ遷移させる
+              // （2026-09-19 指示で復活。以前は「裏面はどこを突いても表へ戻す
+              // だけ」だった）。ヒットテストは平面近似なので、カードが
+              // Q_BACK からある程度以上傾いているとき（ARTIST_HIT_TILT_MAX
+              // 超）は誤判定を避けて通常のフリップに倒す。
+              const ht = hitTestRef.current;
+              const artistHit =
+                !!ht.onArtistPress &&
+                angleToQBack(s.q) <= ARTIST_HIT_TILT_MAX &&
+                isArtistNameHit(tapPos.current.x, tapPos.current.y, ht.width, ht.height, ht.backScale, ht.liftPx);
+              if (artistHit) {
+                ht.onArtistPress!();
+              } else {
+                flipToFront();
+              }
             } else if (s.mode === 'idle') {
               flipToBack();
             }
@@ -1163,6 +1230,9 @@ export const CardGL: React.FC<CardGLProps> = ({
   }, [backScaleProp, frame, width, height]);
   const backLiftRatio = useMemo(() => computeBackLiftRatio(frame, height), [frame, height]);
   const liftPx = height * backLiftRatio;
+  // hitTestRef（作家名タップの判定に使う最新値）は pan より前で宣言している
+  // （下記）。ここで最新値を書き込む。
+  hitTestRef.current = { width, height, backScale, liftPx, onArtistPress };
   // backScale<1 でも回転時の対角線は縮まないので 1 を下回らせない
   const D = Math.ceil(Math.hypot(width, height) * Math.max(1, backScale) + liftPx * 2) + 8;
   // 対角線の正方形が要るのは spin モード（トラックボール自由回転）だけ。

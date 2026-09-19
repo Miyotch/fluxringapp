@@ -66,6 +66,7 @@ import { PURCHASE, HOME_INTRO, homeCardWidth } from '../constants/design-tokens'
 import { formatPrice, TRACK_PRICE_JPY } from '../constants/pricing';
 import { JP_SERIF_FONT } from '../constants/fonts';
 import { useBackgroundLayersConfig } from '../lib/backgroundLayers';
+import { useLayoutAdjustConfig } from '../lib/layoutAdjust';
 import type { PurchaseController } from '../lib/usePurchaseFlow';
 
 // ── 表示スイッチ ──────────────────────────────────────────────
@@ -214,6 +215,8 @@ type Props = {
   purchase?: PurchaseController;
   /** 所有済みカードの「再生」ボタン押下 → 再生画面を開く。未指定なら何も起きない */
   onPlay?: (trackId: string) => void;
+  /** カード裏面の作家名タップ → 作家画面へ。未指定ならタップは常時フリップに戻る */
+  onOpenArtist?: (artistId: string) => void;
   /**
    * 起動後の最初のマウントで、暗転から段階的に灯す intro を走らせる。
    * App.tsx が起動直後の 1 回だけ true を渡す（タブ移動や再生画面から戻った
@@ -259,6 +262,7 @@ export const DiscoverScreen: React.FC<Props> = ({
   onToggleWishlist,
   purchase,
   onPlay,
+  onOpenArtist,
   introOnMount = false,
   onIntroDone,
   bottomInset = 0,
@@ -282,6 +286,10 @@ export const DiscoverScreen: React.FC<Props> = ({
   // アクティブカードの表面からの回転角（度）。focus-dim（背景暗転）の駆動用
   const cardRotation = useSharedValue(0);
   const [playingId, setPlayingId] = useState<string | null>(null);
+  // 試聴のオン／オフはカードごとにリセットせず、アプリ全体で一貫させる
+  // （2026-09-19 指示）。スピーカーボタンで一度オフにしたら、曲を送っても
+  // オンには戻らない。既定はオン（従来どおり自動で鳴り始める）。
+  const [previewEnabled, setPreviewEnabled] = useState(true);
   // ウィッシュリストは App.tsx の useWishlist が正。props が無いとき（部品デモ）だけローカルに持つ。
   const [localWishlist, setLocalWishlist] = useState<Set<string>>(new Set());
   const wishlist = wishlistIds ?? localWishlist;
@@ -443,6 +451,9 @@ export const DiscoverScreen: React.FC<Props> = ({
   // 星雲・魔法陣（調律陣）レイヤーの運営調整（設定→背景レイヤー調整のスライダー）。
   // 既定値(offsetX/Y=0・scale=1)では今の位置・大きさのまま変わらない。
   const layerAdjust = useBackgroundLayersConfig();
+  // カード本体／下部ボタン行の縦位置の運営調整（設定→ボタン位置調整のスライダー）。
+  // 既定値(0)では今の位置のまま変わらない。
+  const layoutAdjust = useLayoutAdjustConfig();
   const cardFrame = useMemo(
     () => ({ width: screenW, height: contentH }),
     [screenW, contentH],
@@ -871,34 +882,31 @@ export const DiscoverScreen: React.FC<Props> = ({
     [active],
   );
 
-  // 試聴はカードが切り替わるたび（起動直後の最初のカードも含む）自動で始まる。
-  // 試聴URLが無ければ何もしない。スピーカーボタンは手動での一時停止／再開に使う。
+  // 試聴の再生・停止はこの1つの effect だけが行う。カードが切り替わった
+  // ときも、スピーカーボタンで previewEnabled が切り替わったときも、
+  // ここで一括して判断する（カードごとに独立した on/off を持たない）。
+  // 所有済みの曲は「試聴」ではなく「再生」対象なので鳴らさない。
+  // 試聴URLが無ければ何もしない。
   // ※フェードインは音源ファイル側で定義する方針のため、アプリ側では行わない。
   useEffect(() => {
     preview.pause();
     setPlayingId(null);
-    if (!active) return;
+    if (!active || isOwned(active) || !previewEnabled) return;
     const url = active.previewUrl ?? previewUrl(active.audioKey);
     if (!url) return;
     preview.replace({ uri: url });
     preview.play();
     setPlayingId(active.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeIndex, active?.id, active?.previewUrl, active?.audioKey, preview]);
+  }, [activeIndex, active?.id, active?.previewUrl, active?.audioKey, preview, previewEnabled]);
 
+  // スピーカーボタン。アプリ全体で一貫させるため、この曲だけでなく
+  // 以降の曲送りにも及ぶ「試聴オン/オフ」を切り替えるだけにする
+  // （実際の再生・停止は上の effect が previewEnabled を見て行う）。
   const togglePreview = useCallback(() => {
     if (!active) return;
-    if (playingId === active.id) {
-      preview.pause();
-      setPlayingId(null);
-      return;
-    }
-    const url = active.previewUrl ?? previewUrl(active.audioKey);
-    if (!url) return; // 試聴未設定（R2 未設定）
-    preview.replace({ uri: url });
-    preview.play();
-    setPlayingId(active.id);
-  }, [active, playingId, preview]);
+    setPreviewEnabled((prev) => !prev);
+  }, [active]);
 
   const toggleWishlist = useCallback(
     (id: string) => {
@@ -1090,7 +1098,15 @@ export const DiscoverScreen: React.FC<Props> = ({
         <RNAnimated.View
           style={[
             StyleSheet.absoluteFill,
-            { opacity: intro.card, transform: [{ translateY: cardRise }] },
+            {
+              opacity: intro.card,
+              // cardRise は起動 intro 専用（完了後は 0 に収束）。
+              // homeCardOffsetY は運営調整用の静的な追加オフセット（設定→
+              // ボタン位置調整のスライダー）で、translateY を2つ重ねるだけで
+              // 単純に加算される。接地影（下の子）もこの Wrapper の中にいるので
+              // カードと一緒にずれ、位置がずれても対応関係は崩れない。
+              transform: [{ translateY: cardRise }, { translateY: layoutAdjust.homeCardOffsetY }],
+            },
           ]}
           pointerEvents="box-none"
         >
@@ -1153,6 +1169,11 @@ export const DiscoverScreen: React.FC<Props> = ({
                       rotationOut={cardRotation}
                       purchaseGlow={showPurchaseFx ? cardGlow : undefined}
                       backData={backData}
+                      onArtistPress={
+                        active.artistId && onOpenArtist
+                          ? () => onOpenArtist(active.artistId!)
+                          : undefined
+                      }
                     />
                   )}
                 </Animated.View>
@@ -1204,7 +1225,12 @@ export const DiscoverScreen: React.FC<Props> = ({
         <RNAnimated.View
           style={[
             StyleSheet.absoluteFill,
-            { opacity: intro.bottom, transform: [{ translateY: bottomRise }] },
+            {
+              opacity: intro.bottom,
+              // bottomRise は起動 intro 専用。homeActsOffsetY は運営調整用の
+              // 静的な追加オフセット（設定→ボタン位置調整のスライダー）。
+              transform: [{ translateY: bottomRise }, { translateY: layoutAdjust.homeActsOffsetY }],
+            },
           ]}
           pointerEvents="box-none"
         >
