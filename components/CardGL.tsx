@@ -42,8 +42,17 @@
  * 注意: expo-gl / three はネイティブ依存。反映には EAS 再ビルドが必要。
  */
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Image, Pressable, PanResponder, StyleSheet, StyleProp, ViewStyle } from 'react-native';
+import React, { useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import {
+  View,
+  Image,
+  Pressable,
+  PanResponder,
+  StyleSheet,
+  StyleProp,
+  ViewStyle,
+  type GestureResponderEvent,
+} from 'react-native';
 import { Canvas, useFrame, useThree } from '@react-three/fiber/native';
 import * as THREE from 'three';
 import { TextureLoader } from 'expo-three';
@@ -148,6 +157,9 @@ const CARD_RETURN_STIFFNESS = 2.0;
 // タップ判定のしきい値（|dx|+|dy| px）。4px では指の微動でドラッグ扱いになり
 // タップで戻れないことがあったため 16px まで広げてある。
 const TAP_SLOP = 16;
+// タップとみなす押してから離すまでの距離（px・参照 up() の tapDist<10）。
+// 表面の Pressable も裏面の PanResponder もこれで判定する。
+const TAP_DIST = 10;
 
 // ── 購入トランジション「シアンの呼吸」（DESIGN.md PURCHASE） ──
 // box-shadow: 0 0 66px 16px rgba(120,232,255,.78)
@@ -571,26 +583,32 @@ const CardMesh: React.FC<{
   useEffect(() => {
     if (!backData) return;
     if (backStyle === 'aluminum') {
-      try {
-        // 内容でキーを引く。backData は DiscoverScreen 側で useMemo 済みだが、
-        // 参照ではなく中身でキーにしておくと、別経路（再生画面・作品詳細）から
-        // 同じ作品を開いたときにも当たる。
-        const key = `alum|${JSON.stringify(backData)}`;
-        let tex = inkTexCache.get(key);
-        if (!tex) {
-          const res = renderAluminumInkPixels(backData);
-          if (res) {
-            tex = pixelsToTexture(res);
-            inkTexCache.set(key, tex);
+      // 1024x1536 の刻印を**同期で**焼くので、札が入れ替わったフレームにそのまま
+      // 乗せると JS が数十 ms 止まり、表面の絵の差し替えがそのぶん遅れる
+      // （＝前の札が中央に残る時間が伸びる）。裏面は裏返すまで見えないので、
+      // 次のフレームへ逃がす（2026-09-12）。
+      const raf = requestAnimationFrame(() => {
+        try {
+          // 内容でキーを引く。backData は DiscoverScreen 側で useMemo 済みだが、
+          // 参照ではなく中身でキーにしておくと、別経路（再生画面・作品詳細）から
+          // 同じ作品を開いたときにも当たる。
+          const key = `alum|${JSON.stringify(backData)}`;
+          let tex = inkTexCache.get(key);
+          if (!tex) {
+            const res = renderAluminumInkPixels(backData);
+            if (res) {
+              tex = pixelsToTexture(res);
+              inkTexCache.set(key, tex);
+            }
           }
-        }
-        // ここで prev?.dispose() をしてはいけない。テクスチャの所有者は
-        // キャッシュに移っており、差し替えのたびに解放すると、キャッシュに
-        // 載ったままの生きたテクスチャを壊してしまう。症状は「1曲戻ったときだけ
-        // 裏面が真っ黒」という再現条件つきの形で出る。解放は追い出し時だけ。
-        if (tex) setInkTex(tex);
-      } catch {}
-      return;
+          // ここで prev?.dispose() をしてはいけない。テクスチャの所有者は
+          // キャッシュに移っており、差し替えのたびに解放すると、キャッシュに
+          // 載ったままの生きたテクスチャを壊してしまう。症状は「1曲戻ったときだけ
+          // 裏面が真っ黒」という再現条件つきの形で出る。解放は追い出し時だけ。
+          if (tex) setInkTex(tex);
+        } catch {}
+      });
+      return () => cancelAnimationFrame(raf);
     }
     let alive = true;
     (async () => {
@@ -794,6 +812,8 @@ const CardMesh: React.FC<{
 export type CardGLProps = {
   /** 表面に貼る作品画像URL */
   frontUri: string;
+  /** 隣の札の作品画像。先に読み込ませておき、札が入れ替わっても読み込み待ちを作らない */
+  preloadUris?: string[];
   /** レイアウト上の表示サイズ(px) */
   width: number;
   height: number;
@@ -851,6 +871,7 @@ export type CardGLProps = {
 
 export const CardGL: React.FC<CardGLProps> = ({
   frontUri,
+  preloadUris,
   width,
   height,
   backData,
@@ -933,6 +954,8 @@ export const CardGL: React.FC<CardGLProps> = ({
     liftPx: 0,
     onArtistPress,
   });
+  // 表面 Pressable の押し始め（page 座標）。離した位置との距離でタップか決める
+  const pressStart = useRef({ x: 0, y: 0 });
   const measureWrap = () => {
     wrapRef.current?.measureInWindow((x, y) => {
       wrapOrigin.current = { x, y };
@@ -974,6 +997,50 @@ export const CardGL: React.FC<CardGLProps> = ({
   const [overlayVisible, setOverlayVisible] = useState(isFlip);
   const overlayTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (overlayTimer.current) clearTimeout(overlayTimer.current); }, []);
+
+  // ── 表面の絵の差し替え（札の入れ替わりで前の絵が残らないようにする）──
+  //
+  // ホームの表面は、GL のテクスチャではなくこのオーバーレイの <Image> 1枚。
+  // RN の Image は source の uri を差し替えても、新しいビットマップが用意
+  // できるまで**前の絵を出したまま**で、用意できた瞬間に無変化で入れ替わる。
+  // そのため札の入れ替わりの直後だけ、中央に前の札の絵が数フレーム残って
+  // 見えていた（2026-09-12 の実機収録で 2 フレーム＝約33ms を確認）。
+  //
+  // 「読み込めてから入れ替える」だけでは直らない。待っているあいだ中央に出る
+  // のは結局その前の絵で、症状そのものだからである（最初の手当てで実証）。
+  //
+  // 直し方は、待たなくてよい状態を作っておくこと。**隣の札の絵も、はじめから
+  // 不透明度 0 で重ねて載せておく**。uri で key を付けてあるので、札が入れ
+  // 替わった瞬間にネイティブの Image ビューは作り直されず、復号済みの
+  // ビットマップを持ったまま不透明度が 0→1 になるだけで済む。読み込みは
+  // スワイプが始まるより前に終わっているので、入れ替えは 1 フレームで完結する。
+  const loadedRef = useRef<Set<string>>(new Set());
+  const [, bumpLoaded] = useReducer((n: number) => n + 1, 0);
+  // 直前に出していた絵。frontUri がまだ読めていないときだけ、これで場を持たせる
+  const lastShownRef = useRef(frontUri);
+  const shownUri = loadedRef.current.has(frontUri) ? frontUri : lastShownRef.current;
+  useEffect(() => {
+    lastShownRef.current = shownUri;
+  }, [shownUri]);
+  // 裏返しのあいだオーバーレイごと外れるので、読み込み済みの記録も畳む。
+  // 残しておくと、戻った直後のスワイプで「載っているはずの絵」を出しに行き、
+  // まだ描けていないビューを見せてしまう。
+  useEffect(() => {
+    if (!overlayVisible) loadedRef.current.clear();
+  }, [overlayVisible]);
+  const handleFrontLoaded = (uri: string) => {
+    if (loadedRef.current.has(uri)) return;
+    loadedRef.current.add(uri);
+    // いま出したい絵が読めたのなら、その場で描き直して入れ替える
+    if (uri === frontUri) bumpLoaded();
+  };
+  // 表面に載せる絵の一覧（重複は落とす）。先頭から順に重なり、shownUri だけが見える。
+  const frontLayers = useMemo(() => {
+    const list = [lastShownRef.current, frontUri, ...(preloadUris ?? [])];
+    return list.filter((u, i) => !!u && list.indexOf(u) === i);
+    // shownUri を依存に入れて、出す絵が変わるたび並びを組み直す
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [frontUri, preloadUris, shownUri]);
 
   // 復帰時の短いクロスフェード（GL 面 → オーバーレイの差をならす）
   const overlayOpacity = useSharedValue(1);
@@ -1144,7 +1211,7 @@ export const CardGL: React.FC<CardGLProps> = ({
           // タップ判定は参照 up() と同じユークリッド距離 <10px（1877行 tapDist<10）。
           // 以前の |dx|+|dy|>4 は実機の指ブレで超えやすく、裏面で「タップしたのに
           // ドラッグ扱いになり正面へ戻れない」原因だった。
-          const isTap = Math.hypot(g.dx, g.dy) < 10;
+          const isTap = Math.hypot(g.dx, g.dy) < TAP_DIST;
           if (isTap && isFlip) {
             // 参照 up(): tapDist<10 かつ mode==='open' のときだけ反応する。
             // closing 中とカルーセル整定中は無視（＝再オープンに化けない）。
@@ -1341,12 +1408,43 @@ export const CardGL: React.FC<CardGLProps> = ({
           RN Image は即時表示されるため、GL テクスチャ生成待ちの無地も隠れる */}
       {isFlip && overlayVisible && (
         <Animated.View style={[StyleSheet.absoluteFill, overlayStyle]}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={flipToBack}>
-            <Image
-              source={{ uri: frontUri }}
-              style={{ width, height, borderRadius: CORNER_RATIO * width }}
-              resizeMode="cover"
-            />
+          {/* Pressable の onPress は指がカードの矩形内で離れれば、どれだけ動いても
+              発火する。横スワイプが縦ブレでカルーセルに取られなかったとき、その
+              スワイプが「タップ」になって裏返っていた（2026-09-15）。
+              押した位置から TAP_DIST 以上動いたものは裏返さない。 */}
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPressIn={(e: GestureResponderEvent) => {
+              pressStart.current = { x: e.nativeEvent.pageX, y: e.nativeEvent.pageY };
+            }}
+            onPress={(e: GestureResponderEvent) => {
+              const dx = e.nativeEvent.pageX - pressStart.current.x;
+              const dy = e.nativeEvent.pageY - pressStart.current.y;
+              if (Math.hypot(dx, dy) < TAP_DIST) flipToBack();
+            }}
+          >
+            {/* いま出す絵と、隣の札の絵を重ねて載せる。見えるのは shownUri の1枚だけで、
+                残りは opacity 0 のまま先に読み込ませておく。札が入れ替わっても
+                ビューは作り直されないので、不透明度が入れ替わるだけで済む。 */}
+            {frontLayers.map((uri) => (
+              <Image
+                key={uri}
+                source={{ uri }}
+                style={{
+                  position: 'absolute',
+                  left: 0,
+                  top: 0,
+                  width,
+                  height,
+                  borderRadius: CORNER_RATIO * width,
+                  opacity: uri === shownUri ? 1 : 0,
+                }}
+                resizeMode="cover"
+                fadeDuration={0}
+                onLoad={() => handleFrontLoaded(uri)}
+                onError={() => handleFrontLoaded(uri)}
+              />
+            ))}
             {/* v99-tsubasa の表面オーバーレイ（面内減光・金の内枠・下端の内側シャドウ） */}
             <CardSurface width={width} height={height} />
           </Pressable>

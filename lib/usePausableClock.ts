@@ -71,9 +71,11 @@ export function usePausableClock(active: boolean, minStepMs = 0): SharedValue<nu
   // 間引き用の端数入れ。購読者がいない SharedValue なので、ここへ毎フレーム
   // 書いても mapper は 1 本も走らない＝Canvas は塗り直されない。
   const acc = useSharedValue(0);
+  // 直近に値を書いた区切りの番号（下の「書くフレームを揃える」参照）
+  const lastBucket = useSharedValue(-1);
 
   const tick = useCallback(
-    (info: { timeSincePreviousFrame: number | null }) => {
+    (info: { timestamp: number; timeSincePreviousFrame: number | null }) => {
       'worklet';
       // 「動いていた時間」だけを積む。以前は実時間（timeSinceFirstFrame）を
       // そのまま入れていたため、止めている間も時計は進み、再開した瞬間に
@@ -85,14 +87,22 @@ export function usePausableClock(active: boolean, minStepMs = 0): SharedValue<nu
         return;
       }
       const a = acc.value + dt;
-      if (a < minStepMs) {
+      // 書くフレームを揃える（2026-09-14）。間引きの区切りを「溜まった時間」では
+      // なくフレームの絶対時刻で決める。この時計はコンポーネントごとに別々に回って
+      // いるので、溜まった時間で区切ると書くフレームが時計ごとにずれる。ひとつの
+      // Canvas が 2 本の時計を読むと（ホームの待機中の流れ＋星の明滅など）、30fps
+      // ずつ位相違いで書かれて実質 60fps で塗り直される。同じフレームの timestamp は
+      // 全コールバックで共通なので、区切りを揃えれば塗り直しは 30fps のまま。
+      const bucket = Math.floor(info.timestamp / minStepMs);
+      if (bucket === lastBucket.value) {
         acc.value = a;
         return;
       }
+      lastBucket.value = bucket;
       acc.value = 0;
       clock.value += a; // 端数を捨てない＝速度・位相は不変
     },
-    [clock, acc, minStepMs],
+    [clock, acc, lastBucket, minStepMs],
   );
 
   // useCallback で固定しておかないと、再レンダーのたびに

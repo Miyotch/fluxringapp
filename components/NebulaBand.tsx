@@ -67,13 +67,20 @@ export type Cloud = {
   a: number; ph: number; dr: number; w1: number; w2: number;
 };
 
-export function buildClouds(): Cloud[] {
+/**
+ * @param repeatX true なら横位置を [0,100) へ詰め直す（周期 W で並べて横へ流す用）。
+ *   素の配置は -6%〜106% に広がっているので、そのまま周期 W で並べると継ぎ目の
+ *   12% ぶんだけ雲が二重になり、明るい縦の筋が流れて見える。
+ *   0.89 倍に詰めて一様にすれば、どこで切っても密度が変わらない。
+ */
+export function buildClouds(repeatX = false): Cloud[] {
   const out: Cloud[] = [];
   for (let i = 0; i < N_CLOUDS; i++) {
+    const bx = rnd(i * 3.1 + 0.7, -6, 106);
     out.push({
       // 横は画面外（-6%〜106%）まで置いて左右端まで雲を届かせる。
       // 半径も v97 値に戻し、雲同士を重ねて screen 合成で明るさを積む。
-      bx: rnd(i * 3.1 + 0.7, -6, 106),
+      bx: repeatX ? ((bx + 6) / 112) * 100 : bx,
       by: (BANDY + gauss(i * 5.3 + 2.1) * BANDH) * 100,
       r: rnd(i * 7.7 + 1.3, 70, 190),
       c: CLOUD_COLORS[i % CLOUD_COLORS.length],
@@ -90,7 +97,12 @@ export function buildClouds(): Cloud[] {
 export type NebStarGroup = { path: ReturnType<typeof Skia.Path.Make>; f: number; ph: number; b: number };
 type StarGroup = NebStarGroup;
 
-export function buildStarGroups(W: number, H: number): StarGroup[] {
+/**
+ * @param repeatX true なら星を x-W / x / x+W の 3 か所へ置く（周期 W のタイル）。
+ *   BackdropSky は横ずれを「見えている範囲の中心が平面の [0,W) に来る」ように
+ *   畳むので、左右に 1 組ずつあれば星雲の拡大率 0.5 まで端が欠けない。
+ */
+export function buildStarGroups(W: number, H: number, repeatX = false): StarGroup[] {
   const scale = W / REF_W;
   const groups: StarGroup[] = Array.from({ length: STAR_GROUPS }, (_, g) => ({
     path: Skia.Path.Make(),
@@ -109,7 +121,14 @@ export function buildStarGroups(W: number, H: number): StarGroup[] {
     let rr = big ? rnd(i * 13.3 + 5.2, 1.05, 1.35) : rnd(i * 15.7 + 6.0, 0.35, 1.0);
     if (y > 50) rr *= big ? 0.5 : 0.72;                 // 下側は縮小
     const x = hash(i * 17.3 + 7.7) * 100;
-    groups[gi % STAR_GROUPS].path.addCircle((x / 100) * W, (y / 100) * H, rr * scale);
+    const path = groups[gi % STAR_GROUPS].path;
+    const px = (x / 100) * W;
+    const py = (y / 100) * H;
+    path.addCircle(px, py, rr * scale);
+    if (repeatX) {
+      path.addCircle(px - W, py, rr * scale);
+      path.addCircle(px + W, py, rr * scale);
+    }
     gi++;
   }
   return groups;

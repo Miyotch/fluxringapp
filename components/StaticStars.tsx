@@ -36,7 +36,7 @@ import {
   type SkColor,
   type SkRSXform,
 } from '@shopify/react-native-skia';
-import type { SharedValue } from 'react-native-reanimated';
+import { useDerivedValue, type SharedValue } from 'react-native-reanimated';
 import type { Transforms3d } from '@shopify/react-native-skia';
 
 import {
@@ -166,16 +166,26 @@ const SEAL_MASK_MATRIX = [
 
 /**
  * 星より **あと**、かつ横パララックスの `<Group transform>` の **外** に置くこと。
- * マスクは画面に固定で、星の平面だけが横へ流れるため、中に入れると陣とずれて流れる。
+ * マスクは陣に付いて動き、星の平面は星の速さで流れるため、中に入れると陣とずれて流れる。
+ *
+ * shiftX は陣の横ずれ(px)。StarSeal の shiftX と同じ値を渡す（2026-09-14 ホームの
+ * 待機中の流れ）。渡さなければ画面固定。
  *
  * ink が null（MakeOffscreen が使えない端末）のときは何も描かない＝従来の見た目。
  */
-export const SealOccluder: React.FC<{ ink?: SealInkImage }> = ({ ink }) => {
+export const SealOccluder: React.FC<{ ink?: SealInkImage; shiftX?: SharedValue<number> }> = ({
+  ink,
+  shiftX,
+}) => {
+  const transform = useDerivedValue<Transforms3d>(
+    () => [{ translateX: shiftX ? shiftX.value : 0 }],
+    [shiftX],
+  );
   if (!ink) return null;
-  return (
+  const mask = (
     <SkiaImage
       image={ink.image}
-      x={0}
+      x={ink.x}
       y={0}
       width={ink.width}
       height={ink.height}
@@ -186,6 +196,7 @@ export const SealOccluder: React.FC<{ ink?: SealInkImage }> = ({ ink }) => {
       <ColorMatrix matrix={SEAL_MASK_MATRIX} />
     </SkiaImage>
   );
+  return shiftX ? <Group transform={transform}>{mask}</Group> : mask;
 };
 
 export type StaticStarsProps = {
@@ -200,8 +211,10 @@ export type StaticStarsProps = {
    *
    * ここへ SharedValue を渡した瞬間、この Canvas は「値が変わったフレームだけ」
    * 塗り直される側になる。上の但し書きの唯一の例外で、意図的に許している：
-   *   ・値が動くのは横スワイプの最中だけ（指を離して整定したら止まる）
-   *   ・止まっている間の塗り直し回数はこれまでどおりゼロ
+   *   ・値が動くのは横スワイプの最中と、ホームの待機中の流れ（2026-09-14〜）
+   *   ・待機中の流れは背景の時計と同じ 30fps・同じフレームで書かれるので、
+   *     塗り直しは最大でも 30fps（lib/usePausableClock.ts）
+   *   ・裏返している間・アプリが背面の間は流れも止まり、塗り直しはゼロ
    * ネイティブの transform（親 View をずらす）なら塗り直しゼロにできるが、
    * Android では Skia の Canvas が親の transform に付いてこない場合があり、
    * 実機で星が動かなかった。確実に効く Skia 内部の変換を採る。
@@ -209,6 +222,8 @@ export type StaticStarsProps = {
   transforms?: SharedValue<Transforms3d>[];
   /** 調律陣の彫刻シルエット。この Canvas の星からこの形を dstOut で抜く */
   occluder?: SealInkImage;
+  /** 調律陣の横ずれ(px)。抜く形を陣と一緒にずらす（SealOccluder の shiftX） */
+  occluderX?: SharedValue<number>;
 };
 
 const StaticStarsImpl: React.FC<StaticStarsProps> = ({
@@ -218,6 +233,7 @@ const StaticStarsImpl: React.FC<StaticStarsProps> = ({
   bodyColor,
   transforms,
   occluder,
+  occluderX,
 }) => {
   // ── この Canvas に SharedValue を持ち込まないこと ──────────────
   // opacity は stillOpacity() が返す素の数値。clock も paused も参照しない。
@@ -244,11 +260,11 @@ const StaticStarsImpl: React.FC<StaticStarsProps> = ({
             ))}
           </Group>
         ))}
-        {/* 星を削る。パララックスの Group の外＝画面固定。この Canvas の星にだけ効く */}
-        <SealOccluder ink={occluder} />
+        {/* 星を削る。パララックスの Group の外（陣と一緒にずらす）。この Canvas の星にだけ効く */}
+        <SealOccluder ink={occluder} shiftX={occluderX} />
       </Canvas>
     ),
-    [W, H, layers, bodyColor, transforms, occluder],
+    [W, H, layers, bodyColor, transforms, occluder, occluderX],
   );
 
   return tree;

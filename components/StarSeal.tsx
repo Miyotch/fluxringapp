@@ -50,6 +50,7 @@ import {
   SkPath,
   SkFont,
   SkImage,
+  Transforms3d,
 } from '@shopify/react-native-skia';
 import { numFont } from '../lib/skiaFonts';
 import { useSharedValue, useDerivedValue, SharedValue } from 'react-native-reanimated';
@@ -70,6 +71,9 @@ const REF_BOX_W = 380;
 const REF_BOX_H = 760;
 const REF_CARD_CX = 189.955; // .card left 95.66 + 188.59/2
 const REF_CARD_CY = 367.765; // .card top 226.33 + 282.87/2
+// 陣のいちばん外側（放射の光点が 470 まで走る）＋ぼかし・光点の頭のぶん（内部単位）。
+// 陣を横へ流すときは、この半径まで欠けずに描けるよう幾何と焼き込みの幅を広げる。
+const SEAL_REACH = 480;
 // 09_FS.glsl の CYAN=vec3(0.376,0.808,0.878) と一致（×255=(95.9,206.0,223.9)）
 const CYAN = 'rgba(96,206,224,1)';
 // 09_FS.glsl の NSP（スパーク並行数）と一致
@@ -839,7 +843,13 @@ const Spark: React.FC<{
  * 焼き上がった彫刻層（ink）と、それを焼いた寸法。
  * 星の層が dstOut のマスクとして使う（components/StaticStars.tsx の SealOccluder）。
  */
-export type SealInkImage = { image: SkImage; width: number; height: number } | null;
+export type SealInkImage = {
+  image: SkImage;
+  width: number;
+  height: number;
+  /** 画像を置く横位置(px)。横へ流すために広く焼いたときは左の余白ぶん負になる */
+  x: number;
+} | null;
 
 export type StarSealProps = {
   width: number;
@@ -862,7 +872,19 @@ export type StarSealProps = {
    * ここで渡すのは焼いた画像そのもので、この層の描画には一切影響しない。
    */
   onInkImage?: (ink: SealInkImage) => void;
+  /**
+   * 陣全体の横ずれ(px)。ホームで背景を左へ流すとき DiscoverScreen が渡す（2026-09-14）。
+   *
+   * 陣は画面幅の 2.7 倍ほどあり、ふだんは画面に入る範囲しか焼いていない。
+   * そのままずらすと焼き込みの切れ目が縦線になって見えるので、これを渡したときだけ
+   * 陣の外周（SEAL_REACH）まで入る幅で幾何と焼き込みを作る。そのぶん焼き込み画像
+   * （彫刻・発光の 2 枚）の幅も広がる（iPhone 15 で約 2.7 倍）。
+   */
+  shiftX?: SharedValue<number>;
 };
+
+/** 陣が描かれる最大半径(px)。横へ流すとき「画面の外へ抜けきる距離」の計算に使う */
+export const sealReachPx = (cardWidth: number): number => (SEAL_REACH * cardWidth) / REF_CARD_W;
 
 const StarSealImpl: React.FC<StarSealProps> = ({
   width: W,
@@ -873,6 +895,7 @@ const StarSealImpl: React.FC<StarSealProps> = ({
   paused = false,
   style,
   onInkImage,
+  shiftX,
 }) => {
   // ── 参照モデル（v98_FIX / StarSeal.tsx ハンドオフ）──
   // 陣は内部座標 380×760 の箱に描かれ、箱ごと **均等スケール** で表示される。
@@ -886,7 +909,18 @@ const StarSealImpl: React.FC<StarSealProps> = ({
   // cardWidth 指定時のみ従来のカード幅基準（明示指定の上書き）
   const s = cardWidth ? cardWidth / REF_CARD_W : k;
 
-  const geo = useMemo(() => buildGeometry(cx, cy, s, W, H), [cx, cy, s, W, H]);
+  // 横へ流すとき（shiftX）は、陣の外周まで入る幅の平面で組んで焼き、描くときに
+  // 左の余白ぶん戻す。流さないときは余白 0 ＝従来と同じ平面・同じキャッシュキー。
+  const drifting = !!shiftX;
+  const reach = SEAL_REACH * s;
+  const padL = drifting ? Math.max(0, Math.ceil(reach - cx)) : 0;
+  const padR = drifting ? Math.max(0, Math.ceil(cx + reach - W)) : 0;
+  /** 幾何と焼き込みの幅 */
+  const BW = W + padL + padR;
+  /** 広げた平面での陣の中心 x */
+  const gx = cx + padL;
+
+  const geo = useMemo(() => buildGeometry(gx, cy, s, BW, H), [gx, cy, s, BW, H]);
 
   // フォント（出現サイズぶんキャッシュ）。刻まれる文字は周波数・比率・
   // ローマ数字・ラテン銘文＝すべて欧文なので、トンマナ確定の EB Garamond で描く。
@@ -934,8 +968,8 @@ const StarSealImpl: React.FC<StarSealProps> = ({
     if (W <= 0 || H <= 0) return null;
     const dpr = Math.min(PixelRatio.get(), INK_BAKE_MAX_DPR);
     // ホームへ戻るたび焼き直さないようモジュールキャッシュに載せる
-    return cachedImage(`sealInk|${W}|${H}|${cx}|${cy}|${s}|${dpr}`, () => {
-    const surface = Skia.Surface.MakeOffscreen(Math.ceil(W * dpr), Math.ceil(H * dpr));
+    return cachedImage(`sealInk|${BW}|${H}|${gx}|${cy}|${s}|${dpr}`, () => {
+    const surface = Skia.Surface.MakeOffscreen(Math.ceil(BW * dpr), Math.ceil(H * dpr));
     if (!surface) return null;
     const canvas = surface.getCanvas();
     canvas.scale(dpr, dpr);
@@ -980,7 +1014,7 @@ const StarSealImpl: React.FC<StarSealProps> = ({
     });
     // estWidth は毎レンダー再生成される純関数なので依存に入れない
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [geo, fonts, W, H, cx, cy, s]);
+  }, [geo, fonts, W, BW, H, gx, cy, s]);
 
   // 焼き上がりを親へ通知する。星の層がこれを dstOut のマスクに使う。
   // inkImage は cachedImage 由来で参照が安定しているので、実際に焼き直された
@@ -989,19 +1023,21 @@ const StarSealImpl: React.FC<StarSealProps> = ({
   const onInkImageRef = useRef(onInkImage);
   onInkImageRef.current = onInkImage;
   useEffect(() => {
-    onInkImageRef.current?.(inkImage ? { image: inkImage, width: W, height: H } : null);
+    onInkImageRef.current?.(
+      inkImage ? { image: inkImage, width: BW, height: H, x: -padL } : null,
+    );
     return () => onInkImageRef.current?.(null);
-  }, [inkImage, W, H]);
+  }, [inkImage, BW, H, padL]);
 
   // ── ②＋②' 発光層も 1 枚の SkImage へ焼く（bakeGlowImage のコメント参照） ──
   const glowImage = useMemo(() => {
     if (W <= 0 || H <= 0) return null;
     const dpr = Math.min(PixelRatio.get(), GLOW_BAKE_MAX_DPR);
     return cachedImage(
-      `sealGlow|${W}|${H}|${cx}|${cy}|${s}|${dpr}`,
-      () => bakeGlowImage(geo, W, H, cx, cy, s, dpr),
+      `sealGlow|${BW}|${H}|${gx}|${cy}|${s}|${dpr}`,
+      () => bakeGlowImage(geo, BW, H, gx, cy, s, dpr),
     );
-  }, [geo, W, H, cx, cy, s]);
+  }, [geo, W, BW, H, gx, cy, s]);
 
   // reduce-motion
   const [reduced, setReduced] = useState(false);
@@ -1039,17 +1075,25 @@ const StarSealImpl: React.FC<StarSealProps> = ({
     return 0.86 + 0.14 * breath;
   }, [clock]);
 
+  // 陣全体の横ずれ。広げて焼いたぶんの左余白を戻し、呼び出し側のずれを足す
+  const contentShift = useDerivedValue<Transforms3d>(
+    () => [{ translateX: -padL + (shiftX ? shiftX.value : 0) }],
+    [shiftX, padL],
+  );
+
   // BackdropSky と同じ理由で要素ツリーを固定する。paused が変わるだけで
   // recorder（約66プリミティブ＋焼き画像2枚）を作り直さないようにする。
   // 下のツリーは paused も reduced も参照していない。
   const tree = useMemo(
     () => (
     <Canvas style={[{ width: W, height: H }, style]} pointerEvents="none">
+      {/* 横へ流すときだけ陣全体をずらす。流さないときは transform なし＝素通し */}
+      <Group transform={drifting ? contentShift : undefined}>
       {/* ═ ① 彫刻層（静的・SkImage へ焼き込み済み） ═
           参照 #frSealInk と同じ「一度描いたら触らない」層。
           焼けなかった環境（MakeOffscreen が null）だけ従来の宣言的描画へ落とす */}
       {inkImage ? (
-        <SkiaImage image={inkImage} x={0} y={0} width={W} height={H} fit="fill" />
+        <SkiaImage image={inkImage} x={0} y={0} width={BW} height={H} fit="fill" />
       ) : (
         <Group>
           {geo.strokes.map((g, i) => (
@@ -1080,7 +1124,7 @@ const StarSealImpl: React.FC<StarSealProps> = ({
           焼けなかった環境（MakeOffscreen が null）だけ従来の 2 レイヤーへ落とす */}
       {glowImage ? (
         <Group blendMode="screen" opacity={glowOpacity}>
-          <SkiaImage image={glowImage} x={0} y={0} width={W} height={H} fit="fill" />
+          <SkiaImage image={glowImage} x={0} y={0} width={BW} height={H} fit="fill" />
         </Group>
       ) : (
         <>
@@ -1094,7 +1138,7 @@ const StarSealImpl: React.FC<StarSealProps> = ({
           }
         >
           {geo.glowCircles.map((c, i) => (
-            <Circle key={`gc${i}`} cx={cx} cy={cy} r={c.r} style="stroke" strokeWidth={1.3 * s} color={CYAN} opacity={c.op} />
+            <Circle key={`gc${i}`} cx={gx} cy={cy} r={c.r} style="stroke" strokeWidth={1.3 * s} color={CYAN} opacity={c.op} />
           ))}
           {geo.glowSegs.map((sg, i) => (
             <Line
@@ -1203,9 +1247,13 @@ const StarSealImpl: React.FC<StarSealProps> = ({
           <Spark key={`sp${i}`} i={i} s={s} pool={geo.sparkPool} clock={clock} stop={stopSV} />
         ))}
       </Group>
+      </Group>
     </Canvas>
     ),
-    [W, H, style, s, cx, cy, geo, fonts, inkImage, glowImage, glowOpacity, clock, stopSV],
+    [
+      W, H, BW, style, s, gx, cy, geo, fonts, inkImage, glowImage, glowOpacity, clock, stopSV,
+      drifting, contentShift,
+    ],
   );
 
   return tree;
