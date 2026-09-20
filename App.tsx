@@ -33,6 +33,7 @@ import { useArtists } from './lib/useArtists';
 import { useUserProfileSync } from './lib/useUserProfileSync';
 import { useArticles } from './lib/useArticles';
 import { useWishlist } from './lib/useWishlist';
+import { useFavorites } from './lib/useFavorites';
 import { prefetchArtwork } from './constants/artwork';
 import { ANIM, HOME_INTRO } from './constants/design-tokens';
 
@@ -178,6 +179,10 @@ function AppInner() {
   // ここに一本化するまでは DiscoverScreen のローカル state に閉じていて、
   // 星を押してもウィッシュリストに入らず、画面を離れれば消えていた。
   const wishlist = useWishlist();
+
+  // お気に入り。ウィッシュリストとは別の集合で、所有済みの曲にも付けられる
+  // （再生画面の★。2026-09-20 指示）。
+  const favorites = useFavorites();
 
   // ホームの楽曲一覧 = Firestore の tracks コレクションのみ（CMS経由で追加され、
   // 試聴・購入後のフル音源URLも自身のドキュメントに持つ）。同梱の STUB_TRACKS
@@ -476,6 +481,8 @@ function AppInner() {
         backLabel={playerReturnTab === 'home' ? '‹ ホームへ戻る' : '‹ コレクションへ戻る'}
         onPrevTrack={canSkip ? () => goTrack(-1) : undefined}
         onNextTrack={canSkip ? () => goTrack(1) : undefined}
+        favorited={favorites.has(playerTrack.id)}
+        onToggleFavorite={() => favorites.toggle(playerTrack.id)}
         onBackHome={() => {
           // 開いたタブへ戻す（ホーム再生ならホームへ、コレクションならコレクションへ）
           setOverlay(null);

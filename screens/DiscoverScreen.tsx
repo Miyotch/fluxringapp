@@ -1324,10 +1324,12 @@ export const DiscoverScreen: React.FC<Props> = ({
                     <PreviewIcon size={19} on={isPreviewing} />
                   </Pressable>
 
-                  <BuyButton
-                    priceLabel={active ? purchase?.displayPriceOf(active.id) : undefined}
-                    onPress={handleBuy}
-                  />
+                  <View style={styles.buyGap}>
+                    <BuyButton
+                      priceLabel={active ? purchase?.displayPriceOf(active.id) : undefined}
+                      onPress={handleBuy}
+                    />
+                  </View>
                 </View>
               );
             })()}
@@ -1412,20 +1414,27 @@ const styles = StyleSheet.create({
     position: 'absolute', left: 0, right: 0,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
   },
-  // ★／試聴／購入の3手（CollectionScreen の作品詳細と同じ寸法・字組）
+  // ★／試聴／購入の3手（CollectionScreen の作品詳細と同じ寸法・字組）。
+  // ★↔試聴は行の gap のまま、試聴↔購入だけ buyGap で追加の間隔を足す
+  // （2026-09-20 指示: 購入するボタンとは少し離す／お気に入りとの距離は維持）。
   acts: { flexDirection: 'row', gap: 9, alignItems: 'center' },
   actStar: {
     width: 42, height: 42, borderRadius: 21,
     borderWidth: 1, borderColor: 'rgba(96,206,224,0.3)',
     alignItems: 'center', justifyContent: 'center',
   },
+  // 角丸正方形（従来は paddingでアイコン幅なりの横長の枠になっていた）。
+  // 枠線はお気に入りボタンと同じ太さ・色（1px / alpha .3）に揃える
+  // （2026-09-20 指示: 枠線を細く、お気に入りと同サイズに）。
   actBtn: {
-    paddingVertical: 11, paddingHorizontal: 20, borderRadius: 12,
-    borderWidth: 1, borderColor: 'rgba(96,206,224,0.4)',
+    width: 42, height: 42, borderRadius: 12,
+    borderWidth: 1, borderColor: 'rgba(96,206,224,0.3)',
     alignItems: 'center', justifyContent: 'center',
   },
   // 試聴中は枠を強めて「いま鳴っている」を示す（色は変えない＝シアン一本のまま）
   actBtnOn: { borderColor: C.cyan, backgroundColor: 'rgba(96,206,224,0.12)' },
+  // 試聴ボタンから購入するボタンまでの追加の間隔（行の gap:9 に上乗せ）
+  buyGap: { marginLeft: 8 },
 
   transport: {
     paddingVertical: 16, paddingHorizontal: 20, borderRadius: 16,

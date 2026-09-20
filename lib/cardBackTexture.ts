@@ -432,6 +432,9 @@ export function renderAluminumInkPixels(
   // （Story は行数に応じてゾーン内で上下に動くため、固定だと本文が短い
   //  カードで間延びしたり、長いカードで重なったりする）。
   const useCases = (data.useCases ?? []).map((s) => s.trim()).filter(Boolean);
+  // Case ブロックの最終行の y（調律ブロックの位置決めに使う。storyBottom と
+  // 同じ「最後に描いた行のベースライン」の意味。case が無ければ null）。
+  let caseBottom: number | null = null;
   if (useCases.length > 0) {
     const CASE_FS = 40;
     const CASE_LS = 6;
@@ -460,21 +463,32 @@ export function renderAluminumInkPixels(
     y += CASE_LH;
     for (const ln of lines) {
       printAlum(c, ln, cx, y, CASE_FS, '300', alum(1), CASE_LS, 'c');
+      caseBottom = y;
       y += CASE_LH;
     }
   }
 
-  // 見出しラベル「ー 調律 ー」32px / weight300 / 字間8px
-  printAlum(c, 'ー 調律 ー', cx, H - 372, 32, '300', alum(0.75), 8, 'c');
+  // 見出しラベル「ー 調律 ー」32px / weight300 / 字間8px。
+  // Case ブロックがあるときは、その最終行からの相対位置にする（2026-09-20
+  // 指示: Caseと調律の間を今の半分にする）。以前は H-372 の固定座標で、
+  // Case の有無・行数を一切考慮していなかった（Story の長さで Case の終端は
+  // 動くのに、調律は常に同じ位置＝カードごとに間隔がばらついていた）。
+  // CASE_TUNING_GAP は「よくある間隔（目安 storyBottom 2行分で ≒255px）」の
+  // 半分（実機調整ポイント: 実際の見えを見て再調整すること）。
+  // Case が無いカードでは従来どおり H-372 の固定位置のまま（挙動を変えない）。
+  const CASE_TUNING_GAP = 128;
+  const tuningHeadingY = caseBottom != null ? caseBottom + CASE_TUNING_GAP : H - 372;
+  printAlum(c, 'ー 調律 ー', cx, tuningHeadingY, 32, '300', alum(0.75), 8, 'c');
 
   // 調律 40px / weight300 / 字間6px（2px→6pxへ拡大）/ 単色。調律名＋全角スペース
   // ＋周波数群（周波数は data.freqs、無ければ frequencies）。原材料(materials)は
   // このアルミ面には出さない（原材料欄は renderCardBackPixels/StoryBack 側のみ）。
+  // 見出しとの間隔（70px）は従来どおり維持。
   const tuning = data.tuning ?? '';
   const freqs = (data.freqs ?? data.frequencies ?? []).filter(Boolean);
   if (tuning || freqs.length > 0) {
     const tuneText = tuning + '　' + freqs.join('　');
-    printAlum(c, tuneText, cx, H - 302, 40, '300', alum(1), 6, 'c');
+    printAlum(c, tuneText, cx, tuningHeadingY + 70, 40, '300', alum(1), 6, 'c');
   }
 
   // Artist名 40px / weight400 / 字間10px / 大文字。直後に '›' を添える。
