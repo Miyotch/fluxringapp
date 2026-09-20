@@ -51,6 +51,8 @@ type FooterProps = {
    * （呼び出し側はこのときフッターを絶対配置で画面へかぶせること）。
    */
   transparent?: boolean;
+  /** メディア（あなた宛）に未読のお知らせがあるとき、タブの右上へ赤バッジを出す */
+  mediaUnread?: boolean;
 };
 
 export const Footer: React.FC<FooterProps> = ({
@@ -58,6 +60,7 @@ export const Footer: React.FC<FooterProps> = ({
   onChange,
   vipLocked = true,
   transparent = false,
+  mediaUnread = false,
 }) => {
   const t = useT();
   // ホームインジケータ（34pt）を避ける。従来の固定値を下回らないようにする。
@@ -113,6 +116,10 @@ export const Footer: React.FC<FooterProps> = ({
               ) : (
                 <Text style={[styles.glyph, { color: tint }]}>{tab.glyph}</Text>
               )}
+              {/* 未読のお知らせがあるあいだだけ出す赤バッジ。メディア画面の
+                  「あなた宛」タブが持つ未読ドット（NotificationsScreen 由来）と
+                  同じ COLOR.badge。既読になれば消える。 */}
+              {tab.key === 'media' && mediaUnread && <View style={styles.unreadBadge} />}
             </View>
             <Text
               style={[styles.label, { color: tint }]}
@@ -168,10 +175,22 @@ const styles = StyleSheet.create({
   glyphWrap: {
     alignItems: 'center',
     justifyContent: 'center',
+    position: 'relative',
   },
   glyph: {
     fontSize: 18,
     lineHeight: 20,
+  },
+  // 未読バッジ（メディアタブ右上の赤丸）。数字は出さない（NotificationsScreen の
+  // 未読ドットと同じ、あるかないかだけを伝える控えめな表現）。
+  unreadBadge: {
+    position: 'absolute',
+    top: -2,
+    right: -4,
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: COLOR.badge,
   },
   // .tb: 9px / weight 500 / letter-spacing .12em
   label: {

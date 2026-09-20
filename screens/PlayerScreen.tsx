@@ -38,7 +38,7 @@ import { CardGL, CARD_BACK_SCALE_MAX } from '../components/CardGL';
 import { NebulaGL } from '../components/NebulaGL';
 import { CardAfterimage, CardOrigin, CardOriginItem } from '../components/CardAfterimage';
 import { EqBars } from '../components/EqBars';
-import { PlayMark, PauseMark, LoopIcon, ShareIcon, SkipIcon, SkipPrevIcon } from '../components/icons';
+import { PlayMark, PauseMark, LoopIcon, ShareIcon, SkipIcon, SkipPrevIcon, StarIcon } from '../components/icons';
 import { COLOR, SPACE, TRANSPORT, homeCardWidth } from '../constants/design-tokens';
 import { formatTime } from '../lib/audio';
 import { useTopInset, useBottomInset } from '../lib/safeArea';
@@ -85,6 +85,12 @@ type Props = {
    */
   onPrevTrack?: () => void;
   onNextTrack?: () => void;
+  /**
+   * 「お気に入り」（所有済みでも付けられる目印。ウィッシュリストとは別の
+   * 集合＝lib/useFavorites.ts）。未指定なら★は出さない。
+   */
+  favorited?: boolean;
+  onToggleFavorite?: () => void;
 };
 
 export const PlayerScreen: React.FC<Props> = ({
@@ -95,6 +101,8 @@ export const PlayerScreen: React.FC<Props> = ({
   onBackHome,
   onPrevTrack,
   onNextTrack,
+  favorited,
+  onToggleFavorite,
 }) => {
   const { width: screenW, height: screenH } = useWindowDimensions();
   const navTop = useTopInset(8);            // 従来 52px（=44+8）
@@ -425,9 +433,23 @@ export const PlayerScreen: React.FC<Props> = ({
         <Pressable onPress={onBackHome} hitSlop={10}>
           <Text style={styles.navText}>{backLabel}</Text>
         </Pressable>
-        <Pressable onPress={onShare} hitSlop={10} accessibilityLabel="共有">
-          <ShareIcon />
-        </Pressable>
+        <View style={styles.navGroup}>
+          {/* お気に入り。所有済みでも付けられる目印（ウィッシュリストとは別集合）。
+              onToggleFavorite 未指定なら出さない。 */}
+          {onToggleFavorite && (
+            <Pressable
+              onPress={onToggleFavorite}
+              hitSlop={10}
+              accessibilityRole="button"
+              accessibilityLabel={favorited ? 'お気に入りから外す' : 'お気に入りに追加'}
+            >
+              <StarIcon size={19} filled={!!favorited} />
+            </Pressable>
+          )}
+          <Pressable onPress={onShare} hitSlop={10} accessibilityLabel="共有">
+            <ShareIcon />
+          </Pressable>
+        </View>
       </Animated.View>
 
       {/* 曲名（カードの上・左寄せ）。ヘッダーと同じタイミングでフェードイン */}

@@ -33,6 +33,7 @@ import { useArtists } from './lib/useArtists';
 import { useUserProfileSync } from './lib/useUserProfileSync';
 import { useArticles } from './lib/useArticles';
 import { useWishlist } from './lib/useWishlist';
+import { useFavorites } from './lib/useFavorites';
 import { prefetchArtwork } from './constants/artwork';
 import { ANIM, HOME_INTRO } from './constants/design-tokens';
 
@@ -43,6 +44,7 @@ import { CollectionScreen, CollectionItem } from './screens/CollectionScreen';
 import { MediaScreen } from './screens/MediaScreen';
 import { SettingsScreen, SettingsKey } from './screens/SettingsScreen';
 import { BackgroundLayersScreen } from './screens/BackgroundLayersScreen';
+import { LayoutAdjustScreen } from './screens/LayoutAdjustScreen';
 import {
   AccountScreen,
   RestoreScreen,
@@ -56,6 +58,7 @@ import { StoryScreen } from './screens/StoryScreen';
 import { PlayerScreen, PlayerTrack } from './screens/PlayerScreen';
 import type { CardOrigin, CardOriginItem } from './components/CardAfterimage';
 import { VipScreen } from './screens/VipScreen';
+import type { Notice } from './screens/NotificationsScreen';
 // import { ComponentGallery } from './screens/ComponentGallery'; // 部品デモを見るとき有効化
 
 import {
@@ -156,6 +159,12 @@ function AppInner() {
   const [playerReturnTab, setPlayerReturnTab] = useState<'home' | 'collection'>('collection');
   // ホーム（ディスカバー）で最初に表示するカード id（ウィッシュから飛んできたとき用）
   const [homeFocusId, setHomeFocusId] = useState<string | null>(null);
+  // Artistのご紹介で最初に開くプロフィールの artistId（カード裏面の作家名
+  // タップなど、作家一覧を経由しない遷移用）。null なら①作家一覧から開始。
+  const [artistFocusId, setArtistFocusId] = useState<string | null>(null);
+  // 作家画面をカード裏面から開いたか。true のときは「戻る」でも設定タブへは
+  // 飛ばさず、いたタブのままオーバーレイを閉じるだけにする。
+  const [artistOpenedFromCard, setArtistOpenedFromCard] = useState(false);
 
   // アプリ内課金と所有権。アプリ全体で1つだけ持つ（ストア接続・購入イベントの
   // 購読・未完了トランザクションの引き取りが二重に走らないようにするため）。
@@ -170,6 +179,10 @@ function AppInner() {
   // ここに一本化するまでは DiscoverScreen のローカル state に閉じていて、
   // 星を押してもウィッシュリストに入らず、画面を離れれば消えていた。
   const wishlist = useWishlist();
+
+  // お気に入り。ウィッシュリストとは別の集合で、所有済みの曲にも付けられる
+  // （再生画面の★。2026-09-20 指示）。
+  const favorites = useFavorites();
 
   // ホームの楽曲一覧 = Firestore の tracks コレクションのみ（CMS経由で追加され、
   // 試聴・購入後のフル音源URLも自身のドキュメントに持つ）。同梱の STUB_TRACKS
@@ -192,6 +205,23 @@ function AppInner() {
   // メディア画面の記事一覧。Firestore の article コレクションから
   // 公開日時（date）の降順・10件ずつページングで取得
   const articleFeed = useArticles();
+
+  // メディア「あなた宛」の通知一覧（現状は STUB_NOTICES。Firestore 化は別途）。
+  // タップで既読にできるよう state で持つ。未読が1件でもあれば、フッターの
+  // メディアタブへ赤バッジを出し、既読にすると消える。
+  const [notices, setNotices] = useState<Notice[]>(STUB_NOTICES);
+  const hasUnreadNotices = useMemo(() => notices.some((n) => n.unread), [notices]);
+  const markNoticeRead = useCallback((id: string) => {
+    setNotices((prev) => prev.map((n) => (n.id === id ? { ...n, unread: false } : n)));
+  }, []);
+
+  // カード裏面の作家名タップ → 作家一覧を経由せず、その作家のプロフィールへ
+  // 直接開く（2026-09-19 指示）。
+  const openArtistFromCard = useCallback((artistId: string) => {
+    setArtistFocusId(artistId);
+    setArtistOpenedFromCard(true);
+    setOverlay('artist');
+  }, []);
 
   // 所有集合。Firestore（購入で増えたぶん）が正。
   const ownedTrackIds = useMemo(() => new Set<string>(ownedIds), [ownedIds]);
@@ -451,6 +481,8 @@ function AppInner() {
         backLabel={playerReturnTab === 'home' ? '‹ ホームへ戻る' : '‹ コレクションへ戻る'}
         onPrevTrack={canSkip ? () => goTrack(-1) : undefined}
         onNextTrack={canSkip ? () => goTrack(1) : undefined}
+        favorited={favorites.has(playerTrack.id)}
+        onToggleFavorite={() => favorites.toggle(playerTrack.id)}
         onBackHome={() => {
           // 開いたタブへ戻す（ホーム再生ならホームへ、コレクションならコレクションへ）
           setOverlay(null);
@@ -476,9 +508,14 @@ function AppInner() {
       <ArtistScreen
         artists={artists}
         tracksByArtist={tracksByArtist}
+        focusArtistId={artistFocusId}
         onBackToSettings={() => {
           setOverlay(null);
-          setTab('settings');
+          // カード裏面から開いたときは、元居たタブのままオーバーレイを
+          // 閉じるだけにする（設定タブへは飛ばさない）。
+          if (!artistOpenedFromCard) setTab('settings');
+          setArtistFocusId(null);
+          setArtistOpenedFromCard(false);
         }}
         onOpenStory={() => setOverlay('story')}
       />
@@ -522,6 +559,8 @@ function AppInner() {
         return <DocumentScreen kind="tokushoho" onBack={back} />;
       case 'backgroundLayers':
         return <BackgroundLayersScreen onBack={back} />;
+      case 'layoutAdjust':
+        return <LayoutAdjustScreen onBack={back} />;
     }
   }
 
@@ -547,6 +586,7 @@ function AppInner() {
               introOnMount={homeIntroPending}
               onIntroDone={() => setHomeIntroPending(false)}
               bottomInset={footerH}
+              onOpenArtist={openArtistFromCard}
               onPlay={(id) => {
                 // 所有済みカードの「再生」押下 → 再生画面へ（コレクションのタイル起点が
                 // 無いので残像演出は出さない＝origin は null のまま）
@@ -569,7 +609,6 @@ function AppInner() {
               onToggleWish={wishlist.toggle}
               wishlistIds={wishlist.ids}
               allWorks={allWorkItems}
-              totalWorks={discoverTracks.length}
               purchase={purchase}
               onOpenTrack={(id, origin, afterimages) => {
                 // 所有曲タップ → 再生画面（ワイヤーフレーム P3）
@@ -607,10 +646,8 @@ function AppInner() {
               onLoadMoreArticles={articleFeed.loadMore}
               hasMoreArticles={articleFeed.hasMore}
               loadingMoreArticles={articleFeed.loading}
-              notices={STUB_NOTICES}
-              onOpenNotice={() => {
-                /* TODO: 通知本文へ */
-              }}
+              notices={notices}
+              onOpenNotice={markNoticeRead}
             />
           )}
 
@@ -644,6 +681,7 @@ function AppInner() {
             onChange={changeTab}
             vipLocked={!vipUnlocked}
             transparent={homeFooterFloats}
+            mediaUnread={hasUnreadNotices}
           />
         </Animated.View>
       </Animated.View>

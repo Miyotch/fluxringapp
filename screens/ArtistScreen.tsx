@@ -12,7 +12,7 @@
  * 1ファイル内で stage を切替（list / profile / tracks）。
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -64,6 +64,13 @@ type Props = {
   tracksByArtist: Record<string, ArtistTrack[]>;
   onBackToSettings: () => void;
   onOpenStory: (trackId: string) => void;
+  /**
+   * 指定すると①作家一覧を飛ばして、その作家の②プロフィールから開始する
+   * （カード裏面の作家名タップなど、作家一覧を経由しない遷移用）。
+   * artists がまだ届いていない（Firestore 取得中）ときは、届き次第この
+   * useEffect で改めて解決する。
+   */
+  focusArtistId?: string | null;
 };
 
 export const ArtistScreen: React.FC<Props> = ({
@@ -71,10 +78,24 @@ export const ArtistScreen: React.FC<Props> = ({
   tracksByArtist,
   onBackToSettings,
   onOpenStory,
+  focusArtistId,
 }) => {
   const { width: screenW } = useWindowDimensions();
-  const [stage, setStage] = useState<Stage>('list');
-  const [selected, setSelected] = useState<Artist | null>(null);
+  const [stage, setStage] = useState<Stage>(focusArtistId ? 'profile' : 'list');
+  const [selected, setSelected] = useState<Artist | null>(
+    () => (focusArtistId ? artists.find((a) => a.id === focusArtistId) ?? null : null),
+  );
+  // focusArtistId 指定時、初回マウント時点では artists（Firestore 購読）が
+  // まだ空のことがある。届いたら改めて解決する。
+  useEffect(() => {
+    if (!focusArtistId || selected) return;
+    const found = artists.find((a) => a.id === focusArtistId);
+    if (found) {
+      setSelected(found);
+      setStage('profile');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [artists, focusArtistId]);
   const colW = (screenW - SPACE.lg * 2 - SPACE.md) / 2;
 
   // ── ① 作家一覧 ──

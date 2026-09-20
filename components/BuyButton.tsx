@@ -1,9 +1,13 @@
 /**
  * BuyButton.tsx — 購入ボタン
  * ------------------------------------------------------------------
- *   未所有: シアンの塗りピル＋濃色の「購入する ¥2,500」。
+ *   未所有: シアンの塗りピル＋濃色の「購入する」（金額は表記しない）。
  *          コレクションの作品詳細（CollectionScreen の workBtn/workBtnSolid）と
  *          同じ寸法・字組にして、ホームと作品詳細で購入ボタンの見た目を揃える。
+ *          金額は購入確認モーダル（PurchaseModal）で示すため、ボタン自体には
+ *          出さない。ただしスクリーンリーダー向けの accessibilityLabel には
+ *          金額を含めたまま残す（視覚的な表記とは別に、読み上げでは金額が
+ *          分かった方が親切なため）。
  *   所有済: 再生マーク（枠・塗りなし）＝従来どおり「再生」表現。
  */
 
@@ -47,7 +51,7 @@ export const BuyButton: React.FC<Props> = ({
       {owned ? (
         <PlayMark size={24} />
       ) : (
-        <Text style={styles.label} numberOfLines={1}>{`${t('buy.label')} ${price}`}</Text>
+        <Text style={styles.label} numberOfLines={1}>{t('buy.label')}</Text>
       )}
     </Pressable>
   );

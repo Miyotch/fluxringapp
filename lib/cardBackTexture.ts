@@ -37,7 +37,7 @@ export type CardBackData = {
   tuning?: string;         // 調律名（例: '純正律'）
   frequencies?: string[];  // 周波数のみ（例: ['432 Hz', '7.83 Hz']）
   artist?: string;         // 'NAOKI OKA'
-  /** 用途タグ（例: ['睡眠', '勉強', '集中力']）。Story の真下に「- case -」の
+  /** 用途タグ（例: ['睡眠', '勉強', '集中力']）。Story の真下に「ー case ー」の
    *  見出しとともに並べる。Firestore tracks/{id}.useCases から。 */
   useCases?: string[];
 };
@@ -253,6 +253,9 @@ export function renderCardBackPixels(data: CardBackData, W = 512, H = 768): Back
 const REF_W = 188.6;
 const INK_LW = 1024;
 const INK_LH = 1536;
+// 作家名（＋"›"）の描画Yオフセット（下端から）。タップ判定（ARTIST_HIT_ZONE）
+// にも同じ値を使い、描画位置とヒットテストがずれないようにする。
+const ARTIST_NAME_Y_OFFSET = 190;
 // アルミ刻印面は参照実装 window.__dvMakeInk（fr_v98_FIX.html）の値に厳密に従う。
 // tonmana_usage_map.md §2「カード裏（ストーリー面）」は別デザイン（renderStoryBackPixels
 // が対応）の規定であり、アルミ面には適用しない。__dvMakeInk はゴシック
@@ -388,7 +391,7 @@ export function renderAluminumInkPixels(
   // 最大4行・1行20文字・合計80文字までの固定文字数で折り返す
   // （幅ベースだと半角文字混じりで1行の文字数がぶれるため、文字数優先の指定）。
   // ゾーン[470, H-460]の中央に文字ブロックを配置（__dvMakeInk 準拠）。
-  // storyBottom は Story 最終行のベースライン。この下に「- case -」を積む。
+  // storyBottom は Story 最終行のベースライン。この下に「ー case ー」を積む。
   let storyBottom = 470;
   if (data.story) {
     const fs = 42;
@@ -421,7 +424,7 @@ export function renderAluminumInkPixels(
     }
   }
 
-  // ── 「- case -」＋ 用途タグ（Story の真下） ──
+  // ── 「ー case ー」＋ 用途タグ（Story の真下） ──
   // 見出しは「ー 調律 ー」と同じ字送り（32px/weight300/字間8px/alpha.75）、
   // タグ本体は調律の行と同じ（40px/weight300/字間6px）にして、裏面の
   // 見出し＋内容という既存のリズムに合わせる。
@@ -429,6 +432,9 @@ export function renderAluminumInkPixels(
   // （Story は行数に応じてゾーン内で上下に動くため、固定だと本文が短い
   //  カードで間延びしたり、長いカードで重なったりする）。
   const useCases = (data.useCases ?? []).map((s) => s.trim()).filter(Boolean);
+  // Case ブロックの最終行の y（調律ブロックの位置決めに使う。storyBottom と
+  // 同じ「最後に描いた行のベースライン」の意味。case が無ければ null）。
+  let caseBottom: number | null = null;
   if (useCases.length > 0) {
     const CASE_FS = 40;
     const CASE_LS = 6;
@@ -451,25 +457,38 @@ export function renderAluminumInkPixels(
     if (cur && lines.length < 2) lines.push(cur);
 
     let y = storyBottom + 78;
-    printAlum(c, '- case -', cx, y, 32, '300', alum(0.75), 8, 'c');
+    // 「ー 調律 ー」と同じ全角の長音符（ー）。半角ハイフンで組んでいたのを修正
+    // （2026-09-19 指摘）。
+    printAlum(c, 'ー case ー', cx, y, 32, '300', alum(0.75), 8, 'c');
     y += CASE_LH;
     for (const ln of lines) {
       printAlum(c, ln, cx, y, CASE_FS, '300', alum(1), CASE_LS, 'c');
+      caseBottom = y;
       y += CASE_LH;
     }
   }
 
-  // 見出しラベル「ー 調律 ー」32px / weight300 / 字間8px
-  printAlum(c, 'ー 調律 ー', cx, H - 372, 32, '300', alum(0.75), 8, 'c');
+  // 見出しラベル「ー 調律 ー」32px / weight300 / 字間8px。
+  // Case ブロックがあるときは、その最終行からの相対位置にする（2026-09-20
+  // 指示: Caseと調律の間を今の半分にする）。以前は H-372 の固定座標で、
+  // Case の有無・行数を一切考慮していなかった（Story の長さで Case の終端は
+  // 動くのに、調律は常に同じ位置＝カードごとに間隔がばらついていた）。
+  // CASE_TUNING_GAP は「よくある間隔（目安 storyBottom 2行分で ≒255px）」の
+  // 半分（実機調整ポイント: 実際の見えを見て再調整すること）。
+  // Case が無いカードでは従来どおり H-372 の固定位置のまま（挙動を変えない）。
+  const CASE_TUNING_GAP = 128;
+  const tuningHeadingY = caseBottom != null ? caseBottom + CASE_TUNING_GAP : H - 372;
+  printAlum(c, 'ー 調律 ー', cx, tuningHeadingY, 32, '300', alum(0.75), 8, 'c');
 
   // 調律 40px / weight300 / 字間6px（2px→6pxへ拡大）/ 単色。調律名＋全角スペース
   // ＋周波数群（周波数は data.freqs、無ければ frequencies）。原材料(materials)は
   // このアルミ面には出さない（原材料欄は renderCardBackPixels/StoryBack 側のみ）。
+  // 見出しとの間隔（70px）は従来どおり維持。
   const tuning = data.tuning ?? '';
   const freqs = (data.freqs ?? data.frequencies ?? []).filter(Boolean);
   if (tuning || freqs.length > 0) {
     const tuneText = tuning + '　' + freqs.join('　');
-    printAlum(c, tuneText, cx, H - 302, 40, '300', alum(1), 6, 'c');
+    printAlum(c, tuneText, cx, tuningHeadingY + 70, 40, '300', alum(1), 6, 'c');
   }
 
   // Artist名 40px / weight400 / 字間10px / 大文字。直後に '›' を添える。
@@ -477,7 +496,7 @@ export function renderAluminumInkPixels(
   // 名前だけを中心に置いてシェブロン分だけ右へ余分に伸びる非対称（左に寄って見える
   // 原因）を避ける（__dvMakeInk の nameX=500 固定値は使わない）。
   const signature = (data.artist ?? 'NAOKI OKA').toUpperCase();
-  const nameY = H - 190;
+  const nameY = H - ARTIST_NAME_Y_OFFSET;
   const nameFont = makeFont(40, '400', INK_FONT);
   const nameLetterSpacing = 10;
   const nameChars = [...signature];
@@ -503,6 +522,23 @@ export function renderAluminumInkPixels(
   if (!px) return null;
   return { pixels: px instanceof Uint8Array ? px : new Uint8Array(px as ArrayLike<number>), width: W, height: H };
 }
+
+/**
+ * 作家名（＋"›" シェブロン）のタップ領域。UV座標（0..1、テクスチャ幅/高さに
+ * 対する比率）。呼び出し側（CardGL）は、裏面がほぼ定位置（Q_BACK）付近で
+ * 静止しているときだけ、この矩形をカードの実寸（backScale・持ち上げ込み）へ
+ * スケールしてヒットテストする。
+ *
+ * 横幅は実際の作家名の文字数で伸び縮みする（printAlum は cx を中心に左右
+ * 対称に組む＝ nameX±groupW/2）が、ここでは「たいていの名前をカバーする
+ * 固定の半幅」にしている（実機調整ポイント: 長い作家名で端が当たり判定から
+ * 外れる場合はここを広げる）。
+ */
+export const ARTIST_HIT_ZONE = {
+  yTop: (INK_LH - ARTIST_NAME_Y_OFFSET - 70) / INK_LH,
+  yBottom: (INK_LH - ARTIST_NAME_Y_OFFSET + 40) / INK_LH,
+  xHalfWidth: 0.34,
+} as const;
 
 /* ════════════════════════════════════════════════════════════════
    ストーリー面（card_parts_standalone2 v98 準拠・ホーム用）
