@@ -34,12 +34,13 @@ import { useUserProfileSync } from './lib/useUserProfileSync';
 import { useArticles } from './lib/useArticles';
 import { useWishlist } from './lib/useWishlist';
 import { useFavorites } from './lib/useFavorites';
+import { shuffle } from './lib/shuffle';
 import { prefetchArtwork } from './constants/artwork';
 import { ANIM, HOME_INTRO } from './constants/design-tokens';
 
 import { Footer, TabKey } from './components/Footer';
 import { LaunchFlow, LaunchScreen, ConsentJoin } from './screens/LaunchFlow';
-import { DiscoverScreen, isTrackOnSale } from './screens/DiscoverScreen';
+import { DiscoverScreen, isTrackOnSale, orderHomeTracks } from './screens/DiscoverScreen';
 import { CollectionScreen, CollectionItem } from './screens/CollectionScreen';
 import { MediaScreen } from './screens/MediaScreen';
 import { SettingsScreen, SettingsKey } from './screens/SettingsScreen';
@@ -235,13 +236,29 @@ function AppInner() {
   // 作品画像（artworkUrl）が空の曲はホームに出さない（2026-09-15 代表決定）。
   // 登録途中の曲（例: 日没）が混ざると、隣の札が黒い半透明の板になり、中央には
   // 前の札の絵が残り、起動直後は灰色の無地になっていた。画像が登録されれば自動で並ぶ。
-  const homeTracks = useMemo(
-    () =>
-      discoverTracks.filter(
-        (t) => !!t.artworkUrl && (isTrackOnSale(t) || ownedTrackIds.has(t.id)),
-      ),
-    [discoverTracks, ownedTrackIds],
-  );
+  //
+  // 表示順（2026-09-21 指示。tracks/{id}.homeOrderMode / homeOrder）:
+  //   1. homeOrderMode==='fixed'（既定）の曲を homeOrder 昇順で先に並べる
+  //      （0/未設定は固定の中で末尾）。
+  //   2. homeOrderMode==='random' の曲は、そのあとにランダムな順で並べる。
+  // ランダムの並びは「対象の曲集合」が変わらない限り作り直さない（ref で
+  // キャッシュ）。毎レンダーでシャッフルし直すと、購入や在庫の非関係な
+  // 更新のたびにスワイプ中のカードが入れ替わって見えてしまうため。
+  const randomOrderRef = useRef<{ key: string; ids: string[] }>({ key: '', ids: [] });
+  const homeTracks = useMemo(() => {
+    const eligible = discoverTracks.filter(
+      (t) => !!t.artworkUrl && (isTrackOnSale(t) || ownedTrackIds.has(t.id)),
+    );
+    const randomIds = eligible
+      .filter((t) => t.homeOrderMode === 'random')
+      .map((t) => t.id)
+      .sort();
+    const key = randomIds.join(',');
+    if (randomOrderRef.current.key !== key) {
+      randomOrderRef.current = { key, ids: shuffle(randomIds) };
+    }
+    return orderHomeTracks(eligible, randomOrderRef.current.ids);
+  }, [discoverTracks, ownedTrackIds]);
 
   // コレクション（マイコレ）。作品データは discoverTracks（tracks コレクション）
   // の全曲から所有ぶんを引く。

@@ -4,8 +4,11 @@
  * 画面に表示する楽曲・カードはすべてこの tracks コレクションを参照する
  * （同梱の STUB_TRACKS は使わない）。DiscoverScreen の Track 型へ、
  * Firestore 側のフィールド名（title/scene/artworkUrl/artistId/glow/glow2/
- * story/tuning/price/r2_preview_url/sale）を変換して渡す。
+ * story/tuning/price/r2_preview_url/sale/homeOrderMode/homeOrder）を
+ * 変換して渡す。
  *
+ * ・homeOrderMode/homeOrder はホームの表示順（App.tsx の orderHomeTracks
+ *   呼び出しで使う）。未設定はそれぞれ 'fixed'/0 扱い。
  * ・audioKey / id は Firestore のドキュメントID をそのまま使う
  *   （所有権 users/{uid}/purchases/{trackId} と lib/r2.ts の
  *   tracks/{audioKey}.r2_url 解決が同じ文字列を前提にしているため、
@@ -96,6 +99,12 @@ export function useTracks(count = 50): Track[] {
             const artistId = str(data.artistId);
             const artist = artistId ? artists.get(artistId) : undefined;
             const price = typeof data.price === 'number' ? data.price : undefined;
+            const homeOrderMode: Track['homeOrderMode'] =
+              data.homeOrderMode === 'random' ? 'random' : 'fixed';
+            const homeOrder =
+              typeof data.homeOrder === 'number' && Number.isFinite(data.homeOrder)
+                ? data.homeOrder
+                : 0;
             const track: Track = {
               id: d.id,
               title: str(data.title) ?? '',
@@ -110,6 +119,8 @@ export function useTracks(count = 50): Track[] {
               glowColor: str(data.glow),
               glowColor2: str(data.glow2),
               sale: parseSale(data.sale),
+              homeOrderMode,
+              homeOrder,
               back: {
                 story: str(data.story),
                 tuning: tuningLabel,
