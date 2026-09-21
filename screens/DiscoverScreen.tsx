@@ -177,6 +177,13 @@ export type Track = {
    *    type==='always'  → 公開日（この日以降ずっと表示。endAt は使わない）
    *  Firestore tracks/{id}.sale から。 */
   sale?: { type: 'always' | 'limited'; startAt: number | null; endAt: number | null };
+  /** ホームでの並び順の種類。未設定は 'fixed' 扱い。
+   *  Firestore tracks/{id}.homeOrderMode から。 */
+  homeOrderMode?: 'fixed' | 'random';
+  /** homeOrderMode==='fixed' のときの表示順（1以上・小さい順）。
+   *  0 または未設定は「固定の曲の中で末尾」。'random' のときは未使用。
+   *  Firestore tracks/{id}.homeOrder から。 */
+  homeOrder?: number;
   // 裏面（タップで表示する説明）
   back?: {
     serial?: string;         // 'No. 001'
@@ -202,6 +209,35 @@ export function isTrackOnSale(track: Pick<Track, 'sale'>, now: number = Date.now
   if (sale.startAt != null && now < sale.startAt) return false;
   if (sale.type === 'limited' && sale.endAt != null && now > sale.endAt) return false;
   return true;
+}
+
+/**
+ * ホームの表示順を確定する（2026-09-21 指示）。
+ *   1. homeOrderMode==='fixed'（未設定も含む・既定）の曲を homeOrder 昇順で
+ *      先に並べる。homeOrder が 0 または未設定の曲は、固定の曲の中で末尾に回す。
+ *   2. homeOrderMode==='random' の曲は、そのあとにランダムな順で並べる。
+ *
+ * ランダムの並びそのものはこの関数では作らない（呼び出し側の App.tsx が、
+ * 対象の曲集合が変わらない限り同じ並びを使い回して安定させる。毎レンダーで
+ * シャッフルし直すと、スワイプ中にカードが入れ替わって見えてしまうため）。
+ * ここでは受け取った randomOrderIds の並びどおりに差し込むだけ。
+ */
+export function orderHomeTracks<T extends Pick<Track, 'id' | 'homeOrderMode' | 'homeOrder'>>(
+  tracks: T[],
+  randomOrderIds: string[],
+): T[] {
+  const fixed = tracks
+    .filter((t) => (t.homeOrderMode ?? 'fixed') !== 'random')
+    .map((t, i) => ({ t, i })) // 安定ソート用に元の順序を保持（同順位はこの順のまま）
+    .sort((a, b) => {
+      const oa = a.t.homeOrder && a.t.homeOrder > 0 ? a.t.homeOrder : Number.POSITIVE_INFINITY;
+      const ob = b.t.homeOrder && b.t.homeOrder > 0 ? b.t.homeOrder : Number.POSITIVE_INFINITY;
+      return oa !== ob ? oa - ob : a.i - b.i;
+    })
+    .map(({ t }) => t);
+  const byId = new Map(tracks.map((t) => [t.id, t]));
+  const random = randomOrderIds.map((id) => byId.get(id)).filter((t): t is T => !!t);
+  return [...fixed, ...random];
 }
 
 type Props = {
