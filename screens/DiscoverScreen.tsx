@@ -1418,8 +1418,10 @@ const styles = StyleSheet.create({
   // ★↔試聴は行の gap のまま、試聴↔購入だけ buyGap で追加の間隔を足す
   // （2026-09-20 指示: 購入するボタンとは少し離す／お気に入りとの距離は維持）。
   acts: { flexDirection: 'row', gap: 9, alignItems: 'center' },
+  // 角丸正方形（従来は円形だった。2026-09-21 指示: 試聴ボタンと同じ角の
+  // 丸さ・大きさに揃える）。
   actStar: {
-    width: 42, height: 42, borderRadius: 21,
+    width: 42, height: 42, borderRadius: 12,
     borderWidth: 1, borderColor: 'rgba(96,206,224,0.3)',
     alignItems: 'center', justifyContent: 'center',
   },

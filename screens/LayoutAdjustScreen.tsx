@@ -2,13 +2,17 @@
  * LayoutAdjustScreen.tsx — 設定「ボタン位置調整」
  * ------------------------------------------------------------------
  * ホーム（ディスカバー）のカード本体／下部ボタン行と、ウィッシュリストの
- * 「購入する」ボタンの縦位置を、Firestore config/layoutAdjust
- * （lib/layoutAdjust.ts）に保存して全端末へ反映する運営向けの調整画面。
- * lib/backgroundLayers.ts（星雲・魔法陣調整）と同じ構図。
+ * 作品詳細（カードをタップした後の画面）にある★／試聴／購入するの行の
+ * 縦位置を、Firestore config/layoutAdjust（lib/layoutAdjust.ts）に保存して
+ * 全端末へ反映する運営向けの調整画面。lib/backgroundLayers.ts
+ * （星雲・魔法陣調整）と同じ構図。
  *
  * ・基準（すべて 0）＝今の位置のまま。
  * ・スライダーはドラッグに合わせてローカルの未保存値をその場で反映するだけで、
  *   実際の画面（他端末含む）には「保存する」を押すまで反映されない。
+ * ・2026-09-21: ウィッシュリスト一覧（各タイル）の「購入する」ボタンを
+ *   動かす仕様は廃止し、作品詳細側の行を動かす仕様に差し替えた
+ *   （一覧の並びが崩れて見えるとの指摘のため）。
  */
 
 import React, { useState } from 'react';
@@ -28,7 +32,7 @@ import { useWindowDimensions } from 'react-native';
 
 const CARD_RANGE = 100;  // px。ホームのカード本体の可動範囲
 const ACTS_RANGE = 70;   // px。ホームの下部ボタン行の可動範囲
-const WISH_RANGE = 30;   // px。ウィッシュリストの「購入する」ボタンの可動範囲
+const WISH_RANGE = 70;   // px。ウィッシュリスト作品詳細の★／試聴／購入するの行の可動範囲
 
 const pxLabel = (v: number) => `${v >= 0 ? '+' : ''}${Math.round(v)}px`;
 
@@ -79,8 +83,9 @@ export const LayoutAdjustScreen: React.FC<Props> = ({ onBack }) => {
       <SubHeader title="ボタン位置調整" onBack={onBack} />
       <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
         <Text style={styles.lead}>
-          ホーム画面のカード・下部ボタン行と、ウィッシュリストの「購入する」ボタンの
-          縦位置を調整します。スライダーの位置は現在の位置を基準（中央）にしています。
+          ホーム画面のカード・下部ボタン行と、ウィッシュリストの作品詳細
+          （カードをタップした後の画面）にある★／試聴／購入するの行の縦位置を
+          調整します。スライダーの位置は現在の位置を基準（中央）にしています。
         </Text>
 
         {/* ホーム画面 */}
@@ -104,15 +109,15 @@ export const LayoutAdjustScreen: React.FC<Props> = ({ onBack }) => {
           />
         </View>
 
-        {/* ウィッシュリスト */}
-        <Text style={styles.sectionTitle}>ウィッシュリスト</Text>
+        {/* ウィッシュリスト（作品詳細） */}
+        <Text style={styles.sectionTitle}>ウィッシュリスト（作品詳細）</Text>
         <View style={styles.card}>
           <LayerSlider
-            label="「購入する」ボタンの縦位置"
-            value={draft.wishlistBuyOffsetY}
+            label="★／試聴／購入するの行の縦位置"
+            value={draft.wishDetailActsOffsetY}
             min={-WISH_RANGE}
             max={WISH_RANGE}
-            onChange={(v) => setField({ wishlistBuyOffsetY: v })}
+            onChange={(v) => setField({ wishDetailActsOffsetY: v })}
             formatValue={pxLabel}
           />
         </View>

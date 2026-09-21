@@ -246,8 +246,9 @@ export const CollectionScreen: React.FC<Props> = ({
 }) => {
   const t = useT();
   const titleTop = useTopInset(14); // 従来 58px（=44+14）
-  // ウィッシュリストの「購入する」ボタンの縦位置の運営調整
-  // （設定→ボタン位置調整のスライダー）。既定値(0)では今の位置のまま変わらない。
+  // 作品詳細（カードをタップした後の画面）の★／試聴／購入するの行の縦位置の
+  // 運営調整（設定→ボタン位置調整のスライダー）。既定値(0)では今の位置の
+  // まま変わらない。
   const layoutAdjust = useLayoutAdjustConfig();
   const { width: screenW, height: screenH } = useWindowDimensions();
   // 参照の既定タブは「すべて」。連作の全体像を先に見せ、そこから所有／欲しいへ絞る。
@@ -738,9 +739,6 @@ export const CollectionScreen: React.FC<Props> = ({
             styles.wishBtn,
             styles.wishActBtn,
             styles.wishBuyBtn,
-            // 試聴ボタンは動かさず、購入するボタンだけ運営調整ぶんずらす
-            // （translateY は layout に影響しないので、横並びの試聴ボタンは動かない）
-            { transform: [{ translateY: layoutAdjust.wishlistBuyOffsetY }] },
             pressed && { opacity: 0.85 },
           ]}
           onPress={() => {
@@ -931,7 +929,9 @@ export const CollectionScreen: React.FC<Props> = ({
           {!!detail.serialNo && <Text style={styles.workNo}>{detail.serialNo}</Text>}
           <Text style={styles.workTitle} numberOfLines={1}>{detail.title}</Text>
 
-          <View style={styles.workActs}>
+          {/* ★／試聴／購入する（所有済みなら再生する）の行。運営調整
+              （設定→ボタン位置調整）の wishDetailActsOffsetY ぶん縦にずらす。 */}
+          <View style={[styles.workActs, { transform: [{ translateY: layoutAdjust.wishDetailActsOffsetY }] }]}>
             {slotState(detail.id) === 'own' ? (
               <Pressable
                 style={({ pressed }) => [
@@ -1249,10 +1249,12 @@ const styles = StyleSheet.create({
   workBtnLabel: { fontSize: 10.5, letterSpacing: 1.26, color: C.cyan },
   workBtnSolid: { backgroundColor: C.cyan, borderColor: C.cyan },
   workBtnSolidLabel: { color: '#06121a' },
+  // 角丸正方形（従来は円形だった。2026-09-21 指示: 同じ行の試聴ボタン
+  // （workBtn）と同じ角の丸さ・大きさに揃える）。
   workStar: {
     width: 42,
     height: 42,
-    borderRadius: 21,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(96,206,224,0.3)',
     alignItems: 'center',

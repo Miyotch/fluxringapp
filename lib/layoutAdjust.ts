@@ -8,11 +8,16 @@
  * 未設定（ドキュメントが無い／フィールドが無い）はすべて 0＝「今の位置のまま」
  * を基準値として扱う。
  *
- *   homeCardOffsetY    … ホーム（ディスカバー）のカード本体＋接地影の縦位置
- *   homeActsOffsetY    … ホームの下部ボタン行（★／試聴／購入する、または
- *                         所有時の「再生」）の縦位置
- *   wishlistBuyOffsetY … ウィッシュリストの各タイルにある「購入する」ボタンの
- *                         縦位置（試聴ボタンは動かさない）
+ *   homeCardOffsetY       … ホーム（ディスカバー）のカード本体＋接地影の縦位置
+ *   homeActsOffsetY       … ホームの下部ボタン行（★／試聴／購入する、または
+ *                            所有時の「再生」）の縦位置
+ *   wishDetailActsOffsetY … ウィッシュリストでカードをタップした後の作品詳細
+ *                            （「すべて」タブの詳細も同じ画面）にある
+ *                            ★／試聴／購入するの行の縦位置。
+ *                            ※ 以前はウィッシュリスト一覧の各タイルの
+ *                            「購入する」ボタンを動かしていたが、一覧の並びが
+ *                            崩れて見えるため撤去し、詳細側へ差し替えた
+ *                            （2026-09-21 指示）。
  */
 
 import { useEffect, useState } from 'react'
@@ -22,13 +27,13 @@ import { db } from './firebase'
 export type LayoutAdjustConfig = {
   homeCardOffsetY: number
   homeActsOffsetY: number
-  wishlistBuyOffsetY: number
+  wishDetailActsOffsetY: number
 }
 
 export const DEFAULT_LAYOUT_ADJUST: LayoutAdjustConfig = {
   homeCardOffsetY: 0,
   homeActsOffsetY: 0,
-  wishlistBuyOffsetY: 0,
+  wishDetailActsOffsetY: 0,
 }
 
 const num = (v: unknown, fallback: number): number =>
@@ -39,7 +44,7 @@ function parseConfig(v: unknown): LayoutAdjustConfig {
   return {
     homeCardOffsetY: num(obj.homeCardOffsetY, 0),
     homeActsOffsetY: num(obj.homeActsOffsetY, 0),
-    wishlistBuyOffsetY: num(obj.wishlistBuyOffsetY, 0),
+    wishDetailActsOffsetY: num(obj.wishDetailActsOffsetY, 0),
   }
 }
 
@@ -69,7 +74,7 @@ export async function saveLayoutAdjustConfig(cfg: LayoutAdjustConfig): Promise<v
   await setDoc(configDoc(), {
     homeCardOffsetY: cfg.homeCardOffsetY,
     homeActsOffsetY: cfg.homeActsOffsetY,
-    wishlistBuyOffsetY: cfg.wishlistBuyOffsetY,
+    wishDetailActsOffsetY: cfg.wishDetailActsOffsetY,
     updatedAt: serverTimestamp(),
   })
 }
