@@ -1,0 +1,29 @@
+# wrangler.inquiry-notify.toml — お問い合わせ通知 Worker のデプロイ設定
+# ------------------------------------------------------------------
+# infra/wrangler.toml（フル音源配信 Worker）とは別ファイル。
+# wrangler.toml は Worker 1つにつき main を1つしか持てないため、
+# このディレクトリに複数 Worker を置く場合はこのように設定ファイルを
+# 分けて -c で指定する。
+#
+# デプロイ:
+#   cd infra
+#   wrangler login                                    # 初回のみ
+#   wrangler secret put RESEND_API_KEY -c wrangler.inquiry-notify.toml
+#     → Resend（https://resend.com/api-keys）で発行した re_... のキーを入力
+#   wrangler deploy -c wrangler.inquiry-notify.toml
+#
+# デプロイ後に表示される https://fluxring-inquiry-notify.<sub>.workers.dev を
+# app.json の extra.inquiry.notifyWorkerUrl に設定する。
+#
+# FROM_EMAIL は Resend で送信ドメイン認証（DNS の SPF/DKIM 設定）を
+# 済ませたドメインのアドレスにすること。未認証のドメインからは
+# 実運用の送信ができない。
+
+name = "fluxring-inquiry-notify"
+main = "inquiry-notify-worker.js"
+compatibility_date = "2024-11-01"
+
+[vars]
+FIREBASE_PROJECT_ID = "sound-curtain-5unwwh"
+FROM_EMAIL = "FLUX RING <notify@example.com>"
+ADMIN_EMAIL = "admin@example.com"

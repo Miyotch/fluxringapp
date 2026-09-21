@@ -86,6 +86,9 @@
       },
       "iap": {
         "verifyUrl": ""
+      },
+      "inquiry": {
+        "notifyWorkerUrl": ""
       }
     }
   }
