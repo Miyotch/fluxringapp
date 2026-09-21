@@ -1249,10 +1249,12 @@ const styles = StyleSheet.create({
   workBtnLabel: { fontSize: 10.5, letterSpacing: 1.26, color: C.cyan },
   workBtnSolid: { backgroundColor: C.cyan, borderColor: C.cyan },
   workBtnSolidLabel: { color: '#06121a' },
+  // 角丸正方形（従来は円形だった。2026-09-21 指示: 同じ行の試聴ボタン
+  // （workBtn）と同じ角の丸さ・大きさに揃える）。
   workStar: {
     width: 42,
     height: 42,
-    borderRadius: 21,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(96,206,224,0.3)',
     alignItems: 'center',
