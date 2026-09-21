@@ -456,7 +456,7 @@ export function renderAluminumInkPixels(
     }
     if (cur && lines.length < 2) lines.push(cur);
 
-    let y = storyBottom + 78;
+    let y = storyBottom + 128;
     // 「ー 調律 ー」と同じ全角の長音符（ー）。半角ハイフンで組んでいたのを修正
     // （2026-09-19 指摘）。
     printAlum(c, 'ー case ー', cx, y, 32, '300', alum(0.75), 8, 'c');
