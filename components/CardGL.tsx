@@ -94,6 +94,8 @@ const H = W * CARD_ASPECT;
 // 側面が分厚いスラブに見えていた（Pixel 6 実機で指摘）。DOM 版の thk=6.5px
 // (3.4%) よりもさらに薄いが、3D ビューの見本はメッシュ側なのでそちらへ合わせる。
 const DEPTH_RATIO = 0.02835;
+// 表・裏の面を側面リングの端から浮かせる量（z ファイティング避け）
+const FACE_GAP = 0.002;
 // 角丸: --cr = 0.085 × カード幅（v98・全レイヤー共通）
 const CORNER_RATIO = 0.085;
 const SENS = 0.55; // 1px ドラッグあたりの回転角（度・flip モードのトラックボール用）
@@ -791,13 +793,13 @@ const CardMesh: React.FC<{
       {/* 側面リング（角丸の厚み・明色スチール） */}
       <mesh geometry={geos.side} material={sideMats} />
       {/* 表: アート面（ライティング＋傾きで動く光の帯・優先項目①） */}
-      <mesh geometry={geos.front} position={[0, 0, T / 2 + 0.002]} material={frontMaterial} />
+      <mesh geometry={geos.front} position={[0, 0, T / 2 + FACE_GAP]} material={frontMaterial} />
       {/* 裏: aluminum=procedural金属＋ヘアライン＋スカイ反射＋刻印合成（優先項目②③）
              story  =従来のフラットテクスチャ（現状呼び出し元なし・後方互換で維持） */}
       {backStyle === 'aluminum' ? (
-        <mesh geometry={geos.back} position={[0, 0, -T / 2 - 0.002]} material={aluminumMaterial} />
+        <mesh geometry={geos.back} position={[0, 0, -T / 2 - FACE_GAP]} material={aluminumMaterial} />
       ) : (
-        <mesh geometry={geos.back} position={[0, 0, -T / 2 - 0.002]}>
+        <mesh geometry={geos.back} position={[0, 0, -T / 2 - FACE_GAP]}>
           {backTex ? (
             <meshBasicMaterial map={backTex} />
           ) : (
@@ -1318,8 +1320,15 @@ export const CardGL: React.FC<CardGLProps> = ({
   // 旧実装は係数 3.4 の決め打ちで、FOV=40 の正解 2.6788 とずれていたため
   // GL カードがレイアウト枠の 78.8% でしか描かれず、表面オーバーレイ(RN Image)
   // からフリップへ移る瞬間にカードが縮んで見えていた。
-  // FOV は垂直画角なので、キャンバスの「高さ」で逆算する
-  const camZ = (CH * H) / (height * 2 * Math.tan((FOV * Math.PI) / 180 / 2));
+  // FOV は垂直画角なので、キャンバスの「高さ」で逆算する。
+  //
+  // 合わせる面は z=0 ではなく **表の面**（厚みの半分＋FACE_GAP だけ手前）。z=0 で
+  // 合わせていた頃は表の面が約 0.3% 大きく映り、表面オーバーレイ（RN Image）の外へ
+  // GL のカードが 1px ほどはみ出していた。隣の札（CardFace）にはそのはみ出しが無い
+  // ので、送った札が中央で本物のカードに入れ替わる瞬間、毎回カードが 1px 膨らんで
+  // 縁がちらついていた（2026-09-22 実機収録: 幅 +2.1px・高さ +2.8px @3x）。
+  const faceZ = (W * depthRatio) / 2 + FACE_GAP;
+  const camZ = (CH * H) / (height * 2 * Math.tan((FOV * Math.PI) / 180 / 2)) + faceZ;
 
   // ── A-3: Canvas へ渡すオブジェクトを固定する ──
   // インラインのリテラルだと毎レンダーで別物になり、R3F の CanvasImpl が

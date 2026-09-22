@@ -96,7 +96,11 @@ const CAR_FAST_MIN_R = 0.06; // 速度成立時の最小移動量（参照 CARDW
 const CAR_FADE_R = 0.55; // ※ 現在は未使用（carGeo.fade は step を使う）
 const CAR_VEL = 500;         // フリック速度しきい値 px/s（参照 0.5px/ms）
 const CAR_LERP = 0.22;       // 毎フレームの寄せ（参照 dragX += (target-dragX)*0.22）
-const CAR_SETTLE = 0.8;      // 整定しきい値 px（参照 |dragX-carTarget| < 0.8）
+// 整定しきい値 px。参照は |dragX-carTarget| < 0.8 だが、残りを一度に吸着させるため
+// 最後の 1 フレームだけ直前の 3〜4 倍（0.8〜1pt＝3x 機で約 3px）跳び、止まる瞬間に
+// カードがカクッと動いて見えた（2026-09-22 実機収録）。0.25 なら最後の 1 歩は
+// 0.32pt 以下（1 デバイス px 未満）。整定は約 5 フレーム遅くなる。
+const CAR_SETTLE = 0.25;
 // 着地フェード。参照 landT0 は 800ms かけて 0→1 だが、実機で「入れ替わった札が
 // 一瞬消える」と見えた（2026-09-07 岡さん指摘）。中央スロットを 0 から立ち上げる
 // 目的は「activeIndex の反映が 1〜2 フレーム遅れる間、古い絵柄を中央で光らせない」
@@ -597,15 +601,28 @@ export const DiscoverScreen: React.FC<Props> = ({
   //   RN Skia は Canvas 単位でしか再描画できないので、値が毎フレーム変わると
   //   全画面 Canvas が clear + ガウシアン込みで塗り直される。値が変わらなければ
   //   mapper ごと止まり、再描画がゼロになる。
+  //
+  // ★ 接地影は「いま中央にいちばん近い札」の影として、位置も濃さも UI スレッド
+  //   だけで決める（2026-09-22）。以前は baseShift（React の state）基準で、送った
+  //   札が止まってから React の再描画が済むまで影が消えたまま、済んだ瞬間に
+  //   フェードなしで出ていた。その遅れは JS の混み具合で 1〜22 フレーム
+  //   （実機収録で最大約 0.5 秒）ばらつき、止まったあとに影がポンと出て見えた。
+  //   札の間隔は carGeo.step で、baseShift は必ず step ずつ動くので、
+  //   (offsetX - baseShift) を step で畳んだ値は原点の送りの前後で変わらない。
+  const groundX = useDerivedValue(() => {
+    const d = offsetX.value - baseShift;
+    return d - Math.round(d / carFade) * carFade;
+  }, [offsetX, baseShift, carFade]);
   const groundFade = useDerivedValue(() => {
     if (Math.abs(cardRotation.value) > GROUND_HIDE_DEG) return 0;
     const fore = Math.abs(Math.cos((cardRotation.value * Math.PI) / 180));
+    // 隣の札との中間（step/2）で 0 になり、来る札に付いて戻ってくる
     const slide = Math.min(
-      Math.max(0, 1 - Math.abs(offsetX.value - baseShift) / carFade),
+      Math.max(0, 1 - Math.abs(groundX.value) / (carFade / 2)),
       landFade.value,
     );
     return fore * slide;
-  }, [cardRotation, offsetX, baseShift, landFade, carFade]);
+  }, [cardRotation, groundX, landFade, carFade]);
 
   // 回転中（＝表を向いていない）かどうか。true の間は背景の時計を止める。
   // 参照の星と天の川は CSS コンポジタで回るのでメインスレッド負荷が構造的に
@@ -1167,8 +1184,10 @@ export const DiscoverScreen: React.FC<Props> = ({
           pointerEvents="box-none"
         >
           {/* 接地影（card-ground）。カードは floatY で浮くが影は床に留め、
-              逆相で「浮くと薄く広く／沈むと濃く狭く」反応させる */}
-          <View style={[StyleSheet.absoluteFill, baseStyle]} pointerEvents="none">
+              逆相で「浮くと薄く広く／沈むと濃く狭く」反応させる。
+              横位置は groundX（中央にいちばん近い札）だけで決め、React が送る
+              baseStyle には載せない（載せると札の受け渡しの瞬間に影が飛ぶ） */}
+          <View style={StyleSheet.absoluteFill} pointerEvents="none">
             <CardGround
               width={screenW}
               height={slideH}
@@ -1178,7 +1197,7 @@ export const DiscoverScreen: React.FC<Props> = ({
               cardH={cardH}
               fade={groundFade}
               lift={lift}
-              dragX={offsetX}
+              dragX={groundX}
               style={styles.sealLayer}
             />
           </View>
