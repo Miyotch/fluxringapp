@@ -55,10 +55,10 @@
  *   星の総数は参照どおり479のまま、毎フレームの仕事だけが減る。
  *   境界は StarField.tsx の LayerSpec.liveGroups。
  *
- * 待機中の横流れについて（2026-09-14）:
- *   ホームではカードを固定したまま、星（parallaxX）と天の川（nebulaX）を左へ
- *   流し続ける。星は元から周期 W のタイル。天の川も同じく周期 W で並べるため、
- *   雲の横位置を buildClouds(repeatX) で詰め直し、雲と星520を 3 組ずつ置く。
+ * 待機中の横流れについて（2026-09-14 / 09-22 改訂）:
+ *   ホームではカードを固定したまま、星（parallaxX）だけを左へ流し続ける。星は元から
+ *   周期 W のタイル。天の川は流さず、雲がその場でそよぐだけ（0.1.0 (100) と同じ）。
+ *   09-14〜09-21 は天の川も雲と星520を 3 組ずつ置いて流していたが、発熱の再発で戻した。
  *   調律陣の彫刻抜き（occluder）は陣と一緒に occluderX でずらす。
  *
  * 未移植（意図的・2026-08-17 判断）:
@@ -82,7 +82,13 @@ import {
   type SkColor,
   type Transforms3d,
 } from '@shopify/react-native-skia';
-import { useSharedValue, useDerivedValue, type SharedValue } from 'react-native-reanimated';
+import {
+  useSharedValue,
+  useDerivedValue,
+  useAnimatedReaction,
+  runOnJS,
+  type SharedValue,
+} from 'react-native-reanimated';
 import { useBackdropClock } from '../lib/usePausableClock';
 
 import {
@@ -161,9 +167,7 @@ const CloudAtlas: React.FC<{
   scale: number;
   clock: SharedValue<number>;
   stop: SharedValue<boolean>;
-  /** 雲の組を横へずらして重ねる量(px)。周期 W で流すときは [-W, 0, W]、流さないときは [0] */
-  copies: number[];
-}> = ({ clouds, W, H, scale, clock, stop, copies }) => {
+}> = ({ clouds, W, H, scale, clock, stop }) => {
   const sprite = useMemo(() => {
     let core = 0;
     let size = CLOUD_SPRITE_PX;
@@ -184,10 +188,7 @@ const CloudAtlas: React.FC<{
   }, []);
 
   const rect = useMemo(() => fullSprite(sprite.image), [sprite.image]);
-  const sprites = useMemo(
-    () => copies.flatMap(() => clouds.map(() => rect)),
-    [copies, clouds, rect],
-  );
+  const sprites = useMemo(() => clouds.map(() => rect), [clouds, rect]);
   const base = useMemo(
     () => clouds.map((c) => [c.c[0] / 255, c.c[1] / 255, c.c[2] / 255] as const),
     [clouds],
@@ -198,34 +199,25 @@ const CloudAtlas: React.FC<{
   // 参照 loop(): 横ドリフト・縦ドリフト・膨縮（式はそのまま）
   const transforms = useDerivedValue<SkRSXform[]>(() => {
     const t = stop.value ? 0 : clock.value / 1000;
-    const out: SkRSXform[] = [];
-    // 組ごとに同じ雲を横へずらして並べる（sprites / colors と同じ並び順）
-    for (let k = 0; k < copies.length; k++) {
-      for (let i = 0; i < clouds.length; i++) {
-        const c = clouds[i];
-        const cx = ((c.bx + c.dr * 9 * Math.sin(t * c.w1 + c.ph)) / 100) * W + copies[k];
-        const cy = ((c.by + 5 * Math.sin(t * c.w2 + c.ph + 2.0)) / 100) * H;
-        const r = c.r * scale * (1 + 0.22 * Math.sin(t * c.w1 * 0.7 + c.ph + 4.0));
-        const side = r * spriteScale;
-        out.push(Skia.RSXform(side / sprite.size, 0, cx - side / 2, cy - side / 2));
-      }
-    }
-    return out;
-  }, [clock, copies]);
+    return clouds.map((c) => {
+      const cx = ((c.bx + c.dr * 9 * Math.sin(t * c.w1 + c.ph)) / 100) * W;
+      const cy = ((c.by + 5 * Math.sin(t * c.w2 + c.ph + 2.0)) / 100) * H;
+      const r = c.r * scale * (1 + 0.22 * Math.sin(t * c.w1 * 0.7 + c.ph + 4.0));
+      const side = r * spriteScale;
+      return Skia.RSXform(side / sprite.size, 0, cx - side / 2, cy - side / 2);
+    });
+  }, [clock]);
 
   // 参照 loop(): 濃淡呼吸
   const colors = useDerivedValue<SkColor[]>(() => {
     const t = stop.value ? 0 : clock.value / 1000;
-    const one = clouds.map((c, i) => {
+    return clouds.map((c, i) => {
       const a =
         c.a * CLOUD_GAIN * (0.66 + 0.34 * (0.5 + 0.5 * Math.sin(t * c.w2 * 0.9 + c.ph + 1.0)));
       const [r, g, b] = base[i];
       return new Float32Array([r, g, b, Math.min(1, a)]);
     });
-    const out: SkColor[] = [];
-    for (let k = 0; k < copies.length; k++) out.push(...one);
-    return out;
-  }, [clock, copies]);
+  }, [clock]);
 
   if (!sprite.image) return null;
   return (
@@ -287,6 +279,11 @@ export type BackdropSkyProps = {
   /** ホーム以外を表示している間は true にして明滅を止める（参照 __frSealPause 相当） */
   paused?: boolean;
   /**
+   * paused と同じ役目を SharedValue で受ける（ホームのスワイプ・裏返しの間）。
+   * 親を React の再描画に巻き込まず、時計の止め・再開はこの部品の中だけで切り替える。
+   */
+  pausedSV?: SharedValue<boolean>;
+  /**
    * 星の平面だけを横へずらす、**溜め込んだ**移動量(px)。符号つき・上限なし。
    * 層ごとの速度比（LayerSpec.parallax）を掛けて使う。ホームでは待機中の流れ。
    * 地色と天の川は動かさない（参照 animateBG は #bgstars だけを translate する）。
@@ -297,15 +294,10 @@ export type BackdropSkyProps = {
    * ずらしは **Skia の Group transform** で当てる。親 View をネイティブに
    * ずらすほうが塗り直しゼロで安上がりだが、Android では Canvas が親の
    * transform に付いてこない場合があり、実機（0.3.0 (38)）で星が動かなかった。
-   * 塗り直しは横スワイプの最中だけなので、確実に効くほうを採る。
+   * 確実に効くほうを採る。そのぶん星が流れている間は、星の Canvas 2 枚が背景の
+   * 時計と同じ 30fps で塗り直される（裏返し中・アプリ背面では止まる）。
    */
   parallaxX?: SharedValue<number>;
-  /**
-   * 星の平面をカードに付けて動かす量(px)。符号つき・上限なし（2026-09-15）。
-   * 層の速度比は **掛けず**、3 層とも同じだけ parallaxX の流れへ足す＝カードと
-   * 同じ速さで一緒に動く。parallaxX を渡したとき（周期タイル）だけ効く。
-   */
-  followX?: SharedValue<number>;
   /**
    * 調律陣の彫刻シルエット。星の平面からこの形を dstOut で抜き、星が彫刻の
    * 後ろへ回って見えるようにする（components/StaticStars.tsx の SealOccluder）。
@@ -314,18 +306,6 @@ export type BackdropSkyProps = {
    */
   occluder?: SealInkImage;
   /**
-   * 天の川（雲＋星520）の横ずれ(px)。符号つき・上限なし（2026-09-14 から）。
-   * ホームではカードに付いて動く量＋待機中の流れ（2026-09-15）。雲と星を 1 つの組と
-   * して動かすため、星が帯から抜け出すことはない。
-   *
-   * これを渡すと天の川を周期 W のタイル（雲・星とも x-W / x / x+W の 3 組）にして、
-   * 溜まった量を W の余りへ畳む。ホームの待機中の流れはこれで無限に続く。
-   * 渡さないとき（設定のプレビュー）は従来どおり 1 組で動かない。
-   *
-   * 値が動いている間だけこの Canvas が塗り直される。
-   */
-  nebulaX?: SharedValue<number>;
-  /**
    * 調律陣の横ずれ(px)。StarSeal の shiftX と同じ値を渡す。星から彫刻の形を
    * 抜くマスク（occluder）を陣と一緒にずらす。渡さなければ画面固定。
    */
@@ -333,7 +313,7 @@ export type BackdropSkyProps = {
   /**
    * 運営調整用の星雲（天の川＝雲＋星520）レイヤーの位置・大きさ（lib/backgroundLayers.ts
    * config/backgroundLayers.nebula）。既定は offsetX/offsetY=0・scale=1＝現状の位置・
-   * 大きさのまま。nebShift（横揺れアニメ）の**外側**に掛けるので、揺れの中心点ごと
+   * 大きさのまま。雲のそよぎの**外側**に掛けるので、そよぐ中心点ごと
    * ずれる・拡大縮小される。地色（.bgbase）・調律陣の彫刻抜き（SealOccluder、別Canvas）
    * には影響しない。
    */
@@ -342,32 +322,27 @@ export type BackdropSkyProps = {
   nebulaScale?: number;
 };
 
-/**
- * 星 1 層ぶんの横ずらし。溜まった移動量 × 層の速度比に、カードに付いて動く量
- * （比を掛けない）を足して W の余りへ畳む
- */
+/** 星 1 層ぶんの横ずらし。溜まった移動量 × 層の速度比を W の余りへ畳む */
 function useLayerShift(
   parallaxX: SharedValue<number> | undefined,
   W: number,
   rate: number,
-  followX: SharedValue<number> | undefined,
 ): SharedValue<Transforms3d> {
   return useDerivedValue<Transforms3d>(() => {
     if (!parallaxX || W <= 0) return [{ translateX: 0 }];
-    const m = (parallaxX.value * rate + (followX ? followX.value : 0)) % W;
+    const m = (parallaxX.value * rate) % W;
     return [{ translateX: (m < 0 ? m + W : m) - W }];
-  }, [parallaxX, W, rate, followX]);
+  }, [parallaxX, W, rate]);
 }
 
 const BackdropSkyImpl: React.FC<BackdropSkyProps> = ({
   width: W,
   height: H,
   paused = false,
+  pausedSV,
   parallaxX,
-  followX,
   occluder,
   occluderX,
-  nebulaX,
   nebulaOffsetX = 0,
   nebulaOffsetY = 0,
   nebulaScale = 1,
@@ -389,9 +364,20 @@ const BackdropSkyImpl: React.FC<BackdropSkyProps> = ({
     };
   }, []);
 
+  // pausedSV を時計の止め・再開に使える形（React の state）へ移す。ここで持つので
+  // 再描画はこの部品だけで済む（ツリーは下で useMemo 済み）
+  const [svPaused, setSvPaused] = useState(false);
+  useAnimatedReaction(
+    () => (pausedSV ? pausedSV.value : false),
+    (now, prev) => {
+      if (now !== prev) runOnJS(setSvPaused)(now);
+    },
+    [pausedSV],
+  );
+
   // 背面（バックグラウンド再生中）やホーム以外では時計ごと止める。
   // 参照レポート② の「if(!active) return; ではなくループ自体を止める」に対応。
-  const { clock } = useBackdropClock(paused || reduced);
+  const { clock } = useBackdropClock(paused || svPaused || reduced);
   const stop = useSharedValue(false);
   useEffect(() => {
     // paused（フリップ中の一時停止）では「止まった見た目」へ切り替えない。
@@ -402,11 +388,8 @@ const BackdropSkyImpl: React.FC<BackdropSkyProps> = ({
     stop.value = reduced;
   }, [reduced, stop]);
 
-  // 天の川を横へ流すビルドでは周期 W のタイルにする（nebulaX のコメント参照）
-  const nebTiled = !!nebulaX;
-  const clouds = useMemo(() => buildClouds(nebTiled), [nebTiled]);
-  const nebStarGroups = useMemo(() => buildStarGroups(W, H, nebTiled), [W, H, nebTiled]);
-  const cloudCopies = useMemo(() => (nebTiled ? [-W, 0, W] : [0]), [nebTiled, W]);
+  const clouds = useMemo(() => buildClouds(), []);
+  const nebStarGroups = useMemo(() => buildStarGroups(W, H), [W, H]);
   // 横へ流すビルドでは、星を x と x+W の 2 か所へ置いた周期 W のタイル
   // （パスの座標が [0,2W) に広がる）にしておく。Canvas の大きさは画面のまま
   // ＝メモリは増えず、はみ出したぶんは Skia がクリップする。
@@ -433,18 +416,6 @@ const BackdropSkyImpl: React.FC<BackdropSkyProps> = ({
   //   W/H/scale … 画面サイズが変わったときだけ
   //   clouds/nebStarGroups/starLayers … useMemo 済み
   //   clock/stop … useSharedValue 由来で参照が固定
-  // 天の川の横ずれ。tree より前に宣言する。
-  // 溜まった量を周期 W で畳む。畳み方は「いま画面に見えている範囲の中心が、
-  // 平面の [0,W) に来る」ようにする。雲と星は左右に 1 組ずつ余分にあるので、
-  // 見えている範囲が中心から ±W まで広がっても（＝運営調整の拡大率 0.5 まで）
-  // 端が欠けない。W をまたいで戻る瞬間の絵は、周期ぶんずれた同じ絵。
-  // 見えている範囲の中心は、nebAdjust（下）を逆にたどった平面上の x。
-  const nebViewCenter = W / 2 - nebulaOffsetX / (nebulaScale || 1);
-  const nebShift = useDerivedValue<Transforms3d>(() => {
-    if (!nebulaX || W <= 0) return [{ translateX: 0 }];
-    const m = (((nebViewCenter - nebulaX.value) % W) + W) % W;
-    return [{ translateX: nebViewCenter - m }];
-  }, [nebulaX, W, nebViewCenter]);
 
   // 運営調整（星雲の位置・大きさ）。SharedValueではなくただの数値なので
   // useDerivedValue は不要（useMemoで十分。値が変わるのは設定画面での
@@ -498,27 +469,16 @@ const BackdropSkyImpl: React.FC<BackdropSkyProps> = ({
         // （.bgbase の中心と同じ基準点。雲・星の分布そのものは不変）。
         <Group transform={nebAdjust}>
           <Group layer={<Paint blendMode="screen" />}>
-            {/* 雲と星520を 1 つの組として横に揺らす（いちばん遠い層＝小さく） */}
-            <Group transform={nebShift}>
-              <CloudAtlas
-                clouds={clouds}
-                W={W}
-                H={H}
-                scale={scale}
-                clock={clock}
-                stop={stop}
-                copies={cloudCopies}
-              />
-              {nebStarGroups.map((g, i) => (
-                <NebStarLayer key={i} g={g} clock={clock} stop={stop} />
-              ))}
-            </Group>
+            <CloudAtlas clouds={clouds} W={W} H={H} scale={scale} clock={clock} stop={stop} />
+            {nebStarGroups.map((g, i) => (
+              <NebStarLayer key={i} g={g} clock={clock} stop={stop} />
+            ))}
           </Group>
         </Group>
       )}
     </Canvas>
     ),
-    [W, H, scale, clouds, cloudCopies, nebStarGroups, clock, stop, nebShift, nebAdjust],
+    [W, H, scale, clouds, nebStarGroups, clock, stop, nebAdjust],
   );
 
   // ── 星の平面の横ずらし ──────────────────────────────────────
@@ -531,13 +491,12 @@ const BackdropSkyImpl: React.FC<BackdropSkyProps> = ({
   // 層ごとに速度比（LayerSpec.parallax: 遠 0.6 / 中 0.8 / 近 1.0）を掛けて別々に
   // 畳む。近くの明るい星は速く、遠くの淡い星はゆっくり流れ、空が「板」ではなく
   // 奥行きを持つ。層の数は StarField.LAYERS で固定（3）なのでフックも 3 本固定。
-  // カードに付いて動く量（followX）だけは比を掛けず、3 層とも同じだけ動かす。
   const rate0 = split[0]?.spec.parallax ?? 1;
   const rate1 = split[1]?.spec.parallax ?? 1;
   const rate2 = split[2]?.spec.parallax ?? 1;
-  const shift0 = useLayerShift(parallaxX, W, rate0, followX);
-  const shift1 = useLayerShift(parallaxX, W, rate1, followX);
-  const shift2 = useLayerShift(parallaxX, W, rate2, followX);
+  const shift0 = useLayerShift(parallaxX, W, rate0);
+  const shift1 = useLayerShift(parallaxX, W, rate1);
+  const shift2 = useLayerShift(parallaxX, W, rate2);
   const starShifts = useMemo(() => [shift0, shift1, shift2], [shift0, shift1, shift2]);
 
 
