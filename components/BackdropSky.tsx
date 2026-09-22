@@ -82,7 +82,13 @@ import {
   type SkColor,
   type Transforms3d,
 } from '@shopify/react-native-skia';
-import { useSharedValue, useDerivedValue, type SharedValue } from 'react-native-reanimated';
+import {
+  useSharedValue,
+  useDerivedValue,
+  useAnimatedReaction,
+  runOnJS,
+  type SharedValue,
+} from 'react-native-reanimated';
 import { useBackdropClock } from '../lib/usePausableClock';
 
 import {
@@ -273,6 +279,11 @@ export type BackdropSkyProps = {
   /** ホーム以外を表示している間は true にして明滅を止める（参照 __frSealPause 相当） */
   paused?: boolean;
   /**
+   * paused と同じ役目を SharedValue で受ける（ホームのスワイプ・裏返しの間）。
+   * 親を React の再描画に巻き込まず、時計の止め・再開はこの部品の中だけで切り替える。
+   */
+  pausedSV?: SharedValue<boolean>;
+  /**
    * 星の平面だけを横へずらす、**溜め込んだ**移動量(px)。符号つき・上限なし。
    * 層ごとの速度比（LayerSpec.parallax）を掛けて使う。ホームでは待機中の流れ。
    * 地色と天の川は動かさない（参照 animateBG は #bgstars だけを translate する）。
@@ -328,6 +339,7 @@ const BackdropSkyImpl: React.FC<BackdropSkyProps> = ({
   width: W,
   height: H,
   paused = false,
+  pausedSV,
   parallaxX,
   occluder,
   occluderX,
@@ -352,9 +364,20 @@ const BackdropSkyImpl: React.FC<BackdropSkyProps> = ({
     };
   }, []);
 
+  // pausedSV を時計の止め・再開に使える形（React の state）へ移す。ここで持つので
+  // 再描画はこの部品だけで済む（ツリーは下で useMemo 済み）
+  const [svPaused, setSvPaused] = useState(false);
+  useAnimatedReaction(
+    () => (pausedSV ? pausedSV.value : false),
+    (now, prev) => {
+      if (now !== prev) runOnJS(setSvPaused)(now);
+    },
+    [pausedSV],
+  );
+
   // 背面（バックグラウンド再生中）やホーム以外では時計ごと止める。
   // 参照レポート② の「if(!active) return; ではなくループ自体を止める」に対応。
-  const { clock } = useBackdropClock(paused || reduced);
+  const { clock } = useBackdropClock(paused || svPaused || reduced);
   const stop = useSharedValue(false);
   useEffect(() => {
     // paused（フリップ中の一時停止）では「止まった見た目」へ切り替えない。

@@ -653,13 +653,12 @@ export const DiscoverScreen: React.FC<Props> = ({
   // carBusy を使うのは scrolling より正確だから。scrolling はジェスチャの onBegin
   // ＝指が触れた瞬間に立つので、フリップ目的のタップでも一瞬 pause がトグルする。
   // carBusy は「カードが原点から横にずれている／寄せている／受け渡し待ち」の間だけ立つ。
-  const [cardSpinning, setCardSpinning] = useState(false);
-  useAnimatedReaction(
+  //
+  // React の state にはしない（2026-09-22）。state だとスワイプの始まりと終わりの
+  // たびにホーム全体が再描画されていた。値のまま BackdropSky へ渡し、時計の
+  // 止め・再開は BackdropSky の中だけで切り替える。
+  const skyPaused = useDerivedValue(
     () => Math.abs(cardRotation.value) > SPIN_PAUSE_DEG || carBusy.value > 0.5,
-    (now, prev) => {
-      if (prev !== null && now !== prev) runOnJS(setCardSpinning)(now);
-    },
-    [],
   );
 
   // ── 調律陣は「裏返している間」だけ止める ───────────────────────
@@ -1007,10 +1006,17 @@ export const DiscoverScreen: React.FC<Props> = ({
   // ※フェードインは音源ファイル側で定義する方針のため、アプリ側では行わない。
   useEffect(() => {
     preview.pause();
-    setPlayingId(null);
-    if (!active || isOwned(active) || !previewEnabled) return;
-    const url = active.previewUrl ?? previewUrl(active.audioKey);
-    if (!url) return;
+    const url =
+      active && !isOwned(active) && previewEnabled
+        ? active.previewUrl ?? previewUrl(active.audioKey)
+        : null;
+    if (!active || !url) {
+      setPlayingId(null);
+      return;
+    }
+    // 次の曲を鳴らすときは playingId を null へ戻さない。isPreviewing は
+    // 「playingId が いまの札の id か」で決まるので、札を送った時点で自然に false に
+    // なる。戻すとホーム全体の再描画が 1 回増えていた（2026-09-22）。
     // 音源の差し替えと再生開始は、札が入れ替わったフレームには乗せない。
     // ここは JS スレッドで数十 ms かかることがあり、同じフレームに置くと
     // 表面の絵の差し替えがそのぶん遅れて「前の札が残る」ように見える。
@@ -1153,7 +1159,7 @@ export const DiscoverScreen: React.FC<Props> = ({
           <BackdropSky
             width={screenW}
             height={slideH}
-            paused={cardSpinning}
+            pausedSV={skyPaused}
             parallaxX={starDrift}
             occluder={sealInk}
             nebulaOffsetX={layerAdjust.nebula.offsetX}
