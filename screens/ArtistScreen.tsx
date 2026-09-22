@@ -28,6 +28,7 @@ import Animated, { FadeInUp } from 'react-native-reanimated';
 import { ArtworkCard } from '../components/ArtworkCard';
 import { COLOR, SPACE, RADIUS } from '../constants/design-tokens';
 import { NUM_FONT, JP_SERIF_FONT } from '../constants/fonts';
+import { CR, CreditsBackdrop } from '../components/CreditsBackdrop';
 import { SubHeader } from './SettingsDetailScreens';
 
 // SNSリンク1件（artists.snsLinks[].typeId を sns_type コレクションで解決したもの）
@@ -80,7 +81,7 @@ export const ArtistScreen: React.FC<Props> = ({
   onOpenStory,
   focusArtistId,
 }) => {
-  const { width: screenW } = useWindowDimensions();
+  const { width: screenW, height: screenH } = useWindowDimensions();
   const [stage, setStage] = useState<Stage>(focusArtistId ? 'profile' : 'list');
   const [selected, setSelected] = useState<Artist | null>(
     () => (focusArtistId ? artists.find((a) => a.id === focusArtistId) ?? null : null),
@@ -102,7 +103,8 @@ export const ArtistScreen: React.FC<Props> = ({
   if (stage === 'list') {
     return (
       <View style={styles.root}>
-        <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
+        <StatusBar barStyle="light-content" backgroundColor={CR.deepest} />
+        <CreditsBackdrop w={screenW} h={screenH} />
         <SubHeader title="作家一覧" onBack={onBackToSettings} />
         <ScrollView contentContainerStyle={styles.listBody} showsVerticalScrollIndicator={false}>
           {artists.map((a) => (
@@ -138,7 +140,8 @@ export const ArtistScreen: React.FC<Props> = ({
   if (stage === 'profile' && selected) {
     return (
       <View style={styles.root}>
-        <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
+        <StatusBar barStyle="light-content" backgroundColor={CR.deepest} />
+        <CreditsBackdrop w={screenW} h={screenH} />
         <SubHeader title="作家" onBack={() => setStage('list')} />
         <ScrollView contentContainerStyle={styles.profileBody} showsVerticalScrollIndicator={false}>
           {/* 円ポートレート（人物は円） */}
@@ -187,7 +190,8 @@ export const ArtistScreen: React.FC<Props> = ({
   const tracks = selected ? tracksByArtist[selected.id] ?? [] : [];
   return (
     <View style={styles.root}>
-      <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
+      <StatusBar barStyle="light-content" backgroundColor={CR.deepest} />
+      <CreditsBackdrop w={screenW} h={screenH} />
       <SubHeader title="楽曲一覧" onBack={() => setStage('profile')} />
       <ScrollView contentContainerStyle={styles.tracksGrid} showsVerticalScrollIndicator={false}>
         <View style={styles.gridRow}>

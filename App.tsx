@@ -495,7 +495,9 @@ function AppInner() {
         track={playerTrack}
         origin={playerOrigin ?? undefined}
         afterimages={playerAfterimages}
-        backLabel={playerReturnTab === 'home' ? '‹ ホームへ戻る' : '‹ コレクションへ戻る'}
+        // 遷移元（ホーム/コレクション）によらず文言は共通の「‹ 戻る」に統一
+        // （2026-09-22 指示で簡略化。実際の戻り先は onBackHome が制御する）。
+        backLabel="‹ 戻る"
         onPrevTrack={canSkip ? () => goTrack(-1) : undefined}
         onNextTrack={canSkip ? () => goTrack(1) : undefined}
         favorited={favorites.has(playerTrack.id)}

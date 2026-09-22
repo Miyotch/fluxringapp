@@ -6,7 +6,7 @@
  *                   カードと大きな再生ボタンだけを出す（魔法陣は出さない）
  *   ・再生(playing): 再生ボタンで開始。背景は星雲（NebulaGL）のまま暗幕だけ外れる。
  *                    下部に枠なしのトランスポート（シーク・時間・再生/停止・ループ）
- *   ・上部左「戻る」（コレクション/ホームどちらから開いたかで文言が変わる）／右に共有（旧ストーリー導線は廃止）
+ *   ・上部左「‹ 戻る」（文言は遷移元によらず共通。戻り先は onBackHome が制御）／右に共有（旧ストーリー導線は廃止）
  *   ・EQ なし。曲送り／戻しは所有が2曲以上のときだけ有効（1曲なら淡色の無効表示）
  *   ・フッター非表示・縦画面固定。総時間は音源から自動算出
  *   ・ホーム(ディスカバー)側は従来のまま。この画面のみの挙動
@@ -73,9 +73,10 @@ type Props = {
    * アートワーク。指定時、その全箇所にうっすら残像を残す。
    */
   afterimages?: CardOriginItem[];
-  onBackHome: () => void; // コレクション or ホームへ戻る（backLabel と対で親が制御）
-  /** 上部左の戻る導線の文言。コレクションから開いたときは「‹ コレクションへ戻る」、
-   *  ホーム（所有済みカードの再生ボタン）から開いたときは「‹ ホームへ戻る」。 */
+  onBackHome: () => void; // コレクション or ホームへ戻る（実際の戻り先はこちらが制御）
+  /** 上部左の戻る導線の文言。遷移元によらず「‹ 戻る」で共通
+   *  （2026-09-22 指示。以前は「‹ コレクションへ戻る」「‹ ホームへ戻る」と
+   *  出し分けていた）。 */
   backLabel?: string;
   onOpenStory?: () => void; // 未使用（ストーリー導線は廃止）
   /**
@@ -97,7 +98,7 @@ export const PlayerScreen: React.FC<Props> = ({
   track,
   origin,
   afterimages,
-  backLabel = '‹ コレクションへ戻る',
+  backLabel = '‹ 戻る',
   onBackHome,
   onPrevTrack,
   onNextTrack,
@@ -595,11 +596,12 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'flex-start',
   },
-  // 戻るリンク（backLabel）: 13px（視認性向上のため12→13へ1段階拡大）/ 字間2.0 / rgba(236,238,247,.55) / 明朝
+  // 戻るリンク（backLabel）: 13px（視認性向上のため12→13へ1段階拡大）/ 字間0.5
+  // （2026-09-22 指示で 1.0 から半分に）/ rgba(236,238,247,.55) / 明朝
   navText: {
     color: 'rgba(236,238,247,0.55)',
     fontSize: 13,
-    letterSpacing: 1.0,
+    letterSpacing: 0.5,
     fontFamily: JP_SERIF_FONT,
   },
   // overflow:hidden で、CardGL の描画キャンバス（flip裏面ぶん拡大されて
