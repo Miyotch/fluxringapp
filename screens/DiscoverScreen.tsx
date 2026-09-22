@@ -111,28 +111,17 @@ const CAR_AXIS = 6;          // 軸判定＝タップ境界（参照 moved の 6
 const CAR_FAIL_Y = 24;
 const CAR_DT_MAX = 0.05;     // 1フレームで進める上限（秒）
 
-// ── 宇宙空間の手ざわり（2026-09-15 代表指示）─────────────────────
-// 「宇宙を漂っているカード」と「カードを動かしたとき宇宙を移動している感覚」。
-// カードを横へ動かすと、星・天の川がカードと同じ向きに一緒に動く。動いた量は
-// **戻さない**。offsetX は札を送っても 0 へ戻らない連続量なので、そのまま足せば
-// スワイプを重ねるほど背景は流れたままになる。星・天の川は周期 W のタイルなので、
-// どれだけ溜まっても継ぎ目は出ない。
+// ── 待機中の星の流れ（2026-09-14 代表指示「ホームにもっと没入感を」）──
+// カードと調律陣は固定のまま、後ろの星だけを左へゆっくり流し続ける。
+// 速さは近景の星を基準に「1秒で画面幅の何割進むか」。0.0125 ＝ 約80秒で画面を横切る
+// （2026-09-22 に 0.025 から半分へ）。層ごとの比（遠 0.6 / 中 0.8 / 近 1.0）は
+// StarField の LayerSpec.parallax が掛かる。
 //
-// 調律陣は **固定**（スワイプにも待機中の流れにも付けない。2026-09-15 修正）。
-//
-// 以前は 1 スワイプ＝画面幅の半分だけ星を流し、天の川は小さく揺らして着地後に
-// 0 へ戻していた（2026-09-07）。戻る動きは不要との指示で廃止した。
-// カードの移動量に対する比。0.1 = カードの 1/10（2026-09-15 修正。当初は 1.0）。
-// 層ごとの速度比は掛けない（星 3 層と天の川が同じだけ動く）。
-const SWIPE_FOLLOW = 0.1;
-// ── 待機中の背景の流れ（2026-09-14 代表指示「ホームにもっと没入感を」）──
-// カードと調律陣は固定のまま、後ろの星・天の川を左へゆっくり流し続ける。
-// カードに付いて動く量（SWIPE_FOLLOW）とは足し算で重なる。
-// 速さは近景の星を基準に「1秒で画面幅の何割進むか」。0.025 ＝ 約40秒で画面を横切る。
-const DRIFT_R_PER_S = 0.025;
-// 基準に対する比。星の層ごとの比（遠 0.6 / 中 0.8 / 近 1.0）は StarField の
-// LayerSpec.parallax がそのまま掛かるので、ここは天の川だけ。
-const NEB_DRIFT = 0.4; // 天の川はいちばん遠いので遅く
+// 星をカードの横スワイプに付けて動かすこと、天の川を流すことはしない（2026-09-22、
+// 発熱の再発で外した）。付けるとスワイプ中は指の 60fps で全画面 Canvas 3 枚を
+// 塗り直し、天の川を流すには雲と星を 3 組ずつ描く必要があった。天の川は 0.1.0 (100)
+// と同じく、雲がその場でそよぐだけ。
+const DRIFT_R_PER_S = 0.0125;
 // 参照 2999行: card.style.transform ... scale(1 - press*.035)
 const CARD_PRESS_SCALE = 0.035;
 // 参照 2995行: 指が 7px 動いたら「押した」を取り消す（＝スワイプの入り口）
@@ -665,7 +654,7 @@ export const DiscoverScreen: React.FC<Props> = ({
     [],
   );
 
-  // ── 待機中の背景の流れ ────────────────────────────────────
+  // ── 待機中の星の流れ ──────────────────────────────────────
   // 時計は調律陣と同じ条件で止める（裏返している間・アプリが背面・視差を減らす設定）。
   // 横スワイプ中は止めない。裏面を開いている間は背景が幕で沈んでいるので、
   // 流れを止めても目に付かず、発熱対策の効きどころは残る。
@@ -679,16 +668,6 @@ export const DiscoverScreen: React.FC<Props> = ({
    * BackdropSky が掛ける。画面幅の余りへ畳んで Skia の transform で消費する。
    */
   const starDrift = useDerivedValue(() => -driftClock.value * driftK, [driftClock, driftK]);
-  /**
-   * カードに付いて動く量(px)。offsetX は札を送っても 0 へ戻らない連続量なので、
-   * そのまま使えば「動いたまま戻らない」になる。層の速度比は掛けない。
-   */
-  const cardFollow = useDerivedValue(() => offsetX.value * SWIPE_FOLLOW, [offsetX]);
-  /** 天の川の横ずれ(px)。カードに付いて動く量＋待機中の流れ */
-  const nebTravel = useDerivedValue(
-    () => offsetX.value * SWIPE_FOLLOW - driftClock.value * driftK * NEB_DRIFT,
-    [offsetX, driftClock, driftK],
-  );
   // 調律陣は固定（2026-09-15）。StarSeal の shiftX / 星の彫刻抜きの occluderX は
   // 渡さない＝陣も抜き形も画面に固定され、陣を外周まで広げて焼く処理も走らない。
   // 試聴プレイヤー（30秒・公開URL）
@@ -817,7 +796,6 @@ export const DiscoverScreen: React.FC<Props> = ({
           ) {
             cardPress.value = withTiming(0, { duration: 160, easing: Easing.out(Easing.quad) });
           }
-          // 星・天の川は offsetX の 1/10 だけ付いて動く（cardFollow / nebTravel が派生で追随する）
         })
         .onEnd((e) => {
           'worklet';
@@ -1110,9 +1088,7 @@ export const DiscoverScreen: React.FC<Props> = ({
             height={slideH}
             paused={cardSpinning}
             parallaxX={starDrift}
-            followX={cardFollow}
             occluder={sealInk}
-            nebulaX={nebTravel}
             nebulaOffsetX={layerAdjust.nebula.offsetX}
             nebulaOffsetY={layerAdjust.nebula.offsetY}
             nebulaScale={layerAdjust.nebula.scale}
