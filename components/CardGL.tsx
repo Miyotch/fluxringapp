@@ -434,6 +434,8 @@ const inkTexCache = createLru<THREE.DataTexture>({
   limit: 3,
   onEvict: (t) => t.dispose(),
 });
+// ホームで札が止まってから刻印を焼くまでの待ち(ms)。連続で送っている間は焼かない
+const BACK_INK_IDLE_MS = 400;
 
 // Skia の RGBA ピクセル → three の DataTexture（行順を反転）
 function pixelsToTexture(res: BackPixels): THREE.DataTexture {
@@ -461,6 +463,8 @@ const CardMesh: React.FC<{
   cardPx: { width: number; height: number };
   /** true = flip モード（参照 _dv3d の角度駆動）/ false = spin モード（トラックボール） */
   flipDrive?: boolean;
+  /** flip モードで、いま裏面を見せようとしているか（裏返した／裏返している） */
+  backWanted?: boolean;
   /** 裏面の表示倍率（参照 S）。枠内クランプ済みの値を親が計算して渡す */
   backScale: number;
   /** 裏面の持ち上げ量（カード高比。参照 枠高の3%） */
@@ -471,7 +475,7 @@ const CardMesh: React.FC<{
   onFrontLoaded?: () => void;
   /** flip モードで「表へ戻り切った」瞬間（closing のスナップ成立時）に一度だけ呼ぶ */
   onClosed?: () => void;
-}> = ({ spin, kick, frontUri, backData, backStyle, depthRatio, rotationEnabled, cardPx, flipDrive, backScale, backLiftRatio, rotationOut, flipProgressOut, onFrontLoaded, onClosed }) => {
+}> = ({ spin, kick, frontUri, backData, backStyle, depthRatio, rotationEnabled, cardPx, flipDrive, backWanted, backScale, backLiftRatio, rotationOut, flipProgressOut, onFrontLoaded, onClosed }) => {
   const groupRef = useRef<THREE.Group>(null);
   // frameloop="demand" の再描画要求。ジェスチャ開始（親）とテクスチャ到着で起こし、
   // 動いている間は useFrame 自身が次のフレームを要求し続ける（自走）。
@@ -589,7 +593,11 @@ const CardMesh: React.FC<{
       // 乗せると JS が数十 ms 止まり、表面の絵の差し替えがそのぶん遅れる
       // （＝前の札が中央に残る時間が伸びる）。裏面は裏返すまで見えないので、
       // 次のフレームへ逃がす（2026-09-12）。
-      const raf = requestAnimationFrame(() => {
+      //
+      // ホーム（flip モード）では、札が落ち着くまで焼かない（2026-09-22）。連続で
+      // 曲を送ると、通り過ぎるだけの札ごとに約 19MB の一時確保と数十 ms の同期処理が
+      // 走り、JS の遅れと発熱の元になっていた。裏返したとき（backWanted）はすぐ焼く。
+      const bake = () => {
         try {
           // 内容でキーを引く。backData は DiscoverScreen 側で useMemo 済みだが、
           // 参照ではなく中身でキーにしておくと、別経路（再生画面・作品詳細）から
@@ -609,8 +617,13 @@ const CardMesh: React.FC<{
           // 裏面が真っ黒」という再現条件つきの形で出る。解放は追い出し時だけ。
           if (tex) setInkTex(tex);
         } catch {}
-      });
-      return () => cancelAnimationFrame(raf);
+      };
+      if (!flipDrive || backWanted) {
+        const raf = requestAnimationFrame(bake);
+        return () => cancelAnimationFrame(raf);
+      }
+      const idle = setTimeout(bake, BACK_INK_IDLE_MS);
+      return () => clearTimeout(idle);
     }
     let alive = true;
     (async () => {
@@ -623,7 +636,7 @@ const CardMesh: React.FC<{
       } catch {}
     })();
     return () => { alive = false; };
-  }, [backData, backStyle, frontUri]);
+  }, [backData, backStyle, frontUri, flipDrive, backWanted]);
 
   // 作品画像テクスチャの読み込み（remote → ローカルへ落としてから）
   useEffect(() => {
@@ -1402,6 +1415,7 @@ export const CardGL: React.FC<CardGLProps> = ({
           rotationEnabled={canRotate}
           cardPx={cardPx}
           flipDrive={isFlip}
+          backWanted={flipped}
           backScale={backScale}
           backLiftRatio={backLiftRatio}
           rotationOut={rotSV}
