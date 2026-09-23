@@ -51,6 +51,12 @@ uniform sampler2D map;
 uniform float uHasMap;
 uniform vec3 uLight; // (0.45, -0.55, -0.80) 参照値
 uniform vec2 uCardPx; // カードの見かけ寸法(px)。表面オーバーレイを px 基準で描くため
+// 作品画像の切り出し（0..1）。カードと作品の縦横比が違うときに、はみ出す側を
+// 中央で切る＝CSS の object-fit: cover と同じ絵にするための係数。
+// 静止時に見えている RN Image（resizeMode="cover"）と framing を揃える。
+// 揃えないと、裏返し始めた瞬間に GL 面へ替わって作品が数%伸び、両端が
+// 出入りする（作品 3:2・カード 1:1.56 で縦に約 4%。2026-09-23）。
+uniform vec2 uArtUv;
 // 0=正面で静止 / 1=傾いている。ライティング項の効き具合。CardGL が回転角から毎フレーム渡す。
 uniform float uMotion;
 
@@ -84,7 +90,8 @@ void main() {
   vec3 cyan = vec3(0.93, 0.95, 0.98); // uCyan
   float rimAmount = 0.40;             // uRim
 
-  vec4 artSample = uHasMap > 0.5 ? texture2D(map, vUv) : vec4(0.13, 0.14, 0.22, 1.0);
+  vec2 artUv = (vUv - 0.5) * uArtUv + 0.5;
+  vec4 artSample = uHasMap > 0.5 ? texture2D(map, artUv) : vec4(0.13, 0.14, 0.22, 1.0);
   vec3 art = artSample.rgb;
 
   // スペキュラ: pow(NdotH,64) * 0.6

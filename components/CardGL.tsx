@@ -512,6 +512,8 @@ const CardMesh: React.FC<{
           uMotion: { value: 1 },
           // 表面オーバーレイ（金の内枠・下端シャドウ）を px 基準で描くための実寸
           uCardPx: { value: new THREE.Vector2(cardPx.width, cardPx.height) },
+          // 作品画像の切り出し（cover）。テクスチャが載ってから実寸で決める
+          uArtUv: { value: new THREE.Vector2(1, 1) },
         },
       }),
     [uLightVec, cardPx.width, cardPx.height],
@@ -520,6 +522,18 @@ const CardMesh: React.FC<{
     frontMaterial.uniforms.map.value = frontTex;
     frontMaterial.uniforms.uHasMap.value = frontTex ? 1 : 0;
     frontMaterial.uniforms.uCardPx.value.set(cardPx.width, cardPx.height);
+    // 作品とカードの縦横比が違うぶんを、中央で切って合わせる（cover）。
+    // 静止時に見えているのは RN Image（resizeMode="cover"）なので、GL 面も
+    // 同じ切り出しにしないと、裏返し始めた瞬間に作品の framing が変わる。
+    const img = frontTex?.image as { width?: number; height?: number } | undefined;
+    const iw = img?.width ?? 0;
+    const ih = img?.height ?? 0;
+    const aCard = cardPx.height / Math.max(1, cardPx.width);
+    const aArt = iw > 0 && ih > 0 ? ih / iw : aCard;
+    frontMaterial.uniforms.uArtUv.value.set(
+      aArt < aCard ? aArt / aCard : 1,
+      aArt < aCard ? 1 : aCard / aArt,
+    );
     frontMaterial.uniformsNeedUpdate = true;
   }, [frontTex, frontMaterial, cardPx.width, cardPx.height]);
 
@@ -864,6 +878,21 @@ export type CardGLProps = {
   backScale?: number;
   /** flip モードで表↔裏が切り替わったとき（親が横スクロール可否を切替える用） */
   onFlipChange?: (flipped: boolean) => void;
+  /**
+   * 裏面のカードを表へ戻す合図。**値が変わるたび**に flipToFront する
+   * （数そのものに意味は無い）。ホームで裏面を横スワイプしたとき、親から
+   * 「表へ戻して次の曲へ送る」を起こすために使う（2026-09-23）。
+   * 関数ではなく数にしているのは、親が毎レンダー新しい関数を渡して
+   * React.memo を壊すのを避けるため。
+   */
+  closeSignal?: number;
+  /**
+   * 表面に新しい作品画像を出し終えたとき（読み込み済みで、いまその 1 枚が
+   * 見えている）に uri を渡して呼ぶ。ホームはこれを待ってから、中央の描き手を
+   * 輪の札から CardGL へ戻す（2026-09-23）。出す前に戻すと、1 フレームだけ
+   * 前の曲の絵が中央に出る。
+   */
+  onFrontShown?: (uri: string) => void;
   /** 背面レイヤー追従用（任意・度 / px） */
   rotationOut?: SharedValue<number>;
   /** フリップ進捗 0=表(2D) / 1=裏(3D)。接地影の縮小追従などに使う */
@@ -897,6 +926,8 @@ export const CardGL: React.FC<CardGLProps> = ({
   frame,
   backScale: backScaleProp,
   onFlipChange,
+  closeSignal,
+  onFrontShown,
   rotationOut,
   flipProgressOut,
   dragXOut,
@@ -1047,8 +1078,29 @@ export const CardGL: React.FC<CardGLProps> = ({
     if (loadedRef.current.has(uri)) return;
     loadedRef.current.add(uri);
     // いま出したい絵が読めたのなら、その場で描き直して入れ替える
-    if (uri === frontUri) bumpLoaded();
+    if (uri === frontUri) {
+      bumpLoaded();
+      // 起動直後の最初のカードだけ、下の useEffect が発火しない（次のコメント参照）。
+      // ここで直接呼んでおけば、その穴を埋められる。
+      onFrontShown?.(uri);
+    }
   };
+  // 新しい絵を出し終えたことを親へ知らせる（読み込み済みの 1 枚が表に出たとき）。
+  //
+  // ★ これだけでは起動直後の最初のカードで発火しない（2026-09-23 実機収録で
+  //   発見）。lastShownRef の初期値が frontUri 自身なので、shownUri は
+  //   マウント直後からすでに frontUri と等しく、読み込みが済んで再描画されても
+  //   「値としては変わらない」ため、この effect の依存 [shownUri, frontUri] は
+  //   動かず React が再実行しない。
+  //   結果: 親の glOn（輪の札 ↔ CardGL の入れ替え）が 1 にならず、最初のカードは
+  //   ずっと輪の札（2D）が前面に出たまま。フリップすると、その裏で GL の裏面
+  //   （アルミ＋刻印・1.28倍に拡大）だけが正しく回っており、手前の縮んだ
+  //   輪の札と二重写しになって「裏面が小さな表の絵に縁取られる」形に見えた。
+  //   直しは handleFrontLoaded 側（読み込みが実際に済んだ瞬間）に置いた。
+  useEffect(() => {
+    if (shownUri === frontUri && loadedRef.current.has(frontUri)) onFrontShown?.(frontUri);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shownUri, frontUri]);
   // 表面に載せる絵の一覧（重複は落とす）。先頭から順に重なり、shownUri だけが見える。
   const frontLayers = useMemo(() => {
     const list = [lastShownRef.current, frontUri, ...(preloadUris ?? [])];
@@ -1125,6 +1177,16 @@ export const CardGL: React.FC<CardGLProps> = ({
     clearOverlayTimer();
     overlayTimer.current = setTimeout(showOverlay, 900);
   };
+
+  // 親からの「表へ戻して」（裏面を横スワイプしたとき）。開いていなければ
+  // flipToFront 自身が何もしないので、初回や表向きのときは無害。
+  const closeSignalSeen = useRef(closeSignal);
+  useEffect(() => {
+    if (closeSignal === closeSignalSeen.current) return;
+    closeSignalSeen.current = closeSignal;
+    flipToFront();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [closeSignal]);
 
   // flipped の変化でフリップ演出を仕込む（参照 _dv3d の open() / close() 移植）。
   //   開く: 姿勢を毎回 0 にリセットしてから 0→π へ（参照 1913行
