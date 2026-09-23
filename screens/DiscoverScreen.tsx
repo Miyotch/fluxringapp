@@ -38,6 +38,7 @@ import Animated, {
   useAnimatedReaction,
   cancelAnimation,
   runOnJS,
+  runOnUI,
   withTiming,
   withSequence,
   withDelay,
@@ -109,12 +110,26 @@ const CAR_SETTLE_EASE = (t: number) => {
 };
 // 着地フェード。参照 landT0 は 800ms かけて 0→1 だが、実機で「入れ替わった札が
 // 一瞬消える」と見えた（2026-09-07 岡さん指摘）。中央スロットを 0 から立ち上げる
-// 目的は「activeIndex の反映が 1〜2 フレーム遅れる間、古い絵柄を中央で光らせない」
+// 目的は「通し番号(pos)の反映が 1〜2 フレーム遅れる間、古い絵柄を中央で光らせない」
 // ことだけなので、その数フレームさえ隠せれば長さは要らない。
 // ease-in（立ち上がりが遅い曲線）と組み合わせて、最初の 3 フレームはほぼ 0、
 // 200ms で完全に戻る＝目には「沈まずにそのまま入れ替わる」ようにする。
 const CAR_LAND_MS = 200; // ※ 現在は未使用（着地の暗転そのものを廃止した）
 const CAR_AXIS = 6;          // 軸判定＝タップ境界（参照 moved の 6px）
+// 裏面で横スワイプと認める距離(px)。表面の 6px より深くする（2026-09-23）。
+// 裏面では指のなぞりがカードの 3D 回転そのものなので、6px で取り上げると
+// 裏面を傾けて眺められなくなる。ここを越えたら「曲を送る意思」と見なして
+// 表へ戻しながら送る。
+const CAR_AXIS_BACK = 48;
+// これより速く払ったら 2 枚送る(px/s)。隣の隣まで描いてあるので 2 枚が上限
+const CAR_VEL2 = 1800;
+/**
+ * カードの輪の枚数（2026-09-23）。7 枚を輪にして並べ、画面の外（中央から 3.5 枚
+ * ぶん離れた所）で札を反対側へ回して絵柄を差し替える。見えている札の絵柄は
+ * 動いている間いっさい変わらない。見えるのは中央 ±0.9 枚ぶんだけなので、
+ * 受け渡し（React の再描画）が 2.6 枚ぶん遅れても画面は壊れない。
+ */
+const RING = 7;
 // 縦にこれだけ先行したらスワイプを諦める（2026-09-15 に 6 → 24）。
 // 6px だと親指の弧で縦に先にブレただけで失敗し、指はカードの Pressable に残って
 // 離した瞬間に「タップ」＝裏返しになっていた。ホームには縦の操作が無いので緩めてよい。
@@ -131,8 +146,16 @@ const CAR_FAIL_Y = 24;
 // 塗り直し、天の川を流すには雲と星を 3 組ずつ描く必要があった。天の川は 0.1.0 (100)
 // と同じく、雲がその場でそよぐだけ。
 const DRIFT_R_PER_S = 0.0125;
+// 流れの値を書き換える間隔(ms)。100 ＝ 10 回/秒。星の Canvas の塗り直し回数は
+// この値が変わった回数で決まる（下の starDrift のコメント）。
+const DRIFT_STEP_MS = 100;
 // 参照 2999行: card.style.transform ... scale(1 - press*.035)
 const CARD_PRESS_SCALE = 0.035;
+/** 試聴を鳴らし始めるまでの間(ms)。カードが止まってから */
+const PREVIEW_START_MS = 300;
+/** 試聴を止めるときのフェード(ms)と、その刻み */
+const PREVIEW_FADE_MS = 160;
+const PREVIEW_FADE_STEP_MS = 40;
 // 参照 2995行: 指が 7px 動いたら「押した」を取り消す（＝スワイプの入り口）
 const CARD_PRESS_SLOP = 7;
 
@@ -324,7 +347,28 @@ export const DiscoverScreen: React.FC<Props> = ({
   // setState をそのまま渡すと、関数を「更新関数」と解釈されてしまう。
   // 参照も固定して StarSeal の React.memo を壊さない。
   const handleSealInk = useCallback((ink: SealInkImage) => setSealInk(ink), []);
-  const [activeIndex, setActiveIndex] = useState(initialIndex);
+  /**
+   * いま中央にいる札の通し番号。札を送るたびに ±1 され、曲は tracks[通し番号 mod 曲数]。
+   * 隣のスロットも「通し番号 ± k」で引くので、どのスロットに何の絵が載るかは
+   * この 1 つの数だけで決まる（位置は下の dragX＋スロット固定の並び）。
+   */
+  const [pos, setPos] = useState(initialIndex);
+  /** pos の JS 側の写し。受け渡しの前でも「いま何番へ向かっているか」を数えるのに使う */
+  const posRef = useRef(initialIndex);
+  /** 起動時の通し番号。dragX = -(通し番号 - これ) × STEP の関係になる */
+  const posAtMountRef = useRef(initialIndex);
+  const posAtMount = posAtMountRef.current;
+  /** 指を離した時点で見込んだ行き先（chromePos の写し） */
+  const aimRef = useRef(initialIndex);
+  /**
+   * 曲名・ボタン・試聴が指している札の通し番号。
+   *
+   * カード本体の pos は「寄せ終わって受け渡したとき」に進むが、こちらは
+   * **指を離した時点**で行き先へ進める（2026-09-23 代表指示）。送ったのに
+   * 0.5 秒ほど前の曲名が出たままなのを消すため。カードの絵（pos）と
+   * 曲名（chromePos）が食い違うのは、滑っている最中の 0.5 秒弱だけ。
+   */
+  const [chromePos, setChromePos] = useState(initialIndex);
   const [flipped, setFlipped] = useState(false); // アクティブカードが裏面か（横スクロール可否用）
   // アクティブカードの表面からの回転角（度）。focus-dim（背景暗転）の駆動用
   const cardRotation = useSharedValue(0);
@@ -465,7 +509,20 @@ export const DiscoverScreen: React.FC<Props> = ({
   }, [slideH, introOnMount, intro]);
 
   const { width: screenW, height: screenH } = useWindowDimensions();
-  const active = tracks[activeIndex] ?? tracks[0];
+  const count = tracks.length;
+  /**
+   * 通し番号 → 曲（循環）。番号は送るたびに際限なく増減するので、曲を引くときは
+   * 必ずここを通す。中央は pos、隣は pos±1、その外は pos±2。
+   */
+  const trackAt = (p: number) => tracks[(((p % count) + count) % count)];
+  const active = trackAt(pos) ?? tracks[0];
+  /** 曲名・ボタン・試聴が指している札（指を離した時点で切り替わる） */
+  const shown = trackAt(chromePos) ?? active;
+  // 試聴のタイマーから読む用の写し（仕掛けた時点の値で固まらないように）
+  const shownRef = useRef(shown);
+  shownRef.current = shown;
+  const previewEnabledRef = useRef(true);
+  const isOwnedRef = useRef<(t: Track) => boolean>(() => false);
   // 参照はカード 188.6px を 380x760 の固定デバイス枠の中で見せている。
   // その設計をそのまま実画面へ等比フィットさせ、カード幅から調律陣・カルーセル
   // 距離・接地影まで全部を同じ倍率で連動させる。
@@ -538,32 +595,30 @@ export const DiscoverScreen: React.FC<Props> = ({
   );
   // 出ていく札が消えきる距離＝隣のスロットまでの距離。中央が空く時間をなくす
   const carFade = carGeo.step;
-  /** カードの横位置(px)。指に 1:1 で追従し、離すと原点から STEP の倍数の位置へ寄る */
-  const offsetX = useSharedValue(0);
-  /** 指の移動量の原点（onUpdate で offsetX = gestureStart + translationX） */
+  /**
+   * カード層の横位置(px)。指に 1:1 で追従し、離すと STEP の倍数へ寄る。
+   * 札を送るたびに ∓STEP ずつ積み上がっていき、0 へ戻すことはしない。
+   * 中央にいる札の通し番号（小数）は posAtMount - dragX / STEP。
+   *
+   * ★ 札の位置は **UI スレッドだけ**で決める（下の輪 useRingSlotStyle）。
+   *   React の state を位置の計算に混ぜると、絵柄（React のコミット）と位置
+   *   （Reanimated の書き込み）が別の経路で届き、着地の 1 フレームだけ
+   *   「次のカード」が中央に出る。2026-09-23 に 2 回、形を変えて直しても
+   *   出続けた（13:39 収録 12 回中 4 回・14:09 収録 10 回中 9 回）。
+   *   経路のずれそのものは消せないので、ずれても見えない作りにした:
+   *   絵柄を差し替えるのは画面の外にいる札だけ、が輪の要。
+   */
+  const dragX = useSharedValue(0);
+  /**
+   * 受け渡し済みの札の位置(px)。dragX と同じ空間で、UI スレッドから読む。
+   * 寄せ先の基準と「±2 枚まで」の制限にだけ使う（見た目には出ない）ので、
+   * React の再描画を待たずに commitCarousel から直接書いてよい。
+   */
+  const committedSV = useSharedValue(0);
+  /** 指の移動量の原点（onUpdate で dragX = gestureStart + translationX） */
   const gestureStart = useSharedValue(0);
-  /** このジェスチャで寄せる基準の札の位置（掴んだ時点の寄せ先、止まっていれば最寄りの札） */
+  /** このジェスチャで寄せる基準の位置（掴んだ時点の寄せ先、止まっていれば最寄りの札） */
   const grabOrigin = useSharedValue(0);
-  /**
-   * 確定済みの原点(px)。**React の state** なのがこの設計の要。
-   *
-   * 画面上の見た目の位置は offsetX - baseShift で決まる。札を送り終えたとき、
-   * activeIndex と baseShift を **同じ React のコミット**で進めると、
-   *   直前: 中央＝古い札(見た目 -STEP)／隣＝新しい札(見た目 0)
-   *   直後: 中央＝新しい札(見た目 0)／隣＝その次の札(見た目 +STEP)
-   * となって、画面の絵は 1 ドットも変わらない。
-   *
-   * 以前は offsetX を UI スレッドから 0 へ戻していたが、その書き込みと
-   * React の絵柄差し替えは別経路なので届く順序が保証されない。絵柄が先に
-   * 届いたフレームでは、隣スロットが「次の次の札」に変わったまま画面中央に
-   * 居座り、1 フレームだけ関係ない札が出ていた（2026-09-07 岡さん指摘の点滅）。
-   */
-  const [baseShift, setBaseShift] = useState(0);
-  /**
-   * いま画面に出ている原点の UI 側の写し。React が baseShift を送って画面へ出し
-   * 終えたあとで追いつく（下の useEffect）。寄せ先の計算と、受け渡し待ちの判定に使う。
-   */
-  const baseSV = useSharedValue(0);
   /** 1 = 寄せのアニメ中。次のスワイプで掴まれたら止めて 0 に戻す */
   const settleActive = useSharedValue(0);
   /** 走っている寄せの行き先 */
@@ -578,10 +633,42 @@ export const DiscoverScreen: React.FC<Props> = ({
    * 効かず、指を離したカードもその場で止まっていた（2026-09-22 代表指摘）。
    */
   const carBusy = useDerivedValue(() =>
-    settleActive.value > 0.5 || Math.abs(offsetX.value - baseSV.value) > 0.5 ? 1 : 0,
+    settleActive.value > 0.5 || Math.abs(dragX.value - committedSV.value) > 0.5 ? 1 : 0,
   );
-  /** このジェスチャが操作権を取ったか（裏返し中は取らない） */
+  /**
+   * 1 = 中央を 3D カード（CardGL）が描いている。0 = 輪の札（CardFace）が描いている。
+   *
+   * 両者は静止時まったく同じ見た目（CardAura＋作品画像 cover・角丸 0.085＋
+   * CardSurface）。CardGL は輪の **下** にいて、glOn = 1 のあいだだけ輪の中央の
+   * 札が外れて CardGL が見える。CardGL 自身は不透明度で出し入れしない
+   * （下の「書き戻し」の注意を参照）。
+   *
+   *   ・札を送り終えた瞬間（UI スレッド）に 0。CardGL はまだ前の曲で、1 枚ぶん
+   *     外（committedSV がまだ前の位置）にいるので見えない
+   *   ・受け渡しが済み、CardGL が新しい曲の絵を出し終えたら、committedSV を
+   *     新しい位置へ送るのと glOn = 1 を **同じ worklet で**行う（revealGL）。
+   *     CardGL が中央へ来るのと、輪の中央の札が外れるのが同じフレームになる
+   *
+   * ★ 書き戻し: Reanimated の Animated.View は、アニメが止まってしばらくした
+   *   ところで再描画されると、**マウント時の値**をネイティブへ書き戻す
+   *   （1 本目の収録で 3 枚ぶんずれた原因）。静止中に再描画されうる view には、
+   *   マウント時の値がそのまま正しい値になるものだけを持たせる。
+   */
+  const glOn = useSharedValue(0);
+  /** 0 = マウント直後。輪の札のマウント時の値を「非表示」にしておくため */
+  const ringReady = useSharedValue(0);
+  useEffect(() => {
+    ringReady.value = 1;
+  }, [ringReady]);
+  /** 1 = 指でカードを動かしている最中（成立してから離すまで） */
+  const dragging = useSharedValue(0);
+  /** このジェスチャが操作権を取ったか */
   const claimed = useSharedValue(0);
+  /**
+   * 1 = このスワイプは裏面から始まった。カードを指に付けず、表へ戻しながら
+   * 1 枚送る合図として扱う（2026-09-23）。
+   */
+  const fromBack = useSharedValue(0);
   /**
    * 着地フェード（参照 lk = 着地からの経過/800ms）。
    *
@@ -624,12 +711,12 @@ export const DiscoverScreen: React.FC<Props> = ({
   //   札が止まってから React の再描画が済むまで影が消えたまま、済んだ瞬間に
   //   フェードなしで出ていた。その遅れは JS の混み具合で 1〜22 フレーム
   //   （実機収録で最大約 0.5 秒）ばらつき、止まったあとに影がポンと出て見えた。
-  //   札の間隔は carGeo.step で、baseShift は必ず step ずつ動くので、
-  //   (offsetX - baseShift) を step で畳んだ値は原点の送りの前後で変わらない。
+  //   いまは dragX 自体が「中央からのズレ」なので、そのまま使えば札の受け渡しと
+  //   無関係に、いつでも中央にいちばん近い札の足元に付く。
   const groundX = useDerivedValue(() => {
-    const d = offsetX.value - baseShift;
+    const d = dragX.value;
     return d - Math.round(d / carFade) * carFade;
-  }, [offsetX, baseShift, carFade]);
+  }, [dragX, carFade]);
   const groundFade = useDerivedValue(() => {
     if (Math.abs(cardRotation.value) > GROUND_HIDE_DEG) return 0;
     const fore = Math.abs(Math.cos((cardRotation.value * Math.PI) / 180));
@@ -694,8 +781,19 @@ export const DiscoverScreen: React.FC<Props> = ({
   /**
    * 星の平面の待機中の流れ(px・負＝左)。層ごとの速度比（遠 0.6 / 中 0.8 / 近 1.0）は
    * BackdropSky が掛ける。画面幅の余りへ畳んで Skia の transform で消費する。
+   *
+   * ★ 値が変わるのは DRIFT_STEP_MS ごと（10 回/秒）。
+   *   この値は「明滅しない星」の Canvas（components/StaticStars.tsx・約 400 星＋
+   *   調律陣の彫刻抜き）にも渡る。あちらは本来まったく塗り直されない前提の
+   *   Canvas で、流れる値を 1 つ渡しただけで毎フレーム側へ落ちる（ファイル冒頭の
+   *   警告どおり）。待機中の流れは毎秒 13px ほどなので、10 回/秒の刻みでも
+   *   1 回あたり 1px 前後。見た目は流れたままで、塗り直しは 1/2 になる
+   *   （2026-09-23 発熱の再発を受けて）。
    */
-  const starDrift = useDerivedValue(() => -driftClock.value * driftK, [driftClock, driftK]);
+  const starDrift = useDerivedValue(() => {
+    const t = Math.floor(driftClock.value / DRIFT_STEP_MS) * DRIFT_STEP_MS;
+    return -t * driftK;
+  }, [driftClock, driftK]);
   // 調律陣は固定（2026-09-15）。StarSeal の shiftX / 星の彫刻抜きの occluderX は
   // 渡さない＝陣も抜き形も画面に固定され、陣を外周まで広げて焼く処理も走らない。
   // 試聴プレイヤー（30秒・公開URL）
@@ -709,60 +807,330 @@ export const DiscoverScreen: React.FC<Props> = ({
   // 同じ参照を返して再生成を止める。
   const onRootLayout = (e: LayoutChangeEvent) => setSlideH(e.nativeEvent.layout.height);
 
+  // ── 試聴の鳴らし方（2026-09-23 改訂）────────────────────────────
+  //
+  // 以前は「札が入れ替わった瞬間に前の曲をぶつ切りで止めて、次の曲をすぐ鳴らす」
+  // だった。連続で送ると鳴っては切れを繰り返し、作品の第一印象がいちばん荒い
+  // ところで聞こえていた（代表指摘）。
+  //
+  //   ・スワイプを始めた時点で、短くフェードして止める（下の hushPreview。
+  //     ジェスチャの onStart から呼ぶ）
+  //   ・鳴らし始めるのはカードが止まってから PREVIEW_START_MS 後
+  //
+  // タイマーの中で使う値は ref から読む。タイマーを仕掛けたときの値で固まると、
+  // 待っている間に札が変わったときに前の曲を鳴らしてしまう。
+  // ※フェードインは音源ファイル側で定義する方針のため、アプリ側では行わない。
+  const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fadeTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const playingRef = useRef<string | null>(null);
+  playingRef.current = playingId;
+  /** true = カードが動いている（鳴らし直しは止まってから） */
+  const cardMovingRef = useRef(false);
+
+  const cancelPreviewTimers = useCallback(() => {
+    if (previewTimer.current) {
+      clearTimeout(previewTimer.current);
+      previewTimer.current = null;
+    }
+    if (fadeTimer.current) {
+      clearInterval(fadeTimer.current);
+      fadeTimer.current = null;
+    }
+  }, []);
+
+  /** いま鳴っている試聴を止める（fade=true なら短くフェードしてから） */
+  const stopPreview = useCallback(
+    (fade: boolean) => {
+      cancelPreviewTimers();
+      if (!fade || !playingRef.current) {
+        try {
+          preview.pause();
+          preview.volume = 1;
+        } catch {}
+        playingRef.current = null;
+        setPlayingId(null);
+        return;
+      }
+      let v = 1;
+      fadeTimer.current = setInterval(() => {
+        v -= PREVIEW_FADE_STEP_MS / PREVIEW_FADE_MS;
+        try {
+          if (v <= 0) {
+            if (fadeTimer.current) clearInterval(fadeTimer.current);
+            fadeTimer.current = null;
+            preview.pause();
+            preview.volume = 1;
+            playingRef.current = null;
+            setPlayingId(null);
+            return;
+          }
+          preview.volume = v;
+        } catch {
+          if (fadeTimer.current) clearInterval(fadeTimer.current);
+          fadeTimer.current = null;
+        }
+      }, PREVIEW_FADE_STEP_MS);
+    },
+    [preview, cancelPreviewTimers],
+  );
+
+  /** スワイプを始めた合図（ジェスチャの onStart から runOnJS で呼ぶ） */
+  const hushPreview = useCallback(() => {
+    cardMovingRef.current = true;
+    if (!playingRef.current && !previewTimer.current) return;
+    stopPreview(true);
+  }, [stopPreview]);
+
+  /** カードが止まったあと、少し置いてから試聴を鳴らす */
+  const schedulePreview = useCallback(() => {
+    cancelPreviewTimers();
+    previewTimer.current = setTimeout(() => {
+      previewTimer.current = null;
+      const t = shownRef.current;
+      const url =
+        t && !isOwnedRef.current(t) && previewEnabledRef.current
+          ? t.previewUrl ?? previewUrl(t.audioKey)
+          : null;
+      if (!t || !url) {
+        stopPreview(false);
+        return;
+      }
+      try {
+        preview.volume = 1;
+        preview.replace({ uri: url });
+        preview.play();
+      } catch {}
+      playingRef.current = t.id;
+      setPlayingId(t.id);
+    }, PREVIEW_START_MS);
+  }, [preview, cancelPreviewTimers, stopPreview]);
+
+  /** カードが止まった（または送るのをやめた）ときに鳴らし直す */
+  const resumePreview = useCallback(() => {
+    cardMovingRef.current = false;
+    schedulePreview();
+  }, [schedulePreview]);
+
+  // 曲が変わった／スピーカーを切り替えたときの入口。鳴らす場合だけ間を置く。
+  // カードが動いている間は仕掛けない（止まった時点で resumePreview が仕掛ける）。
+  useEffect(() => {
+    const t = shownRef.current;
+    const url =
+      t && !isOwnedRef.current(t) && previewEnabled
+        ? t.previewUrl ?? previewUrl(t.audioKey)
+        : null;
+    if (!url) {
+      stopPreview(false);
+      return;
+    }
+    if (cardMovingRef.current) return;
+    schedulePreview();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chromePos, shown?.id, shown?.previewUrl, shown?.audioKey, previewEnabled]);
+
+  // 画面を離れるときにタイマーを落とす
+  useEffect(() => cancelPreviewTimers, [cancelPreviewTimers]);
+
   // ── カルーセルの駆動（参照 stepCarousel / applyCarousel）──────────
   // 寄せは指を離した瞬間に UI スレッドで始める（onEnd の withTiming）。JS を待つのは
   // 札の受け渡し（下の commitCarousel）だけで、その間も次のスワイプを受け付ける。
-  const count = tracks.length;
-  /** JS 側で追う確定済みの原点。受け渡しが続けて届いても段数を取り違えない */
-  const committedBaseRef = useRef(0);
 
   /**
    * 寄せ終わった位置で札を受け渡す（JS）。
    *
-   * ここがカードの受け渡しの要。**絵柄の差し替えと原点(baseShift)の送りを同じ
-   * React のコミット**でやるので、画面の絵は前後で同じになる＝継ぎ目が出ない。
+   * ここがカードの受け渡しの要。**通し番号(pos)を送る**と、各スロットに載る絵が
+   * 1 つずつ内側へずれる。同時に dragX を送ったぶんだけ 0 へ戻すので、画面の絵は
+   * 前後でまったく同じ＝継ぎ目が出ない。
    *
-   * 送った段数は「確定済みの原点から寄せ先までが STEP いくつぶんか」で決める。
-   * JS が遅れて、そのあいだに次のスワイプが寄せ終わっていても、届いた順に
-   * 積み上がるだけで正しい札に着く。同じ札へ戻っただけなら何もしない。
+   *   直前: 中央＝古い札(dragX=-STEP の位置)／右隣＝新しい札(ちょうど画面中央)
+   *   直後: 中央＝新しい札(dragX=0 の位置＝画面中央)／右隣＝その次の札
    *
-   * 以前は整定した瞬間に UI スレッドで dragX=0 とし、中央スロットを暗転
-   * （landFade=0）させてから、JS が絵柄を差し替えた後にフェードで戻していた。
-   * 暗転している間は隣スロットも中央から外れるので、**中央に札が1枚も無い
-   * 時間**ができていた（2026-09-07）。
+   * dragX には触らない。打ち消し(shiftPx)が pos と同じコミットで増えるので、
+   * 位置は勝手に揃う。UI スレッドへ書くのは committedSV（寄せ先の基準）だけで、
+   * これは見た目に出ないので、届くのが 1 フレーム前後しても画面は壊れない。
+   *
+   * なお React が再レンダーすると、Reanimated は Animated.View の transform を
+   * マウント時の値（dragX 0 ＋ shiftPx 0 ＝ 画面中央）へ 1 フレームだけ書き戻す。
+   * 受け渡し後の正しい位置がまさにそれなので、この書き戻しは画面を壊さない。
    */
   const commitCarousel = useCallback(
     (target: number) => {
-      const steps = Math.round((committedBaseRef.current - target) / carGeo.step);
-      if (steps === 0) return;
-      committedBaseRef.current = target;
-      // 参照 ORDER は循環（端で止まらない）。原点も同じコミットで送るのが肝。
-      setActiveIndex((i) => (((i + steps) % count) + count) % count);
-      setBaseShift(target);
+      // 寄せ先から通し番号を直に決める（差分を足し込まないので取り違えない）
+      const next = posAtMountRef.current + Math.round(-target / carGeo.step);
+      // committedSV（CardGL の位置の基準）はここでは送らない。CardGL が新しい絵を
+      // 出し終えてから revealGL が glOn と一緒に送る。
+      if (next === posRef.current) return;
+      posRef.current = next;
+      // 参照 ORDER は循環（端で止まらない）。番号を送るだけで、隣の札の絵も
+      // 打ち消し(shiftPx)も同じコミットで一緒に動く。
+      setPos(next);
+      // 指を離した時点で先に進めてあるが、寄せの途中で掴み直された場合など、
+      // 予測と食い違ったまま終わることがある。着いた先で合わせる。
+      // ただし次のスワイプがもう行き先を見込んでいるときは触らない
+      // （受け渡しが 1 枚遅れているだけで、曲名を戻してはいけない）。
+      if (aimRef.current === posRef.current) setChromePos(posRef.current);
       setFlipped(false);
       // 旧カードの回転角が残ると落影・接地影が戻らないのでリセット
       cardRotation.value = 0;
       // 購入の呼吸が途中でも、曲が変わったら消す（次のカードへ持ち越さない）
       cardGlow.value = 0;
     },
-    [count, carGeo, cardRotation, cardGlow],
+    [carGeo, posRef, posAtMountRef, aimRef, cardRotation, cardGlow],
   );
 
-  // 新しい原点が画面に出てから UI 側の写しを追いつかせる。先に追いつくと carBusy が
-  // 落ちて隣の札が引っ込み、中央がまだ古い札の位置＝空のフレームが出る。
-  // React のコミットは次のフレームで画面へ出るので、2 フレーム待ってから写す。
-  useEffect(() => {
-    let raf2 = 0;
-    const raf1 = requestAnimationFrame(() => {
-      raf2 = requestAnimationFrame(() => {
-        baseSV.value = baseShift;
+  /**
+   * 指を離した時点で、曲名・ボタン・試聴の指す札を行き先へ進める（JS）。
+   * カード本体（pos）は寄せ終わってから進むので、滑っている 0.5 秒弱だけ
+   * 両者がずれる。ずれている間に押したボタンは、必ず行き先の曲に効く。
+   */
+  const aimChrome = useCallback(
+    (target: number) => {
+      const next = posAtMountRef.current + Math.round(-target / carGeo.step);
+      aimRef.current = next;
+      setChromePos(next);
+    },
+    [carGeo, posAtMountRef, aimRef],
+  );
+
+  /**
+   * 裏面のカードを表へ戻す合図。数が変わるたびに CardGL が flipToFront する。
+   * 関数を渡さないのは、CardGL を React.memo のまま保ちたいから。
+   */
+  const [closeSignal, setCloseSignal] = useState(0);
+  const requestFront = useCallback(() => setCloseSignal((n) => n + 1), []);
+
+  /**
+   * CardGL がいま表に出している絵（CardGL の onFrontShown から）。
+   * これが受け渡し済みの曲の絵と一致したら、中央を CardGL に戻してよい。
+   */
+  const glShownRef = useRef<string | null>(null);
+  const activeUriRef = useRef<string | undefined>(undefined);
+  activeUriRef.current = active?.artworkUrl;
+  const revealRaf = useRef(0);
+
+  /**
+   * 中央を CardGL に戻す（glOn = 1）。条件がそろっているときだけ。
+   *   ・CardGL が受け渡し済みの曲の絵を出し終えている
+   *   ・カードが止まっている（UI スレッドで確かめる）
+   * 2 フレーム待つのは、輪の札の「どれが中央か」（pos に依存するスタイル）の
+   * 更新が UI スレッドへ届くのを待つため。届く前に反転すると、1 フレームだけ
+   * 中央を二重に描く（絵は同じなので影が濃くなるだけだが、避ける）。
+   */
+  const revealFallback = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** 受け渡し済みの札の静止位置（dragX の空間） */
+  const restXOf = useCallback(
+    () => -(posRef.current - posAtMountRef.current) * carGeo.step,
+    [posRef, posAtMountRef, carGeo],
+  );
+  const revealGL = useCallback(() => {
+    if (!glShownRef.current || glShownRef.current !== activeUriRef.current) return;
+    cancelAnimationFrame(revealRaf.current);
+    revealRaf.current = requestAnimationFrame(() => {
+      revealRaf.current = requestAnimationFrame(() => {
+        if (glShownRef.current !== activeUriRef.current) return;
+        if (revealFallback.current) {
+          clearTimeout(revealFallback.current);
+          revealFallback.current = null;
+        }
+        runOnUI((restX: number) => {
+          'worklet';
+          if (settleActive.value > 0.5 || dragging.value > 0.5) return;
+          if (Math.abs(dragX.value - restX) > 0.5) return;
+          // CardGL を中央へ送るのと、輪の中央の札を外すのを同じフレームで
+          committedSV.value = restX;
+          glOn.value = 1;
+        })(restXOf());
       });
     });
-    return () => {
-      cancelAnimationFrame(raf1);
-      cancelAnimationFrame(raf2);
-    };
-  }, [baseShift, baseSV]);
+  }, [settleActive, dragging, dragX, committedSV, glOn, restXOf]);
+
+  /**
+   * 逃げ道: CardGL が 0.5 秒たっても新しい絵を出せない（読み込みが遅い）ときは、
+   * 位置の基準だけ先に送る。中央は輪の札が描いたままなので見た目は正しく、
+   * 背景の時計やフロートも止まったままにならない。
+   */
+  const armRevealFallback = useCallback(() => {
+    if (revealFallback.current) clearTimeout(revealFallback.current);
+    revealFallback.current = setTimeout(() => {
+      revealFallback.current = null;
+      runOnUI((restX: number) => {
+        'worklet';
+        if (settleActive.value > 0.5 || dragging.value > 0.5) return;
+        if (Math.abs(dragX.value - restX) > 0.5) return;
+        committedSV.value = restX;
+      })(restXOf());
+    }, 500);
+  }, [settleActive, dragging, dragX, committedSV, restXOf]);
+  useEffect(
+    () => () => {
+      cancelAnimationFrame(revealRaf.current);
+      if (revealFallback.current) clearTimeout(revealFallback.current);
+    },
+    [],
+  );
+
+  const handleFrontShown = useCallback(
+    (uri: string) => {
+      glShownRef.current = uri;
+      revealGL();
+    },
+    [revealGL],
+  );
+  // 受け渡しで曲が変わったとき、CardGL が先読み済みでもう出せていれば、ここで戻す
+  useEffect(() => {
+    revealGL();
+  }, [active?.artworkUrl, revealGL]);
+
+  /**
+   * 寄せ終わったときにやること（JS）。札の受け渡しと、試聴の鳴らし直し。
+   */
+  const onSettled = useCallback(
+    (target: number) => {
+      commitCarousel(target);
+      resumePreview();
+      // 同じ札へ戻っただけのときは CardGL を隠していないので何も起きない
+      revealGL();
+      armRevealFallback();
+    },
+    [commitCarousel, resumePreview, revealGL, armRevealFallback],
+  );
+
+  /**
+   * 指を離したあとの寄せ（UI スレッド）。onEnd と、受け渡しが寄せの最中に届いた
+   * ときの引き直しの両方から呼ぶ。寄せ終わったら札を受け渡す。
+   */
+  const startSettle = useCallback(
+    (target: number, duration: number) => {
+      'worklet';
+      settleTarget.value = target;
+      settleActive.value = 1;
+      dragX.value = withTiming(
+        target,
+        { duration, easing: CAR_SETTLE_EASE },
+        (finished) => {
+          'worklet';
+          if (!finished) return; // 寄せの途中で次のスワイプに掴まれた
+          settleActive.value = 0;
+          // 別の札に着いた: CardGL はまだ前の曲なので、中央を輪の札に任せる。
+          // 同じフレームで反転するので画面は変わらない（CardGL は 1 枚ぶん外にいる）。
+          if (Math.abs(target - committedSV.value) > 0.5) glOn.value = 0;
+          runOnJS(onSettled)(target);
+        },
+      );
+    },
+    [dragX, settleActive, settleTarget, committedSV, glOn, onSettled],
+  );
+
+  /**
+   * 札の間隔(STEP)が変わったとき（画面の回転・サイズ変更）に、積み上がった位置を
+   * 新しい間隔で取り直す。静止しているときだけでよい。
+   */
+  useEffect(() => {
+    if (settleActive.value > 0.5 || scrolling.value > 0.5) return;
+    const rest = -(posRef.current - posAtMountRef.current) * carGeo.step;
+    dragX.value = rest;
+    committedSV.value = rest;
+  }, [carGeo.step, dragX, committedSV, settleActive, scrolling, posRef, posAtMountRef]);
 
   // ── ジェスチャ（参照 down/move/up = 722-728行）────────────────────
   //   ・6px 動くまで活性化しない＝タップは CardGL 側のフリップへ通る
@@ -771,19 +1139,23 @@ export const DiscoverScreen: React.FC<Props> = ({
   const carouselGesture = useMemo(
     () =>
       Gesture.Pan()
-        .enabled(!flipped)
-        .activeOffsetX([-CAR_AXIS, CAR_AXIS])
+        .activeOffsetX(flipped ? [-CAR_AXIS_BACK, CAR_AXIS_BACK] : [-CAR_AXIS, CAR_AXIS])
         .failOffsetY([-CAR_FAIL_Y, CAR_FAIL_Y])
         .onBegin((e) => {
           'worklet';
-          // 裏返し中は操作権を渡さない。送りの最中・受け渡し待ちでも渡す
-          // （参照 down() はアニメ中のタッチを無視するが、それだと連続スワイプが止まる）
-          claimed.value = Math.abs(cardRotation.value) < 90 ? 1 : 0;
-          if (claimed.value) scrolling.value = 1;
+          // 送りの最中・受け渡し待ちでも操作権を渡す（参照 down() はアニメ中の
+          // タッチを無視するが、それだと連続スワイプが止まる）。
+          // 裏面（|回転| >= 90°）でも渡す。そちらはカードを指に付けず、
+          // 「表へ戻して送る」合図として扱う（2026-09-23 代表指示。裏面で
+          // 無反応だと故障に見える）。
+          claimed.value = 1;
+          fromBack.value = Math.abs(cardRotation.value) >= 90 ? 1 : 0;
+          scrolling.value = 1;
           // 参照 2993行: card への pointerdown で pressTo=1。ステージ全面ではなく
           // カードの矩形に触れたときだけ沈める（周りの余白を押しても反応しない）。
+          // 裏面は拡大・持ち上げ中なので沈めない。
           if (
-            claimed.value &&
+            fromBack.value < 0.5 &&
             Math.abs(e.x - screenW / 2) <= cardW / 2 &&
             Math.abs(e.y - cardCenterY) <= cardH / 2
           ) {
@@ -793,30 +1165,41 @@ export const DiscoverScreen: React.FC<Props> = ({
         .onStart((e) => {
           'worklet';
           if (!claimed.value) return;
+          // 鳴っている試聴は、スワイプが成立したこの時点で短くフェードして止める。
+          // 札が入れ替わるまで鳴らし続けると、連続で送ったときに鳴っては切れを
+          // 繰り返して聞こえる（2026-09-23 代表指示）。
+          runOnJS(hushPreview)();
+          if (fromBack.value > 0.5) {
+            // 裏面から: カードは指に付けない。表へ戻す合図だけ先に出して、
+            // 送るかどうかは指を離したときに決める。
+            runOnJS(requestFront)();
+            return;
+          }
+          dragging.value = 1;
           // 走っている寄せはスワイプが成立したここで止める。onBegin で止めると、
           // 寄せの途中のタップ（成立しない）で札がその場に取り残される。
           const wasSettling = settleActive.value > 0.5;
-          cancelAnimation(offsetX);
+          cancelAnimation(dragX);
           settleActive.value = 0;
           if (wasSettling) {
             // 動いている札を掴んだ: いまの位置から指に付ける（飛ばない）。
             // 寄せる基準は、その寄せの行き先（払った向きの続きとして数える）
             grabOrigin.value = settleTarget.value;
-            gestureStart.value = offsetX.value - e.translationX;
+            gestureStart.value = dragX.value - e.translationX;
           } else {
             // 止まっている札: 最寄りの札の位置を基準に、指の移動量をそのまま足す
             // （参照 move() の 1:1。成立までの 6px もここで反映される）
             const s = carGeo.step;
-            const b = baseSV.value;
-            grabOrigin.value = b + Math.round((offsetX.value - b) / s) * s;
-            gestureStart.value = offsetX.value;
+            const b = committedSV.value;
+            grabOrigin.value = b + Math.round((dragX.value - b) / s) * s;
+            gestureStart.value = dragX.value;
           }
         })
         .onUpdate((e) => {
           'worklet';
-          if (!claimed.value) return;
+          if (!claimed.value || fromBack.value > 0.5) return;
           // 参照 move(): 見た目の位置＝指の移動量そのまま（1:1・上限なし）
-          offsetX.value = gestureStart.value + e.translationX;
+          dragX.value = gestureStart.value + e.translationX;
           // 参照 2995行: 7px 動いたら「押した」を取り消す
           if (
             Math.abs(e.translationX) > CARD_PRESS_SLOP ||
@@ -827,39 +1210,52 @@ export const DiscoverScreen: React.FC<Props> = ({
         })
         .onEnd((e) => {
           'worklet';
+          dragging.value = 0;
           if (!claimed.value) return;
           const mag = Math.abs(e.translationX);
           const dir = e.translationX < 0 ? 1 : -1;
+          const v = Math.abs(e.velocityX);
           // 参照は「押してから離すまでの総時間」で平均速度を出しており、
           // ゆっくり掴んでから素早く払うと成立しない欠陥がある。ここは
           // RNGH の瞬時速度を使い、しきい値 500px/s だけ参照に合わせる。
-          const fast = Math.abs(e.velocityX) > CAR_VEL;
+          const fast = v > CAR_VEL;
           const s = carGeo.step;
+          if (fromBack.value > 0.5) {
+            // 裏面からのスワイプ。ここまで来た時点で CAR_AXIS_BACK を越えた
+            // 「送る意思のある」横払いなので、そのまま 1 枚送る。
+            if (count > 1) {
+              const b = committedSV.value;
+              const back = b + Math.round((dragX.value - b) / s) * s - dir * s;
+              const t = Math.min(b + 2 * s, Math.max(b - 2 * s, back));
+              runOnJS(aimChrome)(t);
+              startSettle(t, CAR_SETTLE_MS);
+            } else {
+              runOnJS(resumePreview)();
+            }
+            return;
+          }
           let target = grabOrigin.value;
           // 1 曲だけのときは隣の札が無いので送らない（元の位置へ戻すだけ）
           if (count > 1 && (mag >= carGeo.thresh || (fast && mag > carGeo.fastMin))) {
-            target -= dir * s;
+            // 強く払ったら 2 枚送る（2026-09-23 代表指示）。隣の隣まで描いてある
+            // ので 2 枚が上限。曲が 2 つしかないときは 1 枚（同じ札へ戻るため）。
+            const jump = v > CAR_VEL2 && count > 2 ? 2 : 1;
+            target -= dir * s * jump;
           }
           // 隣の札は ±2 枚まで描いてある。受け渡しがそれより遅れたら、そこで止める
-          const b = baseSV.value;
+          const b = committedSV.value;
           target = Math.min(b + 2 * s, Math.max(b - 2 * s, target));
-          settleTarget.value = target;
-          settleActive.value = 1;
-          offsetX.value = withTiming(
-            target,
-            { duration: CAR_SETTLE_MS, easing: CAR_SETTLE_EASE },
-            (finished) => {
-              'worklet';
-              if (!finished) return; // 寄せの途中で次のスワイプに掴まれた
-              settleActive.value = 0;
-              runOnJS(commitCarousel)(target);
-            },
-          );
+          runOnJS(aimChrome)(target);
+          // 2 枚ぶん滑るときだけ少し長く取る（滑る速さを揃える）
+          const far = Math.abs(target - dragX.value) > s * 1.2;
+          startSettle(target, far ? Math.round(CAR_SETTLE_MS * 1.35) : CAR_SETTLE_MS);
         })
         .onFinalize(() => {
           'worklet';
           scrolling.value = 0;
           claimed.value = 0;
+          fromBack.value = 0;
+          dragging.value = 0;
           // 参照 release(): pointerup / cancel / blur のいずれでも押し込みを戻す
           cardPress.value = withTiming(0, { duration: 220, easing: Easing.out(Easing.quad) });
         }),
@@ -867,14 +1263,20 @@ export const DiscoverScreen: React.FC<Props> = ({
       flipped,
       carGeo,
       claimed,
+      fromBack,
+      dragging,
+      committedSV,
       cardRotation,
       scrolling,
       settleActive,
       settleTarget,
-      baseSV,
-      commitCarousel,
+      startSettle,
+      aimChrome,
+      hushPreview,
+      resumePreview,
+      requestFront,
       count,
-      offsetX,
+      dragX,
       gestureStart,
       grabOrigin,
       cardPress,
@@ -887,95 +1289,106 @@ export const DiscoverScreen: React.FC<Props> = ({
 
   // ── スロットの見た目（参照 applyCarousel 710-718行）──────────────
   //
-  // ★ 原点(baseShift)の打ち消しは **素の style**、指追従(offsetX)は animated と
-  //   二段に分ける。入れ子の View なら transform は掛け合わされるので、
-  //   見た目は offsetX - baseShift のまま。
+  // ★ 札の並び（中央・±1・±2）は **素の style の固定値**、横のズレ(dragX)は
+  //   カード層をまるごと包む 1 枚の animated だけが持つ。
   //
-  //   なぜ分けるか: 素の style は絵柄と同じ経路（UIManager のコミット）で
-  //   ネイティブへ届くので、baseShift と絵柄が **必ず同じフレーム** で入れ替わる。
-  //   animated 側（Reanimated の UI スレッド書き込み）は別経路で、実機では
-  //   絵柄が 1 フレーム先に届き、その 1 フレームだけ隣スロットが「次の次の札」に
-  //   化けたまま画面中央に居座っていた（2026-09-07 岡さん指摘の点滅）。
-  const baseStyle = useMemo(
-    () => ({ transform: [{ translateX: -baseShift }] }),
-    [baseShift],
+  //   なぜこう分けるか: 素の style は絵柄と同じ経路（UIManager のコミット）で
+  //   ネイティブへ届くので、どのスロットに何が載るかと、その位置が **必ず同じ
+  //   フレーム**で入れ替わる。もう一方の animated は静止時つねに 0 なので、
+  //   Reanimated が再レンダーのたびにマウント時の値を書き戻しても画面は動かない。
+  //
+  //   以前は animated 側に累積した絶対位置を載せていた。その書き戻しに当たった
+  //   1 フレームだけカード層が累積ぶん（実機で 3 枚ぶん＝約 3048px）飛び、
+  //   関係ない札が中央に出たり画面が空になっていた（2026-09-23 収録）。
+  /**
+   * 輪の札 i の位置と出し入れ（UI スレッドだけで決まる）。
+   *
+   *   c  = 中央にいる札の通し番号（小数）= posAtMount - dragX / STEP
+   *   t  = この札が受け持つ通し番号 = c に最も近い「i と RING で合同な整数」
+   *   位置 = (t - c) × STEP  … 中央から ±3.5 枚の範囲。越えたら反対側へ回る
+   *
+   * 回るのは中央から 3.5 枚ぶん離れた画面の外。絵柄（React）は受け渡しのときに
+   * ringTracks で同じ t を使って決めるので、見えている札の絵柄と位置が
+   * 食い違うことはない。
+   *
+   * 出し入れ:
+   *   ・静止中、中央以外の札は外す（隣の札の落影が画面の縁に出ないように）
+   *   ・中央の札は、CardGL が描いているあいだ外す（glOn）
+   *   ・マウント時の値は「非表示」（ringReady = 0）。札は 1 枚ずつ memo して
+   *     あり、再描画されるのは絵柄を差し替える画面外の札だけなので、書き戻されても
+   *     画面外の札が 1 フレーム消えるだけで済む
+   */
+  const useRingSlotStyle = (i: number) =>
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    useAnimatedStyle(() => {
+      const st = carGeo.step;
+      const c = posAtMount - dragX.value / st;
+      const t = i + RING * Math.round((c - i) / RING);
+      const rel = t - c;
+      let op = ringReady.value;
+      if (Math.abs(rel) > 0.5 && carBusy.value < 0.5) op = 0;
+      if (t === pos && glOn.value > 0.5) op = 0;
+      return { opacity: op, transform: [{ translateX: rel * st }] };
+    }, [pos, carGeo.step, posAtMount]);
+  const ring0 = useRingSlotStyle(0);
+  const ring1 = useRingSlotStyle(1);
+  const ring2 = useRingSlotStyle(2);
+  const ring3 = useRingSlotStyle(3);
+  const ring4 = useRingSlotStyle(4);
+  const ring5 = useRingSlotStyle(5);
+  const ring6 = useRingSlotStyle(6);
+  const ringStyles = useMemo(
+    () => [ring0, ring1, ring2, ring3, ring4, ring5, ring6],
+    [ring0, ring1, ring2, ring3, ring4, ring5, ring6],
   );
+  /**
+   * 3D カードの位置。受け渡し済みの札の位置（committedSV）に付いて動くので、
+   * 送っている最中は輪の札と一緒に滑って出ていく（裏面から払ったとき、
+   * 表へ戻りながら滑っていくのが見える）。
+   * 不透明度は持たない。マウント時の値（dragX 0 − committedSV 0 = 中央）は
+   * 静止時の正しい位置と常に一致するので、書き戻されても困らない。
+   */
+  const glStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: dragX.value - committedSV.value }],
+  }));
   const centerStyle = useAnimatedStyle(() => ({
     // 参照の slideFade（消えていくフェード）は掛けない。中央が空く時間を作らない
     // ためで、札は消えずにそのまま画面外へ滑って出ていく。
     opacity: landFade.value,
     // 購入演出の持ち上げ(cardTranslateY)・拡大(cardScale)もここへ合成する。
     // style 配列を足すと transform ごと後勝ちで置き換わるため、1本にまとめる。
+    // 横位置は持たない（外側の glStyle が持つ）。
     transform: [
-      { translateX: offsetX.value },
       { translateY: floatY.value + cardTranslateY.value },
       // 参照 2999行: scale(1 - press*.035)。購入演出の cardScale へ乗算で合成する
       { scale: cardScale.value * (1 - cardPress.value * CARD_PRESS_SCALE) },
     ],
   }));
-  // 隣カードは参照どおり等倍・不透明度1。出し入れは「操作中か・受け渡し待ちか」で
-  // 決める。受け渡し待ちの判定に使う原点の写し（baseSV）は新しい原点が画面に出てから
-  // 追いつくので、引っ込めるのは必ず中央の札が入れ替わったあと。
-  // 静止時は必ず画面外（中心から STEP＝札幅の1.7倍）なので、見えることはない。
-  const peekVisible = useAnimatedStyle(() => ({
-    opacity: scrolling.value > 0.5 || carBusy.value > 0.5 ? 1 : 0,
-  }));
-  const peekLStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: offsetX.value - carGeo.step }],
-  }));
-  const peekRStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: offsetX.value + carGeo.step }],
-  }));
-  // その外側の札（±2）。受け渡しが間に合わないうちに次のスワイプへ入っても、
-  // 来る札の位置が空にならないように置いておく（2026-09-22）
-  const peekL2Style = useAnimatedStyle(() => ({
-    transform: [{ translateX: offsetX.value - 2 * carGeo.step }],
-  }));
-  const peekR2Style = useAnimatedStyle(() => ({
-    transform: [{ translateX: offsetX.value + 2 * carGeo.step }],
-  }));
-
-  const prevTrack = tracks[(((activeIndex - 1) % count) + count) % count];
-  const nextTrack = tracks[(((activeIndex + 1) % count) + count) % count];
-  const prev2Track = tracks[(((activeIndex - 2) % count) + count) % count];
-  const next2Track = tracks[(((activeIndex + 2) % count) + count) % count];
-  const prev3Track = tracks[(((activeIndex - 3) % count) + count) % count];
-  const next3Track = tracks[(((activeIndex + 3) % count) + count) % count];
-  // 隣の札に先に載せておく絵。札を 1 枚送ると、各スロットの札は 1 つ内側か外側の札に
-  // 変わるので、その絵を読み込み済みにしておく（components/CardFace.tsx の layerUris）。
-  const peekLUris = useMemo(
-    () => [prev2Track?.artworkUrl, active?.artworkUrl].filter(Boolean) as string[],
-    [prev2Track?.artworkUrl, active?.artworkUrl],
-  );
-  const peekRUris = useMemo(
-    () => [next2Track?.artworkUrl, active?.artworkUrl].filter(Boolean) as string[],
-    [next2Track?.artworkUrl, active?.artworkUrl],
-  );
-  const peekL2Uris = useMemo(
-    () => [prev3Track?.artworkUrl, prevTrack?.artworkUrl].filter(Boolean) as string[],
-    [prev3Track?.artworkUrl, prevTrack?.artworkUrl],
-  );
-  const peekR2Uris = useMemo(
-    () => [next3Track?.artworkUrl, nextTrack?.artworkUrl].filter(Boolean) as string[],
-    [next3Track?.artworkUrl, nextTrack?.artworkUrl],
+  /**
+   * 輪の札 i の絵柄。位置（useRingSlotStyle）と同じ式で「受け持つ通し番号」を
+   * 決める。中心は受け渡し済みの pos。pos が 1 進むと、絵柄が変わるのは
+   * 中央から 3〜4 枚ぶん離れた 1 枚だけ（画面の外）。
+   */
+  const ringTracks = Array.from({ length: RING }, (_, i) =>
+    trackAt(i + RING * Math.round((pos - i) / RING)),
   );
 
-  // 中央の札へ、隣の札の絵も先に渡しておく。CardGL 側が不透明度 0 で重ねて
-  // 読み込んでおくので、札が入れ替わっても表面の絵の読み込み待ちが出ない
-  // （待ちが出ると、そのあいだ中央に前の札の絵が残って見える）。
-  // 受け渡しがまとめて 2 枚ぶん届くこともあるので ±2 まで載せる。
+  // 中央の 3D カードへ、隣の札の絵も先に渡しておく。CardGL 側が不透明度 0 で
+  // 重ねて読み込んでおくので、着地したあと CardGL が新しい絵を出すまでが短い。
+  // （出すまでの間は輪の札が中央を描いているので、待ちは画面に出ない）
+  const prevUri = trackAt(pos - 1)?.artworkUrl;
+  const nextUri = trackAt(pos + 1)?.artworkUrl;
+  const prev2Uri = trackAt(pos - 2)?.artworkUrl;
+  const next2Uri = trackAt(pos + 2)?.artworkUrl;
   const peekUris = useMemo(
     () =>
       count > 1
-        ? ([
-            prevTrack?.artworkUrl,
-            nextTrack?.artworkUrl,
-            prev2Track?.artworkUrl,
-            next2Track?.artworkUrl,
-          ].filter(Boolean) as string[])
+        ? ([prevUri, nextUri, prev2Uri, next2Uri].filter(Boolean) as string[])
         : [],
-    [count, prevTrack, nextTrack, prev2Track, next2Track],
+    [count, prevUri, nextUri, prev2Uri, next2Uri],
   );
+  // 輪の絵柄の並び（memo の比較用に文字列 1 本へ）
+  const ringKey = ringTracks.map((t) => t?.artworkUrl ?? '').join('|');
 
   // 裏面の刻印テクスチャ（1024x1536）は backData が変わるたび同期生成される。
   // インラインのオブジェクトリテラルだと再レンダーのたびに別物と見なされ、
@@ -998,45 +1411,13 @@ export const DiscoverScreen: React.FC<Props> = ({
     [active],
   );
 
-  // 試聴の再生・停止はこの1つの effect だけが行う。カードが切り替わった
-  // ときも、スピーカーボタンで previewEnabled が切り替わったときも、
-  // ここで一括して判断する（カードごとに独立した on/off を持たない）。
-  // 所有済みの曲は「試聴」ではなく「再生」対象なので鳴らさない。
-  // 試聴URLが無ければ何もしない。
-  // ※フェードインは音源ファイル側で定義する方針のため、アプリ側では行わない。
-  useEffect(() => {
-    preview.pause();
-    const url =
-      active && !isOwned(active) && previewEnabled
-        ? active.previewUrl ?? previewUrl(active.audioKey)
-        : null;
-    if (!active || !url) {
-      setPlayingId(null);
-      return;
-    }
-    // 次の曲を鳴らすときは playingId を null へ戻さない。isPreviewing は
-    // 「playingId が いまの札の id か」で決まるので、札を送った時点で自然に false に
-    // なる。戻すとホーム全体の再描画が 1 回増えていた（2026-09-22）。
-    // 音源の差し替えと再生開始は、札が入れ替わったフレームには乗せない。
-    // ここは JS スレッドで数十 ms かかることがあり、同じフレームに置くと
-    // 表面の絵の差し替えがそのぶん遅れて「前の札が残る」ように見える。
-    // 1 フレーム後ろへ逃がす（2026-09-12）。
-    const raf = requestAnimationFrame(() => {
-      preview.replace({ uri: url });
-      preview.play();
-      setPlayingId(active.id);
-    });
-    return () => cancelAnimationFrame(raf);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeIndex, active?.id, active?.previewUrl, active?.audioKey, preview, previewEnabled]);
-
   // スピーカーボタン。アプリ全体で一貫させるため、この曲だけでなく
   // 以降の曲送りにも及ぶ「試聴オン/オフ」を切り替えるだけにする
   // （実際の再生・停止は上の effect が previewEnabled を見て行う）。
   const togglePreview = useCallback(() => {
-    if (!active) return;
+    if (!shown) return;
     setPreviewEnabled((prev) => !prev);
-  }, [active]);
+  }, [shown]);
 
   const toggleWishlist = useCallback(
     (id: string) => {
@@ -1054,6 +1435,7 @@ export const DiscoverScreen: React.FC<Props> = ({
   );
 
   // 所有判定。pendingReveal に居る間は「まだ所有していない」ように見せる（演出の順序のため）
+  previewEnabledRef.current = previewEnabled;
   const isOwned = useCallback(
     (track?: Track | null) => {
       if (!track) return false;
@@ -1062,17 +1444,20 @@ export const DiscoverScreen: React.FC<Props> = ({
     },
     [ownedIds, pendingReveal],
   );
+  isOwnedRef.current = isOwned;
 
   // 「購入する」押下 → まず購入確認ポップアップを開く（所有済みは再生画面へ）
+  // 曲名・ボタンと同じ札（shown）を買う。カード本体（active）はまだ滑っている
+  // ことがあるので、押したボタンの曲と食い違わないほうを採る。
   const handleBuy = useCallback(() => {
-    if (!active) return;
-    if (isOwned(active)) {
-      onPlay?.(active.id);
+    if (!shown) return;
+    if (isOwned(shown)) {
+      onPlay?.(shown.id);
       return;
     }
     purchase?.dismiss(); // 前回の失敗表示を持ち越さない
-    setPurchaseTarget(active);
-  }, [active, isOwned, purchase, onPlay]);
+    setPurchaseTarget(shown);
+  }, [shown, isOwned, purchase, onPlay]);
 
   // ポップアップの金額 or 確定ボタン → OS の課金シートへ。
   // ここでは所有状態も演出も動かさない。成立したかどうかは purchase.onSuccess で受ける
@@ -1140,7 +1525,90 @@ export const DiscoverScreen: React.FC<Props> = ({
     [],
   );
 
-  const isPreviewing = playingId != null && playingId === active?.id;
+  /**
+   * カード層。**絵が変わったときだけ**作り直す。
+   *
+   * Reanimated の Animated.View は再レンダーのたびにマウント時の値をネイティブへ
+   * 書き戻すので、試聴の状態など関係ない state で作り直すと、スワイプの最中に
+   * 1 フレームだけカードが静止位置へ戻ってしまう。ここを切り離しておけば、
+   * 札の絵が変わらないかぎり React はこの木に触れない（2026-09-23）。
+   */
+  const cardLayer = useMemo(
+    () => (
+      <View style={styles.slot} pointerEvents="box-none">
+        {/* アクティブ面: v98準拠の実3Dカード（角丸・厚み・オーラ）。
+            表面=角丸の作品画像＋タップで180°横回転して裏返し / 裏面=
+            アルミ刻印面（再生画面と同一デザイン）＋全方向回転。
+            曲が変わってもカードは載せ替えず、テクスチャだけ差し替える
+            （GL コンテキストの作り直しを避ける）。
+            静止中だけ中央を受け持ち、送っている間は輪の札に任せる（glOn）。 */}
+        <Animated.View style={[styles.slot, glStyle]} pointerEvents="box-none">
+          <Animated.View style={[styles.slot, centerStyle]} pointerEvents="box-none">
+            {active && (
+              <CardGL
+                mode="flip"
+                backStyle="aluminum"
+                frontUri={active.artworkUrl}
+                preloadUris={peekUris}
+                width={cardW}
+                height={cardH}
+                shadow
+                frame={cardFrame}
+                onFlipChange={setFlipped}
+                closeSignal={closeSignal}
+                onFrontShown={handleFrontShown}
+                rotationOut={cardRotation}
+                purchaseGlow={showPurchaseFx ? cardGlow : undefined}
+                backData={backData}
+                onArtistPress={
+                  active.artistId && onOpenArtist
+                    ? () => onOpenArtist(active.artistId!)
+                    : undefined
+                }
+              />
+            )}
+          </Animated.View>
+        </Animated.View>
+
+        {/* 輪の札（7 枚）。CardGL より上に重ねる。位置も出し入れも UI スレッドで
+            決まり、絵柄が差し替わるのは画面の外にいる札だけ。中央の札は、CardGL
+            が新しい絵を出し終えるまでの間、CardGL を覆って中央を描く。 */}
+        {ringTracks.map((t, i) =>
+          t ? (
+            <RingSlot
+              key={i}
+              style={ringStyles[i]}
+              uri={t.artworkUrl}
+              width={cardW}
+              height={cardH}
+            />
+          ) : null,
+        )}
+      </View>
+    ),
+    // ringTracks は毎回作り直す配列なので、中身を表す ringKey で比べる
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      ringKey,
+      ringStyles,
+      glStyle,
+      peekUris,
+      centerStyle,
+      active,
+      cardW,
+      cardH,
+      cardFrame,
+      cardRotation,
+      cardGlow,
+      closeSignal,
+      handleFrontShown,
+      showPurchaseFx,
+      backData,
+      onOpenArtist,
+    ],
+  );
+
+  const isPreviewing = playingId != null && playingId === shown?.id;
 
   return (
     <View style={styles.root} onLayout={onRootLayout}>
@@ -1241,8 +1709,8 @@ export const DiscoverScreen: React.FC<Props> = ({
         >
           {/* 接地影（card-ground）。カードは floatY で浮くが影は床に留め、
               逆相で「浮くと薄く広く／沈むと濃く狭く」反応させる。
-              横位置は groundX（中央にいちばん近い札）だけで決め、React が送る
-              baseStyle には載せない（載せると札の受け渡しの瞬間に影が飛ぶ） */}
+              横位置は groundX（中央にいちばん近い札）だけで決め、カード層の
+              中には置かない（置くと札の受け渡しの瞬間に影が飛ぶ） */}
           <View style={StyleSheet.absoluteFill} pointerEvents="none">
             <CardGround
               width={screenW}
@@ -1264,84 +1732,16 @@ export const DiscoverScreen: React.FC<Props> = ({
               参照の 37.7px＋500px/s とは別物の操作感だった。 */}
           <GestureDetector gesture={carouselGesture}>
             <View style={[styles.stage, { height: contentH }]} pointerEvents="box-none">
-              {/* 隣接カード（参照 peekL/peekR）。等倍・不透明度1で dragX±STEP、
-                  その外側に ±2STEP。静止時は opacity 0 ＝ 合成から外れるだけで、
-                  毎フレームの描画コストは持たない（中身は静止した Skia レイヤー） */}
-              {count > 1 && (
-                <View style={[styles.slot, baseStyle]} pointerEvents="none">
-                  <Animated.View style={[styles.slot, peekVisible]} pointerEvents="none">
-                    <Animated.View style={[styles.slot, peekL2Style]} pointerEvents="none">
-                      <CardFace
-                        uri={prev2Track.artworkUrl}
-                        layerUris={peekL2Uris}
-                        width={cardW}
-                        height={cardH}
-                      />
-                    </Animated.View>
-                    <Animated.View style={[styles.slot, peekR2Style]} pointerEvents="none">
-                      <CardFace
-                        uri={next2Track.artworkUrl}
-                        layerUris={peekR2Uris}
-                        width={cardW}
-                        height={cardH}
-                      />
-                    </Animated.View>
-                    <Animated.View style={[styles.slot, peekLStyle]} pointerEvents="none">
-                      <CardFace
-                        uri={prevTrack.artworkUrl}
-                        layerUris={peekLUris}
-                        width={cardW}
-                        height={cardH}
-                      />
-                    </Animated.View>
-                    <Animated.View style={[styles.slot, peekRStyle]} pointerEvents="none">
-                      <CardFace
-                        uri={nextTrack.artworkUrl}
-                        layerUris={peekRUris}
-                        width={cardW}
-                        height={cardH}
-                      />
-                    </Animated.View>
-                  </Animated.View>
-                </View>
-              )}
-
-              {/* アクティブ面: v98準拠の実3Dカード（角丸・厚み・オーラ）。
-                  表面=角丸の作品画像＋タップで180°横回転して裏返し / 裏面=
-                  アルミ刻印面（再生画面と同一デザイン）＋全方向回転。
-                  曲が変わってもカードは載せ替えず、テクスチャだけ差し替える
-                  （GL コンテキストの作り直しを避ける）。 */}
-              <View style={[styles.slot, baseStyle]} pointerEvents="box-none">
-                <Animated.View style={[styles.slot, centerStyle]} pointerEvents="box-none">
-                  {active && (
-                    <CardGL
-                      mode="flip"
-                      backStyle="aluminum"
-                      frontUri={active.artworkUrl}
-                      preloadUris={peekUris}
-                      width={cardW}
-                      height={cardH}
-                      shadow
-                      frame={cardFrame}
-                      onFlipChange={setFlipped}
-                      rotationOut={cardRotation}
-                      purchaseGlow={showPurchaseFx ? cardGlow : undefined}
-                      backData={backData}
-                      onArtistPress={
-                        active.artistId && onOpenArtist
-                          ? () => onOpenArtist(active.artistId!)
-                          : undefined
-                      }
-                    />
-                  )}
-                </Animated.View>
-              </View>
+              {/* カード層。横のズレ(dragX)を持つのはこの 1 枚だけで、中の札は
+                  固定の位置に並べる（中央・±1・±2）。札を送るときは、中に載せる
+                  絵を 1 つずつずらすのと同時に dragX を 0 へ戻す。 */}
+              {cardLayer}
             </View>
           </GestureDetector>
         </RNAnimated.View>
       )}
 
-      {/* ── 固定クローム（active に連動） ── */}
+      {/* ── 固定クローム（shown に連動＝指を離した時点で切り替わる） ── */}
       <View
         style={[styles.chrome, DEBUG_BACKDROP_ONLY && styles.hidden]}
         pointerEvents={DEBUG_BACKDROP_ONLY ? 'none' : 'box-none'}
@@ -1375,7 +1775,7 @@ export const DiscoverScreen: React.FC<Props> = ({
             style={[styles.texts, { top: topRightY + 5 + TITLE_CHAR_SIZE, opacity: titleFade }]}
             pointerEvents="none"
           >
-            <Text style={styles.title} numberOfLines={1}>{active?.title}</Text>
+            <Text style={styles.title} numberOfLines={1}>{shown?.title}</Text>
           </RNAnimated.View>
         </RNAnimated.View>
 
@@ -1397,7 +1797,7 @@ export const DiscoverScreen: React.FC<Props> = ({
               所有済みは再生ボタン1つだけ（従来どおり）。裏返し中も位置は動かさない。 */}
           <View style={[styles.bottom, { bottom: BOTTOM_BASE }]} pointerEvents="box-none">
             {(() => {
-              const owned = isOwned(active);
+              const owned = isOwned(shown);
               if (owned) {
                 return <BuyButton owned onPress={handleBuy} />;
               }
@@ -1408,9 +1808,9 @@ export const DiscoverScreen: React.FC<Props> = ({
                     hitSlop={6}
                     accessibilityRole="button"
                     accessibilityLabel="ウィッシュリスト"
-                    onPress={() => active && toggleWishlist(active.id)}
+                    onPress={() => shown && toggleWishlist(shown.id)}
                   >
-                    <StarIcon size={17} filled={active ? wishlist.has(active.id) : false} />
+                    <StarIcon size={17} filled={shown ? wishlist.has(shown.id) : false} />
                   </Pressable>
 
                   {/* 試聴の再生／停止。アイコンは右上の試聴アイコンと同じスピーカー */}
@@ -1429,7 +1829,7 @@ export const DiscoverScreen: React.FC<Props> = ({
 
                   <View style={styles.buyGap}>
                     <BuyButton
-                      priceLabel={active ? purchase?.displayPriceOf(active.id) : undefined}
+                      priceLabel={shown ? purchase?.displayPriceOf(shown.id) : undefined}
                       onPress={handleBuy}
                     />
                   </View>
@@ -1474,6 +1874,29 @@ export const DiscoverScreen: React.FC<Props> = ({
     </View>
   );
 };
+
+/**
+ * 輪の札 1 枚。memo して、絵柄（uri）が変わったときだけ再描画する。
+ * 動いている札・見えている札は再描画されないので、Reanimated の「マウント時の
+ * 値への書き戻し」を受けるのは、絵柄を差し替える画面外の札だけになる。
+ */
+const RingSlot = React.memo(function RingSlot({
+  style,
+  uri,
+  width,
+  height,
+}: {
+  style: ReturnType<typeof useAnimatedStyle>;
+  uri: string;
+  width: number;
+  height: number;
+}) {
+  return (
+    <Animated.View style={[styles.slot, style]} pointerEvents="none">
+      <CardFace uri={uri} width={width} height={height} />
+    </Animated.View>
+  );
+});
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.page },

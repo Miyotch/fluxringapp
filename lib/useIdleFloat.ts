@@ -34,6 +34,16 @@ const LERP = 0.055;
 const DEAD_BAND = 0.01;
 /** 1フレームの dt 上限(秒)。復帰直後の巨大 dt で飛ぶのを防ぐ */
 const DT_MAX = 0.05;
+/**
+ * 値を書き換える間隔(ms)。33 ＝ 30fps（2026-09-23 に 60fps から）。
+ *
+ * この値を書くたびに、カード（中央スロットの transform）と接地影
+ * （Animated.View の transform / opacity）がネイティブへ更新される。周期 7 秒・
+ * 振幅 3px のゆっくりした上下なので 30fps で十分で、待機中に UI スレッドを
+ * 起こす回数がそのまま半分になる。端数は捨てずに次の更新へ繰り越すので、
+ * 浮き方の速さも位相も変わらない。
+ */
+const STEP_MS = 33;
 
 /**
  * @param damp 0..1 の減衰。0 でフロート停止（0 へ収束）
@@ -68,9 +78,22 @@ export function useIdleFloat(
     };
   }, [reduced]);
 
+  // 間引きの区切り（lib/usePausableClock.ts と同じ、フレームの絶対時刻で決める）
+  const lastBucket = useSharedValue(-1);
+  const acc = useSharedValue(0);
+
   const frame = useFrameCallback((info) => {
     'worklet';
-    const dt = Math.min((info.timeSincePreviousFrame ?? 1000 / 60) / 1000, DT_MAX);
+    const step = Math.min((info.timeSincePreviousFrame ?? 1000 / 60) / 1000, DT_MAX);
+    const bucket = Math.floor(info.timestamp / STEP_MS);
+    const a = acc.value + step;
+    if (bucket === lastBucket.value) {
+      acc.value = a;
+      return;
+    }
+    lastBucket.value = bucket;
+    acc.value = 0;
+    const dt = a;
     const target = reduced.value ? 0 : Math.sin(info.timestamp * OMEGA) * AMP * damp.value;
     const k = 1 - Math.pow(1 - LERP, dt * 60);
     const next = floatY.value + (target - floatY.value) * k;
@@ -83,8 +106,11 @@ export function useIdleFloat(
 
   useEffect(() => {
     frame.setActive(enabled);
-    if (!enabled) floatY.value = 0;
-  }, [enabled, frame, floatY]);
+    if (!enabled) {
+      floatY.value = 0;
+      acc.value = 0;
+    }
+  }, [enabled, frame, floatY, acc]);
 
   return floatY;
 }

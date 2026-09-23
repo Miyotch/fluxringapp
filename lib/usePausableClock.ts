@@ -49,22 +49,27 @@ export function useAppForeground(): boolean {
 const CLOCK_DT_MAX_MS = 50;
 
 /**
- * 背景アニメの最小更新間隔(ms)。33 ≒ 30fps。
+ * 背景アニメの最小更新間隔(ms)。50 ＝ 20fps（2026-09-23 に 33＝30fps から）。
  *
  * 全画面 Canvas の再ラスタライズ回数は「時計が値を書いたフレーム数」と 1:1 で
  * 決まる（clock → 74/103本の derived → sksg の startMapper → picture の push →
  * RNSkPictureRenderer::setPicture → requestRedraw）。つまりここを間引けば、
  * 塗る回数がそのまま比例して減る。
  *
- * 30fps にするのは、この層が「ゆっくり流れる雲・またたく星・呼吸する光」しか
+ * 落とせるのは、この層が「ゆっくり流れる雲・またたく星・呼吸する光」しか
  * 持たないから。映画が24fpsで成立する種類の動きで、60fps である必要がない。
  * カードの操作（GL・ジェスチャ追従）はこの時計を使っていないので、手触りには
  * 一切影響しない。
  *
+ * 20fps へ下げたのは、ホームを開いたままにしたときの発熱の再発（2026-09-23
+ * 代表報告・3分で側面がかなり熱い）に対して。全画面 Canvas は待機中つねに
+ * 4 枚（地色＋天の川／明滅する星／静的な星／調律陣）動いているので、
+ * 30→20fps だけで塗り直しは毎秒 120 回から 80 回へ落ちる。
+ *
  * clock.value には端数を捨てずに累計を足すので、雲の流れる速さも星の明滅周期も
  * 変わらない。サンプリング点が半分になるだけ。
  */
-export const AMBIENT_MIN_STEP_MS = 33;
+export const AMBIENT_MIN_STEP_MS = 50;
 
 export function usePausableClock(active: boolean, minStepMs = 0): SharedValue<number> {
   const clock = useSharedValue(0);

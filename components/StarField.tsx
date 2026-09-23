@@ -115,16 +115,23 @@ export type LayerSpec = {
   parallax: number;
 };
 
-// liveGroups の配分（2026-09-05）。毎フレームの仕事は「明滅する星」だけが作る。
-//   層0 317星: 0/8   … ハロー無し・輝度 0.08〜0.26。個々の明滅は知覚できない
-//   層1 126星: 3/12  … 約32星。空の「呼吸」を薄く担保する
-//   層2  36星: 18/36 … ハロー 2.2 で塗り面積の主体。目に付く粒は半分残す
-// 明滅の mapper は 21本（(30) 56本 / (33) 38本）。生きた星の塗り面積も (33) を
-// 約 2 割下回る。密度だけ (30) へ戻して負荷は (33) より軽い、が狙い。
+// liveGroups の配分（2026-09-05 / 09-23 に 50星→30星→6星）。毎フレームの仕事は
+// 「明滅する星」だけが作る。
+//   層0 317星: 0/8  … ハロー無し・輝度 0.08〜0.26。個々の明滅は知覚できない
+//   層1 126星: 0/12 … 中くらいの粒。ここの明滅は他の粒に紛れて効きが薄い
+//   層2  36星: 6/36 … ハロー 2.2 の大粒だけ明滅させる（36星中 6星）
+// 明滅の mapper は 6本（旧 21本 → 11本 → 6本）。
+//
+// 2026-09-23 の代表指示（ホームを開いたまま 3 分で側面がかなり熱い → 明滅を
+// さらに 1/5 へ）。明滅をやめた星は消えるのではなく、静的な Canvas
+// （components/StaticStars.tsx）へ移って平均の明るさで点り続けるので、
+// 空の密度・明るさは変わらない。またたきを残すのはいちばん大きい粒だけで、
+// 「空が生きている」手がかりはそこが担う。
+const N2_LIVE = 6;
 const LAYERS: LayerSpec[] = [
-  { n: N0, groups: 8,  liveGroups: 0,                 sMin: 0.5, sMax: 1.0, oMin: 0.05, oMax: 0.16, halo: 0,   haloRGB: '',            haloA: 0,    parallax: 0.6 },
-  { n: N1, groups: 12, liveGroups: 3,                 sMin: 1.1, sMax: 1.7, oMin: 0.2,  oMax: 0.4,  halo: 1.3, haloRGB: '200,220,255', haloA: 0.35, parallax: 0.8 },
-  { n: N2, groups: N2, liveGroups: Math.round(N2 / 2), sMin: 2.0, sMax: 2.9, oMin: 0.42, oMax: 0.62, halo: 2.2, haloRGB: '200,230,250', haloA: 0.7,  parallax: 1.0 },
+  { n: N0, groups: 8,  liveGroups: 0,       sMin: 0.5, sMax: 1.0, oMin: 0.05, oMax: 0.16, halo: 0,   haloRGB: '',            haloA: 0,    parallax: 0.6 },
+  { n: N1, groups: 12, liveGroups: 0,       sMin: 1.1, sMax: 1.7, oMin: 0.2,  oMax: 0.4,  halo: 1.3, haloRGB: '200,220,255', haloA: 0.35, parallax: 0.8 },
+  { n: N2, groups: N2, liveGroups: N2_LIVE, sMin: 2.0, sMax: 2.9, oMin: 0.42, oMax: 0.62, halo: 2.2, haloRGB: '200,230,250', haloA: 0.7,  parallax: 1.0 },
 ];
 
 /** 層の数（BackdropSky が層ごとの transform を作るときの固定値） */
