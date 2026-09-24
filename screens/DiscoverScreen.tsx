@@ -62,10 +62,13 @@ import {
 } from '../components/CardGL';
 import { OrbitBuyButton } from '../components/OrbitBuyButton';
 import { FavBead, FlyDot, BEAD_HIT } from '../components/FavBead';
+import { SpeakerIcon } from '../components/icons';
+import { computeBackScale } from '../components/CardGL';
 import { PurchaseModal } from '../components/PurchaseModal';
 import { EqBars } from '../components/EqBars';
 import { useTopInset } from '../lib/safeArea';
 import { useT } from '../lib/i18n';
+import { usePlaybackOptional } from '../lib/playback';
 import { PurchaseParticles } from '../components/PurchaseParticles';
 import { PURCHASE, HOME_INTRO, homeCardWidth } from '../constants/design-tokens';
 import { formatPrice, TRACK_PRICE_JPY } from '../constants/pricing';
@@ -154,10 +157,22 @@ const PREVIEW_START_MS = 300;
 /** 試聴を止めるときのフェード(ms)と、その刻み */
 const PREVIEW_FADE_MS = 160;
 const PREVIEW_FADE_STEP_MS = 40;
-/** 試聴の鳴り始めのフェードイン(ms)。音源側でフェードインを作らなくてよいように */
-const PREVIEW_FADE_IN_MS = 400;
+/**
+ * 試聴の鳴り始めのフェードイン(ms)。以前は 400ms で、曲の頭の一音（アタック）が
+ * 削れて聞こえた（2026-09-24）。切り出しの頭でプツッと鳴らない最小限だけ残す
+ */
+const PREVIEW_FADE_IN_MS = 80;
 /** カードがこれ以上傾いたら（裏返し始めたら）★を消す(度) */
 const FAV_HIDE_DEG = 6;
+/**
+ * 裏面の右上の音の ON/OFF ボタン（2026-09-24）。
+ * 裏面がほぼ正面を向いている（表から 171° 以上回っている）ときだけ出す。
+ * 裏面を指で傾けて眺めている間は、刻印の上に浮いて見えないよう消す。
+ */
+const SPK_SHOW_DEG = 171;
+/** ボタンの当たり判定の一辺と、裏面の角からボタン中心までの距離(px) */
+const SPK_HIT = 44;
+const SPK_INSET = 26;
 // 参照 2995行: 指が 7px 動いたら「押した」を取り消す（＝スワイプの入り口）
 const CARD_PRESS_SLOP = 7;
 
@@ -307,6 +322,11 @@ type Props = {
    * クロームの位置決めだけ** この値を差し引いて、従来と同じ見えを保つ。
    */
   bottomInset?: number;
+  /**
+   * フッターの上に出ている再生バナーの高さ(px)。0 なら出ていない（0.2.0 第 2 段階）。
+   * 購入ボタンがバナーと重なるときだけ、その分を上へ逃がす。カードは動かさない。
+   */
+  bannerInset?: number;
 };
 
 // フォールバック用スタブ（App からは stubData を渡す）
@@ -340,6 +360,7 @@ export const DiscoverScreen: React.FC<Props> = ({
   introOnMount = false,
   onIntroDone,
   bottomInset = 0,
+  bannerInset = 0,
 }) => {
   // ウィッシュから飛んできたときは、その曲のカードを最初に表示する。
   const initialIndex = focusTrackId
@@ -572,7 +593,10 @@ export const DiscoverScreen: React.FC<Props> = ({
   // （iPhone 16 で、裏面のカードが拡大されるのに合わせてボタンが下へスライドし、
   // ガタつくとの指摘のため）。裏面は computeBackScale で枠内に収まるよう
   // クランプ済みなので、固定位置のままでも大きくはみ出さない。
-  const BOTTOM_BASE = bottomInset + 100 + contentH * 0.02;
+  const BOTTOM_BASE_RAW = bottomInset + 100 + contentH * 0.02;
+  // 再生バナーが出ているとき、購入ボタンの下端がバナーに掛かる分だけ上げる
+  // （今の寸法では 100px の余白で足りており、ふだんは動かない）
+  const BOTTOM_BASE = Math.max(BOTTOM_BASE_RAW, bottomInset + bannerInset + 12);
 
   // 購入確定時のカード発光・浮遊。発光は CardGL の purchaseGlow（枠＋外周グロー）へ
   // 渡し、浮遊は中央スロットの transform（centerStyle）へ合成する。
@@ -890,6 +914,8 @@ export const DiscoverScreen: React.FC<Props> = ({
     cancelPreviewTimers();
     previewTimer.current = setTimeout(() => {
       previewTimer.current = null;
+      // プレイリストが鳴っている間は自動で試聴しない
+      if (pbRef.current?.isPlayingNow()) return;
       const t = shownRef.current;
       const url =
         t && !isOwnedRef.current(t) && previewEnabledRef.current
@@ -947,6 +973,21 @@ export const DiscoverScreen: React.FC<Props> = ({
 
   // 画面を離れるときにタイマーを落とす
   useEffect(() => cancelPreviewTimers, [cancelPreviewTimers]);
+
+  // ── アプリ全体の再生（プレイリスト）との調整（0.2.0 第 2 段階）──
+  //   ・プレイリストが鳴っている間は、止まったカードでも試聴を自動で始めない
+  //   ・右上の EQ を押したときだけ、プレイリストを一時停止して試聴する
+  //   ・プレイリストが鳴り始めるときは、鳴っている試聴を短くフェードして止める
+  const pb = usePlaybackOptional();
+  const pbRef = useRef(pb);
+  pbRef.current = pb;
+  const onPbWillPlay = pb?.onWillPlay;
+  useEffect(() => {
+    if (!onPbWillPlay) return;
+    return onPbWillPlay(() => {
+      if (playingRef.current || previewTimer.current) stopPreview(true);
+    });
+  }, [onPbWillPlay, stopPreview]);
 
   // ── カルーセルの駆動（参照 stepCarousel / applyCarousel）──────────
   // 寄せは指を離した瞬間に UI スレッドで始める（onEnd の withTiming）。JS を待つのは
@@ -1366,6 +1407,21 @@ export const DiscoverScreen: React.FC<Props> = ({
       if (now !== prev) favVis.value = withTiming(now, { duration: 160 });
     },
   );
+  // 裏面の右上の音の ON/OFF（★と同じくカード層の外に置き、同じ値で動かす）
+  const spkVis = useSharedValue(0);
+  useAnimatedReaction(
+    () => (Math.abs(cardRotation.value) > SPK_SHOW_DEG ? 1 : 0),
+    (now, prev) => {
+      if (now !== prev) spkVis.value = withTiming(now, { duration: now ? 180 : 90 });
+    },
+  );
+  const spkLayerStyle = useAnimatedStyle(() => ({
+    opacity: spkVis.value,
+    transform: [
+      { translateY: floatY.value + cardTranslateY.value },
+      { scale: cardScale.value },
+    ],
+  }));
   const favLayerStyle = useAnimatedStyle(() => ({
     opacity: favVis.value,
     transform: [
@@ -1426,8 +1482,17 @@ export const DiscoverScreen: React.FC<Props> = ({
   // （実際の再生・停止は上の effect が previewEnabled を見て行う）。
   const togglePreview = useCallback(() => {
     if (!shown) return;
+    // プレイリストが鳴っているときの EQ は「このカードを試聴する」。プレイリストを
+    // 一時停止して、試聴をオンにしたうえでこのカードを鳴らす
+    const engine = pbRef.current;
+    if (engine?.isPlayingNow()) {
+      engine.pause();
+      setPreviewEnabled(true);
+      schedulePreview();
+      return;
+    }
     setPreviewEnabled((prev) => !prev);
-  }, [shown]);
+  }, [shown, schedulePreview]);
 
   const toggleWishlist = useCallback(
     (id: string) => {
@@ -1670,6 +1735,42 @@ export const DiscoverScreen: React.FC<Props> = ({
     [favId, favOwned, favFilled, flipped, favLayerStyle, screenW, cardW, cardH, cardCenterY, onToggleFav, handleBeadAdded],
   );
 
+  // 裏面の右上の音の ON/OFF。押すと試聴のオン・オフ（右上の EQ と同じ）。
+  // 裏面の大きさと持ち上げは CardGL と同じ式（computeBackScale・枠高の 3%）で出す。
+  // 購入済みの曲は試聴しないので出さない。
+  const spkOwned = active ? isOwned(active) : true;
+  const spkLayer = useMemo(() => {
+    if (spkOwned) return null;
+    const s = computeBackScale(cardFrame, cardW, cardH);
+    const lift = cardFrame.height * 0.03;
+    const cornerX = screenW / 2 + (cardW * s) / 2;
+    const cornerY = cardCenterY - lift - (cardH * s) / 2;
+    return (
+      <Animated.View
+        style={[styles.slot, spkLayerStyle]}
+        pointerEvents={flipped ? 'box-none' : 'none'}
+      >
+        <Pressable
+          onPress={togglePreview}
+          style={[
+            styles.beadAt,
+            styles.spkHit,
+            { left: cornerX - SPK_INSET - SPK_HIT / 2, top: cornerY + SPK_INSET - SPK_HIT / 2 },
+          ]}
+          accessibilityRole="button"
+          accessibilityState={{ selected: previewEnabled }}
+          accessibilityLabel={previewEnabled ? t('preview.toggleOff') : t('preview.toggleOn')}
+        >
+          {({ pressed }) => (
+            <View style={[styles.spkDisc, pressed && { transform: [{ scale: 0.9 }] }]}>
+              <SpeakerIcon size={16} on={previewEnabled} />
+            </View>
+          )}
+        </Pressable>
+      </Animated.View>
+    );
+  }, [spkOwned, cardFrame, cardW, cardH, screenW, cardCenterY, spkLayerStyle, flipped, togglePreview, previewEnabled, t]);
+
   // 起動時に全作品の絵を先読みしておく（スワイプ後に絵が遅れて出るのを防ぐ）
   useEffect(() => {
     tracks.forEach((t) => {
@@ -1807,6 +1908,8 @@ export const DiscoverScreen: React.FC<Props> = ({
               {cardLayer}
               {/* ★（カードの右下の角）。カード層の外に置き、同じ値で動かす */}
               {favLayer}
+              {/* 裏面の右上の音の ON/OFF。裏返してほぼ正面を向いたときだけ出る */}
+              {spkLayer}
             </View>
           </GestureDetector>
         </RNAnimated.View>
@@ -1948,6 +2051,18 @@ const styles = StyleSheet.create({
   /** 参照 .stage（position:absolute; inset:0）。3スロットの親 */
   stage: { position: 'absolute', left: 0, right: 0, top: 0 },
   beadAt: { position: 'absolute' },
+  spkHit: { width: SPK_HIT, height: SPK_HIT, alignItems: 'center', justifyContent: 'center' },
+  // ★（FavBead）と同じ濃紺の丸。アルミの明るい地の上でも見える
+  spkDisc: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(15,14,42,0.86)',
+    borderWidth: 1,
+    borderColor: 'rgba(236,238,247,0.22)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   /** 参照の card / peekL / peekR。中央基準で重ね、translateX で振り分ける */
   slot: {
     position: 'absolute',

@@ -53,6 +53,10 @@ import { NUM_FONT, JP_SERIF_FONT } from '../constants/fonts';
 import type { PurchaseController } from '../lib/usePurchaseFlow';
 import type { PlaylistsController } from '../lib/usePlaylists';
 import { MyPlaylists } from '../components/MyPlaylists';
+import { OrbitBuyButton } from '../components/OrbitBuyButton';
+import { FavBead, BEAD_HIT } from '../components/FavBead';
+import { EqBars } from '../components/EqBars';
+import { usePlaybackOptional } from '../lib/playback';
 
 export type CollectionItem = {
   id: string;
@@ -119,8 +123,11 @@ type Props = {
    * 未指定なら、マイプレイリストのページは従来の 21 枠の格子のまま。
    */
   playlists?: PlaylistsController;
-  /** 「このプレイリストを再生」→ 曲順どおりの trackId で再生画面を開く */
-  onPlayList?: (trackIds: string[]) => void;
+  /**
+   * マイプレイリストから流す。startId あり＝カードを押した（その曲から流して再生画面へ）、
+   * なし＝「このプレイリストを再生」（先頭から流す・画面は移らない）
+   */
+  onPlayList?: (trackIds: string[], startId?: string) => void;
 };
 
 // マイコレ／ウィッシュリストの並び順。両者とも props（owned/wishlist）の順は
@@ -277,6 +284,8 @@ export const CollectionScreen: React.FC<Props> = ({
   // 試聴中の trackId。ホーム（DiscoverScreen）と同じ expo-audio の使い方に揃える
   const [previewingId, setPreviewingId] = useState<string | null>(null);
   const preview = useAudioPlayer();
+  // アプリ全体の再生（プレイリスト）。試聴と同時に鳴らさないために使う
+  const playback = usePlaybackOptional();
   // ウィッシュリストから買った直後に出す一行（「《朝靄》は No. 003 の枠へ。」）
   const [movedNote, setMovedNote] = useState<string | null>(null);
   // タップされたタイルの画面絶対座標を測るための参照（再生画面の残像アニメーション用）
@@ -351,11 +360,13 @@ export const CollectionScreen: React.FC<Props> = ({
       }
       const url = item.previewUrl ?? (item.audioKey ? r2PreviewUrl(item.audioKey) : null);
       if (!url) return; // 試聴未設定
+      // プレイリストが鳴っていたら一時停止してから試聴する（0.2.0 第 2 段階）
+      playback?.pause();
       preview.replace({ uri: url });
       preview.play();
       setPreviewingId(item.id);
     },
-    [previewingId, preview],
+    [previewingId, preview, playback],
   );
 
   const stopPreview = useCallback(() => {
@@ -363,6 +374,22 @@ export const CollectionScreen: React.FC<Props> = ({
     preview.pause();
     setPreviewingId(null);
   }, [previewingId, preview]);
+
+  // 詳細を開いたら、HOME と同じく未購入の曲は試聴が自動で鳴る（2026-09-24）。
+  // カードが飛んで着地する頃（約 0.45 秒後）に鳴らす。プレイリストが流れている
+  // ときは HOME と同じく勝手に鳴らさない（右上の EQ を押せばプレイリストを
+  // 止めて試聴する）。
+  const togglePreviewRef = useRef(togglePreview);
+  togglePreviewRef.current = togglePreview;
+
+  // プレイリストが鳴り始めたら、この画面の試聴は止める
+  const stopPreviewRef = useRef(stopPreview);
+  stopPreviewRef.current = stopPreview;
+  const onPbWillPlay = playback?.onWillPlay;
+  useEffect(() => {
+    if (!onPbWillPlay) return;
+    return onPbWillPlay(() => stopPreviewRef.current());
+  }, [onPbWillPlay]);
 
   // タブを移ったら試聴は止める（見えていない作品が鳴り続けないように）
   useEffect(() => {
@@ -382,6 +409,18 @@ export const CollectionScreen: React.FC<Props> = ({
     () => (detailId ? works.find((w) => w.id === detailId) ?? null : null),
     [detailId, works],
   );
+  const detailOwned = detail ? ownedIds.has(detail.id) : false;
+  const detailHasPreview = !!detail && !!(detail.previewUrl ?? detail.audioKey);
+  useEffect(() => {
+    setWorkFlipped(false);
+    if (!detail || detailOwned || !detailHasPreview) return;
+    if (playback?.isPlayingNow()) return;
+    const item = detail;
+    const id = setTimeout(() => togglePreviewRef.current(item), 450);
+    return () => clearTimeout(id);
+    // 開いた作品が変わったときだけ
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detailId]);
 
   // ── 作品詳細のカード ────────────────────────────────────────────
   // 平らな Image ではなく、ホーム／再生画面と同じ CardGL を置く。タップで表↔裏、
@@ -392,9 +431,10 @@ export const CollectionScreen: React.FC<Props> = ({
   // カードが同じ大きさ・同じ位置に着くようにするため。
   const workCardW = Math.min(screenW - 96, 240);
   const workCardH = Math.round(workCardW * 1.5);
-  // PlayerScreen のベール（再生前）と同じ見かけ倍率。CardGL 自体は実寸で固定し、
-  // ラッパーの scale だけで見かけを縮める（3Dシーンの作り直しを避ける）。
-  const CARD_FOCUS_SCALE = 1 / 1.08;
+  // 着地の見かけ倍率。以前は PlayerScreen のベールと同じ 1/1.08 に縮めていたが、
+  // 2026-09-24 に「押したらカードが拡大して、HOME と同じ購入ボタン」へ改めたので、
+  // 実寸（再生画面で流れているときと同じ大きさ）で着地させる。
+  const CARD_FOCUS_SCALE = 1;
   // 裏面（フリップ後）の絶対サイズをホームと揃える。frame からの自動算出だと
   // 上限 1.28 に張り付いて裏面が「戻る」まで覆うので、PlayerScreen と同じく
   // ホームの裏面幅から逆算した値を明示的に渡す。
@@ -402,6 +442,8 @@ export const CollectionScreen: React.FC<Props> = ({
   // frame はカードを収める領域の実寸。裏面の持ち上げ量（枠高の3%）がここから
   // 決まる。画面全体を渡すと持ち上がりすぎるので、実測した領域を渡す。
   const [cardArea, setCardArea] = useState({ w: 0, h: 0 });
+  // 詳細のカードが裏を向いているか（裏返し中は角の★を隠す）
+  const [workFlipped, setWorkFlipped] = useState(false);
   const workCardFrame = useMemo(
     () => ({ width: cardArea.w, height: cardArea.h }),
     [cardArea.w, cardArea.h],
@@ -844,8 +886,7 @@ export const CollectionScreen: React.FC<Props> = ({
           <MyPlaylists
             owned={ownedSorted}
             playlists={playlists}
-            onOpenDetail={(id) => openDetail(id, '')}
-            onPlayList={(ids) => onPlayList?.(ids)}
+            onPlayList={(ids, startId) => onPlayList?.(ids, startId)}
             onDiscover={onDiscover}
           />
         ) : seg === 'mine' ? (
@@ -903,9 +944,25 @@ export const CollectionScreen: React.FC<Props> = ({
             />
           </View>
 
-          <Pressable style={styles.workBack} hitSlop={10} onPress={closeDetail}>
-            <Text style={styles.workBackLabel}>{`‹ ${t('collection.back')}`}</Text>
-          </Pressable>
+          <View style={styles.workTop}>
+            <Pressable hitSlop={10} onPress={closeDetail}>
+              <Text style={styles.workBackLabel}>{`‹ ${t('collection.back')}`}</Text>
+            </Pressable>
+            {/* 右上の EQ＝試聴のオン・オフ（HOME の右上と同じ）。未購入の曲だけ */}
+            {!detailOwned && detailHasPreview && (
+              <Pressable
+                hitSlop={14}
+                onPress={() => togglePreview(detail)}
+                accessibilityRole="button"
+                accessibilityState={{ selected: previewingId === detail.id }}
+                accessibilityLabel={
+                  previewingId === detail.id ? t('collection.previewStop') : t('collection.preview')
+                }
+              >
+                <EqBars active={previewingId === detail.id} keepIdle dim={previewingId !== detail.id} />
+              </Pressable>
+            )}
+          </View>
 
           {/* カードは PlayerScreen と同じく、残りの縦幅の中央に置く（cardArea:
               flex:1 + center）。上の「戻る」と下の番号・曲名・3ボタンの間に
@@ -950,7 +1007,18 @@ export const CollectionScreen: React.FC<Props> = ({
                   frame={workCardFrame}
                   backScale={workBackScale}
                   backData={workBackData}
+                  onFlipChange={setWorkFlipped}
                 />
+                {/* 右下の角に乗る★（HOME と同じ FavBead）。未購入の曲だけ。
+                    裏返している間は隠す */}
+                {!detailOwned && onToggleWish && !workFlipped && (
+                  <View style={styles.workBead} pointerEvents="box-none">
+                    <FavBead
+                      filled={wishIds.has(detail.id)}
+                      onToggle={() => onToggleWish(detail.id)}
+                    />
+                  </View>
+                )}
               </Animated.View>
             </View>
           </View>
@@ -958,71 +1026,23 @@ export const CollectionScreen: React.FC<Props> = ({
           {!!detail.serialNo && <Text style={styles.workNo}>{detail.serialNo}</Text>}
           <Text style={styles.workTitle} numberOfLines={1}>{detail.title}</Text>
 
-          {/* ★／試聴／購入する（所有済みなら再生する）の行。運営調整
-              （設定→ボタン位置調整）の wishDetailActsOffsetY ぶん縦にずらす。 */}
-          <View style={[styles.workActs, { transform: [{ translateY: layoutAdjust.wishDetailActsOffsetY }] }]}>
-            {slotState(detail.id) === 'own' ? (
-              <Pressable
-                style={({ pressed }) => [
-                  styles.workBtn,
-                  styles.workBtnSolid,
-                  pressed && { opacity: 0.85 },
-                ]}
-                onPress={() => {
+          {/* HOME と同じ「周回する光」の購入ボタン。購入済みなら「再生」
+              （2026-09-24。以前の ★／試聴／購入する の横並びは曲名と重なっていた） */}
+          <View style={styles.workBuy}>
+            <OrbitBuyButton
+              owned={detailOwned}
+              priceLabel={detailOwned ? undefined : purchase?.displayPriceOf(detail.id)}
+              onPress={() => {
+                if (detailOwned) {
                   closeDetail();
                   onOpenTrack(detail.id);
-                }}
-              >
-                <Text style={[styles.workBtnLabel, styles.workBtnSolidLabel]}>
-                  {t('collection.play')}
-                </Text>
-              </Pressable>
-            ) : (
-              <>
-                {/* ★＝ウィッシュリストに置く／外す。板の空席からも入れる2つ目の登録点 */}
-                {onToggleWish && (
-                  <Pressable
-                    style={styles.workStar}
-                    hitSlop={6}
-                    accessibilityRole="button"
-                    accessibilityLabel={t('collection.wishRemove')}
-                    onPress={() => onToggleWish(detail.id)}
-                  >
-                    <StarIcon size={17} filled={wishIds.has(detail.id)} />
-                  </Pressable>
-                )}
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.workBtn,
-                    previewingId === detail.id && styles.wishBtnOn,
-                    pressed && { opacity: 0.85 },
-                  ]}
-                  onPress={() => togglePreview(detail)}
-                >
-                  <Text style={styles.workBtnLabel}>
-                    {previewingId === detail.id
-                      ? t('collection.previewStop')
-                      : t('collection.preview')}
-                  </Text>
-                </Pressable>
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.workBtn,
-                    styles.workBtnSolid,
-                    pressed && { opacity: 0.85 },
-                  ]}
-                  onPress={() => {
-                    stopPreview();
-                    purchase?.dismiss();
-                    setPurchaseTarget(detail);
-                  }}
-                >
-                  <Text style={[styles.workBtnLabel, styles.workBtnSolidLabel]} numberOfLines={1}>
-                    {t('collection.buy')}
-                  </Text>
-                </Pressable>
-              </>
-            )}
+                  return;
+                }
+                stopPreview();
+                purchase?.dismiss();
+                setPurchaseTarget(detail);
+              }}
+            />
           </View>
 
           <Text style={styles.workShelf}>
@@ -1256,6 +1276,17 @@ const styles = StyleSheet.create({
   // zIndex はカードより手前に置くため。RN は後ろの兄弟が上に描かれるので、
   // これが無いとフリップした裏面が「戻る」の上に被って押せなくなる。
   workBack: { alignSelf: 'flex-start', zIndex: 2 },
+  // 戻る（左）と試聴の EQ（右）の行。カードより手前に置く
+  workTop: {
+    alignSelf: 'stretch',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    zIndex: 2,
+  },
+  // カードの右下の角に★の中心を合わせる
+  workBead: { position: 'absolute', right: -BEAD_HIT / 2, bottom: -BEAD_HIT / 2 },
+  workBuy: { marginTop: 22, alignItems: 'center' },
   // 他画面の「戻る」導線（PlayerScreen の navText 等）と書体を揃えて明朝に。
   // 字間は指示により今までの 0.6 より狭く 0.2 へ
   workBackLabel: { color: C.back, fontSize: 12, letterSpacing: 0.2, fontFamily: JP_SERIF_FONT },

@@ -6,15 +6,16 @@
  *
  *   ・44px の当たり判定の中に、28px の濃紺の丸（縁 1px）と 13px の星
  *   ・未登録は線だけ（#9AA0C8）、登録済みは白で塗る
- *   ・押すと星が 1.3 倍に弾む。登録したときだけ、角の下に「ウィッシュリストに追加」を
- *     1.4 秒出して onAdded を呼ぶ（光の粒をタブへ飛ばすのは親の仕事）
+ *   ・押すと星が 1.3 倍に弾む。登録したときだけ onAdded を呼ぶ（光の粒をタブへ
+ *     飛ばすのは親の仕事）。試作にあった角の下の「ウィッシュリストに追加」の文字は
+ *     出さない（2026-09-24 代表指示）
  *
  * 位置（カードの角）と、カードと一緒に動くこと・裏返し中に消えることは親
  * （DiscoverScreen の★の層）が持つ。この部品は見た目と押したときの動きだけ。
  */
 
-import React, { useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View, type GestureResponderEvent } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { Pressable, StyleSheet, View, type GestureResponderEvent } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import Animated, {
   useSharedValue,
@@ -29,7 +30,6 @@ import { useT } from '../lib/i18n';
 export const BEAD_HIT = 44;
 const DISC = 28;
 const STAR = 13;
-const TOAST_MS = 1400;
 
 const MUTE = '#9AA0C8';
 const INK = '#ECEEF7';
@@ -47,13 +47,7 @@ const STAR_PATH =
 export const FavBead: React.FC<Props> = React.memo(({ filled, onToggle, onAdded }) => {
   const t = useT();
   const pop = useSharedValue(1);
-  const [toast, setToast] = useState(false);
-  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const beadRef = useRef<View>(null);
-
-  useEffect(() => () => {
-    if (toastTimer.current) clearTimeout(toastTimer.current);
-  }, []);
 
   const starStyle = useAnimatedStyle(() => ({ transform: [{ scale: pop.value }] }));
 
@@ -66,9 +60,6 @@ export const FavBead: React.FC<Props> = React.memo(({ filled, onToggle, onAdded 
     );
     onToggle();
     if (!adding) return;
-    setToast(true);
-    if (toastTimer.current) clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setToast(false), TOAST_MS);
     beadRef.current?.measureInWindow((x, y, w, h) => {
       onAdded?.({ x: x + w / 2, y: y + h / 2 });
     });
@@ -100,10 +91,6 @@ export const FavBead: React.FC<Props> = React.memo(({ filled, onToggle, onAdded 
           </View>
         )}
       </Pressable>
-      {/* 試作 .toast: カードの右下の角から右端を揃えて、角の 22px 下 */}
-      <Text style={[styles.toast, !toast && styles.hidden]} numberOfLines={1} pointerEvents="none">
-        {t('fav.added')}
-      </Text>
     </View>
   );
 });
@@ -170,15 +157,6 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 0 },
     elevation: 4,
   },
-  toast: {
-    position: 'absolute',
-    top: BEAD_HIT,
-    right: BEAD_HIT / 2,
-    fontSize: 10,
-    letterSpacing: 2.2,
-    color: '#B4B8D6',
-  },
-  hidden: { opacity: 0 },
 });
 
 export default FavBead;

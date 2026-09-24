@@ -7,9 +7,10 @@
  *   スロット 1 … すべての所有曲（自動・シリアル番号順）
  *   スロット 2 以降 … ユーザーが作る（lib/usePlaylists.ts）。最後に「＋ 新しいプレイリスト」
  *
- * 選んだスロットの曲をカードの横スワイプで並べ、「このプレイリストを再生」で
- * 再生画面を開く（前へ・次へがこの並びで回る）。カードを押すと作品詳細。
- * 曲の終わりで自動で次へ進む・画面を閉じても流れ続けるのは 2 段目（再生の中枢）。
+ * 選んだスロットの曲をカードの横スワイプで並べる。
+ *   ・カードを押す → その曲からこの並びで流し始め、そのまま再生画面へ
+ *     （再生画面ではカードを左右に払って曲送り。2026-09-24 代表指示）
+ *   ・「このプレイリストを再生」→ 先頭から流す。画面は移らず、下に再生バナー
  */
 
 import React, { useCallback, useMemo, useState } from 'react';
@@ -33,9 +34,11 @@ type Props = {
   /** 所有曲（シリアル番号順）。スロット 1 そのもの */
   owned: Item[];
   playlists: PlaylistsController;
-  onOpenDetail: (id: string) => void;
-  /** 曲順どおりの trackId で再生画面を開く */
-  onPlayList: (trackIds: string[]) => void;
+  /**
+   * 曲順どおりの trackId で流す。startId があれば（カードを押したとき）その曲から
+   * 流して再生画面を開く。無ければ（再生ボタン）先頭から流し、画面は移らない
+   */
+  onPlayList: (trackIds: string[], startId?: string) => void;
   onDiscover: () => void;
 };
 
@@ -53,7 +56,6 @@ const C = {
 export const MyPlaylists: React.FC<Props> = ({
   owned,
   playlists,
-  onOpenDetail,
   onPlayList,
   onDiscover,
 }) => {
@@ -149,6 +151,9 @@ export const MyPlaylists: React.FC<Props> = ({
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
+        // 横の ScrollView は既定で縦に伸びる（flexGrow: 1）。伸ばすとチップと
+        // カードの間に大きな空きができるので、中身の高さに留める
+        style={{ flexGrow: 0 }}
         contentContainerStyle={styles.chips}
       >
         {chip(ALL, t('playlist.allOwned'), owned.length)}
@@ -195,7 +200,7 @@ export const MyPlaylists: React.FC<Props> = ({
           style={{ flexGrow: 0 }}
           renderItem={({ item, index }) => (
             <Pressable
-              onPress={() => onOpenDetail(item.id)}
+              onPress={() => onPlayList(tracks.map((x) => x.id), item.id)}
               style={({ pressed }) => [{ width: cardW }, pressed && { opacity: 0.85 }]}
               accessibilityRole="button"
               accessibilityLabel={item.title}

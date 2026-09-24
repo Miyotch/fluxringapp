@@ -21,6 +21,7 @@ import {
   StyleSheet,
   StatusBar,
   Share,
+  PanResponder,
   useWindowDimensions,
   LayoutChangeEvent,
   GestureResponderEvent,
@@ -30,10 +31,11 @@ import Animated, {
   useAnimatedStyle,
   withTiming,
   withDelay,
+  withSequence,
+  withSpring,
   runOnJS,
   Easing,
 } from 'react-native-reanimated';
-import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import { CardGL, CARD_BACK_SCALE_MAX } from '../components/CardGL';
 import { NebulaGL } from '../components/NebulaGL';
 import { CardAfterimage, CardOrigin, CardOriginItem } from '../components/CardAfterimage';
@@ -42,8 +44,7 @@ import { PlayMark, PauseMark, LoopIcon, ShareIcon, SkipIcon, SkipPrevIcon, StarI
 import { COLOR, SPACE, TRANSPORT, homeCardWidth } from '../constants/design-tokens';
 import { formatTime } from '../lib/audio';
 import { useTopInset, useBottomInset } from '../lib/safeArea';
-import { fullAudioUrl, previewUrl } from '../lib/r2';
-import { logPlayback } from '../lib/logPlayback';
+import { usePlayback, usePlaybackProgress } from '../lib/playback';
 import { NUM_FONT, JP_SERIF_FONT } from '../constants/fonts';
 
 export type PlayerTrack = {
@@ -92,7 +93,22 @@ type Props = {
    */
   favorited?: boolean;
   onToggleFavorite?: () => void;
+  /**
+   * ベール（コレクションのタイルから開いたとき）の大きな再生ボタン、または
+   * まだ中枢がこの曲を流していないときの再生ボタン。親が中枢のキューを組んで
+   * 流し始める（0.2.0 第 2 段階）。
+   */
+  onStart?: () => void;
+  /**
+   * 前後の曲の作品画像。先に読み込ませ、カードを払って曲を送ったときに
+   * 新しいカードの絵が遅れて出ないようにする。毎レンダー新しい配列を渡さないこと
+   */
+  preloadUris?: string[];
 };
+
+/** カードを払って曲送りにする距離(px)と速さ(px/ms)。どちらかを超えたら送る */
+const SKIP_DIST = 72;
+const SKIP_VEL = 0.6;
 
 export const PlayerScreen: React.FC<Props> = ({
   track,
@@ -104,6 +120,8 @@ export const PlayerScreen: React.FC<Props> = ({
   onNextTrack,
   favorited,
   onToggleFavorite,
+  onStart,
+  preloadUris,
 }) => {
   const { width: screenW, height: screenH } = useWindowDimensions();
   const navTop = useTopInset(8);            // 従来 52px（=44+8）
@@ -141,11 +159,7 @@ export const PlayerScreen: React.FC<Props> = ({
   // 再生ボタンの見た目。phaseは音声の開始判定にすぐ使うため即切替するが、
   // ボタン自体は自分のフェードアウト演出が終わるまで少し長く表示を残す。
   const [veilButtonVisible, setVeilButtonVisible] = useState(!directPlay);
-  const [sourceUri, setSourceUri] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loop, setLoop] = useState(false);
   const [seekW, setSeekW] = useState(1);
-  const startedFor = useRef<string | null>(null);
 
   // カード領域のレイアウト（x/y は root 内での位置。フライトインの着地座標に使う）
   const [cardArea, setCardArea] = useState({ x: 0, y: 0, w: 0, h: 0 });
@@ -262,95 +276,26 @@ export const PlayerScreen: React.FC<Props> = ({
     controlsTY.value = withDelay(350, withTiming(0, { duration: 500 }));
   }, [playBtnOpacity, veilBgOpacity, cardScale, headerOpacity, headerTY, controlsOpacity, controlsTY]);
 
-  // expo-audio プレイヤー（ソースをフックに渡して確実に読み込ませる）
-  const player = useAudioPlayer(sourceUri ?? undefined);
-  const status = useAudioPlayerStatus(player);
-
-  // 音源URLを解決：フル音源（Worker・所有権）→ 失敗時は試聴音源にフォールバック
-  useEffect(() => {
-    let alive = true;
-    setError(null);
-    setSourceUri(null);
-    startedFor.current = null;
-    (async () => {
-      try {
-        const url = await fullAudioUrl(track.audioKey);
-        if (alive) setSourceUri(url);
-      } catch {
-        const pv = previewUrl(track.audioKey);
-        if (pv) {
-          if (alive) {
-            setSourceUri(pv);
-            setError('※ フル音源が未設定のため試聴音源を再生中');
-          }
-        } else if (alive) {
-          setError('音源が未設定です（app.json の extra.r2 / R2 に音源を配置）');
-        }
-      }
-    })();
-    return () => { alive = false; };
-  }, [track.audioKey]);
-
-  // 「再生」フェーズに入り、読み込めたら一度だけ再生開始
-  // （ベール中は自動再生しない）
-  useEffect(() => {
-    if (phase === 'playing' && sourceUri && status.isLoaded && startedFor.current !== sourceUri) {
-      startedFor.current = sourceUri;
-      player.play();
-    }
-  }, [phase, sourceUri, status.isLoaded, player]);
-
-  // ループ反映
-  useEffect(() => { player.loop = loop; }, [loop, player]);
-
-  // ロック画面／コントロールセンターの再生情報。
-  // 見栄えのためだけではなく、**Android ではこれを有効にしないと
-  // バックグラウンド再生が約3分で OS に止められる**（expo-audio の注記）。
-  // 動作条件の interruptionMode:'doNotMix' は lib/audio.ts で設定済み。
-  useEffect(() => {
-    if (phase !== 'playing' || !status.isLoaded) return;
-    try {
-      player.setActiveForLockScreen(
-        true,
-        {
-          title: track.title,
-          artist: 'NAOKI OKA',
-          albumTitle: 'FLUX RING',
-          artworkUrl: track.artworkUrl,
-        },
-        // 曲送り／戻しはアプリ内の所有一覧に紐づくため、ロック画面には出さない
-        { showSeekForward: false, showSeekBackward: false, isLiveStream: false },
-      );
-    } catch {
-      // 未対応環境（Expo Go・古いビルド）では何もしない。再生自体は続ける。
-    }
-    return () => {
-      try { player.clearLockScreenControls(); } catch {}
-    };
-  }, [phase, status.isLoaded, player, track.title, track.artworkUrl]);
-
-  const duration = status.duration || track.durationSec || 0;
-  const position = status.currentTime || 0;
-  const playing = status.playing;
+  // ── 音はアプリ全体の再生の中枢（lib/playback.tsx）が持つ（0.2.0 第 2 段階）──
+  // この画面は中枢の窓。自前のプレイヤー・音源の解決・自動再生・ロック画面・
+  // 再生の記録は中枢へ移した。閉じても音は止まらない（下の再生バナーで続く）。
+  const pb = usePlayback();
+  const prog = usePlaybackProgress();
+  // 中枢がいま流している曲がこの画面の曲か（ベール中はまだ流していない）
+  const isCurrent = pb.current?.id === track.id;
+  const duration = isCurrent ? prog.duration || track.durationSec || 0 : track.durationSec || 0;
+  const position = isCurrent ? prog.position : 0;
+  const playing = isCurrent && pb.playing;
   const progress = duration > 0 ? Math.min(1, position / duration) : 0;
-  const loading = !!sourceUri && !status.isLoaded && !error;
-
-  // 再生履歴（本編）の記録。position を ref に逃がしておき、曲送り／戻り／
-  // 画面を離れるとき（＝このトラックの effect がクリーンアップされるとき）に
-  // その時点までの再生秒数を1件だけ記録する。ユーザーには見せない裏の記録。
-  const positionRef = useRef(0);
-  useEffect(() => { positionRef.current = position; }, [position]);
-  useEffect(() => {
-    return () => {
-      logPlayback({ trackId: track.id, title: track.title, durationSec: positionRef.current });
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [track.id]);
+  const loading = isCurrent && pb.loading;
+  const error = isCurrent ? pb.note : null;
+  // ループは「輪（全曲）／1 曲」。アイコンが点いているとき＝1 曲リピート
+  const loop = pb.repeat === 'one';
 
   const togglePlay = useCallback(() => {
-    if (playing) player.pause();
-    else player.play();
-  }, [playing, player]);
+    if (pb.current?.id === track.id) pb.toggle();
+    else onStart?.();
+  }, [pb, track.id, onStart]);
 
   // ベールの再生ボタン → 再生フェーズへ（読み込み後に上の effect が play する）。
   // 見た目のボタンは自分のフェードアウトが終わるまで少し長く残す（即アンマウントすると
@@ -359,8 +304,9 @@ export const PlayerScreen: React.FC<Props> = ({
   const startPlayback = useCallback(() => {
     runPlayingTransition();
     setPhase('playing');
+    onStart?.();
     veilButtonTimer.current = setTimeout(() => setVeilButtonVisible(false), 200);
-  }, [runPlayingTransition]);
+  }, [runPlayingTransition, onStart]);
 
   useEffect(() => () => {
     if (veilButtonTimer.current) clearTimeout(veilButtonTimer.current);
@@ -370,27 +316,207 @@ export const PlayerScreen: React.FC<Props> = ({
     Share.share({ message: `FLUX RING — ${track.title}` }).catch(() => {});
   }, [track.title]);
 
-  // カード以外の背景をタップ → フェードアウト＋縮小しながらコレクションへ戻る
-  // （ベール中・再生中どちらでも有効。カード自体はCardGLが自分のジェスチャを
-  //   先に処理するので、ここに落ちてくるのは本当に「背景」をタップしたときだけ）
-  const handleBackgroundTap = useCallback(() => {
-    rootOpacity.value = withTiming(0, { duration: 300, easing: Easing.in(Easing.quad) });
-    rootScale.value = withTiming(
-      0.92,
-      { duration: 300, easing: Easing.in(Easing.quad) },
-      (finished) => {
-        'worklet';
-        if (finished) runOnJS(onBackHome)();
-      },
-    );
-  }, [rootOpacity, rootScale, onBackHome]);
+  // ── カードを左右に払って曲送り（2026-09-24 代表指示「FluxRing らしく」）──
+  // 左へ払う＝次の曲、右へ払う＝前の曲。カードは指について動き、払い切ると
+  // 画面の外へ抜け、新しい曲のカードが反対側から滑り込む。下の ⏮ ⏭ ボタンも
+  // 同じ動きにする（ボタンだと一瞬で切り替わって落ち着かない、との指摘）。
+  //   ・表面のときだけ。裏面の指ドラッグは今までどおりカードを回す
+  //     （CardGL が裏面では指の横取りを断るので、ここへは来ない）
+  //   ・表面のタップ（裏返す）は CardGL のまま。横へ 14px 以上動いたときだけ取る
+  //   ・曲が 1 曲しかない／ベール中（まだ流していない）は送らない
+  //
+  // 滑り込みは「新しい曲の絵が表に出た」（CardGL の onFrontShown）のを待ってから
+  // 始める。以前は抜けた直後に決め打ちで滑り込ませていたので、曲の切り替えが
+  // 間に合わず、入ってくるカードに前の曲の絵が 2 フレームほど映っていた
+  // （2026-09-24 実機収録）。待っている間は画面の外に置いておく。
+  const swipeX = useSharedValue(0);
+  const skipRef = useRef({ prev: onPrevTrack, next: onNextTrack });
+  skipRef.current = { prev: onPrevTrack, next: onNextTrack };
+  const trackUriRef = useRef(track.artworkUrl);
+  trackUriRef.current = track.artworkUrl;
+  // 抜けたあと、新しい絵を待っているか（dir: 1=次から来る / -1=前から来る）
+  const enterRef = useRef<{ from: number; timer: ReturnType<typeof setTimeout> | null } | null>(null);
+  const busyRef = useRef(false);
+
+  const slideIn = useCallback(() => {
+    const e = enterRef.current;
+    if (!e) return;
+    if (e.timer) clearTimeout(e.timer);
+    enterRef.current = null;
+    busyRef.current = false;
+    // 1 フレーム遅れて絵が替わることがあるので、ほんの少し置いてから動かす
+    swipeX.value = withDelay(40, withTiming(0, { duration: 320, easing: Easing.out(Easing.cubic) }));
+  }, [swipeX]);
+
+  const afterOut = useCallback(
+    (dir: number) => {
+      const fn = dir > 0 ? skipRef.current.next : skipRef.current.prev;
+      const from = dir > 0 ? screenW : -screenW; // 次の曲は右から、前の曲は左から
+      // 画面の外で待たせる。止まった値のまま描き直すと Reanimated がマウント時の
+      // 値（真ん中）へ戻すので、見えない位置でごくわずかに動かし続けておく
+      swipeX.value = withSequence(
+        withTiming(from, { duration: 0 }),
+        withTiming(from * 1.02, { duration: 900 }),
+      );
+      const timer = setTimeout(slideIn, 900); // 絵の知らせが来なくても滑り込ませる
+      enterRef.current = { from, timer };
+      fn?.();
+    },
+    [screenW, swipeX, slideIn],
+  );
+
+  /** 曲送りの動き。dir: 1=次の曲 / -1=前の曲。fast=指で払ったとき */
+  const animateSkip = useCallback(
+    (dir: number, fast = false) => {
+      const can = dir > 0 ? skipRef.current.next : skipRef.current.prev;
+      if (!can || busyRef.current) {
+        swipeX.value = withSpring(0, { damping: 18, stiffness: 180 });
+        return;
+      }
+      busyRef.current = true;
+      const out = dir > 0 ? -screenW : screenW;
+      swipeX.value = withTiming(
+        out,
+        { duration: fast ? 170 : 240, easing: Easing.in(Easing.quad) },
+        (finished) => {
+          'worklet';
+          if (finished) runOnJS(afterOut)(dir);
+        },
+      );
+    },
+    [screenW, swipeX, afterOut],
+  );
+  const animateSkipRef = useRef(animateSkip);
+  animateSkipRef.current = animateSkip;
+
+  // 新しい曲の絵が表に出たら滑り込ませる
+  const handleFrontShown = useCallback(
+    (uri: string) => {
+      if (enterRef.current && uri === trackUriRef.current) slideIn();
+    },
+    [slideIn],
+  );
+  useEffect(() => () => {
+    if (enterRef.current?.timer) clearTimeout(enterRef.current.timer);
+  }, []);
+
+  const swipePan = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_e, g) =>
+          !busyRef.current &&
+          !!(skipRef.current.next || skipRef.current.prev) &&
+          Math.abs(g.dx) > 14 &&
+          Math.abs(g.dx) > Math.abs(g.dy) * 1.5,
+        onPanResponderTerminationRequest: () => false,
+        onPanResponderMove: (_e, g) => {
+          // 送り先が無い向きは、少しだけ動いて戻る（ゴムのような手応え）
+          const can = g.dx < 0 ? skipRef.current.next : skipRef.current.prev;
+          swipeX.value = can ? g.dx : g.dx * 0.25;
+        },
+        onPanResponderRelease: (_e, g) => {
+          let dir = 0;
+          if (g.dx <= -SKIP_DIST || g.vx <= -SKIP_VEL) dir = 1;
+          else if (g.dx >= SKIP_DIST || g.vx >= SKIP_VEL) dir = -1;
+          if (dir === 0) {
+            swipeX.value = withSpring(0, { damping: 18, stiffness: 180 });
+            return;
+          }
+          animateSkipRef.current(dir, true);
+        },
+        onPanResponderTerminate: () => {
+          swipeX.value = withSpring(0, { damping: 18, stiffness: 180 });
+        },
+      }),
+    [swipeX],
+  );
+  const swipeStyle = useAnimatedStyle(() => {
+    const k = Math.min(1, Math.abs(swipeX.value) / screenW);
+    return {
+      opacity: 1 - 0.55 * k,
+      transform: [
+        { translateX: swipeX.value },
+        { rotateZ: `${(swipeX.value / screenW) * 7}deg` },
+      ],
+    };
+  });
+  const onPrevPress = useCallback(() => animateSkip(-1), [animateSkip]);
+  const onNextPress = useCallback(() => animateSkip(1), [animateSkip]);
+
+  // カードの塊は、再生位置の更新（0.25 秒ごとの描き直し）に巻き込まない。
+  // 払っている最中に描き直すと、Reanimated がカードを一瞬マウント時の位置へ
+  // 戻すことがあるため、カードに関わる値が変わったときだけ作り直す。
+  const cardBlock = useMemo(
+    () => (
+        <Animated.View style={swipeStyle} {...swipePan.panHandlers}>
+        <Animated.View style={[{ width: cardW, height: cardH }, cardWrapStyle]}>
+          {/* 実3D（WebGL）カード: ホーム画面と同じ flip モード（タップで表↔裏・
+              裏面のみ指ドラッグで自由回転／±22°クランプ・ダブルタップで表に戻る）。
+              以前の spin モード（常時ドラッグで360°回転・初期姿勢がわずかに傾く）
+              から統一した。厚み1mm。 */}
+          <CardGL
+            mode="flip"
+            frontUri={track.artworkUrl}
+            preloadUris={preloadUris}
+            onFrontShown={handleFrontShown}
+            width={cardW}
+            height={cardH}
+            depthRatio={0.016}
+            frame={cardFrame}
+            backScale={backScale}
+            backData={{
+              title: track.title,
+              serial: track.serial,
+              story: track.story ?? track.subtitle,
+              tuning: track.tuning,
+              frequencies: track.frequencies,
+              artist: track.artist ?? 'NAOKI OKA',
+              useCases: track.useCases,
+            }}
+          />
+        </Animated.View>
+        </Animated.View>
+    ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [swipeStyle, swipePan, cardWrapStyle, cardW, cardH, track, cardFrame, backScale, preloadUris, handleFrontShown],
+  );
 
   // タップ位置でシーク
-  const onSeekPress = useCallback((e: GestureResponderEvent) => {
-    if (duration <= 0) return;
-    const ratio = Math.max(0, Math.min(1, e.nativeEvent.locationX / seekW));
-    player.seekTo(ratio * duration);
-  }, [duration, seekW, player]);
+  // シークバー：押した所へ飛ぶ＋指で引ける（2026-09-24）。引いている間は
+  // 表示だけを動かし、離したときに 1 回だけ飛ぶ（引くたびに飛ぶと音がぶつ切れる）。
+  const [scrub, setScrub] = useState<number | null>(null);
+  const seekRef = useRef({ duration, seekW, isCurrent, seekTo: pb.seekTo });
+  seekRef.current = { duration, seekW, isCurrent, seekTo: pb.seekTo };
+  const scrubStart = useRef(0);
+  const scrubNow = useRef(0);
+  const seekPan = useMemo(() => {
+    const clamp = (v: number) => Math.max(0, Math.min(1, v));
+    return PanResponder.create({
+      onStartShouldSetPanResponder: () =>
+        seekRef.current.isCurrent && seekRef.current.duration > 0,
+      onMoveShouldSetPanResponder: () =>
+        seekRef.current.isCurrent && seekRef.current.duration > 0,
+      onPanResponderTerminationRequest: () => false,
+      onPanResponderGrant: (e: GestureResponderEvent) => {
+        const r = clamp(e.nativeEvent.locationX / seekRef.current.seekW);
+        scrubStart.current = r;
+        scrubNow.current = r;
+        setScrub(r);
+      },
+      onPanResponderMove: (_e, g) => {
+        const r = clamp(scrubStart.current + g.dx / seekRef.current.seekW);
+        scrubNow.current = r;
+        setScrub(r);
+      },
+      onPanResponderRelease: () => {
+        const { duration: d, seekTo } = seekRef.current;
+        seekTo(scrubNow.current * d);
+        setScrub(null);
+      },
+      onPanResponderTerminate: () => setScrub(null),
+    });
+  }, []);
+  const shownProgress = scrub ?? progress;
 
   return (
     <Animated.View style={[styles.root, rootExitStyle]}>
@@ -418,14 +544,9 @@ export const PlayerScreen: React.FC<Props> = ({
         </Animated.View>
       )}
 
-      {/* 背景タップでコレクションへ戻る。カード自身はCardGLが自分のジェスチャを
-          先に処理するため、ここに落ちるのは本当に背景をタップしたときだけ。
-          ヘッダー/カード/コントロールより先に描画し、それらの手前には出さない。 */}
-      <Pressable
-        style={StyleSheet.absoluteFill}
-        onPress={handleBackgroundTap}
-        accessibilityLabel={backLabel.replace(/^[‹\s]+/, '')}
-      />
+      {/* 背景をタップして閉じる動きは廃止（2026-09-24）。カードを払う・裏返す
+          ときに指が外れて、意図せず画面が閉じることがあったため。戻るのは
+          左上の「‹ 戻る」だけ。 */}
 
       {/* 上部導線: 戻る（コレクション/ホームどちらから開いたかで文言を出し分け）/ 共有
           （旧ストーリー導線は廃止）。タイトル等（headerAnimStyle）とは切り離し、
@@ -435,18 +556,8 @@ export const PlayerScreen: React.FC<Props> = ({
           <Text style={styles.navText}>{backLabel}</Text>
         </Pressable>
         <View style={styles.navGroup}>
-          {/* お気に入り。所有済みでも付けられる目印（ウィッシュリストとは別集合）。
-              onToggleFavorite 未指定なら出さない。 */}
-          {onToggleFavorite && (
-            <Pressable
-              onPress={onToggleFavorite}
-              hitSlop={10}
-              accessibilityRole="button"
-              accessibilityLabel={favorited ? 'お気に入りから外す' : 'お気に入りに追加'}
-            >
-              <StarIcon size={19} filled={!!favorited} />
-            </Pressable>
-          )}
+          {/* お気に入りの★は廃止（2026-09-24）。★は「ウィッシュリスト」の意味に
+              統一した。所有曲の整理はプレイリストで行う。 */}
           <Pressable onPress={onShare} hitSlop={10} accessibilityLabel="共有">
             <ShareIcon />
           </Pressable>
@@ -476,30 +587,7 @@ export const PlayerScreen: React.FC<Props> = ({
             再生ボタンのタップでさらに一回り拡大する。CardGL自体のサイズは固定し、
             wrapperのtranslate/scaleで見かけを変える（3Dシーンの再初期化を避けるため）。
             背後の靄（発光・影レイヤー）は廃止し、カードの縁がくっきり見えるようにする。 */}
-        <Animated.View style={[{ width: cardW, height: cardH }, cardWrapStyle]}>
-          {/* 実3D（WebGL）カード: ホーム画面と同じ flip モード（タップで表↔裏・
-              裏面のみ指ドラッグで自由回転／±22°クランプ・ダブルタップで表に戻る）。
-              以前の spin モード（常時ドラッグで360°回転・初期姿勢がわずかに傾く）
-              から統一した。厚み1mm。 */}
-          <CardGL
-            mode="flip"
-            frontUri={track.artworkUrl}
-            width={cardW}
-            height={cardH}
-            depthRatio={0.016}
-            frame={cardFrame}
-            backScale={backScale}
-            backData={{
-              title: track.title,
-              serial: track.serial,
-              story: track.story ?? track.subtitle,
-              tuning: track.tuning,
-              frequencies: track.frequencies,
-              artist: track.artist ?? 'NAOKI OKA',
-              useCases: track.useCases,
-            }}
-          />
-        </Animated.View>
+        {cardBlock}
       </View>
 
       {/* ベール（再生前）: 再生ボタンだけを大きく置く。カードが着地する頃に
@@ -523,18 +611,27 @@ export const PlayerScreen: React.FC<Props> = ({
       {phase === 'playing' && (
       <Animated.View style={[styles.transport, { marginBottom: transportBottom }, controlsAnimStyle]}>
         {/* シークバー（上下拡張の当たり領域でタップシーク） */}
-        <Pressable
+        <View
           style={styles.seekHit}
-          onPress={onSeekPress}
           onLayout={(ev: LayoutChangeEvent) => setSeekW(ev.nativeEvent.layout.width)}
+          {...seekPan.panHandlers}
         >
           <View style={styles.seekTrack}>
-            <View style={[styles.seekFill, { width: `${progress * 100}%` }]} />
+            <View style={[styles.seekFill, { width: `${shownProgress * 100}%` }]} />
           </View>
-        </Pressable>
-        {/* 時間 */}
+          {/* つまみ。引いている間だけ大きくする */}
+          <View
+            pointerEvents="none"
+            style={[
+              styles.seekKnob,
+              scrub != null && styles.seekKnobActive,
+              { left: `${shownProgress * 100}%` },
+            ]}
+          />
+        </View>
+        {/* 時間（引いている間は、離したら飛ぶ先の時刻を出す） */}
         <View style={styles.timeRow}>
-          <Text style={styles.time}>{formatTime(position)}</Text>
+          <Text style={styles.time}>{formatTime(shownProgress * duration)}</Text>
           <Text style={styles.time}>{formatTime(duration)}</Text>
         </View>
         {/* コントロール: EQ(再生中) / 戻し・再生停止・送り / ループ。
@@ -546,7 +643,7 @@ export const PlayerScreen: React.FC<Props> = ({
           <View style={styles.navGroup}>
             <Pressable
               style={[styles.skipBtn, !onPrevTrack && styles.skipDisabled]}
-              onPress={onPrevTrack}
+              onPress={onPrevPress}
               disabled={!onPrevTrack}
               hitSlop={12}
               accessibilityLabel="前の曲"
@@ -563,7 +660,7 @@ export const PlayerScreen: React.FC<Props> = ({
             </Pressable>
             <Pressable
               style={[styles.skipBtn, !onNextTrack && styles.skipDisabled]}
-              onPress={onNextTrack}
+              onPress={onNextPress}
               disabled={!onNextTrack}
               hitSlop={12}
               accessibilityLabel="次の曲"
@@ -573,9 +670,9 @@ export const PlayerScreen: React.FC<Props> = ({
           </View>
           <Pressable
             style={styles.loopBtn}
-            onPress={() => setLoop((l) => !l)}
+            onPress={() => pb.setRepeat(loop ? 'ring' : 'one')}
             hitSlop={10}
-            accessibilityLabel="ループ"
+            accessibilityLabel={loop ? '1曲リピート中（押すと全曲ループ）' : '全曲ループ中（押すと1曲リピート）'}
           >
             <LoopIcon size={16} on={loop} />
           </Pressable>
@@ -656,6 +753,16 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(236,238,247,0.15)',
     justifyContent: 'center',
   },
+  seekKnob: {
+    position: 'absolute',
+    top: 12 - 4,
+    width: 8,
+    height: 8,
+    marginLeft: -4,
+    borderRadius: 4,
+    backgroundColor: COLOR.auraCyan,
+  },
+  seekKnobActive: { top: 12 - 7, width: 14, height: 14, marginLeft: -7, borderRadius: 7 },
   seekFill: {
     height: 2,
     borderRadius: 1,
