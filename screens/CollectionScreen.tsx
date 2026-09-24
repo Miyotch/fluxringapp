@@ -51,6 +51,8 @@ import { previewUrl as r2PreviewUrl } from '../lib/r2';
 import { useLayoutAdjustConfig } from '../lib/layoutAdjust';
 import { NUM_FONT, JP_SERIF_FONT } from '../constants/fonts';
 import type { PurchaseController } from '../lib/usePurchaseFlow';
+import type { PlaylistsController } from '../lib/usePlaylists';
+import { MyPlaylists } from '../components/MyPlaylists';
 
 export type CollectionItem = {
   id: string;
@@ -79,9 +81,12 @@ export type CollectionItem = {
   };
 };
 
-// 参照 fr_v98_wish.html の col-tabs（すべて / 所有 / ウィッシュリスト）
+// タブ。2026-09-24 にコレクションを「プレイリスト」に改め、並びを
+// マイプレイリスト / すべて / ウィッシュリスト にした（聴く場所として、
+// 自分のプレイリストを先頭に置く）。参照 fr_v98_wish.html の col-tabs は
+// すべて / 所有 / ウィッシュリスト の順だった。
 type Segment = 'all' | 'mine' | 'wish';
-const SEGMENTS: Segment[] = ['all', 'mine', 'wish'];
+const SEGMENTS: Segment[] = ['mine', 'all', 'wish'];
 
 type Props = {
   owned: CollectionItem[];
@@ -109,6 +114,13 @@ type Props = {
   wishlistIds?: Set<string>;
   /** 購入フロー。未指定なら購入ボタンは押しても何も起きない */
   purchase?: PurchaseController;
+  /**
+   * マイプレイリスト（スロット 2 以降）。App.tsx の usePlaylists が正。
+   * 未指定なら、マイプレイリストのページは従来の 21 枠の格子のまま。
+   */
+  playlists?: PlaylistsController;
+  /** 「このプレイリストを再生」→ 曲順どおりの trackId で再生画面を開く */
+  onPlayList?: (trackIds: string[]) => void;
 };
 
 // マイコレ／ウィッシュリストの並び順。両者とも props（owned/wishlist）の順は
@@ -243,6 +255,8 @@ export const CollectionScreen: React.FC<Props> = ({
   onToggleWish,
   wishlistIds,
   purchase,
+  playlists,
+  onPlayList,
 }) => {
   const t = useT();
   const titleTop = useTopInset(14); // 従来 58px（=44+14）
@@ -251,8 +265,12 @@ export const CollectionScreen: React.FC<Props> = ({
   // まま変わらない。
   const layoutAdjust = useLayoutAdjustConfig();
   const { width: screenW, height: screenH } = useWindowDimensions();
-  // 参照の既定タブは「すべて」。連作の全体像を先に見せ、そこから所有／欲しいへ絞る。
-  const [seg, setSeg] = useState<Segment>('all');
+  // 既定タブはマイプレイリスト（2026-09-24。以前は連作の全体像を先に見せる「すべて」）。
+  const [seg, setSeg] = useState<Segment>('mine');
+  const segRef = useRef<Segment>('mine');
+  segRef.current = seg;
+  const playlistsRef = useRef<PlaylistsController | undefined>(playlists);
+  playlistsRef.current = playlists;
   const [purchaseTarget, setPurchaseTarget] = useState<CollectionItem | null>(null);
   // 枠タップで立ち上がる作品詳細（参照 .work）。null=閉じている
   const [detailId, setDetailId] = useState<string | null>(null);
@@ -268,15 +286,18 @@ export const CollectionScreen: React.FC<Props> = ({
   // Capture 側で「明確に横」のジェスチャだけ先に引き取る。
   //   ・非 Capture だと FlatList が先に応答者になり、スワイプが届かないことがある
   //   ・横優位（|dx| > 1.4×|dy|）に限定するので、通常の縦スクロールは奪わない
+  //   ・マイプレイリストのページでは引き取らない。カードの横スワイプと取り合うため
+  //     （2026-09-24）。そこではタブは上の見出しを押して切り替える
   const segSwipe = useRef(
     PanResponder.create({
       onMoveShouldSetPanResponderCapture: (_e, g) =>
+        !(segRef.current === 'mine' && playlistsRef.current) &&
         Math.abs(g.dx) > SWIPE_CLAIM_PX && Math.abs(g.dx) > Math.abs(g.dy) * SWIPE_H_RATIO,
       onPanResponderRelease: (_e, g) => {
         const far = Math.abs(g.dx) >= SWIPE_COMMIT_PX;
         const fast = Math.abs(g.vx) >= SWIPE_COMMIT_VX;
         if (!far && !fast) return; // 迷い程度の動きでは切り替えない
-        // タブは [すべて, 所有, ウィッシュ] の並び。左スワイプ=次 / 右スワイプ=前。
+        // タブは SEGMENTS の並び。左スワイプ=次 / 右スワイプ=前。
         setSeg((prev) => {
           const i = SEGMENTS.indexOf(prev);
           const next = i + (g.dx < 0 ? 1 : -1);
@@ -818,6 +839,14 @@ export const CollectionScreen: React.FC<Props> = ({
             columnWrapperStyle={{ gap: COL_GAP }}
             contentContainerStyle={styles.pages}
             showsVerticalScrollIndicator={false}
+          />
+        ) : seg === 'mine' && playlists ? (
+          <MyPlaylists
+            owned={ownedSorted}
+            playlists={playlists}
+            onOpenDetail={(id) => openDetail(id, '')}
+            onPlayList={(ids) => onPlayList?.(ids)}
+            onDiscover={onDiscover}
           />
         ) : seg === 'mine' ? (
           <FlatList

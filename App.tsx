@@ -34,6 +34,7 @@ import { useUserProfileSync } from './lib/useUserProfileSync';
 import { useArticles } from './lib/useArticles';
 import { useWishlist } from './lib/useWishlist';
 import { useFavorites } from './lib/useFavorites';
+import { usePlaylists } from './lib/usePlaylists';
 import { shuffle } from './lib/shuffle';
 import { prefetchArtwork } from './constants/artwork';
 import { ANIM, HOME_INTRO } from './constants/design-tokens';
@@ -185,6 +186,15 @@ function AppInner() {
   // （再生画面の★。2026-09-20 指示）。
   const favorites = useFavorites();
 
+  // マイプレイリスト（スロット 2 以降）。スロット 1（所有曲すべて）は所有から作る
+  // ので、ここでは持たない（2026-09-24）。
+  const playlists = usePlaylists();
+
+  // HOME のカードの★でウィッシュリストに入れたとき、光の粒がフッターの
+  // プレイリストタブに着いた回数。増えるたびにタブが一度脈打つ。
+  const [wishPulse, setWishPulse] = useState(0);
+  const bumpWishPulse = useCallback(() => setWishPulse((n) => n + 1), []);
+
   // ホームの楽曲一覧 = Firestore の tracks コレクションのみ（CMS経由で追加され、
   // 試聴・購入後のフル音源URLも自身のドキュメントに持つ）。同梱の STUB_TRACKS
   // （v98_FIX ハンドオフの初期5作品）はもう画面に出さない——表示する楽曲・
@@ -306,17 +316,35 @@ function AppInner() {
       })),
     [discoverTracks, ownedTrackIds],
   );
-  const playerIndex = playerTracks.findIndex((t) => t.id === playerTrackId);
-  const playerTrack = playerIndex >= 0 ? playerTracks[playerIndex] : null;
+  // 再生画面の前へ・次へで回る順番（キュー）。
+  //   ・プレイリストの「再生」から開いたとき … そのプレイリストの曲順（playerQueue）
+  //   ・それ以外（HOME の「再生」・作品詳細の「再生する」）… 所有曲すべてを
+  //     シリアル番号順（＝マイプレイリストのスロット 1 と同じ並び）
+  // 以前は discoverTracks の取得順（新着順）のままで、画面に並んでいる順と
+  // 前へ・次へが食い違っていた（2026-09-24）。
+  const [playerQueue, setPlayerQueue] = useState<string[] | null>(null);
+  const queueTracks = useMemo<PlayerTrack[]>(() => {
+    const serialNum = (t: PlayerTrack) => {
+      const d = t.serial?.replace(/[^0-9]/g, '');
+      return d ? Number(d) : Number.POSITIVE_INFINITY;
+    };
+    if (playerQueue) {
+      const byId = new Map(playerTracks.map((t) => [t.id, t]));
+      return playerQueue.map((id) => byId.get(id)).filter((t): t is PlayerTrack => !!t);
+    }
+    return [...playerTracks].sort((a, b) => serialNum(a) - serialNum(b));
+  }, [playerQueue, playerTracks]);
+  const playerIndex = queueTracks.findIndex((t) => t.id === playerTrackId);
+  const playerTrack = playerIndex >= 0 ? queueTracks[playerIndex] : null;
   // 2曲以上あるときだけ曲送り／戻しを渡す。端は巻き戻して循環させる。
-  const canSkip = playerTracks.length > 1;
+  const canSkip = queueTracks.length > 1;
   const goTrack = useCallback(
     (delta: number) => {
-      if (playerIndex < 0 || playerTracks.length === 0) return;
-      const n = playerTracks.length;
-      setPlayerTrackId(playerTracks[(playerIndex + delta + n) % n].id);
+      if (playerIndex < 0 || queueTracks.length === 0) return;
+      const n = queueTracks.length;
+      setPlayerTrackId(queueTracks[(playerIndex + delta + n) % n].id);
     },
-    [playerIndex, playerTracks],
+    [playerIndex, queueTracks],
   );
 
   // ウィッシュリストに並べる作品。★を付けた未所有ぶんを、全作品の並び（＝通し番号順）で引く。
@@ -606,10 +634,12 @@ function AppInner() {
               onIntroDone={() => setHomeIntroPending(false)}
               bottomInset={footerH}
               onOpenArtist={openArtistFromCard}
+              onWishAdded={bumpWishPulse}
               onPlay={(id) => {
                 // 所有済みカードの「再生」押下 → 再生画面へ（コレクションのタイル起点が
                 // 無いので残像演出は出さない＝origin は null のまま）
                 if (playerTracks.some((tr) => tr.id === id)) {
+                  setPlayerQueue(null);
                   setPlayerTrackId(id);
                   setPlayerOrigin(null);
                   setPlayerAfterimages([]);
@@ -629,9 +659,22 @@ function AppInner() {
               wishlistIds={wishlist.ids}
               allWorks={allWorkItems}
               purchase={purchase}
+              playlists={playlists}
+              onPlayList={(ids) => {
+                // 「このプレイリストを再生」→ その曲順で再生画面へ（前へ・次へも同じ順）
+                const first = ids.find((id) => playerTracks.some((tr) => tr.id === id));
+                if (!first) return;
+                setPlayerQueue(ids);
+                setPlayerTrackId(first);
+                setPlayerOrigin(null);
+                setPlayerAfterimages([]);
+                setPlayerReturnTab('collection');
+                setOverlay('player');
+              }}
               onOpenTrack={(id, origin, afterimages) => {
                 // 所有曲タップ → 再生画面（ワイヤーフレーム P3）
                 if (playerTracks.some((tr) => tr.id === id)) {
+                  setPlayerQueue(null);
                   setPlayerTrackId(id);
                   setPlayerOrigin(origin ?? null);
                   setPlayerAfterimages(afterimages ?? []);
@@ -701,6 +744,7 @@ function AppInner() {
             vipLocked={!vipUnlocked}
             transparent={homeFooterFloats}
             mediaUnread={hasUnreadNotices}
+            pulseKey={wishPulse}
           />
         </Animated.View>
       </Animated.View>

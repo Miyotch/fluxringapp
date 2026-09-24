@@ -2,7 +2,7 @@
  * Footer.tsx — FLUX RING 共通フッター（5タブ）
  * ------------------------------------------------------------------
  * ワイヤーフレーム: ホーム / コレ / VIP / メディア / 設定
- *   ・4タブ（ホーム/コレクション/メディア/設定）はいつでも相互遷移
+ *   ・4タブ（ホーム/プレイリスト/メディア/設定）はいつでも相互遷移（プレイリストは 2026-09-24 にコレクションから改称。キーは collection のまま）
  *   ・VIP はシアン強調＋ロックマーク（未成約時）
  *   ・プレイヤー / ストーリー / 購入完了画面では非表示（呼び出し側で出し分け）
  *
@@ -10,8 +10,8 @@
  * opacity を制御する想定。本コンポーネントは静的なタブ行のみ。
  */
 
-import React from 'react';
-import { View, Text, Pressable, StyleSheet, Platform } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { View, Text, Pressable, StyleSheet, Platform, Animated, Easing } from 'react-native';
 import { COLOR } from '../constants/design-tokens';
 import { useT } from '../lib/i18n';
 import { useBottomInset } from '../lib/safeArea';
@@ -53,6 +53,12 @@ type FooterProps = {
   transparent?: boolean;
   /** メディア（あなた宛）に未読のお知らせがあるとき、タブの右上へ赤バッジを出す */
   mediaUnread?: boolean;
+  /**
+   * 数が増えるたびに、プレイリスト（collection）タブの絵を一度脈打たせる。
+   * HOME のカードの★でウィッシュリストに入れ、光の粒がこのタブに着いた合図
+   * （2026-09-24 岡さんの試作 `.nav .col.pulse`）。
+   */
+  pulseKey?: number;
 };
 
 export const Footer: React.FC<FooterProps> = ({
@@ -61,8 +67,19 @@ export const Footer: React.FC<FooterProps> = ({
   vipLocked = true,
   transparent = false,
   mediaUnread = false,
+  pulseKey = 0,
 }) => {
   const t = useT();
+  // プレイリストタブの脈打ち（試作: .6s で 1.25 倍 → 戻す）
+  const pulse = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    if (!pulseKey) return;
+    pulse.setValue(1);
+    Animated.sequence([
+      Animated.timing(pulse, { toValue: 1.25, duration: 240, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+      Animated.timing(pulse, { toValue: 1, duration: 360, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+    ]).start();
+  }, [pulseKey, pulse]);
   // ホームインジケータ（34pt）を避ける。従来の固定値を下回らないようにする。
   const padBottom = useBottomInset(Platform.OS === 'ios' ? 20 : 12);
   return (
@@ -108,7 +125,13 @@ export const Footer: React.FC<FooterProps> = ({
             accessibilityState={{ selected: isActive }}
             accessibilityLabel={t(tab.labelKey)}
           >
-            <View style={[styles.glyphWrap, iconGlowStyle]}>
+            <Animated.View
+              style={[
+                styles.glyphWrap,
+                iconGlowStyle,
+                tab.key === 'collection' && { transform: [{ scale: pulse }] },
+              ]}
+            >
               {tab.Icon ? (
                 <tab.Icon size={20} color={tint} />
               ) : isVip && vipLocked ? (
@@ -120,7 +143,7 @@ export const Footer: React.FC<FooterProps> = ({
                   「あなた宛」タブが持つ未読ドット（NotificationsScreen 由来）と
                   同じ COLOR.badge。既読になれば消える。 */}
               {tab.key === 'media' && mediaUnread && <View style={styles.unreadBadge} />}
-            </View>
+            </Animated.View>
             <Text
               style={[styles.label, { color: tint }]}
               numberOfLines={1}

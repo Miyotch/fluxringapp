@@ -15,9 +15,18 @@ import Animated, {
 } from 'react-native-reanimated';
 import { COLOR } from '../constants/design-tokens';
 
-type Props = { active: boolean };
+type Props = {
+  active: boolean;
+  /**
+   * 鳴っていないときも棒を出したままにする（HOME 右上の試聴のオン・オフ用）。
+   * 未指定なら従来どおり、鳴っていないときは何も描かない。
+   */
+  keepIdle?: boolean;
+  /** 試聴を切っているときの見た目（棒を暗く止める） */
+  dim?: boolean;
+};
 
-export const EqBars: React.FC<Props> = ({ active }) => {
+export const EqBars: React.FC<Props> = ({ active, keepIdle = false, dim = false }) => {
   const p = useSharedValue(0);
   useEffect(() => {
     p.value = active
@@ -34,10 +43,10 @@ export const EqBars: React.FC<Props> = ({ active }) => {
   const s2 = useAnimatedStyle(() => ({ transform: [{ scaleY: 0.5 + p.value * 0.7 }] }));
   const s3 = useAnimatedStyle(() => ({ transform: [{ scaleY: 0.5 + p.value * 1.0 }] }));
 
-  if (!active) return null;
+  if (!active && !keepIdle) return null;
   const bars = [s0, s1, s2, s3];
   return (
-    <View style={styles.eq}>
+    <View style={[styles.eq, dim && styles.dim]}>
       {bars.map((st, i) => (
         <Animated.View key={i} style={[styles.eqBar, { height: 5 + i * 2 }, st]} />
       ))}
@@ -48,6 +57,7 @@ export const EqBars: React.FC<Props> = ({ active }) => {
 const styles = StyleSheet.create({
   eq: { flexDirection: 'row', alignItems: 'flex-end', gap: 2, height: 14 },
   eqBar: { width: 2, borderRadius: 1, backgroundColor: COLOR.auraCyan },
+  dim: { opacity: 0.3 },
 });
 
 export default EqBars;
