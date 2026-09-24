@@ -1439,18 +1439,42 @@ export const DiscoverScreen: React.FC<Props> = ({
    * 受け渡しの間（CardGL が新しい絵を出すまで）は carBusy が立っているので出ない。
    */
   const favVis = useSharedValue(1);
+  // ボタンを押せる・押せない（React state）。以前は `flipped`（裏返しているか
+  // どうかだけの粗い判定）で切り替えていたが、flipToFront() は表へ戻る
+  // アニメーションの**開始**時点（まだ裏面がほぼ見えている・rotation≈180°）で
+  // 即座に flipped=false にする（曲送りのスワイプを早く解禁するための意図的な
+  // 仕様）。そのため裏→表に戻る間（数百ms）、★の当たり判定だけ先に有効になり、
+  // 裏面のその角を新たに触ると（見えていないのに）ウィッシュリストが切り替わって
+  // いた。見た目（favVis）とまったく同じ条件で連動させる（下のスピーカーボタンと
+  // 同じ直し方、2026-09-24）。
+  const [favActive, setFavActive] = useState(true);
   useAnimatedReaction(
     () => (carBusy.value < 0.5 && Math.abs(cardRotation.value) < FAV_HIDE_DEG ? 1 : 0),
     (now, prev) => {
-      if (now !== prev) favVis.value = withTiming(now, { duration: 160 });
+      if (now !== prev) {
+        favVis.value = withTiming(now, { duration: 160 });
+        runOnJS(setFavActive)(!!now);
+      }
     },
   );
   // 裏面の右上の音の ON/OFF（★と同じくカード層の外に置き、同じ値で動かす）
   const spkVis = useSharedValue(0);
+  // ボタンを押せる・押せない（React state）。見た目の spkVis と別に持つ。
+  //
+  // ★ 以前は下の Pressable の pointerEvents を `flipped`（裏返しているかどうか
+  //   だけの粗い判定）で切り替えていた。flipped は裏返しを始めた**瞬間**に true に
+  //   なる一方、ボタンが実際に見えるのは SPK_SHOW_DEG（171°）を超えてからなので、
+  //   裏返している間ずっと・裏面を指で回して眺めている間も 171° を下回るたびに、
+  //   見えていない状態のこの 44px の角だけがタップ・ドラッグを吸い取っていた。
+  //   その場所から裏面の回転を始めようとすると、カードが回らずに止まる
+  //   （2026-09-24 発見。表の絵が残る不具合と同じ「見た目の判定と操作を受け付ける
+  //   判定がずれている」系統の不具合）。しきい値を spkVis と揃えて直す。
+  const [spkActive, setSpkActive] = useState(false);
   useAnimatedReaction(
-    () => (Math.abs(cardRotation.value) > SPK_SHOW_DEG ? 1 : 0),
+    () => Math.abs(cardRotation.value) > SPK_SHOW_DEG,
     (now, prev) => {
-      if (now !== prev) spkVis.value = withTiming(now, { duration: now ? 180 : 90 });
+      spkVis.value = withTiming(now ? 1 : 0, { duration: now ? 180 : 90 });
+      if (prev !== null && now !== prev) runOnJS(setSpkActive)(now);
     },
   );
   const spkLayerStyle = useAnimatedStyle(() => ({
@@ -1754,7 +1778,7 @@ export const DiscoverScreen: React.FC<Props> = ({
       favId && !favOwned ? (
         <Animated.View
           style={[styles.slot, favLayerStyle]}
-          pointerEvents={flipped ? 'none' : 'box-none'}
+          pointerEvents={favActive ? 'box-none' : 'none'}
         >
           <View
             style={[
@@ -1770,7 +1794,7 @@ export const DiscoverScreen: React.FC<Props> = ({
           </View>
         </Animated.View>
       ) : null,
-    [favId, favOwned, favFilled, flipped, favLayerStyle, screenW, cardW, cardH, cardCenterY, onToggleFav, handleBeadAdded],
+    [favId, favOwned, favFilled, favActive, favLayerStyle, screenW, cardW, cardH, cardCenterY, onToggleFav, handleBeadAdded],
   );
 
   // 裏面の右上の音の ON/OFF。押すと試聴のオン・オフ（右上の EQ と同じ）。
@@ -1786,7 +1810,7 @@ export const DiscoverScreen: React.FC<Props> = ({
     return (
       <Animated.View
         style={[styles.slot, spkLayerStyle]}
-        pointerEvents={flipped ? 'box-none' : 'none'}
+        pointerEvents={spkActive ? 'box-none' : 'none'}
       >
         <Pressable
           onPress={togglePreview}
@@ -1807,7 +1831,7 @@ export const DiscoverScreen: React.FC<Props> = ({
         </Pressable>
       </Animated.View>
     );
-  }, [spkOwned, cardFrame, cardW, cardH, screenW, cardCenterY, spkLayerStyle, flipped, togglePreview, previewEnabled, t]);
+  }, [spkOwned, cardFrame, cardW, cardH, screenW, cardCenterY, spkLayerStyle, spkActive, togglePreview, previewEnabled, t]);
 
   // 起動時に全作品の絵を先読みしておく（スワイプ後に絵が遅れて出るのを防ぐ）
   useEffect(() => {
