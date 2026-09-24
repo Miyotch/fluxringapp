@@ -43,9 +43,12 @@ import Animated, {
   withTiming,
   withSequence,
   withDelay,
+  withSpring,
   Easing,
   useReducedMotion,
 } from 'react-native-reanimated';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { SWIPE_SPRING, swipeDirection } from '../constants/swipe';
 import { useIdleFloat } from '../lib/useIdleFloat';
 import { useBackdropClock } from '../lib/usePausableClock';
 import { useAudioPlayer } from 'expo-audio';
@@ -173,6 +176,18 @@ const SPK_SHOW_DEG = 171;
 /** ボタンの当たり判定の一辺と、裏面の角からボタン中心までの距離(px) */
 const SPK_HIT = 44;
 const SPK_INSET = 26;
+/**
+ * 初回だけの操作の案内（2026-09-24 代表「やってみて考える」）。
+ * 止まっているときは隣のカードが見えず、裏返せることを示すものも無いので、
+ * 一度だけ「横にずれて戻る」と「少し傾いて戻る」を見せる。保存済みなら出さない。
+ */
+const HINT_KEY = 'fr.hint.cardOps.v1';
+/** intro が終わってから案内を始めるまで(ms) */
+const HINT_DELAY_MS = 1200;
+/** 横にずれる量（カード幅比）。隣のカードの端が画面に少し入るくらい */
+const HINT_NUDGE_R = 0.45;
+/** 横の案内のあと、傾きの案内を始めるまで(ms) */
+const HINT_GAP_MS = 1400;
 // 参照 2995行: 指が 7px 動いたら「押した」を取り消す（＝スワイプの入り口）
 const CARD_PRESS_SLOP = 7;
 
@@ -437,6 +452,8 @@ export const DiscoverScreen: React.FC<Props> = ({
     bottom: new RNAnimated.Value(introFrom),
   }).current;
   const introStarted = useRef(false);
+  /** intro が終わったか（初回だけの案内はこのあとに出す） */
+  const [introDone, setIntroDone] = useState(!(introOnMount && !DEBUG_BACKDROP_ONLY));
   // 完了通知は ref 経由で読む。deps に入れると、親がインライン関数を渡している
   // 場合に再レンダーごとへ effect が張り直され、cleanup が rAF を潰して
   // intro が永久に始まらなくなる。
@@ -516,7 +533,9 @@ export const DiscoverScreen: React.FC<Props> = ({
           ]);
 
       anim.start(() => {
-        if (!cancelled) onIntroDoneRef.current?.();
+        if (cancelled) return;
+        setIntroDone(true);
+        onIntroDoneRef.current?.();
       });
     };
 
@@ -688,6 +707,9 @@ export const DiscoverScreen: React.FC<Props> = ({
    *   マウント時の値がそのまま正しい値になるものだけを持たせる。
    */
   const glOn = useSharedValue(0);
+  // 初回だけの案内（少し傾いて戻る）の窓口。CardGL が中身を入れる。変わらない
+  // ref なのでカード層は描き直されない（カード層より前で宣言しておく）
+  const hintRef = useRef<(() => void) | null>(null);
   /** 0 = マウント直後。輪の札のマウント時の値を「非表示」にしておくため */
   const ringReady = useSharedValue(0);
   useEffect(() => {
@@ -849,6 +871,12 @@ export const DiscoverScreen: React.FC<Props> = ({
   // 待っている間に札が変わったときに前の曲を鳴らしてしまう。
   // ※フェードインは音源ファイル側で定義する方針のため、アプリ側では行わない。
   const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /**
+   * 試聴のプレイヤーにいま読み込んである音源。同じ音源をもう一度鳴らすときは
+   * 読み込み直さず、止めた位置から続ける（2026-09-24）。以前は、カードを少し横に
+   * 触っただけで試聴を止め、送らずに元のカードに戻っても曲の頭から鳴り直していた。
+   */
+  const loadedUrlRef = useRef<string | null>(null);
   const fadeTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const playingRef = useRef<string | null>(null);
   playingRef.current = playingId;
@@ -925,14 +953,26 @@ export const DiscoverScreen: React.FC<Props> = ({
         stopPreview(false);
         return;
       }
+      // 同じ曲へ戻っただけ（送らずに離した）なら、読み込み直さず続きから鳴らす
+      const same = loadedUrlRef.current === url;
+      let v = 0;
       try {
-        // 鳴り始めは 0.4 秒でフェードイン（2026-09-24）。音源は 30 秒の素材を
-        // そのまま上げればよく、頭にフェードを作り込まなくてよい。
-        preview.volume = 0;
-        preview.replace({ uri: url });
+        // 鳴り始めは短くフェードイン。音源は 30 秒の素材をそのまま上げればよく、
+        // 頭にフェードを作り込まなくてよい。
+        if (same) {
+          // 最後まで鳴り終えていたら頭から
+          const dur = preview.duration;
+          if (dur > 0 && preview.currentTime >= dur - 0.3) preview.seekTo(0).catch(() => {});
+          // 止めるフェードの途中で戻ってきた（まだ鳴っている）ときは、その音量から上げる
+          if (preview.playing) v = Math.max(0, Math.min(1, preview.volume));
+          else preview.volume = 0;
+        } else {
+          preview.volume = 0;
+          preview.replace({ uri: url });
+          loadedUrlRef.current = url;
+        }
         preview.play();
       } catch {}
-      let v = 0;
       fadeTimer.current = setInterval(() => {
         v += PREVIEW_FADE_STEP_MS / PREVIEW_FADE_IN_MS;
         try {
@@ -1180,13 +1220,16 @@ export const DiscoverScreen: React.FC<Props> = ({
    * ときの引き直しの両方から呼ぶ。寄せ終わったら札を受け渡す。
    */
   const startSettle = useCallback(
-    (target: number, duration: number) => {
+    (target: number, velocity: number) => {
       'worklet';
       settleTarget.value = target;
       settleActive.value = 1;
-      dragX.value = withTiming(
+      // 指を離したときの速さ（px/秒）から滑らかにつなぐ（2026-09-24）。以前は
+      // 決まった時間（470ms）の動きで、出だしが一番速かったので、ゆっくり引いて
+      // 離すと、離した瞬間にカードが急に吸い込まれていた
+      dragX.value = withSpring(
         target,
-        { duration, easing: CAR_SETTLE_EASE },
+        { ...SWIPE_SPRING, velocity },
         (finished) => {
           'worklet';
           if (!finished) return; // 寄せの途中で次のスワイプに掴まれた
@@ -1289,24 +1332,23 @@ export const DiscoverScreen: React.FC<Props> = ({
           'worklet';
           dragging.value = 0;
           if (!claimed.value) return;
-          const mag = Math.abs(e.translationX);
-          const dir = e.translationX < 0 ? 1 : -1;
+          // 送るかどうかは再生画面・再生バナーと同じ基準（constants/swipe.ts）。
           // 参照は「押してから離すまでの総時間」で平均速度を出しており、
           // ゆっくり掴んでから素早く払うと成立しない欠陥がある。ここは
-          // RNGH の瞬時速度を使い、しきい値 500px/s だけ参照に合わせる。
-          const fast = Math.abs(e.velocityX) > CAR_VEL;
+          // RNGH の瞬時速度を使う。
+          const dir = swipeDirection(e.translationX, e.velocityX, cardW);
           const s = carGeo.step;
           let target = grabOrigin.value;
           // 1 曲だけのときは隣の札が無いので送らない（元の位置へ戻すだけ）。
           // 強く払っても 1 枚ずつ（2 枚送りは 2026-09-24 に外した）
-          if (count > 1 && (mag >= carGeo.thresh || (fast && mag > carGeo.fastMin))) {
+          if (count > 1 && dir !== 0) {
             target -= dir * s;
           }
           // 隣の札は ±2 枚まで描いてある。受け渡しがそれより遅れたら、そこで止める
           const b = committedSV.value;
           target = Math.min(b + 2 * s, Math.max(b - 2 * s, target));
           runOnJS(aimChrome)(target);
-          startSettle(target, CAR_SETTLE_MS);
+          startSettle(target, e.velocityX);
         })
         .onFinalize(() => {
           'worklet';
@@ -1694,6 +1736,7 @@ export const DiscoverScreen: React.FC<Props> = ({
                 onFlipChange={setFlipped}
                 onFrontShown={handleFrontShown}
                 rotationOut={cardRotation}
+                hintRef={hintRef}
                 purchaseGlow={showPurchaseFx ? cardGlow : undefined}
                 backData={backData}
                 onArtistPress={
@@ -1832,6 +1875,63 @@ export const DiscoverScreen: React.FC<Props> = ({
       </Animated.View>
     );
   }, [spkOwned, cardFrame, cardW, cardH, screenW, cardCenterY, spkLayerStyle, spkActive, togglePreview, previewEnabled, t]);
+
+  // ── 初回だけの操作の案内 ──
+  const countRef = useRef(count);
+  countRef.current = count;
+  const flippedRef = useRef(flipped);
+  flippedRef.current = flipped;
+  /** 横にずれて戻る（UI スレッド）。止まっているときだけ */
+  const runNudge = useCallback(() => {
+    runOnUI((dist: number) => {
+      'worklet';
+      if (settleActive.value > 0.5 || dragging.value > 0.5 || scrolling.value > 0.5) return;
+      if (Math.abs(cardRotation.value) > 1) return;
+      const rest = committedSV.value;
+      if (Math.abs(dragX.value - rest) > 0.5) return;
+      dragX.value = withSequence(
+        withTiming(rest - dist, { duration: 460, easing: Easing.inOut(Easing.cubic) }),
+        withDelay(140, withSpring(rest, { ...SWIPE_SPRING, overshootClamping: false, damping: 22 })),
+      );
+    })(cardW * HINT_NUDGE_R);
+  }, [settleActive, dragging, scrolling, cardRotation, committedSV, dragX, cardW]);
+  const hintStarted = useRef(false);
+  const layoutReady = slideH > 0;
+  useEffect(() => {
+    if (!introDone || !layoutReady || hintStarted.current || DEBUG_BACKDROP_ONLY) return;
+    hintStarted.current = true;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    let cancelled = false;
+    (async () => {
+      let seen: string | null = null;
+      try {
+        seen = await AsyncStorage.getItem(HINT_KEY);
+      } catch {}
+      if (seen || cancelled) return;
+      // 一度きり。途中で止まっても次回は出さない
+      try {
+        await AsyncStorage.setItem(HINT_KEY, '1');
+      } catch {}
+      if (reduceMotion || cancelled) return;
+      timers.push(
+        setTimeout(() => {
+          const many = countRef.current > 1;
+          if (many) runNudge();
+          timers.push(
+            setTimeout(() => {
+              if (!flippedRef.current) hintRef.current?.();
+            }, many ? HINT_GAP_MS : 0),
+          );
+        }, HINT_DELAY_MS),
+      );
+    })();
+    return () => {
+      cancelled = true;
+      timers.forEach(clearTimeout);
+    };
+    // 案内は一度だけ。依存が変わってもやり直さない
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [introDone, layoutReady]);
 
   // 起動時に全作品の絵を先読みしておく（スワイプ後に絵が遅れて出るのを防ぐ）
   useEffect(() => {
