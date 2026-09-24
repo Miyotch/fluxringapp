@@ -146,16 +146,6 @@ const FLIP_K = 10;
 const FLIP_SPRING_W = 12;      // 固有角振動数 rad/s
 const FLIP_SPRING_Z = 0.76;    // 減衰比
 const FLIP_SPRING_STEP = 0.008; // 積分の刻み（秒）。dt が大きくても暴れないように分割
-/**
- * 裏面の真正面への吸い付き（2026-09-24）。
- * 裏面は、指を離すと上下の傾きは正面へ戻るが、左右の回転は戻らなかった。
- * 作家名のリンクと右上のスピーカーはほぼ真正面のときしか効かないので、
- * 少し回したあとに作家名を押すと表へ戻ってしまい、スピーカーも消えたままだった。
- * 慣性が収まったら、いちばん近い裏の真正面へ吸い付かせる。表のほうが近い
- * （裏面を回して表を向けた）ときは、タップしたときと同じく表へ戻す。
- */
-const BACK_SNAP_VEL = 0.6; // この角速度（rad/s）を下回ったら吸い付き始める
-const BACK_SNAP_K = 6;     // 吸い付く速さ（exp(-dt*K)）
 /** 初回だけの「傾けられる」の案内: 傾ける角度（rad）と、傾いたまま待つ時間（秒） */
 const PEEK_YAW = 0.45;
 const PEEK_HOLD_S = 0.55;
@@ -506,9 +496,7 @@ const CardMesh: React.FC<{
   onFrontLoaded?: () => void;
   /** flip モードで「表へ戻り切った」瞬間（closing のスナップ成立時）に一度だけ呼ぶ */
   onClosed?: () => void;
-  /** 裏面を指で回して表のほうを向けたまま離したとき（タップと同じく表へ戻す） */
-  onSpunToFront?: () => void;
-}> = ({ spin, kick, frontUri, backData, backStyle, depthRatio, rotationEnabled, cardPx, flipDrive, backWanted, backScale, backLiftRatio, rotationOut, flipProgressOut, onFrontLoaded, onClosed, onSpunToFront }) => {
+}> = ({ spin, kick, frontUri, backData, backStyle, depthRatio, rotationEnabled, cardPx, flipDrive, backWanted, backScale, backLiftRatio, rotationOut, flipProgressOut, onFrontLoaded, onClosed }) => {
   const groupRef = useRef<THREE.Group>(null);
   // frameloop="demand" の再描画要求。ジェスチャ開始（親）とテクスチャ到着で起こし、
   // 動いている間は useFrame 自身が次のフレームを要求し続ける（自走）。
@@ -517,8 +505,6 @@ const CardMesh: React.FC<{
   // useFrame の中から最新のコールバックを呼ぶ（依存で useFrame を張り直さない）
   const onClosedRef = useRef(onClosed);
   onClosedRef.current = onClosed;
-  const onSpunToFrontRef = useRef(onSpunToFront);
-  onSpunToFrontRef.current = onSpunToFront;
   const [frontTex, setFrontTex] = useState<THREE.Texture | null>(null);
   const [backTex, setBackTex] = useState<THREE.DataTexture | null>(null); // backStyle='story' 用
   const [inkTex, setInkTex] = useState<THREE.DataTexture | null>(null);  // backStyle='aluminum' の刻印
@@ -724,17 +710,6 @@ const CardMesh: React.FC<{
         s.fvy *= df;
         // 指を離したらピッチだけ正面へ戻す（参照 v101）。倒れたまま止まらない
         s.tfx *= Math.exp(-dt * FLIP_PITCH_RECENTER);
-        // 左右の回転は、慣性が収まったら近いほうの面の真正面へ吸い付かせる
-        if (s.mode === 'open' && !s.flipAnim && Math.abs(s.fvy) < BACK_SNAP_VEL) {
-          const TAU = 2 * Math.PI;
-          const back = Math.PI + TAU * Math.round((s.tfy - Math.PI) / TAU);
-          const front = TAU * Math.round(s.tfy / TAU);
-          if (Math.abs(s.tfy - front) < Math.abs(s.tfy - back)) {
-            onSpunToFrontRef.current?.();
-          } else {
-            s.tfy += (back - s.tfy) * (1 - Math.exp(-dt * BACK_SNAP_K));
-          }
-        }
       }
       // 初回の案内: 傾いたまま少し待ってから、表の真正面へ戻す
       if (s.mode === 'closing' && s.peekT > 0) {
@@ -1641,7 +1616,6 @@ export const CardGL: React.FC<CardGLProps> = ({
           flipProgressOut={flipProgressOut}
           onFrontLoaded={() => setFrontReady(true)}
           onClosed={showOverlay}
-          onSpunToFront={flipToFront}
         />
       </Canvas>
 
