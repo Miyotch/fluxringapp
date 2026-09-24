@@ -60,6 +60,11 @@ export type PlaybackController = {
   isPlayingNow: () => boolean;
   /** 中枢が鳴らし始める直前に呼ばれる。戻り値で購読をやめる */
   onWillPlay: (cb: () => void) => () => void;
+  /**
+   * 試聴で流していた曲を買ったとき。キューの中のその曲を全編に切り替え、
+   * いま流れている曲なら全編を頭から鳴らし直す
+   */
+  markOwned: (trackId: string) => void;
 };
 
 /**
@@ -125,6 +130,11 @@ export const PlaybackProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   }, []);
 
   const resolve = useCallback(async (t: PlayerTrack): Promise<Resolved | null> => {
+    // 試聴として流す曲（まだ持っていない）は、はじめから試聴音源だけを使う
+    if (t.preview) {
+      const pv = t.previewUrl ?? previewUrl(t.audioKey);
+      return pv ? { url: pv, note: null } : null;
+    }
     const hit = urlCache.current.get(t.audioKey);
     if (hit) return hit;
     try {
@@ -175,7 +185,8 @@ export const PlaybackProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           player.play();
         }
       } catch {}
-      loggedTrack.current = t;
+      // 試聴は再生の記録に数えない（全編を聴いた記録と混ざらないように）
+      loggedTrack.current = t.preview ? null : t;
       // ロック画面
       try {
         if (!lockActive.current) {
@@ -284,6 +295,18 @@ export const PlaybackProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return () => sub.remove();
   }, [player, load]);
 
+  const markOwned = useCallback(
+    (trackId: string) => {
+      const q = queueRef.current;
+      if (!q.some((t) => t.id === trackId && t.preview)) return;
+      const nq = q.map((t) => (t.id === trackId ? { ...t, preview: false } : t));
+      queueRef.current = nq;
+      setQueue(nq);
+      if (q[indexRef.current]?.id === trackId) load(indexRef.current, true);
+    },
+    [load],
+  );
+
   const isPlayingNow = useCallback(() => {
     try {
       return !!player.playing;
@@ -319,6 +342,7 @@ export const PlaybackProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       stop,
       isPlayingNow,
       onWillPlay,
+      markOwned,
     }),
     [
       queue,
@@ -339,6 +363,7 @@ export const PlaybackProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       stop,
       isPlayingNow,
       onWillPlay,
+      markOwned,
     ],
   );
 

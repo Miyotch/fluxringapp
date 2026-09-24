@@ -9,12 +9,25 @@
  */
 
 import React, { useRef } from 'react';
-import { Image, PanResponder, Pressable, StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
+import {
+  Animated,
+  Image,
+  PanResponder,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+  useWindowDimensions,
+  type LayoutChangeEvent,
+} from 'react-native';
+import { swipeDirection } from '../constants/swipe';
+import { homeCardWidth } from '../constants/design-tokens';
 import { usePlayback, usePlaybackProgress } from '../lib/playback';
 import { PlayMark, PauseMark, SkipIcon } from './icons';
 import { useT } from '../lib/i18n';
 
-const SWIPE_PX = 48;
+/** 払っている間、バーが指について動く割合（全部付けると画面の端まで出ていくので半分強） */
+const FOLLOW_R = 0.6;
 
 type Props = {
   onOpen: () => void;
@@ -38,14 +51,35 @@ export const NowPlayingBar: React.FC<Props> = ({ onOpen, onLayout }) => {
   const pb = usePlayback();
   const pbRef = useRef(pb);
   pbRef.current = pb;
+  // 送る基準は HOME・再生画面と同じ（constants/swipe.ts）。カード幅は HOME のカード
+  const { height: screenH } = useWindowDimensions();
+  const cardWRef = useRef(homeCardWidth(screenH));
+  cardWRef.current = homeCardWidth(screenH);
+  // 払っている間、バーが指について動き、離すと戻る（以前は動かず曲だけ替わっていた）
+  const tx = useRef(new Animated.Value(0)).current;
 
   // 左右に払うと曲送り。縦や小さな動きは取らない（押す＝再生画面を開く、を邪魔しない）
   const swipe = useRef(
     PanResponder.create({
       onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dx) > 12 && Math.abs(g.dx) > Math.abs(g.dy) * 1.5,
+      onPanResponderMove: (_e, g) => {
+        tx.setValue(g.dx * FOLLOW_R);
+      },
       onPanResponderRelease: (_e, g) => {
-        if (g.dx <= -SWIPE_PX) pbRef.current.next();
-        else if (g.dx >= SWIPE_PX) pbRef.current.prev();
+        const dir = swipeDirection(g.dx, g.vx * 1000, cardWRef.current);
+        if (dir === 1) pbRef.current.next();
+        else if (dir === -1) pbRef.current.prev();
+        Animated.spring(tx, {
+          toValue: 0,
+          velocity: g.vx,
+          stiffness: 260,
+          damping: 30,
+          mass: 1,
+          useNativeDriver: true,
+        }).start();
+      },
+      onPanResponderTerminate: () => {
+        Animated.spring(tx, { toValue: 0, stiffness: 260, damping: 30, mass: 1, useNativeDriver: true }).start();
       },
     }),
   ).current;
@@ -54,7 +88,11 @@ export const NowPlayingBar: React.FC<Props> = ({ onOpen, onLayout }) => {
   if (!cur) return null;
 
   return (
-    <View style={styles.wrap} onLayout={onLayout} {...swipe.panHandlers}>
+    <Animated.View
+      style={[styles.wrap, { transform: [{ translateX: tx }] }]}
+      onLayout={onLayout}
+      {...swipe.panHandlers}
+    >
       <Pressable
         style={({ pressed }) => [styles.bar, pressed && { opacity: 0.9 }]}
         onPress={onOpen}
@@ -66,7 +104,13 @@ export const NowPlayingBar: React.FC<Props> = ({ onOpen, onLayout }) => {
         <View style={styles.texts}>
           <Text style={styles.title} numberOfLines={1}>{cur.title}</Text>
           <Text style={styles.sub} numberOfLines={1}>
-            {pb.loading ? t('playback.loading') : pb.playing ? t('playback.playing') : t('playback.paused')}
+            {pb.loading
+              ? t('playback.loading')
+              : !pb.playing
+              ? t('playback.paused')
+              : cur.preview
+              ? t('playback.previewing')
+              : t('playback.playing')}
             {pb.queue.length > 1 ? `　${pb.index + 1} / ${pb.queue.length}` : ''}
           </Text>
         </View>
@@ -92,7 +136,7 @@ export const NowPlayingBar: React.FC<Props> = ({ onOpen, onLayout }) => {
           </View>
         </Pressable>
       </Pressable>
-    </View>
+    </Animated.View>
   );
 };
 

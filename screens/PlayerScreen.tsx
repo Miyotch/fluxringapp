@@ -45,6 +45,11 @@ import { COLOR, SPACE, TRANSPORT, homeCardWidth } from '../constants/design-toke
 import { formatTime } from '../lib/audio';
 import { useTopInset, useBottomInset } from '../lib/safeArea';
 import { usePlayback, usePlaybackProgress } from '../lib/playback';
+import { SWIPE_SPRING, swipeDirection } from '../constants/swipe';
+import { OrbitBuyButton } from '../components/OrbitBuyButton';
+import { PurchaseModal } from '../components/PurchaseModal';
+import type { PurchaseController } from '../lib/usePurchaseFlow';
+import { formatPrice, TRACK_PRICE_JPY } from '../constants/pricing';
 import { NUM_FONT, JP_SERIF_FONT } from '../constants/fonts';
 
 export type PlayerTrack = {
@@ -63,6 +68,16 @@ export type PlayerTrack = {
   frequencies?: string[];    // 周波数のみ（例: ['432 Hz', '7.83 Hz']）
   artist?: string;           // 'NAOKI OKA'
   useCases?: string[];       // 用途タグ（例: ['睡眠', '勉強', '集中力']）
+  /**
+   * 試聴として流す（まだ持っていない曲）。HOME の「再生」から流すと、所有曲の
+   * あとに HOME の並びで未購入の曲が試聴として続く（2026-09-25 代表決定）。
+   * 再生画面では購入ボタンが出て、買うと全編に切り替わる。
+   */
+  preview?: boolean;
+  /** 試聴の音源 URL（Firestore tracks/{id}.previewUrl）。無ければ audioKey から組む */
+  previewUrl?: string | null;
+  /** 購入時点の価格（円）。購入の記録用 */
+  priceJpy?: number;
 };
 
 type Props = {
@@ -88,12 +103,6 @@ type Props = {
   onPrevTrack?: () => void;
   onNextTrack?: () => void;
   /**
-   * 「お気に入り」（所有済みでも付けられる目印。ウィッシュリストとは別の
-   * 集合＝lib/useFavorites.ts）。未指定なら★は出さない。
-   */
-  favorited?: boolean;
-  onToggleFavorite?: () => void;
-  /**
    * ベール（コレクションのタイルから開いたとき）の大きな再生ボタン、または
    * まだ中枢がこの曲を流していないときの再生ボタン。親が中枢のキューを組んで
    * 流し始める（0.2.0 第 2 段階）。
@@ -104,11 +113,19 @@ type Props = {
    * 新しいカードの絵が遅れて出ないようにする。毎レンダー新しい配列を渡さないこと
    */
   preloadUris?: string[];
+  /**
+   * 購入フロー。試聴で流している曲（track.preview）に購入ボタンを出すために使う。
+   * 買えたら App が中枢の markOwned で全編に切り替える
+   */
+  purchase?: PurchaseController;
 };
 
-/** カードを払って曲送りにする距離(px)と速さ(px/ms)。どちらかを超えたら送る */
-const SKIP_DIST = 72;
-const SKIP_VEL = 0.6;
+/*
+ * カードを払って曲送りにする基準は HOME・再生バナーと同じ（constants/swipe.ts）。
+ * 以前は 72px か 0.6px/ms で、HOME（カード幅の 20%・500px/秒）より重かった。
+ * 動きも HOME にそろえた: 指について平らに滑り、離したときの速さのまま抜ける
+ * （以前は傾きながら薄くなって飛んでいた）。
+ */
 
 export const PlayerScreen: React.FC<Props> = ({
   track,
@@ -118,10 +135,9 @@ export const PlayerScreen: React.FC<Props> = ({
   onBackHome,
   onPrevTrack,
   onNextTrack,
-  favorited,
-  onToggleFavorite,
   onStart,
   preloadUris,
+  purchase,
 }) => {
   const { width: screenW, height: screenH } = useWindowDimensions();
   const navTop = useTopInset(8);            // 従来 52px（=44+8）
@@ -312,6 +328,27 @@ export const PlayerScreen: React.FC<Props> = ({
     if (veilButtonTimer.current) clearTimeout(veilButtonTimer.current);
   }, []);
 
+  // ── 試聴で流している曲の購入（2026-09-25）──
+  // HOME の「再生」から流すと、所有曲のあとに未購入の曲が試聴で続く。
+  // 並びに試聴の曲が 1 曲でもあれば、購入ボタンの場所を常に空けておく
+  // （曲ごとに出たり消えたりすると、カードの位置が上下に動いて落ち着かないため）。
+  const queueHasPreview = pb.queue.some((t) => t.preview);
+  // 購入の確認を開いた時点の曲に固定する（確認中に試聴が終わって次の曲へ
+  // 進んでも、買う曲が入れ替わらないように）
+  const [buyTarget, setBuyTarget] = useState<PlayerTrack | null>(null);
+  const buyTargetRef = useRef(buyTarget);
+  buyTargetRef.current = buyTarget;
+  useEffect(() => {
+    if (!purchase) return;
+    return purchase.onSuccess((id) => {
+      if (buyTargetRef.current?.id === id) setBuyTarget(null);
+    });
+  }, [purchase]);
+  const openBuy = useCallback(() => {
+    purchase?.dismiss(); // 前回の失敗表示を持ち越さない
+    setBuyTarget(track);
+  }, [purchase, track]);
+
   const onShare = useCallback(() => {
     Share.share({ message: `FLUX RING — ${track.title}` }).catch(() => {});
   }, [track.title]);
@@ -337,6 +374,8 @@ export const PlayerScreen: React.FC<Props> = ({
   // 抜けたあと、新しい絵を待っているか（dir: 1=次から来る / -1=前から来る）
   const enterRef = useRef<{ from: number; timer: ReturnType<typeof setTimeout> | null } | null>(null);
   const busyRef = useRef(false);
+  /** 払ったときの速さ（px/秒）。抜けたあと、入ってくるカードも同じ向き・速さで入れる */
+  const flingVelRef = useRef(0);
 
   const slideIn = useCallback(() => {
     const e = enterRef.current;
@@ -344,8 +383,11 @@ export const PlayerScreen: React.FC<Props> = ({
     if (e.timer) clearTimeout(e.timer);
     enterRef.current = null;
     busyRef.current = false;
-    // 1 フレーム遅れて絵が替わることがあるので、ほんの少し置いてから動かす
-    swipeX.value = withDelay(40, withTiming(0, { duration: 320, easing: Easing.out(Easing.cubic) }));
+    // 1 フレーム遅れて絵が替わることがあるので、ほんの少し置いてから動かす。
+    // 払った勢いのまま入ってくる（ボタンのときは 0 から動き出す）
+    const v = flingVelRef.current;
+    flingVelRef.current = 0;
+    swipeX.value = withDelay(40, withSpring(0, { ...SWIPE_SPRING, velocity: v }));
   }, [swipeX]);
 
   const afterOut = useCallback(
@@ -365,19 +407,20 @@ export const PlayerScreen: React.FC<Props> = ({
     [screenW, swipeX, slideIn],
   );
 
-  /** 曲送りの動き。dir: 1=次の曲 / -1=前の曲。fast=指で払ったとき */
+  /** 曲送りの動き。dir: 1=次の曲 / -1=前の曲。velocity=払ったときの速さ（px/秒） */
   const animateSkip = useCallback(
-    (dir: number, fast = false) => {
+    (dir: number, velocity = 0) => {
       const can = dir > 0 ? skipRef.current.next : skipRef.current.prev;
       if (!can || busyRef.current) {
-        swipeX.value = withSpring(0, { damping: 18, stiffness: 180 });
+        swipeX.value = withSpring(0, { ...SWIPE_SPRING, velocity });
         return;
       }
       busyRef.current = true;
+      flingVelRef.current = velocity;
       const out = dir > 0 ? -screenW : screenW;
-      swipeX.value = withTiming(
+      swipeX.value = withSpring(
         out,
-        { duration: fast ? 170 : 240, easing: Easing.in(Easing.quad) },
+        { ...SWIPE_SPRING, velocity },
         (finished) => {
           'worklet';
           if (finished) runOnJS(afterOut)(dir);
@@ -415,31 +458,26 @@ export const PlayerScreen: React.FC<Props> = ({
           swipeX.value = can ? g.dx : g.dx * 0.25;
         },
         onPanResponderRelease: (_e, g) => {
-          let dir = 0;
-          if (g.dx <= -SKIP_DIST || g.vx <= -SKIP_VEL) dir = 1;
-          else if (g.dx >= SKIP_DIST || g.vx >= SKIP_VEL) dir = -1;
+          // PanResponder の速さは px/ms。HOME と同じ px/秒へ直して同じ基準で判定する
+          const vx = g.vx * 1000;
+          const dir = swipeDirection(g.dx, vx, cardWRef.current);
           if (dir === 0) {
-            swipeX.value = withSpring(0, { damping: 18, stiffness: 180 });
+            swipeX.value = withSpring(0, { ...SWIPE_SPRING, velocity: vx });
             return;
           }
-          animateSkipRef.current(dir, true);
+          animateSkipRef.current(dir, vx);
         },
         onPanResponderTerminate: () => {
-          swipeX.value = withSpring(0, { damping: 18, stiffness: 180 });
+          swipeX.value = withSpring(0, SWIPE_SPRING);
         },
       }),
     [swipeX],
   );
-  const swipeStyle = useAnimatedStyle(() => {
-    const k = Math.min(1, Math.abs(swipeX.value) / screenW);
-    return {
-      opacity: 1 - 0.55 * k,
-      transform: [
-        { translateX: swipeX.value },
-        { rotateZ: `${(swipeX.value / screenW) * 7}deg` },
-      ],
-    };
-  });
+  const cardWRef = useRef(cardW);
+  cardWRef.current = cardW;
+  const swipeStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: swipeX.value }],
+  }));
   const onPrevPress = useCallback(() => animateSkip(-1), [animateSkip]);
   const onNextPress = useCallback(() => animateSkip(1), [animateSkip]);
 
@@ -567,8 +605,25 @@ export const PlayerScreen: React.FC<Props> = ({
       {/* 曲名（カードの上・左寄せ）。ヘッダーと同じタイミングでフェードイン */}
       <Animated.View style={[styles.meta, headerAnimStyle]}>
         <Text style={styles.title} numberOfLines={1}>{track.title}</Text>
-        {phase === 'playing' && loading && <Text style={styles.subtitle}>読み込み中…</Text>}
-        {error && <Text style={styles.err}>{error}</Text>}
+        {/* 曲名の下の一行は、中身が無くても高さを常に確保する（2026-09-25）。
+            以前は「読み込み中…」が出たり消えたりするたびにカードの置き場の高さが
+            変わり、3D カードの描画面の大きさも変わって、描き直されないまま
+            引き伸ばされた古い絵が後ろからはみ出し、カードが二重に見えていた */}
+        <Text
+          style={[
+            styles.metaSub,
+            error ? styles.err : track.preview ? styles.previewNote : styles.subtitle,
+          ]}
+          numberOfLines={1}
+        >
+          {error
+            ? error
+            : track.preview
+            ? '試聴中・購入すると全編を聴けます'
+            : phase === 'playing' && loading
+            ? '読み込み中…'
+            : ' '}
+        </Text>
       </Animated.View>
 
       {/* 共有カード（指でなぞって全方向360°回転・厚みつき） */}
@@ -610,6 +665,18 @@ export const PlayerScreen: React.FC<Props> = ({
           再生ボタンのタップから350ms遅れて下からフェードイン。 */}
       {phase === 'playing' && (
       <Animated.View style={[styles.transport, { marginBottom: transportBottom }, controlsAnimStyle]}>
+        {/* 試聴で流している曲には HOME と同じ購入ボタン。所有曲では場所だけ空ける */}
+        {queueHasPreview && (
+          <View style={styles.buySlot}>
+            {track.preview && (
+              <OrbitBuyButton
+                priceLabel={purchase?.displayPriceOf(track.id)}
+                priceJpy={track.priceJpy}
+                onPress={openBuy}
+              />
+            )}
+          </View>
+        )}
         {/* シークバー（上下拡張の当たり領域でタップシーク） */}
         <View
           style={styles.seekHit}
@@ -679,6 +746,28 @@ export const PlayerScreen: React.FC<Props> = ({
         </View>
       </Animated.View>
       )}
+      <PurchaseModal
+        visible={buyTarget != null}
+        target={
+          buyTarget
+            ? {
+                id: buyTarget.id,
+                title: buyTarget.title,
+                priceLabel: purchase?.displayPriceOf(buyTarget.id) ?? formatPrice(TRACK_PRICE_JPY),
+                artworkUrl: buyTarget.artworkUrl,
+              }
+            : null
+        }
+        state={purchase?.state ?? 'idle'}
+        reason={purchase?.reason}
+        onConfirm={() => {
+          if (buyTarget) purchase?.start(buyTarget.id, buyTarget.priceJpy);
+        }}
+        onCancel={() => {
+          setBuyTarget(null);
+          purchase?.dismiss();
+        }}
+      />
     </Animated.View>
   );
 };
@@ -734,11 +823,14 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(96,206,224,0.14)',
   },
   // 曲名（カード上・左寄せ）
+  previewNote: { color: COLOR.auraCyan, fontSize: 11.5, letterSpacing: 0.6 },
+  buySlot: { height: 52, alignItems: 'center', justifyContent: 'center', marginBottom: 18 },
   meta: { alignItems: 'flex-start', paddingHorizontal: SPACE.lg, gap: 4, marginTop: 12, marginBottom: 24 },
   // 白鉛筆 III（仮）: 22px / 字間1.5 / #ECEEF7 / 明朝・太字すぎない
   title: { color: COLOR.textPrimary, fontSize: 22, fontWeight: '500', letterSpacing: 1.5, fontFamily: JP_SERIF_FONT },
   subtitle: { color: COLOR.textSecondary, fontSize: 13, letterSpacing: 0.3, fontFamily: JP_SERIF_FONT },
   err: { color: COLOR.badge, fontSize: 12, marginTop: 4, fontFamily: JP_SERIF_FONT },
+  metaSub: { height: 18, lineHeight: 18 },
   // フロスト枠は廃止。星空の上に直接コントロールを置く（余白のみ）
   transport: {
     marginHorizontal: SPACE.lg,

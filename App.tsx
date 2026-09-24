@@ -57,6 +57,7 @@ import {
   DocumentScreen,
 } from './screens/SettingsDetailScreens';
 import { ArtistScreen, ArtistTrack } from './screens/ArtistScreen';
+import type { StoryData } from './screens/StoryScreen';
 import { StoryScreen } from './screens/StoryScreen';
 import { PlayerScreen, PlayerTrack } from './screens/PlayerScreen';
 import type { CardOrigin, CardOriginItem } from './components/CardAfterimage';
@@ -66,7 +67,6 @@ import type { Notice } from './screens/NotificationsScreen';
 
 import {
   STUB_NOTICES,
-  STUB_STORY,
   STUB_VIP_CARDS,
 } from './constants/stubData';
 
@@ -172,6 +172,12 @@ function AppInner() {
   // 作家画面をカード裏面から開いたか。true のときは「戻る」でも設定タブへは
   // 飛ばさず、いたタブのままオーバーレイを閉じるだけにする。
   const [artistOpenedFromCard, setArtistOpenedFromCard] = useState(false);
+  /**
+   * 開いているストーリー（作家の楽曲一覧でカードをタップしたとき）。
+   * 以前は常に固定のスタブ（STUB_STORY・曲名「冬明け」・作家「岡 ナオキ」・
+   * 432Hz 等）を出していて、どの曲を押しても同じ内容だった（2026-09-25 実機報告）。
+   */
+  const [storyTrackId, setStoryTrackId] = useState<string | null>(null);
 
   // アプリ内課金と所有権。アプリ全体で1つだけ持つ（ストア接続・購入イベントの
   // 購読・未完了トランザクションの引き取りが二重に走らないようにするため）。
@@ -237,7 +243,11 @@ function AppInner() {
     setArtistOpenedFromCard(true);
     setOverlay('artist');
   }, []);
-
+  const openStory = useCallback((trackId: string, artistId: string) => {
+    setStoryTrackId(trackId);
+    setArtistFocusId(artistId); // ストーリーの「Artist」からこの作家へ正しく戻るため
+    setOverlay('story');
+  }, []);
   // 所有集合。Firestore（購入で増えたぶん）が正。
   const ownedTrackIds = useMemo(() => new Set<string>(ownedIds), [ownedIds]);
 
@@ -341,6 +351,40 @@ function AppInner() {
     const uris = [q[(i + 1) % q.length]?.artworkUrl, q[(i - 1 + q.length) % q.length]?.artworkUrl];
     return uris.filter((u): u is string => !!u);
   }, [playback.queue, playback.index]);
+  /**
+   * HOME の「再生」から流す並び（2026-09-25 代表決定）。所有曲（シリアル番号順）の
+   * あとに、HOME の並びで未購入の曲を「試聴」として続ける。所有曲が 1 曲だけでも
+   * 「次へ」で新しい曲に出会え、再生画面の購入ボタンからそのまま買える。
+   * 試聴の音源が無い曲は入れない。プレイリストや作品詳細から流すときは所有曲だけ。
+   */
+  const homeQueue = useMemo<PlayerTrack[]>(() => {
+    const previews: PlayerTrack[] = homeTracks
+      .filter((tr) => !ownedTrackIds.has(tr.id) && !!(tr.previewUrl || tr.audioKey))
+      .map((tr) => ({
+        id: tr.id,
+        title: tr.title,
+        subtitle: tr.subtitle,
+        artworkUrl: tr.artworkUrl,
+        audioKey: tr.audioKey,
+        glowColor: tr.glowColor,
+        glowColor2: tr.glowColor2,
+        serial: tr.back?.serial,
+        story: tr.back?.story,
+        tuning: tr.back?.tuning,
+        frequencies: tr.back?.frequencies,
+        artist: tr.back?.artist,
+        useCases: tr.back?.useCases,
+        preview: true,
+        previewUrl: tr.previewUrl,
+        priceJpy: tr.priceJpy,
+      }));
+    return [...ownedQueue, ...previews];
+  }, [ownedQueue, homeTracks, ownedTrackIds]);
+  // 試聴で流していた曲を買ったら、その場で全編に切り替える
+  useEffect(
+    () => purchase.onSuccess((trackId) => playback.markOwned(trackId)),
+    [purchase, playback.markOwned],
+  );
   /** 所有曲すべてをシリアル番号順で、その曲から流す */
   const playOwnedFrom = useCallback(
     (id: string) => playback.playQueue(ownedQueue, id),
@@ -422,6 +466,30 @@ function AppInner() {
     }
     return map;
   }, [discoverTracks, ownedTrackIds]);
+
+  /**
+   * ストーリー画面の中身。tracks コレクションの実データから組む
+   * （調律素材は tuning・frequencies・materials をまとめて最大 8 個）。
+   */
+  const storyData = useMemo<StoryData | null>(() => {
+    const tr = storyTrackId ? discoverTracks.find((t) => t.id === storyTrackId) : null;
+    if (!tr) return null;
+    const artist = tr.artistId ? artists.find((a) => a.id === tr.artistId) : undefined;
+    const materials = [tr.back?.tuning, ...(tr.back?.frequencies ?? []), ...(tr.back?.materials ?? [])]
+      .filter((m): m is string => !!m)
+      .slice(0, 8);
+    return {
+      trackId: tr.id,
+      artworkUrl: tr.artworkUrl,
+      title: tr.title,
+      story: tr.back?.story ?? tr.subtitle ?? '',
+      materials,
+      artistId: tr.artistId ?? '',
+      artistName: artist?.name ?? tr.back?.artist ?? '',
+      glowColor: tr.glowColor,
+      glowColor2: tr.glowColor2,
+    };
+  }, [storyTrackId, discoverTracks, artists]);
 
   const goApp = useCallback(() => {
     // アプリへ入るときはオンボ済みとして記録（次回はログイン画面から）
@@ -538,6 +606,7 @@ function AppInner() {
         backLabel="‹ 戻る"
         onPrevTrack={canSkip ? playback.prev : undefined}
         onNextTrack={canSkip ? playback.next : undefined}
+        purchase={purchase}
         preloadUris={playerPreload}
         onStart={() => {
           // ベールの再生ボタン → 所有曲すべてをこの曲から流す
@@ -557,12 +626,19 @@ function AppInner() {
     );
   }
 
-  if (overlay === 'story') {
+  if (overlay === 'story' && storyData) {
     return (
       <StoryScreen
-        data={STUB_STORY}
-        onBack={() => setOverlay(null)}
-        onOpenArtist={() => setOverlay('artist')}
+        data={storyData}
+        onBack={() => {
+          setOverlay(null);
+          setStoryTrackId(null);
+        }}
+        onOpenArtist={(artistId) => {
+          setArtistFocusId(artistId);
+          setArtistOpenedFromCard(true); // 戻るは設定タブへ飛ばさず、元の場所のまま閉じる
+          setOverlay('artist');
+        }}
       />
     );
   }
@@ -581,7 +657,7 @@ function AppInner() {
           setArtistFocusId(null);
           setArtistOpenedFromCard(false);
         }}
-        onOpenStory={() => setOverlay('story')}
+        onOpenStory={openStory}
       />
     );
   }
@@ -657,7 +733,8 @@ function AppInner() {
                 // 所有済みカードの「再生」押下 → 再生画面へ（コレクションのタイル起点が
                 // 無いので残像演出は出さない＝origin は null のまま）
                 if (playerTracks.some((tr) => tr.id === id)) {
-                  playOwnedFrom(id);
+                  // 所有曲のあとに、未購入の曲が試聴で続く
+                  playback.playQueue(homeQueue, id);
                   setPlayerPending(null);
                   setPlayerOrigin(null);
                   setPlayerAfterimages([]);
