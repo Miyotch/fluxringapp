@@ -1073,6 +1073,24 @@ export const DiscoverScreen: React.FC<Props> = ({
     () => -(posRef.current - posAtMountRef.current) * carGeo.step,
     [posRef, posAtMountRef, carGeo],
   );
+  // 条件がそろわず見送ったときの再試行（2026-09-24）。
+  // 以前は 1 回見送るとそれきりで、次に曲を送るまで中央は輪の札（平らな絵）の
+  // ままだった。起動直後の最初のカードで起きやすく、その状態で裏返すと、
+  // 平らな表の絵が手前に残ったまま、後ろで 3D の裏面だけが回って見えた。
+  // 0.2.0 で全作品の絵を起動時に先読みするようにしてから、最初の絵の
+  // 「出し終えた」が早く届き、まだ落ち着いていない間に当たりやすくなった。
+  const revealRetry = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const revealTries = useRef(0);
+  const revealGLRef = useRef<() => void>(() => {});
+  const retryReveal = useCallback(() => {
+    if (revealRetry.current) clearTimeout(revealRetry.current);
+    if (revealTries.current >= 30) return; // 約 4.5 秒で諦める（送れば戻る）
+    revealTries.current += 1;
+    revealRetry.current = setTimeout(() => {
+      revealRetry.current = null;
+      revealGLRef.current();
+    }, 150);
+  }, []);
   const revealGL = useCallback(() => {
     if (!glShownRef.current || glShownRef.current !== activeUriRef.current) return;
     cancelAnimationFrame(revealRaf.current);
@@ -1085,15 +1103,23 @@ export const DiscoverScreen: React.FC<Props> = ({
         }
         runOnUI((restX: number) => {
           'worklet';
-          if (settleActive.value > 0.5 || dragging.value > 0.5) return;
-          if (Math.abs(dragX.value - restX) > 0.5) return;
+          if (
+            settleActive.value > 0.5 ||
+            dragging.value > 0.5 ||
+            Math.abs(dragX.value - restX) > 0.5
+          ) {
+            // まだ動いている。少し置いてもう一度確かめる
+            runOnJS(retryReveal)();
+            return;
+          }
           // CardGL を中央へ送るのと、輪の中央の札を外すのを同じフレームで
           committedSV.value = restX;
           glOn.value = 1;
         })(restXOf());
       });
     });
-  }, [settleActive, dragging, dragX, committedSV, glOn, restXOf]);
+  }, [settleActive, dragging, dragX, committedSV, glOn, restXOf, retryReveal]);
+  revealGLRef.current = revealGL;
 
   /**
    * 逃げ道: CardGL が 0.5 秒たっても新しい絵を出せない（読み込みが遅い）ときは、
@@ -1116,6 +1142,7 @@ export const DiscoverScreen: React.FC<Props> = ({
     () => () => {
       cancelAnimationFrame(revealRaf.current);
       if (revealFallback.current) clearTimeout(revealFallback.current);
+      if (revealRetry.current) clearTimeout(revealRetry.current);
     },
     [],
   );
@@ -1123,12 +1150,14 @@ export const DiscoverScreen: React.FC<Props> = ({
   const handleFrontShown = useCallback(
     (uri: string) => {
       glShownRef.current = uri;
+      revealTries.current = 0;
       revealGL();
     },
     [revealGL],
   );
   // 受け渡しで曲が変わったとき、CardGL が先読み済みでもう出せていれば、ここで戻す
   useEffect(() => {
+    revealTries.current = 0;
     revealGL();
   }, [active?.artworkUrl, revealGL]);
 
@@ -1353,6 +1382,15 @@ export const DiscoverScreen: React.FC<Props> = ({
       let op = ringReady.value;
       if (Math.abs(rel) > 0.5 && carBusy.value < 0.5) op = 0;
       if (t === pos && glOn.value > 0.5) op = 0;
+      // 最後の砦: カードが傾き始めたら（＝裏返している）、3D カードが中央に
+      // いるかぎり中央の札は外す。受け渡しが済んでいなくても、平らな表の絵が
+      // 回っている 3D カードの手前に残ることはない
+      if (
+        t === pos &&
+        Math.abs(cardRotation.value) > FAV_HIDE_DEG &&
+        Math.abs(dragX.value - committedSV.value) < 0.5
+      )
+        op = 0;
       return { opacity: op, transform: [{ translateX: rel * st }] };
     }, [pos, carGeo.step, posAtMount]);
   const ring0 = useRingSlotStyle(0);
