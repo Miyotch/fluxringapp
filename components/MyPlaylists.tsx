@@ -24,7 +24,10 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { CardFace } from './CardFace';
+import { CARD_ASPECT } from './CardGL';
+import { PlayMark } from './icons';
 import { PlaylistEditor, type EditorTrack } from './PlaylistEditor';
+import { NUM_FONT, JP_SERIF_FONT } from '../constants/fonts';
 import { useT } from '../lib/i18n';
 import type { PlaylistsController } from '../lib/usePlaylists';
 
@@ -45,6 +48,12 @@ type Props = {
 
 const ALL = '__all__';
 const CARD_GAP = 18;
+/**
+ * カードのまわりの高さ（見出し・カードの下の番号と曲名・再生ボタン）。
+ * styles の head〜play の内訳と揃える。小さな端末では、この残りにカードを縮めて収める
+ *   見出し 18＋22＋14 ／ カード下 12＋18 ／ ボタン 24＋44 ／ 下の余白 16
+ */
+const AROUND_H = 18 + 22 + 14 + 12 + 18 + 24 + 44 + 16;
 
 const C = {
   text: '#ECEEF7',
@@ -62,8 +71,12 @@ export const MyPlaylists: React.FC<Props> = ({
 }) => {
   const t = useT();
   const { width: screenW } = useWindowDimensions();
-  const cardW = Math.round(Math.min(220, screenW * 0.56));
-  const cardH = Math.round(cardW * 1.5);
+  // チップの下の残りの高さ。見出し・カード・ボタンの塊をここに収めて縦の中央へ置く
+  // （以前は上詰めで、小さな端末では再生ボタンが再生バナーの裏に隠れた）
+  const [bodyH, setBodyH] = useState(0);
+  const fitW = bodyH > 0 ? (bodyH - AROUND_H) / CARD_ASPECT : Infinity;
+  const cardW = Math.round(Math.max(110, Math.min(220, screenW * 0.56, fitW)));
+  const cardH = Math.round(cardW * CARD_ASPECT);
 
   const [selected, setSelected] = useState<string>(ALL);
   const [editorFor, setEditorFor] = useState<string | null>(null); // 'new' | playlist id
@@ -123,7 +136,8 @@ export const MyPlaylists: React.FC<Props> = ({
     );
   }
 
-  const chip = (key: string, label: string, count?: number) => {
+  // 件数は下の見出しに出すので、チップは名前だけ（同じ数を二度読ませない）
+  const chip = (key: string, label: string) => {
     const on = slot === key;
     return (
       <Pressable
@@ -140,7 +154,6 @@ export const MyPlaylists: React.FC<Props> = ({
       >
         <Text style={[styles.chipText, on && styles.chipTextOn]} numberOfLines={1}>
           {label}
-          {count != null ? `  ${count}` : ''}
         </Text>
       </Pressable>
     );
@@ -157,13 +170,18 @@ export const MyPlaylists: React.FC<Props> = ({
         style={{ flexGrow: 0 }}
         contentContainerStyle={styles.chips}
       >
-        {chip(ALL, t('playlist.allOwned'), owned.length)}
-        {playlists.lists.map((p) =>
-          chip(p.id, p.name, p.trackIds.filter((id) => byId.has(id)).length),
-        )}
+        {chip(ALL, t('playlist.allOwned'))}
+        {playlists.lists.map((p) => chip(p.id, p.name))}
         {chip('new', `＋ ${t('playlist.new')}`)}
       </ScrollView>
 
+      <View
+        style={styles.body}
+        onLayout={(e) => {
+          const h = e.nativeEvent.layout.height;
+          setBodyH((prev) => (Math.abs(prev - h) < 0.5 ? prev : h));
+        }}
+      >
       {/* 選んだスロットの見出し */}
       <View style={styles.head}>
         <Text style={styles.headTitle} numberOfLines={1}>
@@ -184,7 +202,7 @@ export const MyPlaylists: React.FC<Props> = ({
 
       {/* カードの横スワイプ（1 枚ずつ止まる） */}
       {tracks.length === 0 ? (
-        <View style={[styles.cardsEmpty, { height: cardH + 44 }]}>
+        <View style={[styles.cardsEmpty, { height: cardH + 30 }]}>
           <Text style={styles.emptyTitle}>{t('playlist.emptyTitle')}</Text>
           <Text style={styles.emptyBody}>{t('playlist.emptyBody')}</Text>
         </View>
@@ -199,7 +217,7 @@ export const MyPlaylists: React.FC<Props> = ({
           decelerationRate="fast"
           contentContainerStyle={{ paddingHorizontal: (screenW - cardW) / 2, gap: CARD_GAP }}
           style={{ flexGrow: 0 }}
-          renderItem={({ item, index }) => (
+          renderItem={({ item }) => (
             <Pressable
               onPress={() => onPlayList(tracks.map((x) => x.id), item.id)}
               style={({ pressed }) => [{ width: cardW }, pressed && { opacity: 0.85 }]}
@@ -207,8 +225,10 @@ export const MyPlaylists: React.FC<Props> = ({
               accessibilityLabel={item.title}
             >
               <CardFace uri={item.artworkUrl} width={cardW} height={cardH} />
+              {/* 番号は作品の通し番号（ウィッシュリスト・作品詳細と同じ No. 003）。
+                  以前はリスト内の並び順（01, 02…）で、同じ作品が場所によって別の番号に見えた */}
               <View style={styles.cardMeta}>
-                <Text style={styles.cardNo}>{String(index + 1).padStart(2, '0')}</Text>
+                {!!item.serialNo && <Text style={styles.cardNo}>{item.serialNo}</Text>}
                 <Text style={styles.cardTitle} numberOfLines={1}>{item.title}</Text>
               </View>
             </Pressable>
@@ -230,16 +250,18 @@ export const MyPlaylists: React.FC<Props> = ({
           ]}
           accessibilityRole="button"
         >
-          <Text style={styles.playText}>▶　{t('playlist.play')}</Text>
+          <PlayMark size={15} color={C.cyan} />
+          <Text style={styles.playText}>{t('playlist.play')}</Text>
         </Pressable>
       ) : (
-        tracks.length > 0 && <Text style={styles.tapHint}>{t('playlist.tapHint')}</Text>
+        <Text style={styles.tapHint}>{tracks.length > 0 ? t('playlist.tapHint') : ' '}</Text>
       )}
+      </View>
 
       <PlaylistEditor
         visible={editorFor != null}
         initial={editorInitial}
-        defaultName={t('playlist.defaultName', { n: playlists.lists.length + 2 })}
+        defaultName={t('playlist.defaultName', { n: playlists.lists.length + 1 })}
         owned={owned as EditorTrack[]}
         onDone={onEditorDone}
         onCancel={() => setEditorFor(null)}
@@ -251,7 +273,10 @@ export const MyPlaylists: React.FC<Props> = ({
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  chips: { paddingHorizontal: 22, paddingTop: 16, gap: 8 },
+  // チップの上は 24。上端のフェード（22px）にチップの縁がかからないように
+  chips: { paddingHorizontal: 22, paddingTop: 24, gap: 8 },
+  // 見出し・カード・ボタンの塊。残りの高さの縦の中央に置く
+  body: { flex: 1, justifyContent: 'center', paddingBottom: 16 },
   chip: {
     height: 34,
     paddingHorizontal: 14,
@@ -269,36 +294,46 @@ const styles = StyleSheet.create({
     alignItems: 'baseline',
     gap: 10,
     paddingHorizontal: 22,
-    paddingTop: 22,
-    paddingBottom: 16,
+    paddingTop: 18,
+    paddingBottom: 14,
   },
-  headTitle: { color: C.text, fontSize: 17, letterSpacing: 0.5, flexShrink: 1 },
-  headCount: { color: C.sub, fontSize: 12 },
+  headTitle: {
+    color: C.text,
+    fontSize: 17,
+    lineHeight: 22,
+    letterSpacing: 0.9,
+    flexShrink: 1,
+    fontFamily: JP_SERIF_FONT,
+  },
+  headCount: { color: C.sub, fontSize: 12, letterSpacing: 0.6 },
   editBtn: { marginLeft: 'auto' },
   editText: { color: C.cyan, fontSize: 13, letterSpacing: 0.5 },
-  cardMeta: { flexDirection: 'row', alignItems: 'baseline', gap: 8, marginTop: 12 },
-  cardNo: { color: C.sub, fontSize: 11, fontVariant: ['tabular-nums'] },
-  cardTitle: { color: C.text, fontSize: 13, flexShrink: 1 },
+  cardMeta: { flexDirection: 'row', alignItems: 'baseline', gap: 8, marginTop: 12, height: 18 },
+  cardNo: { color: C.sub, fontSize: 11, letterSpacing: 1.6, fontFamily: NUM_FONT },
+  cardTitle: { color: C.text, fontSize: 13, letterSpacing: 0.6, flexShrink: 1, fontFamily: JP_SERIF_FONT },
   cardsEmpty: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, gap: 10 },
+  // 再生ボタン。HOME・作品詳細の購入ボタン（OrbitBuyButton）と同じ高さ・角丸・地の色
   play: {
     alignSelf: 'center',
-    marginTop: 26,
-    width: 236,
-    height: 52,
-    borderRadius: 26,
+    marginTop: 24,
+    height: 44,
+    paddingHorizontal: 26,
+    borderRadius: 22,
     borderWidth: 1,
     borderColor: 'rgba(96,206,224,0.45)',
-    backgroundColor: '#141634',
+    backgroundColor: 'rgba(14,14,40,0.55)',
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 8,
   },
   playText: { color: C.text, fontSize: 13, letterSpacing: 2 },
   // 所有カードの案内文。再生ボタンと同じ位置・高さに置き、切り替えても下が動かない
   tapHint: {
     alignSelf: 'center',
-    marginTop: 26,
-    height: 52,
-    lineHeight: 52,
+    marginTop: 24,
+    height: 44,
+    lineHeight: 44,
     color: C.sub,
     fontSize: 12,
     letterSpacing: 2,

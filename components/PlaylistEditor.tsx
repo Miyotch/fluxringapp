@@ -33,6 +33,7 @@ import {
 } from 'react-native-gesture-handler';
 import Animated, {
   runOnJS,
+  SlideInDown,
   useAnimatedStyle,
   useSharedValue,
   withTiming,
@@ -40,6 +41,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useT } from '../lib/i18n';
 import { useBottomInset } from '../lib/safeArea';
+import { JP_SERIF_FONT, NUM_FONT } from '../constants/fonts';
 
 /** 入っている曲の 1 行の高さ（サムネ 54 ＋ 上下 7） */
 const ROW_H = 68;
@@ -240,10 +242,17 @@ export const PlaylistEditor: React.FC<Props> = ({
   };
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onCancel}>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
       <GestureHandlerRootView style={styles.backdrop}>
-        <View style={[styles.sheet, { paddingBottom: padBottom }]}>
+        <Animated.View
+          entering={SlideInDown.duration(300)}
+          style={[styles.sheet, { paddingBottom: padBottom }]}
+        >
           <View style={styles.head}>
+            {/* 何のシートかを真ん中に（以前は「キャンセル」「完了」だけだった） */}
+            <Text style={styles.headTitle} numberOfLines={1} pointerEvents="none">
+              {initial ? t('playlist.editTitle') : t('playlist.new')}
+            </Text>
             <Pressable onPress={onCancel} hitSlop={10} accessibilityRole="button">
               <Text style={styles.headBtn}>{t('playlist.cancel')}</Text>
             </Pressable>
@@ -323,7 +332,7 @@ export const PlaylistEditor: React.FC<Props> = ({
               </Pressable>
             )}
           </ScrollView>
-        </View>
+        </Animated.View>
       </GestureHandlerRootView>
     </Modal>
   );
@@ -342,10 +351,21 @@ const styles = StyleSheet.create({
   head: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
     paddingHorizontal: 22,
     paddingVertical: 16,
     borderBottomWidth: 1,
     borderColor: C.line,
+  },
+  headTitle: {
+    position: 'absolute',
+    left: 96,
+    right: 96,
+    textAlign: 'center',
+    color: C.text,
+    fontSize: 15,
+    letterSpacing: 0.9,
+    fontFamily: JP_SERIF_FONT,
   },
   headBtn: { color: C.sub, fontSize: 14, letterSpacing: 0.5 },
   headDone: { color: C.cyan },
@@ -366,8 +386,9 @@ const styles = StyleSheet.create({
   dragRow: { height: ROW_H, justifyContent: 'center', borderRadius: 10 },
   thumb: { width: 36, height: 54, borderRadius: 5, backgroundColor: 'rgba(255,255,255,0.05)' },
   rowText: { flex: 1, minWidth: 0 },
-  rowTitle: { color: C.text, fontSize: 14 },
-  rowSerial: { color: C.sub, fontSize: 11, marginTop: 2 },
+  // 曲名は明朝・番号は数字の書体（ほかの画面と同じ）
+  rowTitle: { color: C.text, fontSize: 14, letterSpacing: 0.6, fontFamily: JP_SERIF_FONT },
+  rowSerial: { color: C.sub, fontSize: 11, letterSpacing: 1.6, marginTop: 3, fontFamily: NUM_FONT },
   rowActs: { flexDirection: 'row', gap: 6 },
   act: {
     minWidth: 36,

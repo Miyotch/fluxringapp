@@ -222,7 +222,6 @@ export const ArtistScreen: React.FC<Props> = ({
                 <Text style={styles.gridTitle} numberOfLines={1}>
                   {t.title}
                 </Text>
-                <Text style={styles.gridState}>{t.owned ? '所有=明' : '未所有=影'}</Text>
               </Pressable>
             </Animated.View>
           ))}
@@ -335,7 +334,6 @@ const styles = StyleSheet.create({
   gridRow: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.md },
   gridCell: { marginBottom: SPACE.md },
   gridTitle: { color: COLOR.textPrimary, fontSize: 13, marginTop: SPACE.sm, letterSpacing: 0.26, fontFamily: JP_SERIF_FONT },
-  gridState: { color: COLOR.textSecondary, fontSize: 11, marginTop: 2, letterSpacing: 0.22, fontFamily: JP_SERIF_FONT },
 });
 
 export default ArtistScreen;

@@ -25,6 +25,7 @@ import { homeCardWidth } from '../constants/design-tokens';
 import { usePlayback, usePlaybackProgress } from '../lib/playback';
 import { PlayMark, PauseMark, SkipIcon } from './icons';
 import { useT } from '../lib/i18n';
+import { JP_SERIF_FONT, NUM_FONT } from '../constants/fonts';
 
 /** 払っている間、バーが指について動く割合（全部付けると画面の端まで出ていくので半分強） */
 const FOLLOW_R = 0.6;
@@ -111,7 +112,9 @@ export const NowPlayingBar: React.FC<Props> = ({ onOpen, onLayout }) => {
               : cur.preview
               ? t('playback.previewing')
               : t('playback.playing')}
-            {pb.queue.length > 1 ? `　${pb.index + 1} / ${pb.queue.length}` : ''}
+            {pb.queue.length > 1 ? (
+              <Text style={styles.count}>{`　${pb.index + 1} / ${pb.queue.length}`}</Text>
+            ) : null}
           </Text>
         </View>
         <Pressable
@@ -163,10 +166,12 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(96,206,224,0.12)',
   },
   fill: { height: 2, backgroundColor: '#60CEE0' },
-  art: { width: 28, height: 42, borderRadius: 4, backgroundColor: 'rgba(255,255,255,0.05)' },
+  // カードと同じ縦横比（1:1.56）
+  art: { width: 28, height: 44, borderRadius: 4, backgroundColor: 'rgba(255,255,255,0.05)' },
   texts: { flex: 1, minWidth: 0 },
-  title: { color: '#ECEEF7', fontSize: 13, letterSpacing: 0.3 },
-  sub: { color: '#9498BE', fontSize: 10.5, marginTop: 2, letterSpacing: 0.4 },
+  title: { color: '#ECEEF7', fontSize: 13, letterSpacing: 0.6, fontFamily: JP_SERIF_FONT },
+  sub: { color: '#9498BE', fontSize: 10.5, marginTop: 3, letterSpacing: 0.4 },
+  count: { fontFamily: NUM_FONT, fontSize: 11, letterSpacing: 0.8 },
   btn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
 });
 
