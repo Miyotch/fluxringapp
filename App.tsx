@@ -60,7 +60,6 @@ import { ArtistScreen, ArtistTrack } from './screens/ArtistScreen';
 import type { StoryData } from './screens/StoryScreen';
 import { StoryScreen } from './screens/StoryScreen';
 import { PlayerScreen, PlayerTrack } from './screens/PlayerScreen';
-import type { CardOrigin, CardOriginItem } from './components/CardAfterimage';
 import { VipScreen } from './screens/VipScreen';
 import type { Notice } from './screens/NotificationsScreen';
 // import { ComponentGallery } from './screens/ComponentGallery'; // 部品デモを見るとき有効化
@@ -150,24 +149,20 @@ function AppInner() {
   const [settingsDetail, setSettingsDetail] = useState<SettingsKey | null>(null);
 
   // 音はアプリ全体の再生の中枢（lib/playback.tsx）が持つ（0.2.0 第 2 段階）。
-  // ここは「再生画面を開いているか」と「戻り先」だけを持つ。
+  // 再生の操作は再生バナーだけ（2026-09-25 岡さん案）。カードを眺める画面は
+  // 「どのリストの、どのカードから見るか」だけを持つ。
   const playback = usePlayback();
-  // コレクションのタイルから開いた直後（ベール中）だけ、まだ流していない曲を見せる。
-  // ベールの再生ボタンで中枢が流し始めたら null に戻し、中枢の今の曲を映す。
-  const [playerPending, setPlayerPending] = useState<string | null>(null);
   /**
-   * ベール中の曲を流し始めるときの並び（マイリストでカードを押したとき、そのリストの
-   * 曲順）。null なら所有曲すべてのシリアル番号順で流す
+   * カードを眺める画面で見るもの。ids＝見る並び（開いたリストの曲順）、startId＝最初の
+   * カード。key は同じ画面のまま別の並びを開き直すとき（再生バナーを押したとき）に
+   * 作り直すため
    */
-  const [playerPendingQueue, setPlayerPendingQueue] = useState<string[] | null>(null);
+  const [viewer, setViewer] = useState<{ ids: string[]; startId: string; key: number } | null>(
+    null,
+  );
   // 再生バナーの高さ（HOME で購入ボタンを逃がす量）
   const [bannerH, setBannerH] = useState(0);
-  // コレクションでタップされたタイルの画面絶対座標（再生画面のフライトイン演出の起点）
-  const [playerOrigin, setPlayerOrigin] = useState<CardOrigin | null>(null);
-  // タップ時点でコレクション画面に見えていた所有済みタイル全ての座標＋アートワーク
-  // （再生画面でその全箇所に残像を残す）
-  const [playerAfterimages, setPlayerAfterimages] = useState<CardOriginItem[]>([]);
-  // 再生画面をどのタブから開いたか（「戻る」の遷移先とラベル文言の出し分けに使う）
+  // カードを眺める画面をどのタブから開いたか（「戻る」の戻り先）
   const [playerReturnTab, setPlayerReturnTab] = useState<'home' | 'collection'>('collection');
   // ホーム（ディスカバー）で最初に表示するカード id（ウィッシュから飛んできたとき用）
   const [homeFocusId, setHomeFocusId] = useState<string | null>(null);
@@ -344,18 +339,23 @@ function AppInner() {
     };
     return [...playerTracks].sort((a, b) => serialNum(a) - serialNum(b));
   }, [playerTracks]);
-  const pendingTrack = playerPending ? playerTracks.find((t) => t.id === playerPending) ?? null : null;
-  // 再生画面に映す曲：ベール中はその曲、それ以外は中枢が流している曲
-  const playerTrack = pendingTrack ?? playback.current;
-  const canSkip = !pendingTrack && playback.queue.length > 1;
-  // 再生画面の前後の曲の絵（カードを払って曲を送ったとき、絵を待たせない）
-  const playerPreload = useMemo(() => {
-    const q = playback.queue;
-    if (q.length < 2) return undefined;
-    const i = playback.index;
-    const uris = [q[(i + 1) % q.length]?.artworkUrl, q[(i - 1 + q.length) % q.length]?.artworkUrl];
-    return uris.filter((u): u is string => !!u);
-  }, [playback.queue, playback.index]);
+  // カードを眺める画面の並び（所有曲と、いま流している並びから引く）
+  const viewerTracks = useMemo<PlayerTrack[]>(() => {
+    if (!viewer) return [];
+    const byId = new Map<string, PlayerTrack>();
+    playerTracks.forEach((x) => byId.set(x.id, x));
+    playback.queue.forEach((x) => byId.set(x.id, x));
+    return viewer.ids.map((id) => byId.get(id)).filter((x): x is PlayerTrack => !!x);
+  }, [viewer, playerTracks, playback.queue]);
+  /** カードを眺める画面を開く */
+  const openViewer = useCallback(
+    (ids: string[], startId: string, returnTab: 'home' | 'collection') => {
+      setViewer({ ids, startId, key: Date.now() });
+      setPlayerReturnTab(returnTab);
+      setOverlay('player');
+    },
+    [],
+  );
   // 試聴で流していた曲を買ったら、その場で全編に切り替える
   useEffect(
     () => purchase.onSuccess((trackId) => playback.markOwned(trackId)),
@@ -366,15 +366,19 @@ function AppInner() {
     (id: string) => playback.playQueue(ownedQueue, id),
     [playback, ownedQueue],
   );
-  /** 再生バナーから再生画面を開く（演出なし） */
+  /**
+   * 再生バナーを押した → 流している並びのカードを、流れている曲から眺める。
+   * カードを眺める画面の中で押したときも、流れている曲のカードへ開き直す
+   */
   const openPlayerFromBanner = useCallback(() => {
-    setPlayerPending(null);
-    setPlayerPendingQueue(null);
-    setPlayerOrigin(null);
-    setPlayerAfterimages([]);
-    setPlayerReturnTab(tab === 'collection' ? 'collection' : 'home');
-    setOverlay('player');
-  }, [tab]);
+    const cur = playback.current;
+    if (!cur) return;
+    openViewer(
+      playback.queue.map((x) => x.id),
+      cur.id,
+      overlay === 'player' ? playerReturnTab : tab === 'collection' ? 'collection' : 'home',
+    );
+  }, [playback, openViewer, overlay, playerReturnTab, tab]);
 
   // ウィッシュリストに並べる作品。★を付けた未所有ぶんを、全作品の並び（＝通し番号順）で引く。
   //   ・追加順に積まないのは、ウィッシュリストを「連作のどこが欠けているか」が見える場に
@@ -572,46 +576,21 @@ function AppInner() {
   }
 
   // ── オーバーレイ（フッター非表示） ──
-  if (overlay === 'player' && playerTrack) {
+  if (overlay === 'player' && viewer && viewerTracks.length > 0) {
     return (
       <PlayerScreen
-        track={playerTrack}
-        origin={playerOrigin ?? undefined}
-        afterimages={playerAfterimages}
-        // 遷移元（ホーム/コレクション）によらず文言は共通の「‹ 戻る」に統一
-        // （2026-09-22 指示で簡略化。実際の戻り先は onBackHome が制御する）。
+        key={viewer.key}
+        tracks={viewerTracks}
+        startId={viewer.startId}
         backLabel="‹ 戻る"
-        onPrevTrack={canSkip ? playback.prev : undefined}
-        onNextTrack={canSkip ? playback.next : undefined}
-        purchase={purchase}
-        preloadUris={playerPreload}
-        startPaused={!!playerPending}
-        onStart={() => {
-          // ベールの再生ボタン → マイリストから開いたときはそのリストの並びで、
-          // それ以外は所有曲すべてのシリアル番号順で、この曲から流す
-          const id = playerPending ?? playerTrack.id;
-          const order = playerPendingQueue;
-          setPlayerPending(null);
-          setPlayerPendingQueue(null);
-          if (order) {
-            const byId = new Map(playerTracks.map((t) => [t.id, t]));
-            const tracks = order.map((x) => byId.get(x)).filter((t): t is PlayerTrack => !!t);
-            if (tracks.length) {
-              playback.playQueue(tracks, id);
-              return;
-            }
-          }
-          playOwnedFrom(id);
-        }}
         onBackHome={() => {
-          // 開いたタブへ戻す（ホーム再生ならホームへ、コレクションならコレクションへ）。
-          // 音は止めない（下の再生バナーで続く）
+          // 開いたタブへ戻す。音は止めない（再生バナーで続く）
           setOverlay(null);
           setTab(playerReturnTab);
-          setPlayerOrigin(null);
-          setPlayerPending(null);
-          setPlayerPendingQueue(null);
+          setViewer(null);
         }}
+        // 再生の操作は再生バナーだけ（2026-09-25 岡さん案）。この画面でも出したまま
+        footer={<NowPlayingBar onOpen={openPlayerFromBanner} />}
       />
     );
   }
@@ -745,36 +724,19 @@ function AppInner() {
                   playback.playQueue(tracks);
                   return;
                 }
-                // カードを押した → 再生画面を開くだけ。自動では流さず、再生画面の
-                // 再生ボタンを押したら、このリストの並びでその曲から流す（2026-09-25
-                // 岡さん指示）。いま流れている曲を押したときは、そのまま再生画面へ
-                if (playback.current?.id === startId) {
-                  setPlayerPending(null);
-                  setPlayerPendingQueue(null);
-                } else {
-                  setPlayerPending(startId);
-                  setPlayerPendingQueue(ids);
-                }
-                setPlayerOrigin(null);
-                setPlayerAfterimages([]);
-                setPlayerReturnTab('collection');
-                setOverlay('player');
+                // カードを押した → カードを大きく眺める画面を開く（2026-09-25 岡さん案）。
+                // 流れていないときだけ、このリストの並びでその曲から流し始める
+                // （所有カードの「カードをタップして再生」）。流れているときは曲を
+                // 変えない。再生の操作は再生バナーだけ
+                if (!playback.isPlayingNow()) playback.playQueue(tracks, startId);
+                openViewer(ids, startId, 'collection');
               }}
-              onOpenTrack={(id, origin, afterimages) => {
-                // 所有曲タップ → 再生画面（ワイヤーフレーム P3）。タイルから開いたとき
-                // （origin あり）はベールを挟むので、流し始めるのはベールの再生ボタン。
-                // 作品詳細の「再生する」（origin なし）はすぐ流す。
+              onOpenTrack={(id) => {
+                // 作品詳細の ▶（所有済み）→ 所有曲すべてをこの曲から流し、カードを
+                // 眺める画面へ（▶ は「流す」をはっきり押したので、流れていても切り替える）
                 if (playerTracks.some((tr) => tr.id === id)) {
-                  setPlayerPendingQueue(null);
-                  if (origin) setPlayerPending(id);
-                  else {
-                    setPlayerPending(null);
-                    playOwnedFrom(id);
-                  }
-                  setPlayerOrigin(origin ?? null);
-                  setPlayerAfterimages(afterimages ?? []);
-                  setPlayerReturnTab('collection');
-                  setOverlay('player');
+                  playOwnedFrom(id);
+                  openViewer(ownedQueue.map((x) => x.id), id, 'collection');
                 } else {
                   setOverlay('story');
                 }
