@@ -375,12 +375,6 @@ export const CollectionScreen: React.FC<Props> = ({
     setPreviewingId(null);
   }, [previewingId, preview]);
 
-  // 詳細を開いたら、HOME と同じく未購入の曲は試聴が自動で鳴る（2026-09-24）。
-  // カードが飛んで着地する頃（約 0.45 秒後）に鳴らす。プレイリストが流れている
-  // ときは HOME と同じく勝手に鳴らさない（右上の EQ を押せばプレイリストを
-  // 止めて試聴する）。
-  const togglePreviewRef = useRef(togglePreview);
-  togglePreviewRef.current = togglePreview;
 
   // プレイリストが鳴り始めたら、この画面の試聴は止める
   const stopPreviewRef = useRef(stopPreview);
@@ -411,15 +405,10 @@ export const CollectionScreen: React.FC<Props> = ({
   );
   const detailOwned = detail ? ownedIds.has(detail.id) : false;
   const detailHasPreview = !!detail && !!(detail.previewUrl ?? detail.audioKey);
+  // 詳細を開いても試聴は自動で鳴らさない。右上の EQ を押したときだけ鳴る
+  // （2026-09-25 岡さん指示「試聴はデフォルト OFF」。HOME と同じ）
   useEffect(() => {
     setWorkFlipped(false);
-    if (!detail || detailOwned || !detailHasPreview) return;
-    if (playback?.isPlayingNow()) return;
-    const item = detail;
-    const id = setTimeout(() => togglePreviewRef.current(item), 450);
-    return () => clearTimeout(id);
-    // 開いた作品が変わったときだけ
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [detailId]);
 
   // ── 作品詳細のカード ────────────────────────────────────────────
@@ -848,9 +837,9 @@ export const CollectionScreen: React.FC<Props> = ({
       >
         {SEGMENTS.map((k) => {
           // 参照 .cnt: 0 件のときは数字を出さない（空の枠を数字で強調しない）。
-          // 件数を出すのは「すべて」「マイコレクション」の2タブだけ。ウィッシュ
-          // タブは数字を出さない（表示名のみ。2026-09-19 指示）。
-          const count = k === 'all' ? works.length : k === 'mine' ? owned.length : 0;
+          // 件数を出すのは「すべて」だけ。ウィッシュリストは表示名のみ（2026-09-19 指示）、
+          // マイリストも表示名のみ（2026-09-25 岡さん指示）。
+          const count = k === 'all' ? works.length : 0;
           const label =
             k === 'all'
               ? t('collection.all')
@@ -1032,6 +1021,7 @@ export const CollectionScreen: React.FC<Props> = ({
             <OrbitBuyButton
               owned={detailOwned}
               priceLabel={detailOwned ? undefined : purchase?.displayPriceOf(detail.id)}
+              state={purchase?.state === 'busy' ? 'pending' : 'idle'}
               onPress={() => {
                 if (detailOwned) {
                   closeDetail();

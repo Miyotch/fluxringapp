@@ -7,23 +7,44 @@
  *   ・削除（2 度押しで確定。確認ダイアログは出さない）
  *
  * 手元の下書きを直して、「完了」で一度に保存する（途中で閉じれば何も変わらない）。
- * 並べ替えは 1 段目は ↑↓ ボタン。ドラッグ用のライブラリは入れていないため
- * （2026-09-24 設計）。
+ * 並べ替えは、行を長押しして上下に動かす（2026-09-25 岡さん指示）か、↑↓ ボタン。
+ *
+ * 長押しで持ち上げた行は指について動き、ほかの行はよけるように 1 行ぶん滑る。
+ * 指を離した位置で並びを確定する。行の高さは固定（ROW_H）なので、指の移動量を
+ * 行の高さで割れば落とす位置が決まる。Modal の中は Android で手の動きが届かない
+ * ことがあるので、中身を GestureHandlerRootView で包む。
  */
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import {
   Image,
   Modal,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
+import {
+  Gesture,
+  GestureDetector,
+  GestureHandlerRootView,
+  ScrollView,
+} from 'react-native-gesture-handler';
+import Animated, {
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+  type SharedValue,
+} from 'react-native-reanimated';
 import { useT } from '../lib/i18n';
 import { useBottomInset } from '../lib/safeArea';
+
+/** 入っている曲の 1 行の高さ（サムネ 54 ＋ 上下 7） */
+const ROW_H = 68;
+/** 持ち上げるまでの長押し(ms) */
+const LIFT_MS = 260;
 
 export type EditorTrack = { id: string; title: string; artworkUrl: string; serialNo?: string };
 
@@ -60,6 +81,74 @@ const Row: React.FC<{ item: EditorTrack; children: React.ReactNode }> = ({ item,
     <View style={styles.rowActs}>{children}</View>
   </View>
 );
+
+/**
+ * 並べ替えられる 1 行。長押しで持ち上げ、上下に動かして離すと onDrop(from, to)。
+ * 持ち上げている行は指について動き、間の行は 1 行ぶんよける。
+ */
+const DragRow: React.FC<{
+  index: number;
+  count: number;
+  dragIndex: SharedValue<number>;
+  dragDy: SharedValue<number>;
+  onLift: () => void;
+  onDrop: (from: number, to: number) => void;
+  children: React.ReactNode;
+}> = ({ index, count, dragIndex, dragDy, onLift, onDrop, children }) => {
+  const gesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .activateAfterLongPress(LIFT_MS)
+        .onStart(() => {
+          'worklet';
+          dragIndex.value = index;
+          dragDy.value = 0;
+          runOnJS(onLift)();
+        })
+        .onUpdate((e) => {
+          'worklet';
+          // 一覧の外へは出さない
+          const min = -index * ROW_H;
+          const max = (count - 1 - index) * ROW_H;
+          dragDy.value = Math.max(min, Math.min(max, e.translationY));
+        })
+        .onEnd(() => {
+          'worklet';
+          const to = Math.max(0, Math.min(count - 1, Math.round(index + dragDy.value / ROW_H)));
+          runOnJS(onDrop)(index, to);
+        }),
+    [index, count, dragIndex, dragDy, onLift, onDrop],
+  );
+
+  const style = useAnimatedStyle(() => {
+    const d = dragIndex.value;
+    if (d === index) {
+      return {
+        transform: [{ translateY: dragDy.value }, { scale: 1.02 }],
+        zIndex: 10,
+        backgroundColor: 'rgba(96,206,224,0.08)',
+      };
+    }
+    if (d < 0) {
+      return { transform: [{ translateY: 0 }, { scale: 1 }], zIndex: 0, backgroundColor: 'transparent' };
+    }
+    const hover = Math.max(0, Math.min(count - 1, Math.round(d + dragDy.value / ROW_H)));
+    let shift = 0;
+    if (d < index && index <= hover) shift = -ROW_H;
+    else if (hover <= index && index < d) shift = ROW_H;
+    return {
+      transform: [{ translateY: withTiming(shift, { duration: 140 }) }, { scale: 1 }],
+      zIndex: 0,
+      backgroundColor: 'transparent',
+    };
+  });
+
+  return (
+    <GestureDetector gesture={gesture}>
+      <Animated.View style={[styles.dragRow, style]}>{children}</Animated.View>
+    </GestureDetector>
+  );
+};
 
 const Act: React.FC<{ label: string; a11y: string; onPress: () => void; disabled?: boolean }> = ({
   label,
@@ -115,13 +204,44 @@ export const PlaylistEditor: React.FC<Props> = ({
     setIds(next);
   };
 
+  // ── 長押しでの並べ替え ──
+  const dragIndex = useSharedValue(-1);
+  const dragDy = useSharedValue(0);
+  const [dragging, setDragging] = useState(false);
+  const inListIds = inList.map((x) => x.id).join('|');
+  // 並びを確定した描き直しと同じ時に、持ち上げの状態を戻す（行がもとの位置へ
+  // 一瞬戻って見えないように）
+  useLayoutEffect(() => {
+    dragIndex.value = -1;
+    dragDy.value = 0;
+  }, [inListIds, dragIndex, dragDy]);
+  const onLift = useCallback(() => setDragging(true), []);
+  const onDrop = useCallback(
+    (from: number, to: number) => {
+      setDragging(false);
+      if (from === to) {
+        dragDy.value = withTiming(0, { duration: 140 }, () => {
+          dragIndex.value = -1;
+        });
+        return;
+      }
+      setIds((prev) => {
+        const cur = prev.filter((id) => byId.has(id));
+        const [moved] = cur.splice(from, 1);
+        cur.splice(to, 0, moved);
+        return cur;
+      });
+    },
+    [byId, dragDy, dragIndex],
+  );
+
   const done = () => {
     onDone(name.trim() || defaultName, inList.map((x) => x.id));
   };
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onCancel}>
-      <View style={styles.backdrop}>
+      <GestureHandlerRootView style={styles.backdrop}>
         <View style={[styles.sheet, { paddingBottom: padBottom }]}>
           <View style={styles.head}>
             <Pressable onPress={onCancel} hitSlop={10} accessibilityRole="button">
@@ -132,7 +252,11 @@ export const PlaylistEditor: React.FC<Props> = ({
             </Pressable>
           </View>
 
-          <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
+          <ScrollView
+            contentContainerStyle={styles.body}
+            keyboardShouldPersistTaps="handled"
+            scrollEnabled={!dragging}
+          >
             <Text style={styles.label}>{t('playlist.name')}</Text>
             <TextInput
               value={name}
@@ -148,21 +272,32 @@ export const PlaylistEditor: React.FC<Props> = ({
               {t('playlist.inList')}　{t('playlist.count', { n: inList.length })}
             </Text>
             {inList.length === 0 && <Text style={styles.hint}>{t('playlist.emptyBody')}</Text>}
+            {inList.length > 1 && <Text style={styles.hint}>{t('playlist.dragHint')}</Text>}
             {inList.map((item, i) => (
-              <Row key={item.id} item={item}>
-                <Act label="↑" a11y={t('playlist.moveUp')} onPress={() => move(i, -1)} disabled={i === 0} />
-                <Act
-                  label="↓"
-                  a11y={t('playlist.moveDown')}
-                  onPress={() => move(i, 1)}
-                  disabled={i === inList.length - 1}
-                />
-                <Act
-                  label={t('playlist.remove')}
-                  a11y={t('playlist.remove')}
-                  onPress={() => setIds(inList.filter((x) => x.id !== item.id).map((x) => x.id))}
-                />
-              </Row>
+              <DragRow
+                key={item.id}
+                index={i}
+                count={inList.length}
+                dragIndex={dragIndex}
+                dragDy={dragDy}
+                onLift={onLift}
+                onDrop={onDrop}
+              >
+                <Row item={item}>
+                  <Act label="↑" a11y={t('playlist.moveUp')} onPress={() => move(i, -1)} disabled={i === 0} />
+                  <Act
+                    label="↓"
+                    a11y={t('playlist.moveDown')}
+                    onPress={() => move(i, 1)}
+                    disabled={i === inList.length - 1}
+                  />
+                  <Act
+                    label={t('playlist.remove')}
+                    a11y={t('playlist.remove')}
+                    onPress={() => setIds(inList.filter((x) => x.id !== item.id).map((x) => x.id))}
+                  />
+                </Row>
+              </DragRow>
             ))}
 
             {addable.length > 0 && <Text style={styles.label}>{t('playlist.addable')}</Text>}
@@ -189,7 +324,7 @@ export const PlaylistEditor: React.FC<Props> = ({
             )}
           </ScrollView>
         </View>
-      </View>
+      </GestureHandlerRootView>
     </Modal>
   );
 };
@@ -216,7 +351,7 @@ const styles = StyleSheet.create({
   headDone: { color: C.cyan },
   body: { paddingHorizontal: 22, paddingBottom: 24 },
   label: { color: C.sub, fontSize: 11, letterSpacing: 1.6, marginTop: 20, marginBottom: 8 },
-  hint: { color: C.sub, fontSize: 12, lineHeight: 18 },
+  hint: { color: C.sub, fontSize: 12, lineHeight: 18, marginBottom: 6 },
   input: {
     color: C.text,
     fontSize: 15,
@@ -227,6 +362,8 @@ const styles = StyleSheet.create({
     paddingVertical: 11,
   },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 7 },
+  // 並べ替えられる行。高さを固定して、指の移動量から落とす位置を決める
+  dragRow: { height: ROW_H, justifyContent: 'center', borderRadius: 10 },
   thumb: { width: 36, height: 54, borderRadius: 5, backgroundColor: 'rgba(255,255,255,0.05)' },
   rowText: { flex: 1, minWidth: 0 },
   rowTitle: { color: C.text, fontSize: 14 },

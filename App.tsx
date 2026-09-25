@@ -155,6 +155,11 @@ function AppInner() {
   // コレクションのタイルから開いた直後（ベール中）だけ、まだ流していない曲を見せる。
   // ベールの再生ボタンで中枢が流し始めたら null に戻し、中枢の今の曲を映す。
   const [playerPending, setPlayerPending] = useState<string | null>(null);
+  /**
+   * ベール中の曲を流し始めるときの並び（マイリストでカードを押したとき、そのリストの
+   * 曲順）。null なら所有曲すべてのシリアル番号順で流す
+   */
+  const [playerPendingQueue, setPlayerPendingQueue] = useState<string[] | null>(null);
   // 再生バナーの高さ（HOME で購入ボタンを逃がす量）
   const [bannerH, setBannerH] = useState(0);
   // コレクションでタップされたタイルの画面絶対座標（再生画面のフライトイン演出の起点）
@@ -351,35 +356,6 @@ function AppInner() {
     const uris = [q[(i + 1) % q.length]?.artworkUrl, q[(i - 1 + q.length) % q.length]?.artworkUrl];
     return uris.filter((u): u is string => !!u);
   }, [playback.queue, playback.index]);
-  /**
-   * HOME の「再生」から流す並び（2026-09-25 代表決定）。所有曲（シリアル番号順）の
-   * あとに、HOME の並びで未購入の曲を「試聴」として続ける。所有曲が 1 曲だけでも
-   * 「次へ」で新しい曲に出会え、再生画面の購入ボタンからそのまま買える。
-   * 試聴の音源が無い曲は入れない。プレイリストや作品詳細から流すときは所有曲だけ。
-   */
-  const homeQueue = useMemo<PlayerTrack[]>(() => {
-    const previews: PlayerTrack[] = homeTracks
-      .filter((tr) => !ownedTrackIds.has(tr.id) && !!(tr.previewUrl || tr.audioKey))
-      .map((tr) => ({
-        id: tr.id,
-        title: tr.title,
-        subtitle: tr.subtitle,
-        artworkUrl: tr.artworkUrl,
-        audioKey: tr.audioKey,
-        glowColor: tr.glowColor,
-        glowColor2: tr.glowColor2,
-        serial: tr.back?.serial,
-        story: tr.back?.story,
-        tuning: tr.back?.tuning,
-        frequencies: tr.back?.frequencies,
-        artist: tr.back?.artist,
-        useCases: tr.back?.useCases,
-        preview: true,
-        previewUrl: tr.previewUrl,
-        priceJpy: tr.priceJpy,
-      }));
-    return [...ownedQueue, ...previews];
-  }, [ownedQueue, homeTracks, ownedTrackIds]);
   // 試聴で流していた曲を買ったら、その場で全編に切り替える
   useEffect(
     () => purchase.onSuccess((trackId) => playback.markOwned(trackId)),
@@ -393,6 +369,7 @@ function AppInner() {
   /** 再生バナーから再生画面を開く（演出なし） */
   const openPlayerFromBanner = useCallback(() => {
     setPlayerPending(null);
+    setPlayerPendingQueue(null);
     setPlayerOrigin(null);
     setPlayerAfterimages([]);
     setPlayerReturnTab(tab === 'collection' ? 'collection' : 'home');
@@ -608,10 +585,22 @@ function AppInner() {
         onNextTrack={canSkip ? playback.next : undefined}
         purchase={purchase}
         preloadUris={playerPreload}
+        startPaused={!!playerPending}
         onStart={() => {
-          // ベールの再生ボタン → 所有曲すべてをこの曲から流す
+          // ベールの再生ボタン → マイリストから開いたときはそのリストの並びで、
+          // それ以外は所有曲すべてのシリアル番号順で、この曲から流す
           const id = playerPending ?? playerTrack.id;
+          const order = playerPendingQueue;
           setPlayerPending(null);
+          setPlayerPendingQueue(null);
+          if (order) {
+            const byId = new Map(playerTracks.map((t) => [t.id, t]));
+            const tracks = order.map((x) => byId.get(x)).filter((t): t is PlayerTrack => !!t);
+            if (tracks.length) {
+              playback.playQueue(tracks, id);
+              return;
+            }
+          }
           playOwnedFrom(id);
         }}
         onBackHome={() => {
@@ -621,6 +610,7 @@ function AppInner() {
           setTab(playerReturnTab);
           setPlayerOrigin(null);
           setPlayerPending(null);
+          setPlayerPendingQueue(null);
         }}
       />
     );
@@ -729,19 +719,9 @@ function AppInner() {
               bannerInset={playback.current ? bannerH : 0}
               onOpenArtist={openArtistFromCard}
               onWishAdded={bumpWishPulse}
-              onPlay={(id) => {
-                // 所有済みカードの「再生」押下 → 再生画面へ（コレクションのタイル起点が
-                // 無いので残像演出は出さない＝origin は null のまま）
-                if (playerTracks.some((tr) => tr.id === id)) {
-                  // 所有曲のあとに、未購入の曲が試聴で続く
-                  playback.playQueue(homeQueue, id);
-                  setPlayerPending(null);
-                  setPlayerOrigin(null);
-                  setPlayerAfterimages([]);
-                  setPlayerReturnTab('home');
-                  setOverlay('player');
-                }
-              }}
+              // 所有済みカードは HOME では再生しない。「マイリストで聴けます」で
+              // マイリストのタブへ（2026-09-25 岡さん指示）
+              onOpenMyList={() => changeTab('collection')}
             />
           )}
 
@@ -756,27 +736,36 @@ function AppInner() {
               purchase={purchase}
               playlists={playlists}
               onPlayList={(ids, startId) => {
-                // 「このプレイリストを再生」→ その場で流れ始め、下に再生バナーが出る
-                // （Spotify と同じ。画面は移らない。2026-09-24）
-                // カードを押したとき（startId あり）→ その曲から流して再生画面へ。
-                // 再生画面ではカードを左右に払うと、このプレイリストの並びで曲送り
+                // 「このプレイリストを再生」（startId なし）→ その場で流れ始め、下に
+                // 再生バナーが出る（Spotify と同じ。画面は移らない。2026-09-24）
                 const byId = new Map(playerTracks.map((t) => [t.id, t]));
                 const tracks = ids.map((id) => byId.get(id)).filter((t): t is PlayerTrack => !!t);
                 if (!tracks.length) return;
-                playback.playQueue(tracks, startId);
-                if (startId) {
-                  setPlayerPending(null);
-                  setPlayerOrigin(null);
-                  setPlayerAfterimages([]);
-                  setPlayerReturnTab('collection');
-                  setOverlay('player');
+                if (!startId) {
+                  playback.playQueue(tracks);
+                  return;
                 }
+                // カードを押した → 再生画面を開くだけ。自動では流さず、再生画面の
+                // 再生ボタンを押したら、このリストの並びでその曲から流す（2026-09-25
+                // 岡さん指示）。いま流れている曲を押したときは、そのまま再生画面へ
+                if (playback.current?.id === startId) {
+                  setPlayerPending(null);
+                  setPlayerPendingQueue(null);
+                } else {
+                  setPlayerPending(startId);
+                  setPlayerPendingQueue(ids);
+                }
+                setPlayerOrigin(null);
+                setPlayerAfterimages([]);
+                setPlayerReturnTab('collection');
+                setOverlay('player');
               }}
               onOpenTrack={(id, origin, afterimages) => {
                 // 所有曲タップ → 再生画面（ワイヤーフレーム P3）。タイルから開いたとき
                 // （origin あり）はベールを挟むので、流し始めるのはベールの再生ボタン。
                 // 作品詳細の「再生する」（origin なし）はすぐ流す。
                 if (playerTracks.some((tr) => tr.id === id)) {
+                  setPlayerPendingQueue(null);
                   if (origin) setPlayerPending(id);
                   else {
                     setPlayerPending(null);

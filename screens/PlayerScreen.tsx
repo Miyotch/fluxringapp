@@ -114,6 +114,12 @@ type Props = {
    */
   preloadUris?: string[];
   /**
+   * true なら、開いた時点では流さず、大きな再生ボタン（ベール）を出す。
+   * マイリストでカードを押したとき（2026-09-25 岡さん指示）。コレクションの
+   * タイルから開いたとき（origin あり）は、これが無くてもベールを出す
+   */
+  startPaused?: boolean;
+  /**
    * 購入フロー。試聴で流している曲（track.preview）に購入ボタンを出すために使う。
    * 買えたら App が中枢の markOwned で全編に切り替える
    */
@@ -138,6 +144,7 @@ export const PlayerScreen: React.FC<Props> = ({
   onStart,
   preloadUris,
   purchase,
+  startPaused = false,
 }) => {
   const { width: screenW, height: screenH } = useWindowDimensions();
   const navTop = useTopInset(8);            // 従来 52px（=44+8）
@@ -168,7 +175,8 @@ export const PlayerScreen: React.FC<Props> = ({
   // ホームの再生ボタンから開いた（origin なし）ときは、ワンクッション挟まず
   // 最初から再生状態で表示する（起点となるタイルが無く飛んでくる演出も
   // 不要なため）。
-  const directPlay = !afterimageOrigin;
+  const [startPausedAtOpen] = useState(startPaused);
+  const directPlay = !afterimageOrigin && !startPausedAtOpen;
 
   // ベール（再生前）→ 再生 の2フェーズ。directPlay のときは最初から'playing'。
   const [phase, setPhase] = useState<'veil' | 'playing'>(directPlay ? 'playing' : 'veil');
@@ -672,6 +680,7 @@ export const PlayerScreen: React.FC<Props> = ({
               <OrbitBuyButton
                 priceLabel={purchase?.displayPriceOf(track.id)}
                 priceJpy={track.priceJpy}
+                state={purchase?.state === 'busy' ? 'pending' : 'idle'}
                 onPress={openBuy}
               />
             )}

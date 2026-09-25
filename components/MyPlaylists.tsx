@@ -35,8 +35,9 @@ type Props = {
   owned: Item[];
   playlists: PlaylistsController;
   /**
-   * 曲順どおりの trackId で流す。startId があれば（カードを押したとき）その曲から
-   * 流して再生画面を開く。無ければ（再生ボタン）先頭から流し、画面は移らない
+   * startId なし（「このプレイリストを再生」）＝曲順どおり先頭から流す。画面は移らない。
+   * startId あり（カードを押した）＝その曲の再生画面を開く。すぐには流さず、再生画面の
+   * 再生ボタンを押したときに、この並びで流し始める（2026-09-25 岡さん指示）
    */
   onPlayList: (trackIds: string[], startId?: string) => void;
   onDiscover: () => void;
@@ -215,19 +216,25 @@ export const MyPlaylists: React.FC<Props> = ({
         />
       )}
 
-      {/* 再生（Spotify のように、この並びで順に流す） */}
-      <Pressable
-        disabled={tracks.length === 0}
-        onPress={() => onPlayList(tracks.map((x) => x.id))}
-        style={({ pressed }) => [
-          styles.play,
-          tracks.length === 0 && { opacity: 0.35 },
-          pressed && { transform: [{ scale: 0.97 }] },
-        ]}
-        accessibilityRole="button"
-      >
-        <Text style={styles.playText}>▶　{t('playlist.play')}</Text>
-      </Pressable>
+      {/* 所有カードは自動で流さない。カードを押して再生画面を開き、そこで
+          再生ボタンを押して流す（2026-09-25 岡さん指示）。自分で作ったリストは
+          「このプレイリストを再生」で、この並びのまま順に流せる */}
+      {current ? (
+        <Pressable
+          disabled={tracks.length === 0}
+          onPress={() => onPlayList(tracks.map((x) => x.id))}
+          style={({ pressed }) => [
+            styles.play,
+            tracks.length === 0 && { opacity: 0.35 },
+            pressed && { transform: [{ scale: 0.97 }] },
+          ]}
+          accessibilityRole="button"
+        >
+          <Text style={styles.playText}>▶　{t('playlist.play')}</Text>
+        </Pressable>
+      ) : (
+        tracks.length > 0 && <Text style={styles.tapHint}>{t('playlist.tapHint')}</Text>
+      )}
 
       <PlaylistEditor
         visible={editorFor != null}
@@ -286,6 +293,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   playText: { color: C.text, fontSize: 13, letterSpacing: 2 },
+  // 所有カードの案内文。再生ボタンと同じ位置・高さに置き、切り替えても下が動かない
+  tapHint: {
+    alignSelf: 'center',
+    marginTop: 26,
+    height: 52,
+    lineHeight: 52,
+    color: C.sub,
+    fontSize: 12,
+    letterSpacing: 2,
+  },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, gap: 16 },
   emptyTitle: { color: C.text, fontSize: 17, letterSpacing: 0.5 },
   emptyBody: { color: C.sub, fontSize: 13, textAlign: 'center', lineHeight: 20 },

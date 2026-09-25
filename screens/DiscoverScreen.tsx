@@ -65,8 +65,6 @@ import {
 } from '../components/CardGL';
 import { OrbitBuyButton } from '../components/OrbitBuyButton';
 import { FavBead, FlyDot, BEAD_HIT } from '../components/FavBead';
-import { SpeakerIcon } from '../components/icons';
-import { computeBackScale } from '../components/CardGL';
 import { PurchaseModal } from '../components/PurchaseModal';
 import { EqBars } from '../components/EqBars';
 import { useTopInset } from '../lib/safeArea';
@@ -167,15 +165,6 @@ const PREVIEW_FADE_STEP_MS = 40;
 const PREVIEW_FADE_IN_MS = 80;
 /** カードがこれ以上傾いたら（裏返し始めたら）★を消す(度) */
 const FAV_HIDE_DEG = 6;
-/**
- * 裏面の右上の音の ON/OFF ボタン（2026-09-24）。
- * 裏面がほぼ正面を向いている（表から 171° 以上回っている）ときだけ出す。
- * 裏面を指で傾けて眺めている間は、刻印の上に浮いて見えないよう消す。
- */
-const SPK_SHOW_DEG = 171;
-/** ボタンの当たり判定の一辺と、裏面の角からボタン中心までの距離(px) */
-const SPK_HIT = 44;
-const SPK_INSET = 26;
 /**
  * 初回だけの操作の案内（2026-09-24 代表「やってみて考える」）。
  * 止まっているときは隣のカードが見えず、裏返せることを示すものも無いので、
@@ -311,8 +300,12 @@ type Props = {
   onToggleWishlist?: (trackId: string) => void;
   /** 購入フロー。未指定なら購入ボタンは押しても何も起きない（ギャラリー表示用） */
   purchase?: PurchaseController;
-  /** 所有済みカードの「再生」ボタン押下 → 再生画面を開く。未指定なら何も起きない */
-  onPlay?: (trackId: string) => void;
+  /**
+   * 所有済みカードの「マイリストで聴けます」を押したとき → マイリストのタブへ。
+   * HOME では再生しない（2026-09-25 岡さん指示。期間限定のカードは時期が過ぎると
+   * HOME から消えるので、聴く場所はマイリストにまとめる）
+   */
+  onOpenMyList?: () => void;
   /**
    * カードの★でウィッシュリストに入れ、光の粒がフッターのプレイリストタブに
    * 着いたとき。App.tsx がタブを一度脈打たせる。
@@ -369,7 +362,7 @@ export const DiscoverScreen: React.FC<Props> = ({
   wishlistIds,
   onToggleWishlist,
   purchase,
-  onPlay,
+  onOpenMyList,
   onWishAdded,
   onOpenArtist,
   introOnMount = false,
@@ -419,9 +412,9 @@ export const DiscoverScreen: React.FC<Props> = ({
   const cardRotation = useSharedValue(0);
   const [playingId, setPlayingId] = useState<string | null>(null);
   // 試聴のオン／オフはカードごとにリセットせず、アプリ全体で一貫させる
-  // （2026-09-19 指示）。スピーカーボタンで一度オフにしたら、曲を送っても
-  // オンには戻らない。既定はオン（従来どおり自動で鳴り始める）。
-  const [previewEnabled, setPreviewEnabled] = useState(true);
+  // （2026-09-19 指示）。既定はオフ（2026-09-25 岡さん指示）。右上の EQ を押すと
+  // オンになり、そのカードから鳴る。オンの間は、送った先のカードも鳴る
+  const [previewEnabled, setPreviewEnabled] = useState(false);
   // ウィッシュリストは App.tsx の useWishlist が正。props が無いとき（部品デモ）だけローカルに持つ。
   const [localWishlist, setLocalWishlist] = useState<Set<string>>(new Set());
   const wishlist = wishlistIds ?? localWishlist;
@@ -570,7 +563,7 @@ export const DiscoverScreen: React.FC<Props> = ({
   // 試聴のタイマーから読む用の写し（仕掛けた時点の値で固まらないように）
   const shownRef = useRef(shown);
   shownRef.current = shown;
-  const previewEnabledRef = useRef(true);
+  const previewEnabledRef = useRef(false);
   const isOwnedRef = useRef<(t: Track) => boolean>(() => false);
   // 参照はカード 188.6px を 380x760 の固定デバイス枠の中で見せている。
   // その設計をそのまま実画面へ等比フィットさせ、カード幅から調律陣・カルーセル
@@ -616,6 +609,14 @@ export const DiscoverScreen: React.FC<Props> = ({
   // 再生バナーが出ているとき、購入ボタンの下端がバナーに掛かる分だけ上げる
   // （今の寸法では 100px の余白で足りており、ふだんは動かない）
   const BOTTOM_BASE = Math.max(BOTTOM_BASE_RAW, bottomInset + bannerInset + 12);
+  // 購入ボタンの中心は、カードの下端から 76pt 下（390×844 基準・画面の高さで伸縮。
+  // 仕様 v2 §5）。運営調整でカードを上下に動かしたときも、カードとの間は変えない。
+  // 再生バナーが出ているときは、ボタンの下端がバナーに掛からないところまで上げる。
+  const BUY_H = 40;
+  const buyCenterIdeal =
+    cardCenterY + cardH / 2 + 76 * (screenH / 844) + layoutAdjust.homeCardOffsetY;
+  const buyCenterMax = contentH - (bannerInset > 0 ? bannerInset + 12 : 12) - BUY_H / 2;
+  const BUY_TOP = Math.min(buyCenterIdeal, buyCenterMax) - BUY_H / 2;
 
   // 購入確定時のカード発光・浮遊。発光は CardGL の purchaseGlow（枠＋外周グロー）へ
   // 渡し、浮遊は中央スロットの transform（centerStyle）へ合成する。
@@ -1499,33 +1500,13 @@ export const DiscoverScreen: React.FC<Props> = ({
       }
     },
   );
-  // 裏面の右上の音の ON/OFF（★と同じくカード層の外に置き、同じ値で動かす）
-  const spkVis = useSharedValue(0);
-  // ボタンを押せる・押せない（React state）。見た目の spkVis と別に持つ。
-  //
-  // ★ 以前は下の Pressable の pointerEvents を `flipped`（裏返しているかどうか
-  //   だけの粗い判定）で切り替えていた。flipped は裏返しを始めた**瞬間**に true に
-  //   なる一方、ボタンが実際に見えるのは SPK_SHOW_DEG（171°）を超えてからなので、
-  //   裏返している間ずっと・裏面を指で回して眺めている間も 171° を下回るたびに、
-  //   見えていない状態のこの 44px の角だけがタップ・ドラッグを吸い取っていた。
-  //   その場所から裏面の回転を始めようとすると、カードが回らずに止まる
-  //   （2026-09-24 発見。表の絵が残る不具合と同じ「見た目の判定と操作を受け付ける
-  //   判定がずれている」系統の不具合）。しきい値を spkVis と揃えて直す。
-  const [spkActive, setSpkActive] = useState(false);
-  useAnimatedReaction(
-    () => Math.abs(cardRotation.value) > SPK_SHOW_DEG,
-    (now, prev) => {
-      spkVis.value = withTiming(now ? 1 : 0, { duration: now ? 180 : 90 });
-      if (prev !== null && now !== prev) runOnJS(setSpkActive)(now);
-    },
+  // 購入ボタンの周回する光を回すか（1=回す）。カードを送っている間・裏返して
+  // いる間は止め、止まった角度から続きを回す（仕様 v2 §7）
+  const orbitActive = useDerivedValue<number>(() =>
+    carBusy.value < 0.5 && scrolling.value < 0.5 && Math.abs(cardRotation.value) < FAV_HIDE_DEG
+      ? 1
+      : 0,
   );
-  const spkLayerStyle = useAnimatedStyle(() => ({
-    opacity: spkVis.value,
-    transform: [
-      { translateY: floatY.value + cardTranslateY.value },
-      { scale: cardScale.value },
-    ],
-  }));
   const favLayerStyle = useAnimatedStyle(() => ({
     opacity: favVis.value,
     transform: [
@@ -1629,14 +1610,10 @@ export const DiscoverScreen: React.FC<Props> = ({
   // 曲名・ボタンと同じ札（shown）を買う。カード本体（active）はまだ滑っている
   // ことがあるので、押したボタンの曲と食い違わないほうを採る。
   const handleBuy = useCallback(() => {
-    if (!shown) return;
-    if (isOwned(shown)) {
-      onPlay?.(shown.id);
-      return;
-    }
+    if (!shown || isOwned(shown)) return;
     purchase?.dismiss(); // 前回の失敗表示を持ち越さない
     setPurchaseTarget(shown);
-  }, [shown, isOwned, purchase, onPlay]);
+  }, [shown, isOwned, purchase]);
 
   // ポップアップの金額 or 確定ボタン → OS の課金シートへ。
   // ここでは所有状態も演出も動かさない。成立したかどうかは purchase.onSuccess で受ける
@@ -1840,41 +1817,6 @@ export const DiscoverScreen: React.FC<Props> = ({
     [favId, favOwned, favFilled, favActive, favLayerStyle, screenW, cardW, cardH, cardCenterY, onToggleFav, handleBeadAdded],
   );
 
-  // 裏面の右上の音の ON/OFF。押すと試聴のオン・オフ（右上の EQ と同じ）。
-  // 裏面の大きさと持ち上げは CardGL と同じ式（computeBackScale・枠高の 3%）で出す。
-  // 購入済みの曲は試聴しないので出さない。
-  const spkOwned = active ? isOwned(active) : true;
-  const spkLayer = useMemo(() => {
-    if (spkOwned) return null;
-    const s = computeBackScale(cardFrame, cardW, cardH);
-    const lift = cardFrame.height * 0.03;
-    const cornerX = screenW / 2 + (cardW * s) / 2;
-    const cornerY = cardCenterY - lift - (cardH * s) / 2;
-    return (
-      <Animated.View
-        style={[styles.slot, spkLayerStyle]}
-        pointerEvents={spkActive ? 'box-none' : 'none'}
-      >
-        <Pressable
-          onPress={togglePreview}
-          style={[
-            styles.beadAt,
-            styles.spkHit,
-            { left: cornerX - SPK_INSET - SPK_HIT / 2, top: cornerY + SPK_INSET - SPK_HIT / 2 },
-          ]}
-          accessibilityRole="button"
-          accessibilityState={{ selected: previewEnabled }}
-          accessibilityLabel={previewEnabled ? t('preview.toggleOff') : t('preview.toggleOn')}
-        >
-          {({ pressed }) => (
-            <View style={[styles.spkDisc, pressed && { transform: [{ scale: 0.9 }] }]}>
-              <SpeakerIcon size={16} on={previewEnabled} />
-            </View>
-          )}
-        </Pressable>
-      </Animated.View>
-    );
-  }, [spkOwned, cardFrame, cardW, cardH, screenW, cardCenterY, spkLayerStyle, spkActive, togglePreview, previewEnabled, t]);
 
   // ── 初回だけの操作の案内 ──
   const countRef = useRef(count);
@@ -2070,8 +2012,6 @@ export const DiscoverScreen: React.FC<Props> = ({
               {cardLayer}
               {/* ★（カードの右下の角）。カード層の外に置き、同じ値で動かす */}
               {favLayer}
-              {/* 裏面の右上の音の ON/OFF。裏返してほぼ正面を向いたときだけ出る */}
-              {spkLayer}
             </View>
           </GestureDetector>
         </RNAnimated.View>
@@ -2134,15 +2074,27 @@ export const DiscoverScreen: React.FC<Props> = ({
           ]}
           pointerEvents="box-none"
         >
-          {/* 下部: 購入ボタン「周回する光」だけ（2026-09-24 岡さんの試作を採用）。
-              ★はカードの右下の角へ、試聴のオン・オフは右上の EQ へ移した。
-              所有済みは「再生」（押すと再生画面）。裏返し中も位置は動かさない。 */}
-          <View style={[styles.bottom, { bottom: BOTTOM_BASE }]} pointerEvents="box-none">
-            <OrbitBuyButton
-              owned={isOwned(shown)}
-              priceLabel={shown ? purchase?.displayPriceOf(shown.id) : undefined}
-              onPress={handleBuy}
-            />
+          {/* 下部: 未購入は購入ボタン「周回する光」（仕様 v2・「購入する」だけで価格は
+              出さない）。所有済みは HOME では再生せず、マイリストへの一行だけ
+              （2026-09-25 岡さん指示）。裏返し中も位置は動かさない。 */}
+          <View style={[styles.bottom, { top: BUY_TOP, height: BUY_H }]} pointerEvents="box-none">
+            {isOwned(shown) ? (
+              <Pressable
+                onPress={onOpenMyList}
+                hitSlop={12}
+                accessibilityRole="button"
+                style={({ pressed }) => [styles.ownedLink, pressed && { opacity: 0.6 }]}
+              >
+                <Text style={styles.ownedLinkText}>{t('home.ownedGoMyList')}</Text>
+              </Pressable>
+            ) : (
+              <OrbitBuyButton
+                priceLabel={shown ? purchase?.displayPriceOf(shown.id) : undefined}
+                state={purchase?.state === 'busy' ? 'pending' : 'idle'}
+                active={orbitActive}
+                onPress={handleBuy}
+              />
+            )}
           </View>
         </RNAnimated.View>
       </View>
@@ -2213,18 +2165,6 @@ const styles = StyleSheet.create({
   /** 参照 .stage（position:absolute; inset:0）。3スロットの親 */
   stage: { position: 'absolute', left: 0, right: 0, top: 0 },
   beadAt: { position: 'absolute' },
-  spkHit: { width: SPK_HIT, height: SPK_HIT, alignItems: 'center', justifyContent: 'center' },
-  // ★（FavBead）と同じ濃紺の丸。アルミの明るい地の上でも見える
-  spkDisc: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(15,14,42,0.86)',
-    borderWidth: 1,
-    borderColor: 'rgba(236,238,247,0.22)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   /** 参照の card / peekL / peekR。中央基準で重ね、translateX で振り分ける */
   slot: {
     position: 'absolute',
@@ -2263,6 +2203,9 @@ const styles = StyleSheet.create({
     position: 'absolute', left: 0, right: 0,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
   },
+  // 所有済みカードの「マイリストで聴けます」。ボタンではなく静かな一行
+  ownedLink: { paddingVertical: 10, paddingHorizontal: 16 },
+  ownedLinkText: { color: C.sub, fontSize: 12, letterSpacing: 1.2 },
 
   transport: {
     paddingVertical: 16, paddingHorizontal: 20, borderRadius: 16,
