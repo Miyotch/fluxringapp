@@ -8,6 +8,8 @@
  *
  * 手元の下書きを直して、「完了」で一度に保存する（途中で閉じれば何も変わらない）。
  * 並べ替えは、行を長押しして上下に動かす（2026-09-25 岡さん指示）か、↑↓ ボタン。
+ * 入っている曲の行を軽く押すと、いまの並び（下書き）のままその曲から流す（2026-09-26）。
+ * 流れている曲の行は曲名がシアンになり、番号の代わりに「再生中」と出る。
  *
  * 長押しで持ち上げた行は指について動き、ほかの行はよけるように 1 行ぶん滑る。
  * 指を離した位置で並びを確定する。行の高さは固定（ROW_H）なので、指の移動量を
@@ -42,6 +44,8 @@ import Animated, {
 import { useT } from '../lib/i18n';
 import { useBottomInset } from '../lib/safeArea';
 import { JP_SERIF_FONT, NUM_FONT } from '../constants/fonts';
+import { usePlaybackOptional } from '../lib/playback';
+import { PlayMark } from './icons';
 
 /** 入っている曲の 1 行の高さ（サムネ 54 ＋ 上下 7） */
 const ROW_H = 68;
@@ -62,6 +66,8 @@ type Props = {
   onCancel: () => void;
   /** 既存のプレイリストだけ。未指定なら削除ボタンを出さない */
   onDelete?: () => void;
+  /** 入っている曲の行を押した → 下書きの並びのまま、その曲から流す */
+  onPlayTrack?: (trackIds: string[], startId: string) => void;
 };
 
 const C = {
@@ -73,16 +79,60 @@ const C = {
   danger: '#E5484D',
 };
 
-const Row: React.FC<{ item: EditorTrack; children: React.ReactNode }> = ({ item, children }) => (
-  <View style={styles.row}>
-    <Image source={{ uri: item.artworkUrl }} style={styles.thumb} />
-    <View style={styles.rowText}>
-      <Text style={styles.rowTitle} numberOfLines={1}>{item.title}</Text>
-      {!!item.serialNo && <Text style={styles.rowSerial}>{item.serialNo}</Text>}
+const Row: React.FC<{
+  item: EditorTrack;
+  children: React.ReactNode;
+  /** 渡したときだけ、サムネと曲名を押すと流せる（▶ の印も出す） */
+  onPlay?: () => void;
+  /** この行の曲が流れている */
+  playing?: boolean;
+  playingLabel?: string;
+}> = ({ item, children, onPlay, playing, playingLabel }) => {
+  const body = (
+    <>
+      <View>
+        <Image source={{ uri: item.artworkUrl }} style={styles.thumb} />
+        {onPlay && !playing && (
+          <View style={styles.thumbPlay} pointerEvents="none">
+            <PlayMark size={12} color="#ECEEF7" />
+          </View>
+        )}
+      </View>
+      <View style={styles.rowText}>
+        <Text style={[styles.rowTitle, playing && styles.rowTitleOn]} numberOfLines={1}>
+          {item.title}
+        </Text>
+        {playing ? (
+          <Text style={styles.rowPlaying}>{playingLabel}</Text>
+        ) : (
+          !!item.serialNo && <Text style={styles.rowSerial}>{item.serialNo}</Text>
+        )}
+      </View>
+    </>
+  );
+  return (
+    <View style={styles.row}>
+      {onPlay ? (
+        // 長押しは並べ替え（DragRow）に渡すので、ここでは軽く押したときだけ流す。
+        // onLongPress を空で置くのは、長押しのあと指を離したときに onPress が
+        // 走らないようにするため
+        <Pressable
+          onPress={onPlay}
+          onLongPress={() => {}}
+          delayLongPress={250}
+          style={({ pressed }) => [styles.rowMain, pressed && { opacity: 0.7 }]}
+          accessibilityRole="button"
+          accessibilityLabel={item.title}
+        >
+          {body}
+        </Pressable>
+      ) : (
+        <View style={styles.rowMain}>{body}</View>
+      )}
+      <View style={styles.rowActs}>{children}</View>
     </View>
-    <View style={styles.rowActs}>{children}</View>
-  </View>
-);
+  );
+};
 
 /**
  * 並べ替えられる 1 行。長押しで持ち上げ、上下に動かして離すと onDrop(from, to)。
@@ -178,9 +228,12 @@ export const PlaylistEditor: React.FC<Props> = ({
   onDone,
   onCancel,
   onDelete,
+  onPlayTrack,
 }) => {
   const t = useT();
   const padBottom = useBottomInset(16);
+  const pb = usePlaybackOptional();
+  const playingId = pb?.current?.id ?? null;
   const [name, setName] = useState('');
   const [ids, setIds] = useState<string[]>([]);
   const [deleteArmed, setDeleteArmed] = useState(false);
@@ -292,7 +345,12 @@ export const PlaylistEditor: React.FC<Props> = ({
                 onLift={onLift}
                 onDrop={onDrop}
               >
-                <Row item={item}>
+                <Row
+                  item={item}
+                  onPlay={onPlayTrack ? () => onPlayTrack(inList.map((x) => x.id), item.id) : undefined}
+                  playing={item.id === playingId}
+                  playingLabel={pb?.playing ? t('playback.playing') : t('playback.paused')}
+                >
                   <Act label="↑" a11y={t('playlist.moveUp')} onPress={() => move(i, -1)} disabled={i === 0} />
                   <Act
                     label="↓"
@@ -382,6 +440,21 @@ const styles = StyleSheet.create({
     paddingVertical: 11,
   },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 7 },
+  // サムネと曲名（押すと流せる行ではここが押せる）
+  rowMain: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  // サムネの上の ▶（押すと流せることの印）
+  thumbPlay: {
+    position: 'absolute',
+    left: 7,
+    top: 16,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: 'rgba(5,4,12,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingLeft: 2,
+  },
   // 並べ替えられる行。高さを固定して、指の移動量から落とす位置を決める
   dragRow: { height: ROW_H, justifyContent: 'center', borderRadius: 10 },
   thumb: { width: 36, height: 54, borderRadius: 5, backgroundColor: 'rgba(255,255,255,0.05)' },
@@ -389,6 +462,8 @@ const styles = StyleSheet.create({
   // 曲名は明朝・番号は数字の書体（ほかの画面と同じ）
   rowTitle: { color: C.text, fontSize: 14, letterSpacing: 0.6, fontFamily: JP_SERIF_FONT },
   rowSerial: { color: C.sub, fontSize: 11, letterSpacing: 1.6, marginTop: 3, fontFamily: NUM_FONT },
+  rowTitleOn: { color: C.cyan },
+  rowPlaying: { color: C.cyan, fontSize: 11, letterSpacing: 0.9, marginTop: 3 },
   rowActs: { flexDirection: 'row', gap: 6 },
   act: {
     minWidth: 36,

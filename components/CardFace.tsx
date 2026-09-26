@@ -21,6 +21,9 @@ import { View, Image } from 'react-native';
 import { CardAura } from './CardAura';
 import { CardSurface } from './CardSurface';
 
+/** 絵が届くまでのカードの地の色（夜空より一段明るい紺。落影の黒と見分けられる） */
+export const CARD_PLACEHOLDER = '#1E1C40';
+
 type Props = {
   uri: string;
   width: number;
@@ -40,6 +43,19 @@ const CardFaceImpl: React.FC<Props> = ({ uri, width, height, layerUris }) => {
     <View style={{ width, height }}>
       <CardAura width={width} height={height} />
       <View style={{ width, height }}>
+        {/* 絵が届くまでの下地。無いと落影だけが見えて真っ黒な板になる（2026-09-26）。
+            絵は不透明なので、届いたあとは見えない */}
+        <View
+          style={{
+            position: 'absolute',
+            left: 0,
+            top: 0,
+            width,
+            height,
+            borderRadius: 0.085 * width,
+            backgroundColor: CARD_PLACEHOLDER,
+          }}
+        />
         {layers.map((u) => (
           <Image
             key={u}

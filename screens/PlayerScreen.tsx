@@ -11,7 +11,9 @@
  *     （「カード間の距離が長い」との指摘。以前は 1 枚が画面の外まで飛んでから次が
  *     入ってくる作りだった）
  *   ・下に再生バナーを出したまま（親が footer で渡す）
- *   ・曲名の下に、いま見ているカードが流れている曲なら「再生中／一時停止中」
+ *   ・曲名の下に、いま見ているカードが流れている曲なら「再生中／一時停止中」、
+ *     そうでなければ「この曲を再生」（2026-09-26。払った先・別のリストのカードの曲へ
+ *     移る方法が無かった。岡さん相談②）。押すと、この並びをその曲から流す
  *
  * 札の並べ方は HOME（screens/DiscoverScreen.tsx）の輪の仕組みを小さくしたもの:
  *   ・札の位置は UI スレッドの dragX だけで決まり、絵柄が差し替わるのは画面の外の札だけ
@@ -45,7 +47,7 @@ import Animated, {
 import { CardGL, CARD_ASPECT, CARD_BACK_SCALE_MAX } from '../components/CardGL';
 import { CardFace } from '../components/CardFace';
 import { NebulaGL } from '../components/NebulaGL';
-import { ShareIcon } from '../components/icons';
+import { PlayMark, ShareIcon } from '../components/icons';
 import { COLOR, SPACE, homeCardWidth } from '../constants/design-tokens';
 import { JP_SERIF_FONT, NUM_FONT } from '../constants/fonts';
 import { SWIPE_SPRING, swipeDirection } from '../constants/swipe';
@@ -87,6 +89,8 @@ type Props = {
   onBackHome: () => void;
   /** 画面の下に置くもの（再生バナー） */
   footer?: React.ReactNode;
+  /** 「この曲を再生」。この並びをその曲から流す（親が再生の中枢へ渡す） */
+  onPlayHere?: (trackId: string) => void;
 };
 
 /** 輪の札の枚数。見えるのは中央 ±1 枚ぶんだけ。2.5 枚ぶん外で絵柄を差し替える */
@@ -104,11 +108,11 @@ const FLIP_HIDE_DEG = 6;
 const stepOf = (cardW: number) => (190 + 188.59 / 2 + 188.59 * 0.2) * (cardW / 188.59);
 /**
  * カードの下に並ぶ番号・曲名・状態の一行の高さ。styles の info〜sub の内訳と揃える
- *   カードとの間 20 ＋ 番号 16 ＋ 6 ＋ 曲名 28 ＋ 6 ＋ 状態 18
+ *   カードとの間 20 ＋ 番号 16 ＋ 6 ＋ 曲名 28 ＋ 10 ＋ 状態か「この曲を再生」34
  * コレクションの作品詳細と同じ並び（カードの真下に番号と曲名）。
  */
 const INFO_GAP = 20;
-const INFO_H = INFO_GAP + 16 + 6 + 28 + 6 + 18;
+const INFO_H = INFO_GAP + 16 + 6 + 28 + 10 + 34;
 
 /** 輪の札 1 枚（平らな絵）。絵柄が変わらないかぎり描き直さない */
 const RingSlot = React.memo(function RingSlot({
@@ -135,6 +139,7 @@ export const PlayerScreen: React.FC<Props> = ({
   backLabel = '‹ 戻る',
   onBackHome,
   footer,
+  onPlayHere,
 }) => {
   const t = useT();
   const pb = usePlaybackOptional();
@@ -491,6 +496,7 @@ export const PlayerScreen: React.FC<Props> = ({
   // 見ているカードが流れている曲なら、その状態を一行で
   const isPlayingCard = !!pb?.current && pb.current.id === shown.id;
   const sub = isPlayingCard ? (pb?.playing ? t('playback.playing') : t('playback.paused')) : ' ';
+  const canPlayHere = !isPlayingCard && !!onPlayHere;
 
   return (
     <View style={styles.root}>
@@ -523,11 +529,27 @@ export const PlayerScreen: React.FC<Props> = ({
 
             <Animated.View
               style={[styles.info, { top: cardCenterY + cardH / 2 + INFO_GAP }, infoFade]}
-              pointerEvents="none"
+              // 裏返している間は文字が消えているので、ボタンも押せないようにする
+              pointerEvents={flipped ? 'none' : 'box-none'}
             >
               <Text style={styles.no} numberOfLines={1}>{shown.serial ?? ' '}</Text>
               <Text style={styles.title} numberOfLines={1}>{shown.title}</Text>
-              <Text style={[styles.sub, isPlayingCard && styles.subOn]} numberOfLines={1}>{sub}</Text>
+              <View style={styles.subRow} pointerEvents="box-none">
+                {canPlayHere ? (
+                  <Pressable
+                    onPress={() => onPlayHere?.(shown.id)}
+                    hitSlop={8}
+                    style={({ pressed }) => [styles.playHere, pressed && styles.playHerePressed]}
+                    accessibilityRole="button"
+                    accessibilityLabel={t('playback.playThis')}
+                  >
+                    <PlayMark size={13} color={COLOR.auraCyan} />
+                    <Text style={styles.playHereText}>{t('playback.playThis')}</Text>
+                  </Pressable>
+                ) : (
+                  <Text style={[styles.sub, isPlayingCard && styles.subOn]} numberOfLines={1}>{sub}</Text>
+                )}
+              </View>
             </Animated.View>
           </>
         )}
@@ -573,15 +595,29 @@ const styles = StyleSheet.create({
     letterSpacing: 1.26,
     fontFamily: JP_SERIF_FONT,
   },
-  // 中身が無くても高さを確保する
+  // 状態の一行か「この曲を再生」。どちらでも高さは同じ（切り替わっても上が動かない）
+  subRow: { marginTop: 10, height: 34, alignItems: 'center', justifyContent: 'center' },
   sub: {
-    marginTop: 6,
     height: 18,
     lineHeight: 18,
     color: COLOR.textSecondary,
     fontSize: 11,
     letterSpacing: 0.9,
   },
+  // 控えめな副ボタン（主役はカード）。枠と字はシアン、地は透かし
+  playHere: {
+    height: 34,
+    paddingHorizontal: 18,
+    borderRadius: 17,
+    borderWidth: 1,
+    borderColor: 'rgba(96,206,224,0.45)',
+    backgroundColor: 'rgba(14,14,40,0.55)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+  },
+  playHerePressed: { opacity: 0.75, transform: [{ scale: 0.97 }] },
+  playHereText: { color: COLOR.textPrimary, fontSize: 12, letterSpacing: 1.6 },
   subOn: { color: COLOR.auraCyan },
   // 3D カードの描画面が上の見出しへはみ出してタップを奪わないよう、ここで切る
   cardArea: { flex: 1, overflow: 'hidden' },

@@ -75,6 +75,7 @@ import {
 import { CARD_VERTEX_SHADER, ART_FRAGMENT_SHADER, ALUMINUM_FRAGMENT_SHADER } from '../lib/cardShaders';
 import { CardAura } from './CardAura';
 import { CardSurface } from './CardSurface';
+import { CARD_PLACEHOLDER } from './CardFace';
 import { PurchaseGlow } from './PurchaseGlow';
 
 /**
@@ -1643,6 +1644,18 @@ export const CardGL: React.FC<CardGLProps> = ({
             {/* いま出す絵と、隣の札の絵を重ねて載せる。見えるのは shownUri の1枚だけで、
                 残りは opacity 0 のまま先に読み込ませておく。札が入れ替わっても
                 ビューは作り直されないので、不透明度が入れ替わるだけで済む。 */}
+            {/* 絵が届くまでの下地（CardFace と同じ色）。無いと真っ黒な板に見えた */}
+            <View
+              style={{
+                position: 'absolute',
+                left: 0,
+                top: 0,
+                width,
+                height,
+                borderRadius: CORNER_RATIO * width,
+                backgroundColor: CARD_PLACEHOLDER,
+              }}
+            />
             {frontLayers.map((uri) => (
               <Image
                 key={uri}

@@ -69,6 +69,7 @@ import { PurchaseModal } from '../components/PurchaseModal';
 import { EqBars } from '../components/EqBars';
 import { useTopInset } from '../lib/safeArea';
 import { useT } from '../lib/i18n';
+import { prefetchArt, waitArt } from '../lib/artPrefetch';
 import { usePlaybackOptional } from '../lib/playback';
 import { PurchaseParticles } from '../components/PurchaseParticles';
 import { PURCHASE, HOME_INTRO, homeCardWidth } from '../constants/design-tokens';
@@ -490,10 +491,37 @@ export const DiscoverScreen: React.FC<Props> = ({
     intro.bottom.interpolate({ inputRange: [0, 1], outputRange: [HOME_INTRO.bottomRiseFrom, 0] }),
   ).current;
 
+  // 最初の演出は、真ん中と両隣のカードの絵が届いてから始める（2026-09-26）。
+  // 届く前に灯すと、カードが真っ黒な板のまま出てきて、あとから絵が差し込まれていた。
+  // 待つのは最大 2.5 秒（曲の一覧がまだ無いときも含めて、マウントから最大 4 秒）。
+  // そのあいだ画面は暗いまま＝もともとの「暗転から灯る」の手前が少し延びるだけ。
+  const [artReady, setArtReady] = useState(!introOnMount);
+  useEffect(() => {
+    if (artReady) return;
+    const giveUp = setTimeout(() => setArtReady(true), 4000);
+    return () => clearTimeout(giveUp);
+  }, [artReady]);
+  const artWaitStarted = useRef(false);
+  useEffect(() => {
+    if (artReady || artWaitStarted.current || tracks.length === 0) return;
+    artWaitStarted.current = true;
+    const n = tracks.length;
+    const at = (p: number) => tracks[((p % n) + n) % n]?.artworkUrl;
+    const p = posRef.current;
+    let alive = true;
+    waitArt([at(p), at(p - 1), at(p + 1)], 2500).then(() => {
+      if (alive) setArtReady(true);
+    });
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tracks, artReady]);
+
   useEffect(() => {
     // DEBUG_BACKDROP_ONLY では値が 1 から始まるので、走らせても見た目は変わらない
     // （完了通知だけが親へ返る）。ここで弾くと onIntroDone が永久に来ない。
-    if (!introOnMount || introStarted.current || slideH <= 0) return;
+    if (!introOnMount || introStarted.current || slideH <= 0 || !artReady) return;
     introStarted.current = true;
     let cancelled = false;
 
@@ -548,7 +576,7 @@ export const DiscoverScreen: React.FC<Props> = ({
       cancelled = true;
       cancelAnimationFrame(raf);
     };
-  }, [slideH, introOnMount, intro]);
+  }, [slideH, introOnMount, intro, artReady]);
 
   const { width: screenW, height: screenH } = useWindowDimensions();
   const count = tracks.length;
@@ -1876,10 +1904,9 @@ export const DiscoverScreen: React.FC<Props> = ({
   }, [introDone, layoutReady]);
 
   // 起動時に全作品の絵を先読みしておく（スワイプ後に絵が遅れて出るのを防ぐ）
+  // （App でも曲の一覧が届いた時点で始めている。同じ URL は二度取りに行かない）
   useEffect(() => {
-    tracks.forEach((t) => {
-      if (t.artworkUrl) Image.prefetch(t.artworkUrl).catch(() => {});
-    });
+    prefetchArt(tracks.map((t) => t.artworkUrl));
   }, [tracks]);
 
   const isPreviewing = playingId != null && playingId === shown?.id;

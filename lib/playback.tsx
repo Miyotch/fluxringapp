@@ -46,8 +46,16 @@ export type PlaybackController = {
   /** フル音源が取れず試聴音源で鳴らしているときなどの一言 */
   note: string | null;
   repeat: Repeat;
-  /** 曲順どおりのトラックで流し始める。startId が無ければ先頭から */
-  playQueue: (tracks: PlayerTrack[], startId?: string) => void;
+  /**
+   * いま流しているキューをどこから流したか（マイリストのリストの id など）。
+   * 流しているリストのチップを明滅させるのに使う（2026-09-26 岡さん相談①）
+   */
+  source: string | null;
+  /**
+   * 曲順どおりのトラックで流し始める。startId が無ければ先頭から。
+   * source は流したリストの目印（無ければ null）
+   */
+  playQueue: (tracks: PlayerTrack[], startId?: string, source?: string | null) => void;
   toggle: () => void;
   pause: () => void;
   next: () => void;
@@ -95,6 +103,7 @@ export const PlaybackProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [repeat, setRepeatState] = useState<Repeat>('ring');
   const [loading, setLoading] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  const [source, setSource] = useState<string | null>(null);
 
   // 非同期の処理（URL 解決・曲の終わり）から最新の値を読むための写し
   const queueRef = useRef<PlayerTrack[]>([]);
@@ -210,10 +219,11 @@ export const PlaybackProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   );
 
   const playQueue = useCallback(
-    (tracks: PlayerTrack[], startId?: string) => {
+    (tracks: PlayerTrack[], startId?: string, from?: string | null) => {
       if (tracks.length === 0) return;
       queueRef.current = tracks;
       setQueue(tracks);
+      setSource(from ?? null);
       const i = Math.max(0, startId ? tracks.findIndex((t) => t.id === startId) : 0);
       load(i, true);
     },
@@ -277,6 +287,7 @@ export const PlaybackProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     lockActive.current = false;
     queueRef.current = [];
     setQueue([]);
+    setSource(null);
     setIndex(0);
     setLoading(false);
     setNote(null);
@@ -332,6 +343,7 @@ export const PlaybackProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       loading: loading || (!!current && !status.isLoaded && !note),
       note,
       repeat,
+      source,
       playQueue,
       toggle,
       pause,
@@ -353,6 +365,7 @@ export const PlaybackProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       loading,
       note,
       repeat,
+      source,
       playQueue,
       toggle,
       pause,

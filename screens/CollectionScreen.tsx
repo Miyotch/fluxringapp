@@ -129,7 +129,9 @@ type Props = {
    * マイプレイリストから流す。startId あり＝カードを押した（その曲から流して再生画面へ）、
    * なし＝「このプレイリストを再生」（先頭から流す・画面は移らない）
    */
-  onPlayList?: (trackIds: string[], startId?: string) => void;
+  onPlayList?: (trackIds: string[], startId?: string, source?: string) => void;
+  /** マイリストの編集シートから、その並びをその曲から流す（画面は移らない） */
+  onPlayFrom?: (trackIds: string[], startId: string, source?: string) => void;
 };
 
 // マイコレ／ウィッシュリストの並び順。両者とも props（owned/wishlist）の順は
@@ -272,6 +274,7 @@ export const CollectionScreen: React.FC<Props> = ({
   purchase,
   playlists,
   onPlayList,
+  onPlayFrom,
 }) => {
   const t = useT();
   const titleTop = useTopInset(12); // 設定タブの見出しと同じ高さ（従来は 14）
@@ -903,7 +906,8 @@ export const CollectionScreen: React.FC<Props> = ({
           <MyPlaylists
             owned={ownedSorted}
             playlists={playlists}
-            onPlayList={(ids, startId) => onPlayList?.(ids, startId)}
+            onPlayList={(ids, startId, source) => onPlayList?.(ids, startId, source)}
+            onPlayFrom={onPlayFrom}
             onDiscover={onDiscover}
           />
         ) : seg === 'mine' ? (

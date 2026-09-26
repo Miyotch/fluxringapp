@@ -38,6 +38,7 @@ import { PlaybackProvider, usePlayback } from './lib/playback';
 import { NowPlayingBar } from './components/NowPlayingBar';
 import { shuffle } from './lib/shuffle';
 import { prefetchArtwork } from './constants/artwork';
+import { prefetchArt } from './lib/artPrefetch';
 import { ANIM, HOME_INTRO } from './constants/design-tokens';
 
 import { Footer, TabKey } from './components/Footer';
@@ -60,6 +61,7 @@ import { ArtistScreen, ArtistTrack } from './screens/ArtistScreen';
 import type { StoryData } from './screens/StoryScreen';
 import { StoryScreen } from './screens/StoryScreen';
 import { PlayerScreen, PlayerTrack } from './screens/PlayerScreen';
+import { ALL_OWNED } from './components/MyPlaylists';
 import { VipScreen } from './screens/VipScreen';
 import type { Notice } from './screens/NotificationsScreen';
 // import { ComponentGallery } from './screens/ComponentGallery'; // 部品デモを見るとき有効化
@@ -157,7 +159,14 @@ function AppInner() {
    * カード。key は同じ画面のまま別の並びを開き直すとき（再生バナーを押したとき）に
    * 作り直すため
    */
-  const [viewer, setViewer] = useState<{ ids: string[]; startId: string; key: number } | null>(
+  // source = 眺めている並びのリストの目印（マイリストのリスト id など）。「この曲を再生」で
+  // この並びを流したとき、そのリストのチップが明滅する
+  const [viewer, setViewer] = useState<{
+    ids: string[];
+    startId: string;
+    key: number;
+    source: string | null;
+  } | null>(
     null,
   );
   // 再生バナーの高さ（HOME で購入ボタンを逃がす量）
@@ -306,6 +315,18 @@ function AppInner() {
     [discoverTracks, ownedTrackIds],
   );
 
+  // 作品の絵の先読み。曲の一覧が届いた時点（起動画面の裏）で始める。以前は HOME を
+  // 開いてから始めていたので、初回起動ではカードが真っ黒のまま灯っていた（2026-09-26）。
+  // 先に要る順: HOME の最初の数枚 → 所有曲（マイリスト）→ HOME の残り → ほか全部
+  useEffect(() => {
+    prefetchArt([
+      ...homeTracks.slice(0, 3).map((t) => t.artworkUrl),
+      ...ownedItems.map((t) => t.artworkUrl),
+      ...homeTracks.map((t) => t.artworkUrl),
+      ...discoverTracks.map((t) => t.artworkUrl),
+    ]);
+  }, [homeTracks, ownedItems, discoverTracks]);
+
   // 再生画面が扱うトラック一覧（＝マイコレの並び順）。曲送り／戻しはこの並びを辿る。
   // カード裏面（アルミ刻印）にホームと同じ内容を出すため、CollectionItem
   // （表示専用・裏面情報を持たない）ではなく discoverTracks（Firestore の
@@ -349,8 +370,13 @@ function AppInner() {
   }, [viewer, playerTracks, playback.queue]);
   /** カードを眺める画面を開く */
   const openViewer = useCallback(
-    (ids: string[], startId: string, returnTab: 'home' | 'collection') => {
-      setViewer({ ids, startId, key: Date.now() });
+    (
+      ids: string[],
+      startId: string,
+      returnTab: 'home' | 'collection',
+      source: string | null = null,
+    ) => {
+      setViewer({ ids, startId, key: Date.now(), source });
       setPlayerReturnTab(returnTab);
       setOverlay('player');
     },
@@ -363,7 +389,7 @@ function AppInner() {
   );
   /** 所有曲すべてをシリアル番号順で、その曲から流す */
   const playOwnedFrom = useCallback(
-    (id: string) => playback.playQueue(ownedQueue, id),
+    (id: string) => playback.playQueue(ownedQueue, id, ALL_OWNED),
     [playback, ownedQueue],
   );
   /**
@@ -377,6 +403,7 @@ function AppInner() {
       playback.queue.map((x) => x.id),
       cur.id,
       overlay === 'player' ? playerReturnTab : tab === 'collection' ? 'collection' : 'home',
+      playback.source,
     );
   }, [playback, openViewer, overlay, playerReturnTab, tab]);
 
@@ -591,6 +618,9 @@ function AppInner() {
         }}
         // 再生の操作は再生バナーだけ（2026-09-25 岡さん案）。この画面でも出したまま
         footer={<NowPlayingBar onOpen={openPlayerFromBanner} />}
+        // 見ているカードが流れている曲でないときの「この曲を再生」。眺めている並びを
+        // その曲から流す（2026-09-26 岡さん相談②）
+        onPlayHere={(id) => playback.playQueue(viewerTracks, id, viewer.source)}
       />
     );
   }
@@ -714,29 +744,36 @@ function AppInner() {
               allWorks={allWorkItems}
               purchase={purchase}
               playlists={playlists}
-              onPlayList={(ids, startId) => {
+              onPlayList={(ids, startId, source) => {
                 // 「このプレイリストを再生」（startId なし）→ その場で流れ始め、下に
                 // 再生バナーが出る（Spotify と同じ。画面は移らない。2026-09-24）
                 const byId = new Map(playerTracks.map((t) => [t.id, t]));
                 const tracks = ids.map((id) => byId.get(id)).filter((t): t is PlayerTrack => !!t);
                 if (!tracks.length) return;
                 if (!startId) {
-                  playback.playQueue(tracks);
+                  playback.playQueue(tracks, undefined, source);
                   return;
                 }
                 // カードを押した → カードを大きく眺める画面を開く（2026-09-25 岡さん案）。
                 // 流れていないときだけ、このリストの並びでその曲から流し始める
                 // （所有カードの「カードをタップして再生」）。流れているときは曲を
                 // 変えない。再生の操作は再生バナーだけ
-                if (!playback.isPlayingNow()) playback.playQueue(tracks, startId);
-                openViewer(ids, startId, 'collection');
+                if (!playback.isPlayingNow()) playback.playQueue(tracks, startId, source);
+                openViewer(ids, startId, 'collection', source ?? null);
+              }}
+              onPlayFrom={(ids, startId, source) => {
+                // 編集シートで曲の行を押した → 並びのまま、その曲から流す（はっきり
+                // 押したので、流れていても切り替える）。画面は移らない（2026-09-26）
+                const byId = new Map(playerTracks.map((t) => [t.id, t]));
+                const tracks = ids.map((id) => byId.get(id)).filter((t): t is PlayerTrack => !!t);
+                if (tracks.length) playback.playQueue(tracks, startId, source);
               }}
               onOpenTrack={(id) => {
                 // 作品詳細の ▶（所有済み）→ 所有曲すべてをこの曲から流し、カードを
                 // 眺める画面へ（▶ は「流す」をはっきり押したので、流れていても切り替える）
                 if (playerTracks.some((tr) => tr.id === id)) {
                   playOwnedFrom(id);
-                  openViewer(ownedQueue.map((x) => x.id), id, 'collection');
+                  openViewer(ownedQueue.map((x) => x.id), id, 'collection', ALL_OWNED);
                 } else {
                   setOverlay('story');
                 }

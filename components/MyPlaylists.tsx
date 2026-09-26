@@ -13,7 +13,7 @@
  *   ・「このプレイリストを再生」→ 先頭から流す。画面は移らず、下に再生バナー
  */
 
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   FlatList,
   Pressable,
@@ -23,12 +23,22 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
+import Animated, {
+  Easing,
+  cancelAnimation,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withTiming,
+} from 'react-native-reanimated';
 import { CardFace } from './CardFace';
 import { CARD_ASPECT } from './CardGL';
 import { PlayMark } from './icons';
+import { EqBars } from './EqBars';
 import { PlaylistEditor, type EditorTrack } from './PlaylistEditor';
 import { NUM_FONT, JP_SERIF_FONT } from '../constants/fonts';
 import { useT } from '../lib/i18n';
+import { usePlaybackOptional } from '../lib/playback';
 import type { PlaylistsController } from '../lib/usePlaylists';
 
 type Item = { id: string; title: string; artworkUrl: string; serialNo?: string };
@@ -42,11 +52,39 @@ type Props = {
    * startId あり（カードを押した）＝その曲の再生画面を開く。すぐには流さず、再生画面の
    * 再生ボタンを押したときに、この並びで流し始める（2026-09-25 岡さん指示）
    */
-  onPlayList: (trackIds: string[], startId?: string) => void;
+  onPlayList: (trackIds: string[], startId?: string, source?: string) => void;
+  /** 編集シートで曲の行を押した → 画面は移らず、その並びをその曲から流す */
+  onPlayFrom?: (trackIds: string[], startId: string, source?: string) => void;
   onDiscover: () => void;
 };
 
-const ALL = '__all__';
+/** スロット 1（所有曲すべて）の目印。再生の中枢の source にもこの値を渡す */
+export const ALL_OWNED = '__all__';
+const ALL = ALL_OWNED;
+
+/**
+ * 流しているリストのチップの縁。流れている間はゆっくり明滅し、一時停止中は
+ * 灯ったまま止まる（2026-09-26 岡さん相談①「いまどのプレイリストが流れているか」）
+ */
+const LiveRing: React.FC<{ playing: boolean }> = ({ playing }) => {
+  const v = useSharedValue(1);
+  useEffect(() => {
+    if (playing) {
+      v.value = 1;
+      v.value = withRepeat(
+        withTiming(0.25, { duration: 1100, easing: Easing.inOut(Easing.quad) }),
+        -1,
+        true,
+      );
+    } else {
+      cancelAnimation(v);
+      v.value = withTiming(1, { duration: 200 });
+    }
+    return () => cancelAnimation(v);
+  }, [playing, v]);
+  const style = useAnimatedStyle(() => ({ opacity: v.value }));
+  return <Animated.View pointerEvents="none" style={[styles.liveRing, style]} />;
+};
 const CARD_GAP = 18;
 /**
  * カードのまわりの高さ（見出し・カードの下の番号と曲名・再生ボタン）。
@@ -67,9 +105,13 @@ export const MyPlaylists: React.FC<Props> = ({
   owned,
   playlists,
   onPlayList,
+  onPlayFrom,
   onDiscover,
 }) => {
   const t = useT();
+  // 流しているリスト（何か流れているときだけ）
+  const pb = usePlaybackOptional();
+  const liveSource = pb?.current ? pb.source : null;
   const { width: screenW } = useWindowDimensions();
   // チップの下の残りの高さ。見出し・カード・ボタンの塊をここに収めて縦の中央へ置く
   // （以前は上詰めで、小さな端末では再生ボタンが再生バナーの裏に隠れた）
@@ -139,6 +181,7 @@ export const MyPlaylists: React.FC<Props> = ({
   // 件数は下の見出しに出すので、チップは名前だけ（同じ数を二度読ませない）
   const chip = (key: string, label: string) => {
     const on = slot === key;
+    const live = key === liveSource;
     return (
       <Pressable
         key={key}
@@ -151,10 +194,15 @@ export const MyPlaylists: React.FC<Props> = ({
         ]}
         accessibilityRole="button"
         accessibilityState={{ selected: on }}
+        accessibilityHint={live ? t('playback.playing') : undefined}
       >
-        <Text style={[styles.chipText, on && styles.chipTextOn]} numberOfLines={1}>
-          {label}
-        </Text>
+        {live && <LiveRing playing={!!pb?.playing} />}
+        <View style={styles.chipInner}>
+          {live && <EqBars active={!!pb?.playing} keepIdle />}
+          <Text style={[styles.chipText, (on || live) && styles.chipTextOn]} numberOfLines={1}>
+            {label}
+          </Text>
+        </View>
       </Pressable>
     );
   };
@@ -219,7 +267,7 @@ export const MyPlaylists: React.FC<Props> = ({
           style={{ flexGrow: 0 }}
           renderItem={({ item }) => (
             <Pressable
-              onPress={() => onPlayList(tracks.map((x) => x.id), item.id)}
+              onPress={() => onPlayList(tracks.map((x) => x.id), item.id, slot)}
               style={({ pressed }) => [{ width: cardW }, pressed && { opacity: 0.85 }]}
               accessibilityRole="button"
               accessibilityLabel={item.title}
@@ -239,10 +287,22 @@ export const MyPlaylists: React.FC<Props> = ({
       {/* 所有カードは自動で流さない。カードを押して再生画面を開き、そこで
           再生ボタンを押して流す（2026-09-25 岡さん指示）。自分で作ったリストは
           「このプレイリストを再生」で、この並びのまま順に流せる */}
-      {current ? (
+      {slot === liveSource ? (
+        <Pressable
+          onPress={() => pb?.toggle()}
+          style={({ pressed }) => [styles.play, styles.playLive, pressed && { transform: [{ scale: 0.97 }] }]}
+          accessibilityRole="button"
+          accessibilityHint={pb?.playing ? t('playback.pause') : t('playback.play')}
+        >
+          {pb?.playing ? <EqBars active keepIdle /> : <PlayMark size={15} color={C.cyan} />}
+          <Text style={[styles.playText, styles.playTextLive]}>
+            {pb?.playing ? t('playlist.playingNow') : t('playlist.pausedNow')}
+          </Text>
+        </Pressable>
+      ) : current ? (
         <Pressable
           disabled={tracks.length === 0}
-          onPress={() => onPlayList(tracks.map((x) => x.id))}
+          onPress={() => onPlayList(tracks.map((x) => x.id), undefined, slot)}
           style={({ pressed }) => [
             styles.play,
             tracks.length === 0 && { opacity: 0.35 },
@@ -266,6 +326,12 @@ export const MyPlaylists: React.FC<Props> = ({
         onDone={onEditorDone}
         onCancel={() => setEditorFor(null)}
         onDelete={editing ? onEditorDelete : undefined}
+        // 下書きの並びのまま流す。作り途中（まだ保存していない新しいリスト）は目印なし
+        onPlayTrack={
+          onPlayFrom
+            ? (ids, id) => onPlayFrom(ids, id, editorFor && editorFor !== 'new' ? editorFor : undefined)
+            : undefined
+        }
       />
     </View>
   );
@@ -274,7 +340,8 @@ export const MyPlaylists: React.FC<Props> = ({
 const styles = StyleSheet.create({
   root: { flex: 1 },
   // チップの上は 24。上端のフェード（22px）にチップの縁がかからないように
-  chips: { paddingHorizontal: 22, paddingTop: 24, gap: 8 },
+  // 下の 6 は、流しているチップの外側の光（上下 4px）が切れないように
+  chips: { paddingHorizontal: 22, paddingTop: 24, paddingBottom: 6, gap: 8 },
   // 見出し・カード・ボタンの塊。残りの高さの縦の中央に置く
   body: { flex: 1, justifyContent: 'center', paddingBottom: 16 },
   chip: {
@@ -286,7 +353,20 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   chipOn: { borderColor: C.cyan, backgroundColor: C.chipOn },
+  // 流しているリストの縁（チップの枠に重ねて明滅させる）
+  liveRing: {
+    position: 'absolute',
+    left: -4,
+    right: -4,
+    top: -4,
+    bottom: -4,
+    borderRadius: 21,
+    borderWidth: 1,
+    borderColor: 'rgba(96,206,224,0.7)',
+    backgroundColor: 'rgba(96,206,224,0.08)',
+  },
   chipNew: { borderStyle: 'dashed' },
+  chipInner: { flexDirection: 'row', alignItems: 'center', gap: 7 },
   chipText: { color: C.sub, fontSize: 12, letterSpacing: 0.6 },
   chipTextOn: { color: C.cyan },
   head: {
@@ -328,6 +408,9 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   playText: { color: C.text, fontSize: 13, letterSpacing: 2 },
+  // 流しているリストのボタン（再生中）。地をシアンで灯して、押す前のボタンと見分ける
+  playLive: { borderColor: C.cyan, backgroundColor: 'rgba(96,206,224,0.16)' },
+  playTextLive: { color: C.cyan },
   // 所有カードの案内文。再生ボタンと同じ位置・高さに置き、切り替えても下が動かない
   tapHint: {
     alignSelf: 'center',
