@@ -33,9 +33,12 @@ import { useArtists } from './lib/useArtists';
 import { useUserProfileSync } from './lib/useUserProfileSync';
 import { useArticles } from './lib/useArticles';
 import { useWishlist } from './lib/useWishlist';
-import { useFavorites } from './lib/useFavorites';
+import { usePlaylists } from './lib/usePlaylists';
+import { PlaybackProvider, usePlayback } from './lib/playback';
+import { NowPlayingBar } from './components/NowPlayingBar';
 import { shuffle } from './lib/shuffle';
 import { prefetchArtwork } from './constants/artwork';
+import { prefetchArt } from './lib/artPrefetch';
 import { ANIM, HOME_INTRO } from './constants/design-tokens';
 
 import { Footer, TabKey } from './components/Footer';
@@ -55,16 +58,16 @@ import {
   DocumentScreen,
 } from './screens/SettingsDetailScreens';
 import { ArtistScreen, ArtistTrack } from './screens/ArtistScreen';
+import type { StoryData } from './screens/StoryScreen';
 import { StoryScreen } from './screens/StoryScreen';
 import { PlayerScreen, PlayerTrack } from './screens/PlayerScreen';
-import type { CardOrigin, CardOriginItem } from './components/CardAfterimage';
+import { ALL_OWNED } from './components/MyPlaylists';
 import { VipScreen } from './screens/VipScreen';
 import type { Notice } from './screens/NotificationsScreen';
 // import { ComponentGallery } from './screens/ComponentGallery'; // 部品デモを見るとき有効化
 
 import {
   STUB_NOTICES,
-  STUB_STORY,
   STUB_VIP_CARDS,
 } from './constants/stubData';
 
@@ -147,16 +150,28 @@ function AppInner() {
   // 設定の末端画面（account/restore/language/support/thanks/terms/privacy/tokushoho）
   const [settingsDetail, setSettingsDetail] = useState<SettingsKey | null>(null);
 
-  // 再生対象（player へ渡す）
-  // 再生対象は「所有一覧の中の id」で持つ。曲送り／戻しで前後の曲へ移るとき、
-  // track オブジェクトを直接持っていると一覧との対応が取れないため。
-  const [playerTrackId, setPlayerTrackId] = useState<string | null>(null);
-  // コレクションでタップされたタイルの画面絶対座標（再生画面のフライトイン演出の起点）
-  const [playerOrigin, setPlayerOrigin] = useState<CardOrigin | null>(null);
-  // タップ時点でコレクション画面に見えていた所有済みタイル全ての座標＋アートワーク
-  // （再生画面でその全箇所に残像を残す）
-  const [playerAfterimages, setPlayerAfterimages] = useState<CardOriginItem[]>([]);
-  // 再生画面をどのタブから開いたか（「戻る」の遷移先とラベル文言の出し分けに使う）
+  // 音はアプリ全体の再生の中枢（lib/playback.tsx）が持つ（0.2.0 第 2 段階）。
+  // 再生の操作は再生バナーだけ（2026-09-25 岡さん案）。カードを眺める画面は
+  // 「どのリストの、どのカードから見るか」だけを持つ。
+  const playback = usePlayback();
+  /**
+   * カードを眺める画面で見るもの。ids＝見る並び（開いたリストの曲順）、startId＝最初の
+   * カード。key は同じ画面のまま別の並びを開き直すとき（再生バナーを押したとき）に
+   * 作り直すため
+   */
+  // source = 眺めている並びのリストの目印（マイリストのリスト id など）。「この曲を再生」で
+  // この並びを流したとき、そのリストのチップが明滅する
+  const [viewer, setViewer] = useState<{
+    ids: string[];
+    startId: string;
+    key: number;
+    source: string | null;
+  } | null>(
+    null,
+  );
+  // 再生バナーの高さ（HOME で購入ボタンを逃がす量）
+  const [bannerH, setBannerH] = useState(0);
+  // カードを眺める画面をどのタブから開いたか（「戻る」の戻り先）
   const [playerReturnTab, setPlayerReturnTab] = useState<'home' | 'collection'>('collection');
   // ホーム（ディスカバー）で最初に表示するカード id（ウィッシュから飛んできたとき用）
   const [homeFocusId, setHomeFocusId] = useState<string | null>(null);
@@ -166,6 +181,12 @@ function AppInner() {
   // 作家画面をカード裏面から開いたか。true のときは「戻る」でも設定タブへは
   // 飛ばさず、いたタブのままオーバーレイを閉じるだけにする。
   const [artistOpenedFromCard, setArtistOpenedFromCard] = useState(false);
+  /**
+   * 開いているストーリー（作家の楽曲一覧でカードをタップしたとき）。
+   * 以前は常に固定のスタブ（STUB_STORY・曲名「冬明け」・作家「岡 ナオキ」・
+   * 432Hz 等）を出していて、どの曲を押しても同じ内容だった（2026-09-25 実機報告）。
+   */
+  const [storyTrackId, setStoryTrackId] = useState<string | null>(null);
 
   // アプリ内課金と所有権。アプリ全体で1つだけ持つ（ストア接続・購入イベントの
   // 購読・未完了トランザクションの引き取りが二重に走らないようにするため）。
@@ -183,7 +204,15 @@ function AppInner() {
 
   // お気に入り。ウィッシュリストとは別の集合で、所有済みの曲にも付けられる
   // （再生画面の★。2026-09-20 指示）。
-  const favorites = useFavorites();
+
+  // マイプレイリスト（スロット 2 以降）。スロット 1（所有曲すべて）は所有から作る
+  // ので、ここでは持たない（2026-09-24）。
+  const playlists = usePlaylists();
+
+  // HOME のカードの★でウィッシュリストに入れたとき、光の粒がフッターの
+  // プレイリストタブに着いた回数。増えるたびにタブが一度脈打つ。
+  const [wishPulse, setWishPulse] = useState(0);
+  const bumpWishPulse = useCallback(() => setWishPulse((n) => n + 1), []);
 
   // ホームの楽曲一覧 = Firestore の tracks コレクションのみ（CMS経由で追加され、
   // 試聴・購入後のフル音源URLも自身のドキュメントに持つ）。同梱の STUB_TRACKS
@@ -223,7 +252,11 @@ function AppInner() {
     setArtistOpenedFromCard(true);
     setOverlay('artist');
   }, []);
-
+  const openStory = useCallback((trackId: string, artistId: string) => {
+    setStoryTrackId(trackId);
+    setArtistFocusId(artistId); // ストーリーの「Artist」からこの作家へ正しく戻るため
+    setOverlay('story');
+  }, []);
   // 所有集合。Firestore（購入で増えたぶん）が正。
   const ownedTrackIds = useMemo(() => new Set<string>(ownedIds), [ownedIds]);
 
@@ -282,6 +315,18 @@ function AppInner() {
     [discoverTracks, ownedTrackIds],
   );
 
+  // 作品の絵の先読み。曲の一覧が届いた時点（起動画面の裏）で始める。以前は HOME を
+  // 開いてから始めていたので、初回起動ではカードが真っ黒のまま灯っていた（2026-09-26）。
+  // 先に要る順: HOME の最初の数枚 → 所有曲（マイリスト）→ HOME の残り → ほか全部
+  useEffect(() => {
+    prefetchArt([
+      ...homeTracks.slice(0, 3).map((t) => t.artworkUrl),
+      ...ownedItems.map((t) => t.artworkUrl),
+      ...homeTracks.map((t) => t.artworkUrl),
+      ...discoverTracks.map((t) => t.artworkUrl),
+    ]);
+  }, [homeTracks, ownedItems, discoverTracks]);
+
   // 再生画面が扱うトラック一覧（＝マイコレの並び順）。曲送り／戻しはこの並びを辿る。
   // カード裏面（アルミ刻印）にホームと同じ内容を出すため、CollectionItem
   // （表示専用・裏面情報を持たない）ではなく discoverTracks（Firestore の
@@ -306,18 +351,61 @@ function AppInner() {
       })),
     [discoverTracks, ownedTrackIds],
   );
-  const playerIndex = playerTracks.findIndex((t) => t.id === playerTrackId);
-  const playerTrack = playerIndex >= 0 ? playerTracks[playerIndex] : null;
-  // 2曲以上あるときだけ曲送り／戻しを渡す。端は巻き戻して循環させる。
-  const canSkip = playerTracks.length > 1;
-  const goTrack = useCallback(
-    (delta: number) => {
-      if (playerIndex < 0 || playerTracks.length === 0) return;
-      const n = playerTracks.length;
-      setPlayerTrackId(playerTracks[(playerIndex + delta + n) % n].id);
+  // 所有曲すべての再生順＝シリアル番号順（マイプレイリストのスロット 1 と同じ）。
+  // HOME の「再生」・作品詳細の「再生する」・タイルから流すときのキュー。
+  const ownedQueue = useMemo<PlayerTrack[]>(() => {
+    const serialNum = (t: PlayerTrack) => {
+      const d = t.serial?.replace(/[^0-9]/g, '');
+      return d ? Number(d) : Number.POSITIVE_INFINITY;
+    };
+    return [...playerTracks].sort((a, b) => serialNum(a) - serialNum(b));
+  }, [playerTracks]);
+  // カードを眺める画面の並び（所有曲と、いま流している並びから引く）
+  const viewerTracks = useMemo<PlayerTrack[]>(() => {
+    if (!viewer) return [];
+    const byId = new Map<string, PlayerTrack>();
+    playerTracks.forEach((x) => byId.set(x.id, x));
+    playback.queue.forEach((x) => byId.set(x.id, x));
+    return viewer.ids.map((id) => byId.get(id)).filter((x): x is PlayerTrack => !!x);
+  }, [viewer, playerTracks, playback.queue]);
+  /** カードを眺める画面を開く */
+  const openViewer = useCallback(
+    (
+      ids: string[],
+      startId: string,
+      returnTab: 'home' | 'collection',
+      source: string | null = null,
+    ) => {
+      setViewer({ ids, startId, key: Date.now(), source });
+      setPlayerReturnTab(returnTab);
+      setOverlay('player');
     },
-    [playerIndex, playerTracks],
+    [],
   );
+  // 試聴で流していた曲を買ったら、その場で全編に切り替える
+  useEffect(
+    () => purchase.onSuccess((trackId) => playback.markOwned(trackId)),
+    [purchase, playback.markOwned],
+  );
+  /** 所有曲すべてをシリアル番号順で、その曲から流す */
+  const playOwnedFrom = useCallback(
+    (id: string) => playback.playQueue(ownedQueue, id, ALL_OWNED),
+    [playback, ownedQueue],
+  );
+  /**
+   * 再生バナーを押した → 流している並びのカードを、流れている曲から眺める。
+   * カードを眺める画面の中で押したときも、流れている曲のカードへ開き直す
+   */
+  const openPlayerFromBanner = useCallback(() => {
+    const cur = playback.current;
+    if (!cur) return;
+    openViewer(
+      playback.queue.map((x) => x.id),
+      cur.id,
+      overlay === 'player' ? playerReturnTab : tab === 'collection' ? 'collection' : 'home',
+      playback.source,
+    );
+  }, [playback, openViewer, overlay, playerReturnTab, tab]);
 
   // ウィッシュリストに並べる作品。★を付けた未所有ぶんを、全作品の並び（＝通し番号順）で引く。
   //   ・追加順に積まないのは、ウィッシュリストを「連作のどこが欠けているか」が見える場に
@@ -387,6 +475,30 @@ function AppInner() {
     return map;
   }, [discoverTracks, ownedTrackIds]);
 
+  /**
+   * ストーリー画面の中身。tracks コレクションの実データから組む
+   * （調律素材は tuning・frequencies・materials をまとめて最大 8 個）。
+   */
+  const storyData = useMemo<StoryData | null>(() => {
+    const tr = storyTrackId ? discoverTracks.find((t) => t.id === storyTrackId) : null;
+    if (!tr) return null;
+    const artist = tr.artistId ? artists.find((a) => a.id === tr.artistId) : undefined;
+    const materials = [tr.back?.tuning, ...(tr.back?.frequencies ?? []), ...(tr.back?.materials ?? [])]
+      .filter((m): m is string => !!m)
+      .slice(0, 8);
+    return {
+      trackId: tr.id,
+      artworkUrl: tr.artworkUrl,
+      title: tr.title,
+      story: tr.back?.story ?? tr.subtitle ?? '',
+      materials,
+      artistId: tr.artistId ?? '',
+      artistName: artist?.name ?? tr.back?.artist ?? '',
+      glowColor: tr.glowColor,
+      glowColor2: tr.glowColor2,
+    };
+  }, [storyTrackId, discoverTracks, artists]);
+
   const goApp = useCallback(() => {
     // アプリへ入るときはオンボ済みとして記録（次回はログイン画面から）
     AsyncStorage.setItem(KEY_ONBOARDED, '1').catch(() => {});
@@ -449,6 +561,8 @@ function AppInner() {
 
   // サインアウト／退会後: 起動フローへ戻す（再判定でログイン画面に落ちる）
   const restartLaunch = useCallback(() => {
+    // ログアウトなどで起動フローへ戻るときは、流している曲も止める（所有曲は人に紐づく）
+    playback.stop();
     setOverlay(null);
     setSettingsDetail(null);
     setTab('home');
@@ -459,7 +573,7 @@ function AppInner() {
     appFade.setValue(0);
     footerFade.setValue(0);
     decideLaunch();
-  }, [decideLaunch, appFade, footerFade]);
+  }, [decideLaunch, appFade, footerFade, playback]);
 
   // 同梱アートの展開（起動フローの裏で実行）。
   // downloadAsync で localUri（file://）を確定させ、Skia / GL テクスチャが
@@ -489,35 +603,41 @@ function AppInner() {
   }
 
   // ── オーバーレイ（フッター非表示） ──
-  if (overlay === 'player' && playerTrack) {
+  if (overlay === 'player' && viewer && viewerTracks.length > 0) {
     return (
       <PlayerScreen
-        track={playerTrack}
-        origin={playerOrigin ?? undefined}
-        afterimages={playerAfterimages}
-        // 遷移元（ホーム/コレクション）によらず文言は共通の「‹ 戻る」に統一
-        // （2026-09-22 指示で簡略化。実際の戻り先は onBackHome が制御する）。
+        key={viewer.key}
+        tracks={viewerTracks}
+        startId={viewer.startId}
         backLabel="‹ 戻る"
-        onPrevTrack={canSkip ? () => goTrack(-1) : undefined}
-        onNextTrack={canSkip ? () => goTrack(1) : undefined}
-        favorited={favorites.has(playerTrack.id)}
-        onToggleFavorite={() => favorites.toggle(playerTrack.id)}
         onBackHome={() => {
-          // 開いたタブへ戻す（ホーム再生ならホームへ、コレクションならコレクションへ）
+          // 開いたタブへ戻す。音は止めない（再生バナーで続く）
           setOverlay(null);
           setTab(playerReturnTab);
-          setPlayerOrigin(null);
+          setViewer(null);
         }}
+        // 再生の操作は再生バナーだけ（2026-09-25 岡さん案）。この画面でも出したまま
+        footer={<NowPlayingBar onOpen={openPlayerFromBanner} />}
+        // 見ているカードが流れている曲でないときの「この曲を再生」。眺めている並びを
+        // その曲から流す（2026-09-26 岡さん相談②）
+        onPlayHere={(id) => playback.playQueue(viewerTracks, id, viewer.source)}
       />
     );
   }
 
-  if (overlay === 'story') {
+  if (overlay === 'story' && storyData) {
     return (
       <StoryScreen
-        data={STUB_STORY}
-        onBack={() => setOverlay(null)}
-        onOpenArtist={() => setOverlay('artist')}
+        data={storyData}
+        onBack={() => {
+          setOverlay(null);
+          setStoryTrackId(null);
+        }}
+        onOpenArtist={(artistId) => {
+          setArtistFocusId(artistId);
+          setArtistOpenedFromCard(true); // 戻るは設定タブへ飛ばさず、元の場所のまま閉じる
+          setOverlay('artist');
+        }}
       />
     );
   }
@@ -536,7 +656,7 @@ function AppInner() {
           setArtistFocusId(null);
           setArtistOpenedFromCard(false);
         }}
-        onOpenStory={() => setOverlay('story')}
+        onOpenStory={openStory}
       />
     );
   }
@@ -605,18 +725,12 @@ function AppInner() {
               introOnMount={homeIntroPending}
               onIntroDone={() => setHomeIntroPending(false)}
               bottomInset={footerH}
+              bannerInset={playback.current ? bannerH : 0}
               onOpenArtist={openArtistFromCard}
-              onPlay={(id) => {
-                // 所有済みカードの「再生」押下 → 再生画面へ（コレクションのタイル起点が
-                // 無いので残像演出は出さない＝origin は null のまま）
-                if (playerTracks.some((tr) => tr.id === id)) {
-                  setPlayerTrackId(id);
-                  setPlayerOrigin(null);
-                  setPlayerAfterimages([]);
-                  setPlayerReturnTab('home');
-                  setOverlay('player');
-                }
-              }}
+              onWishAdded={bumpWishPulse}
+              // 所有済みカードは HOME では再生しない。「マイリストで聴けます」で
+              // マイリストのタブへ（2026-09-25 岡さん指示）
+              onOpenMyList={() => changeTab('collection')}
             />
           )}
 
@@ -629,14 +743,37 @@ function AppInner() {
               wishlistIds={wishlist.ids}
               allWorks={allWorkItems}
               purchase={purchase}
-              onOpenTrack={(id, origin, afterimages) => {
-                // 所有曲タップ → 再生画面（ワイヤーフレーム P3）
+              playlists={playlists}
+              onPlayList={(ids, startId, source) => {
+                // 「このプレイリストを再生」（startId なし）→ その場で流れ始め、下に
+                // 再生バナーが出る（Spotify と同じ。画面は移らない。2026-09-24）
+                const byId = new Map(playerTracks.map((t) => [t.id, t]));
+                const tracks = ids.map((id) => byId.get(id)).filter((t): t is PlayerTrack => !!t);
+                if (!tracks.length) return;
+                if (!startId) {
+                  playback.playQueue(tracks, undefined, source);
+                  return;
+                }
+                // カードを押した → カードを大きく眺める画面を開く（2026-09-25 岡さん案）。
+                // 流れていないときだけ、このリストの並びでその曲から流し始める
+                // （所有カードの「カードをタップして再生」）。流れているときは曲を
+                // 変えない。再生の操作は再生バナーだけ
+                if (!playback.isPlayingNow()) playback.playQueue(tracks, startId, source);
+                openViewer(ids, startId, 'collection', source ?? null);
+              }}
+              onPlayFrom={(ids, startId, source) => {
+                // 編集シートで曲の行を押した → 並びのまま、その曲から流す（はっきり
+                // 押したので、流れていても切り替える）。画面は移らない（2026-09-26）
+                const byId = new Map(playerTracks.map((t) => [t.id, t]));
+                const tracks = ids.map((id) => byId.get(id)).filter((t): t is PlayerTrack => !!t);
+                if (tracks.length) playback.playQueue(tracks, startId, source);
+              }}
+              onOpenTrack={(id) => {
+                // 作品詳細の ▶（所有済み）→ 所有曲すべてをこの曲から流し、カードを
+                // 眺める画面へ（▶ は「流す」をはっきり押したので、流れていても切り替える）
                 if (playerTracks.some((tr) => tr.id === id)) {
-                  setPlayerTrackId(id);
-                  setPlayerOrigin(origin ?? null);
-                  setPlayerAfterimages(afterimages ?? []);
-                  setPlayerReturnTab('collection');
-                  setOverlay('player');
+                  playOwnedFrom(id);
+                  openViewer(ownedQueue.map((x) => x.id), id, 'collection', ALL_OWNED);
                 } else {
                   setOverlay('story');
                 }
@@ -688,20 +825,31 @@ function AppInner() {
             ホームだけは下地を消して画面へかぶせる＝星空がフッターの裏まで続く。
             かぶせるぶん DiscoverScreen の描画領域が画面いっぱいになるので、
             高さを測って bottomInset として渡し、カードの位置は元のままに保つ。 */}
-        <Animated.View
-          style={[{ opacity: footerFade }, homeFooterFloats && styles.footerFloat]}
-          onLayout={(e) => {
-            const h = e.nativeEvent.layout.height;
-            setFooterH((prev) => (Math.abs(prev - h) < 0.5 ? prev : h));
-          }}
-        >
+        <Animated.View style={[{ opacity: footerFade }, homeFooterFloats && styles.footerFloat]}>
+          {/* 再生バナー（0.2.0 第 2 段階）。何か流しているあいだ、どのタブでも
+              フッターのすぐ上に出る。高さは HOME の購入ボタンを逃がす量に使う */}
+          <NowPlayingBar
+            onOpen={openPlayerFromBanner}
+            onLayout={(e) => {
+              const h = e.nativeEvent.layout.height;
+              setBannerH((prev) => (Math.abs(prev - h) < 0.5 ? prev : h));
+            }}
+          />
+          <View
+            onLayout={(e) => {
+              const h = e.nativeEvent.layout.height;
+              setFooterH((prev) => (Math.abs(prev - h) < 0.5 ? prev : h));
+            }}
+          >
           <Footer
             active={tab}
             onChange={changeTab}
             vipLocked={!vipUnlocked}
             transparent={homeFooterFloats}
             mediaUnread={hasUnreadNotices}
+            pulseKey={wishPulse}
           />
+          </View>
         </Animated.View>
       </Animated.View>
     </View>
@@ -715,7 +863,9 @@ export default function App() {
           ノッチ／Dynamic Island／ホームインジケータの実寸を取得する。 */}
       <SafeAreaProvider>
         <LanguageProvider>
-          <AppInner />
+          <PlaybackProvider>
+            <AppInner />
+          </PlaybackProvider>
         </LanguageProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

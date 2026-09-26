@@ -29,6 +29,7 @@ import {
   // この画面は reanimated の Animated / Easing も使うので別名で取り込む。
   Animated as RNAnimated,
   Easing as RNEasing,
+  Image,
 } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
@@ -42,9 +43,12 @@ import Animated, {
   withTiming,
   withSequence,
   withDelay,
+  withSpring,
   Easing,
   useReducedMotion,
 } from 'react-native-reanimated';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { SWIPE_SPRING, swipeDirection } from '../constants/swipe';
 import { useIdleFloat } from '../lib/useIdleFloat';
 import { useBackdropClock } from '../lib/usePausableClock';
 import { useAudioPlayer } from 'expo-audio';
@@ -59,11 +63,14 @@ import {
   CardGL,
   CARD_ASPECT,
 } from '../components/CardGL';
-import { BuyButton } from '../components/BuyButton';
+import { OrbitBuyButton } from '../components/OrbitBuyButton';
+import { FavBead, FlyDot, BEAD_HIT } from '../components/FavBead';
 import { PurchaseModal } from '../components/PurchaseModal';
-import { PreviewIcon, StarIcon } from '../components/icons';
 import { EqBars } from '../components/EqBars';
 import { useTopInset } from '../lib/safeArea';
+import { useT } from '../lib/i18n';
+import { prefetchArt, waitArt } from '../lib/artPrefetch';
+import { usePlaybackOptional } from '../lib/playback';
 import { PurchaseParticles } from '../components/PurchaseParticles';
 import { PURCHASE, HOME_INTRO, homeCardWidth } from '../constants/design-tokens';
 import { formatPrice, TRACK_PRICE_JPY } from '../constants/pricing';
@@ -116,13 +123,9 @@ const CAR_SETTLE_EASE = (t: number) => {
 // 200ms で完全に戻る＝目には「沈まずにそのまま入れ替わる」ようにする。
 const CAR_LAND_MS = 200; // ※ 現在は未使用（着地の暗転そのものを廃止した）
 const CAR_AXIS = 6;          // 軸判定＝タップ境界（参照 moved の 6px）
-// 裏面で横スワイプと認める距離(px)。表面の 6px より深くする（2026-09-23）。
-// 裏面では指のなぞりがカードの 3D 回転そのものなので、6px で取り上げると
-// 裏面を傾けて眺められなくなる。ここを越えたら「曲を送る意思」と見なして
-// 表へ戻しながら送る。
-const CAR_AXIS_BACK = 48;
-// これより速く払ったら 2 枚送る(px/s)。隣の隣まで描いてあるので 2 枚が上限
-const CAR_VEL2 = 1800;
+// ※ 裏面を横に払って次の札へ送る動き（CAR_AXIS_BACK）と、強く払ったときの
+//   2 枚送り（CAR_VEL2）は 2026-09-24 に外した。裏面を指で回して眺める操作と
+//   取り合い、2 枚送りは不自然に見えたため（岡さんとの打ち合わせで合意）。
 /**
  * カードの輪の枚数（2026-09-23）。7 枚を輪にして並べ、画面の外（中央から 3.5 枚
  * ぶん離れた所）で札を反対側へ回して絵柄を差し替える。見えている札の絵柄は
@@ -156,6 +159,25 @@ const PREVIEW_START_MS = 300;
 /** 試聴を止めるときのフェード(ms)と、その刻み */
 const PREVIEW_FADE_MS = 160;
 const PREVIEW_FADE_STEP_MS = 40;
+/**
+ * 試聴の鳴り始めのフェードイン(ms)。以前は 400ms で、曲の頭の一音（アタック）が
+ * 削れて聞こえた（2026-09-24）。切り出しの頭でプツッと鳴らない最小限だけ残す
+ */
+const PREVIEW_FADE_IN_MS = 80;
+/** カードがこれ以上傾いたら（裏返し始めたら）★を消す(度) */
+const FAV_HIDE_DEG = 6;
+/**
+ * 初回だけの操作の案内（2026-09-24 代表「やってみて考える」）。
+ * 止まっているときは隣のカードが見えず、裏返せることを示すものも無いので、
+ * 一度だけ「横にずれて戻る」と「少し傾いて戻る」を見せる。保存済みなら出さない。
+ */
+const HINT_KEY = 'fr.hint.cardOps.v1';
+/** intro が終わってから案内を始めるまで(ms) */
+const HINT_DELAY_MS = 1200;
+/** 横にずれる量（カード幅比）。隣のカードの端が画面に少し入るくらい */
+const HINT_NUDGE_R = 0.45;
+/** 横の案内のあと、傾きの案内を始めるまで(ms) */
+const HINT_GAP_MS = 1400;
 // 参照 2995行: 指が 7px 動いたら「押した」を取り消す（＝スワイプの入り口）
 const CARD_PRESS_SLOP = 7;
 
@@ -279,8 +301,17 @@ type Props = {
   onToggleWishlist?: (trackId: string) => void;
   /** 購入フロー。未指定なら購入ボタンは押しても何も起きない（ギャラリー表示用） */
   purchase?: PurchaseController;
-  /** 所有済みカードの「再生」ボタン押下 → 再生画面を開く。未指定なら何も起きない */
-  onPlay?: (trackId: string) => void;
+  /**
+   * 所有済みカードの「マイリストで聴けます」を押したとき → マイリストのタブへ。
+   * HOME では再生しない（2026-09-25 岡さん指示。期間限定のカードは時期が過ぎると
+   * HOME から消えるので、聴く場所はマイリストにまとめる）
+   */
+  onOpenMyList?: () => void;
+  /**
+   * カードの★でウィッシュリストに入れ、光の粒がフッターのプレイリストタブに
+   * 着いたとき。App.tsx がタブを一度脈打たせる。
+   */
+  onWishAdded?: () => void;
   /** カード裏面の作家名タップ → 作家画面へ。未指定ならタップは常時フリップに戻る */
   onOpenArtist?: (artistId: string) => void;
   /**
@@ -300,6 +331,11 @@ type Props = {
    * クロームの位置決めだけ** この値を差し引いて、従来と同じ見えを保つ。
    */
   bottomInset?: number;
+  /**
+   * フッターの上に出ている再生バナーの高さ(px)。0 なら出ていない（0.2.0 第 2 段階）。
+   * 購入ボタンがバナーと重なるときだけ、その分を上へ逃がす。カードは動かさない。
+   */
+  bannerInset?: number;
 };
 
 // フォールバック用スタブ（App からは stubData を渡す）
@@ -327,11 +363,13 @@ export const DiscoverScreen: React.FC<Props> = ({
   wishlistIds,
   onToggleWishlist,
   purchase,
-  onPlay,
+  onOpenMyList,
+  onWishAdded,
   onOpenArtist,
   introOnMount = false,
   onIntroDone,
   bottomInset = 0,
+  bannerInset = 0,
 }) => {
   // ウィッシュから飛んできたときは、その曲のカードを最初に表示する。
   const initialIndex = focusTrackId
@@ -339,6 +377,7 @@ export const DiscoverScreen: React.FC<Props> = ({
     : 0;
   // タイトルはセーフエリア下へ寄せる。右上のEQメーターと同じ top
   // （topRightY + 5 + TITLE_CHAR_SIZE）を使い、高さを揃える。
+  const t = useT();
   const topRightY = useTopInset(8);
   const [slideH, setSlideH] = useState(0);
   // 調律陣が焼いた彫刻シルエット。星の平面をこの形で削るためだけに使う。
@@ -374,9 +413,9 @@ export const DiscoverScreen: React.FC<Props> = ({
   const cardRotation = useSharedValue(0);
   const [playingId, setPlayingId] = useState<string | null>(null);
   // 試聴のオン／オフはカードごとにリセットせず、アプリ全体で一貫させる
-  // （2026-09-19 指示）。スピーカーボタンで一度オフにしたら、曲を送っても
-  // オンには戻らない。既定はオン（従来どおり自動で鳴り始める）。
-  const [previewEnabled, setPreviewEnabled] = useState(true);
+  // （2026-09-19 指示）。既定はオフ（2026-09-25 岡さん指示）。右上の EQ を押すと
+  // オンになり、そのカードから鳴る。オンの間は、送った先のカードも鳴る
+  const [previewEnabled, setPreviewEnabled] = useState(false);
   // ウィッシュリストは App.tsx の useWishlist が正。props が無いとき（部品デモ）だけローカルに持つ。
   const [localWishlist, setLocalWishlist] = useState<Set<string>>(new Set());
   const wishlist = wishlistIds ?? localWishlist;
@@ -407,6 +446,8 @@ export const DiscoverScreen: React.FC<Props> = ({
     bottom: new RNAnimated.Value(introFrom),
   }).current;
   const introStarted = useRef(false);
+  /** intro が終わったか（初回だけの案内はこのあとに出す） */
+  const [introDone, setIntroDone] = useState(!(introOnMount && !DEBUG_BACKDROP_ONLY));
   // 完了通知は ref 経由で読む。deps に入れると、親がインライン関数を渡している
   // 場合に再レンダーごとへ effect が張り直され、cleanup が rAF を潰して
   // intro が永久に始まらなくなる。
@@ -450,10 +491,37 @@ export const DiscoverScreen: React.FC<Props> = ({
     intro.bottom.interpolate({ inputRange: [0, 1], outputRange: [HOME_INTRO.bottomRiseFrom, 0] }),
   ).current;
 
+  // 最初の演出は、真ん中と両隣のカードの絵が届いてから始める（2026-09-26）。
+  // 届く前に灯すと、カードが真っ黒な板のまま出てきて、あとから絵が差し込まれていた。
+  // 待つのは最大 2.5 秒（曲の一覧がまだ無いときも含めて、マウントから最大 4 秒）。
+  // そのあいだ画面は暗いまま＝もともとの「暗転から灯る」の手前が少し延びるだけ。
+  const [artReady, setArtReady] = useState(!introOnMount);
+  useEffect(() => {
+    if (artReady) return;
+    const giveUp = setTimeout(() => setArtReady(true), 4000);
+    return () => clearTimeout(giveUp);
+  }, [artReady]);
+  const artWaitStarted = useRef(false);
+  useEffect(() => {
+    if (artReady || artWaitStarted.current || tracks.length === 0) return;
+    artWaitStarted.current = true;
+    const n = tracks.length;
+    const at = (p: number) => tracks[((p % n) + n) % n]?.artworkUrl;
+    const p = posRef.current;
+    let alive = true;
+    waitArt([at(p), at(p - 1), at(p + 1)], 2500).then(() => {
+      if (alive) setArtReady(true);
+    });
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tracks, artReady]);
+
   useEffect(() => {
     // DEBUG_BACKDROP_ONLY では値が 1 から始まるので、走らせても見た目は変わらない
     // （完了通知だけが親へ返る）。ここで弾くと onIntroDone が永久に来ない。
-    if (!introOnMount || introStarted.current || slideH <= 0) return;
+    if (!introOnMount || introStarted.current || slideH <= 0 || !artReady) return;
     introStarted.current = true;
     let cancelled = false;
 
@@ -486,7 +554,9 @@ export const DiscoverScreen: React.FC<Props> = ({
           ]);
 
       anim.start(() => {
-        if (!cancelled) onIntroDoneRef.current?.();
+        if (cancelled) return;
+        setIntroDone(true);
+        onIntroDoneRef.current?.();
       });
     };
 
@@ -506,7 +576,7 @@ export const DiscoverScreen: React.FC<Props> = ({
       cancelled = true;
       cancelAnimationFrame(raf);
     };
-  }, [slideH, introOnMount, intro]);
+  }, [slideH, introOnMount, intro, artReady]);
 
   const { width: screenW, height: screenH } = useWindowDimensions();
   const count = tracks.length;
@@ -521,7 +591,7 @@ export const DiscoverScreen: React.FC<Props> = ({
   // 試聴のタイマーから読む用の写し（仕掛けた時点の値で固まらないように）
   const shownRef = useRef(shown);
   shownRef.current = shown;
-  const previewEnabledRef = useRef(true);
+  const previewEnabledRef = useRef(false);
   const isOwnedRef = useRef<(t: Track) => boolean>(() => false);
   // 参照はカード 188.6px を 380x760 の固定デバイス枠の中で見せている。
   // その設計をそのまま実画面へ等比フィットさせ、カード幅から調律陣・カルーセル
@@ -563,7 +633,18 @@ export const DiscoverScreen: React.FC<Props> = ({
   // （iPhone 16 で、裏面のカードが拡大されるのに合わせてボタンが下へスライドし、
   // ガタつくとの指摘のため）。裏面は computeBackScale で枠内に収まるよう
   // クランプ済みなので、固定位置のままでも大きくはみ出さない。
-  const BOTTOM_BASE = bottomInset + 100 + contentH * 0.02;
+  const BOTTOM_BASE_RAW = bottomInset + 100 + contentH * 0.02;
+  // 再生バナーが出ているとき、購入ボタンの下端がバナーに掛かる分だけ上げる
+  // （今の寸法では 100px の余白で足りており、ふだんは動かない）
+  const BOTTOM_BASE = Math.max(BOTTOM_BASE_RAW, bottomInset + bannerInset + 12);
+  // 購入ボタンの中心は、カードの下端から 76pt 下（390×844 基準・画面の高さで伸縮。
+  // 仕様 v2 §5）。運営調整でカードを上下に動かしたときも、カードとの間は変えない。
+  // 再生バナーが出ているときは、ボタンの下端がバナーに掛からないところまで上げる。
+  const BUY_H = 40;
+  const buyCenterIdeal =
+    cardCenterY + cardH / 2 + 76 * (screenH / 844) + layoutAdjust.homeCardOffsetY;
+  const buyCenterMax = contentH - (bannerInset > 0 ? bannerInset + 12 : 12) - BUY_H / 2;
+  const BUY_TOP = Math.min(buyCenterIdeal, buyCenterMax) - BUY_H / 2;
 
   // 購入確定時のカード発光・浮遊。発光は CardGL の purchaseGlow（枠＋外周グロー）へ
   // 渡し、浮遊は中央スロットの transform（centerStyle）へ合成する。
@@ -655,6 +736,9 @@ export const DiscoverScreen: React.FC<Props> = ({
    *   マウント時の値がそのまま正しい値になるものだけを持たせる。
    */
   const glOn = useSharedValue(0);
+  // 初回だけの案内（少し傾いて戻る）の窓口。CardGL が中身を入れる。変わらない
+  // ref なのでカード層は描き直されない（カード層より前で宣言しておく）
+  const hintRef = useRef<(() => void) | null>(null);
   /** 0 = マウント直後。輪の札のマウント時の値を「非表示」にしておくため */
   const ringReady = useSharedValue(0);
   useEffect(() => {
@@ -664,11 +748,6 @@ export const DiscoverScreen: React.FC<Props> = ({
   const dragging = useSharedValue(0);
   /** このジェスチャが操作権を取ったか */
   const claimed = useSharedValue(0);
-  /**
-   * 1 = このスワイプは裏面から始まった。カードを指に付けず、表へ戻しながら
-   * 1 枚送る合図として扱う（2026-09-23）。
-   */
-  const fromBack = useSharedValue(0);
   /**
    * 着地フェード（参照 lk = 着地からの経過/800ms）。
    *
@@ -821,6 +900,12 @@ export const DiscoverScreen: React.FC<Props> = ({
   // 待っている間に札が変わったときに前の曲を鳴らしてしまう。
   // ※フェードインは音源ファイル側で定義する方針のため、アプリ側では行わない。
   const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /**
+   * 試聴のプレイヤーにいま読み込んである音源。同じ音源をもう一度鳴らすときは
+   * 読み込み直さず、止めた位置から続ける（2026-09-24）。以前は、カードを少し横に
+   * 触っただけで試聴を止め、送らずに元のカードに戻っても曲の頭から鳴り直していた。
+   */
+  const loadedUrlRef = useRef<string | null>(null);
   const fadeTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const playingRef = useRef<string | null>(null);
   playingRef.current = playingId;
@@ -886,6 +971,8 @@ export const DiscoverScreen: React.FC<Props> = ({
     cancelPreviewTimers();
     previewTimer.current = setTimeout(() => {
       previewTimer.current = null;
+      // プレイリストが鳴っている間は自動で試聴しない
+      if (pbRef.current?.isPlayingNow()) return;
       const t = shownRef.current;
       const url =
         t && !isOwnedRef.current(t) && previewEnabledRef.current
@@ -895,11 +982,36 @@ export const DiscoverScreen: React.FC<Props> = ({
         stopPreview(false);
         return;
       }
+      // 同じ曲へ戻っただけ（送らずに離した）なら、読み込み直さず続きから鳴らす
+      const same = loadedUrlRef.current === url;
+      let v = 0;
       try {
-        preview.volume = 1;
-        preview.replace({ uri: url });
+        // 鳴り始めは短くフェードイン。音源は 30 秒の素材をそのまま上げればよく、
+        // 頭にフェードを作り込まなくてよい。
+        if (same) {
+          // 最後まで鳴り終えていたら頭から
+          const dur = preview.duration;
+          if (dur > 0 && preview.currentTime >= dur - 0.3) preview.seekTo(0).catch(() => {});
+          // 止めるフェードの途中で戻ってきた（まだ鳴っている）ときは、その音量から上げる
+          if (preview.playing) v = Math.max(0, Math.min(1, preview.volume));
+          else preview.volume = 0;
+        } else {
+          preview.volume = 0;
+          preview.replace({ uri: url });
+          loadedUrlRef.current = url;
+        }
         preview.play();
       } catch {}
+      fadeTimer.current = setInterval(() => {
+        v += PREVIEW_FADE_STEP_MS / PREVIEW_FADE_IN_MS;
+        try {
+          preview.volume = Math.min(1, v);
+        } catch {}
+        if (v >= 1 && fadeTimer.current) {
+          clearInterval(fadeTimer.current);
+          fadeTimer.current = null;
+        }
+      }, PREVIEW_FADE_STEP_MS);
       playingRef.current = t.id;
       setPlayingId(t.id);
     }, PREVIEW_START_MS);
@@ -930,6 +1042,21 @@ export const DiscoverScreen: React.FC<Props> = ({
 
   // 画面を離れるときにタイマーを落とす
   useEffect(() => cancelPreviewTimers, [cancelPreviewTimers]);
+
+  // ── アプリ全体の再生（プレイリスト）との調整（0.2.0 第 2 段階）──
+  //   ・プレイリストが鳴っている間は、止まったカードでも試聴を自動で始めない
+  //   ・右上の EQ を押したときだけ、プレイリストを一時停止して試聴する
+  //   ・プレイリストが鳴り始めるときは、鳴っている試聴を短くフェードして止める
+  const pb = usePlaybackOptional();
+  const pbRef = useRef(pb);
+  pbRef.current = pb;
+  const onPbWillPlay = pb?.onWillPlay;
+  useEffect(() => {
+    if (!onPbWillPlay) return;
+    return onPbWillPlay(() => {
+      if (playingRef.current || previewTimer.current) stopPreview(true);
+    });
+  }, [onPbWillPlay, stopPreview]);
 
   // ── カルーセルの駆動（参照 stepCarousel / applyCarousel）──────────
   // 寄せは指を離した瞬間に UI スレッドで始める（onEnd の withTiming）。JS を待つのは
@@ -993,13 +1120,6 @@ export const DiscoverScreen: React.FC<Props> = ({
   );
 
   /**
-   * 裏面のカードを表へ戻す合図。数が変わるたびに CardGL が flipToFront する。
-   * 関数を渡さないのは、CardGL を React.memo のまま保ちたいから。
-   */
-  const [closeSignal, setCloseSignal] = useState(0);
-  const requestFront = useCallback(() => setCloseSignal((n) => n + 1), []);
-
-  /**
    * CardGL がいま表に出している絵（CardGL の onFrontShown から）。
    * これが受け渡し済みの曲の絵と一致したら、中央を CardGL に戻してよい。
    */
@@ -1022,6 +1142,24 @@ export const DiscoverScreen: React.FC<Props> = ({
     () => -(posRef.current - posAtMountRef.current) * carGeo.step,
     [posRef, posAtMountRef, carGeo],
   );
+  // 条件がそろわず見送ったときの再試行（2026-09-24）。
+  // 以前は 1 回見送るとそれきりで、次に曲を送るまで中央は輪の札（平らな絵）の
+  // ままだった。起動直後の最初のカードで起きやすく、その状態で裏返すと、
+  // 平らな表の絵が手前に残ったまま、後ろで 3D の裏面だけが回って見えた。
+  // 0.2.0 で全作品の絵を起動時に先読みするようにしてから、最初の絵の
+  // 「出し終えた」が早く届き、まだ落ち着いていない間に当たりやすくなった。
+  const revealRetry = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const revealTries = useRef(0);
+  const revealGLRef = useRef<() => void>(() => {});
+  const retryReveal = useCallback(() => {
+    if (revealRetry.current) clearTimeout(revealRetry.current);
+    if (revealTries.current >= 30) return; // 約 4.5 秒で諦める（送れば戻る）
+    revealTries.current += 1;
+    revealRetry.current = setTimeout(() => {
+      revealRetry.current = null;
+      revealGLRef.current();
+    }, 150);
+  }, []);
   const revealGL = useCallback(() => {
     if (!glShownRef.current || glShownRef.current !== activeUriRef.current) return;
     cancelAnimationFrame(revealRaf.current);
@@ -1034,15 +1172,23 @@ export const DiscoverScreen: React.FC<Props> = ({
         }
         runOnUI((restX: number) => {
           'worklet';
-          if (settleActive.value > 0.5 || dragging.value > 0.5) return;
-          if (Math.abs(dragX.value - restX) > 0.5) return;
+          if (
+            settleActive.value > 0.5 ||
+            dragging.value > 0.5 ||
+            Math.abs(dragX.value - restX) > 0.5
+          ) {
+            // まだ動いている。少し置いてもう一度確かめる
+            runOnJS(retryReveal)();
+            return;
+          }
           // CardGL を中央へ送るのと、輪の中央の札を外すのを同じフレームで
           committedSV.value = restX;
           glOn.value = 1;
         })(restXOf());
       });
     });
-  }, [settleActive, dragging, dragX, committedSV, glOn, restXOf]);
+  }, [settleActive, dragging, dragX, committedSV, glOn, restXOf, retryReveal]);
+  revealGLRef.current = revealGL;
 
   /**
    * 逃げ道: CardGL が 0.5 秒たっても新しい絵を出せない（読み込みが遅い）ときは、
@@ -1065,6 +1211,7 @@ export const DiscoverScreen: React.FC<Props> = ({
     () => () => {
       cancelAnimationFrame(revealRaf.current);
       if (revealFallback.current) clearTimeout(revealFallback.current);
+      if (revealRetry.current) clearTimeout(revealRetry.current);
     },
     [],
   );
@@ -1072,12 +1219,14 @@ export const DiscoverScreen: React.FC<Props> = ({
   const handleFrontShown = useCallback(
     (uri: string) => {
       glShownRef.current = uri;
+      revealTries.current = 0;
       revealGL();
     },
     [revealGL],
   );
   // 受け渡しで曲が変わったとき、CardGL が先読み済みでもう出せていれば、ここで戻す
   useEffect(() => {
+    revealTries.current = 0;
     revealGL();
   }, [active?.artworkUrl, revealGL]);
 
@@ -1100,13 +1249,16 @@ export const DiscoverScreen: React.FC<Props> = ({
    * ときの引き直しの両方から呼ぶ。寄せ終わったら札を受け渡す。
    */
   const startSettle = useCallback(
-    (target: number, duration: number) => {
+    (target: number, velocity: number) => {
       'worklet';
       settleTarget.value = target;
       settleActive.value = 1;
-      dragX.value = withTiming(
+      // 指を離したときの速さ（px/秒）から滑らかにつなぐ（2026-09-24）。以前は
+      // 決まった時間（470ms）の動きで、出だしが一番速かったので、ゆっくり引いて
+      // 離すと、離した瞬間にカードが急に吸い込まれていた
+      dragX.value = withSpring(
         target,
-        { duration, easing: CAR_SETTLE_EASE },
+        { ...SWIPE_SPRING, velocity },
         (finished) => {
           'worklet';
           if (!finished) return; // 寄せの途中で次のスワイプに掴まれた
@@ -1135,27 +1287,30 @@ export const DiscoverScreen: React.FC<Props> = ({
   // ── ジェスチャ（参照 down/move/up = 722-728行）────────────────────
   //   ・6px 動くまで活性化しない＝タップは CardGL 側のフリップへ通る
   //   ・縦に CAR_FAIL_Y 先行したら失敗（参照の |ax|>=|ay| 軸判定を親指の弧ぶん緩めたもの）
-  //   ・裏面では丸ごと無効（参照 aProg<0.5 の条件）
+  //   ・裏面では丸ごと無効（参照 aProg<0.5 の条件）。★の角は押しても沈めない
   const carouselGesture = useMemo(
     () =>
       Gesture.Pan()
-        .activeOffsetX(flipped ? [-CAR_AXIS_BACK, CAR_AXIS_BACK] : [-CAR_AXIS, CAR_AXIS])
+        .enabled(!flipped)
+        .activeOffsetX([-CAR_AXIS, CAR_AXIS])
         .failOffsetY([-CAR_FAIL_Y, CAR_FAIL_Y])
         .onBegin((e) => {
           'worklet';
           // 送りの最中・受け渡し待ちでも操作権を渡す（参照 down() はアニメ中の
           // タッチを無視するが、それだと連続スワイプが止まる）。
-          // 裏面（|回転| >= 90°）でも渡す。そちらはカードを指に付けず、
-          // 「表へ戻して送る」合図として扱う（2026-09-23 代表指示。裏面で
-          // 無反応だと故障に見える）。
-          claimed.value = 1;
-          fromBack.value = Math.abs(cardRotation.value) >= 90 ? 1 : 0;
+          // 裏返し中（|回転| >= 90°）は渡さない。裏面の指なぞりはカードを回して
+          // 眺める操作なので、送りとは取り合わない（2026-09-24）。
+          claimed.value = Math.abs(cardRotation.value) < 90 ? 1 : 0;
+          if (!claimed.value) return;
           scrolling.value = 1;
           // 参照 2993行: card への pointerdown で pressTo=1。ステージ全面ではなく
           // カードの矩形に触れたときだけ沈める（周りの余白を押しても反応しない）。
-          // 裏面は拡大・持ち上げ中なので沈めない。
+          // 右下の角の★（FavBead）を押したときは沈めない。
+          const onBead =
+            Math.abs(e.x - (screenW / 2 + cardW / 2)) <= BEAD_HIT / 2 &&
+            Math.abs(e.y - (cardCenterY + cardH / 2)) <= BEAD_HIT / 2;
           if (
-            fromBack.value < 0.5 &&
+            !onBead &&
             Math.abs(e.x - screenW / 2) <= cardW / 2 &&
             Math.abs(e.y - cardCenterY) <= cardH / 2
           ) {
@@ -1169,12 +1324,6 @@ export const DiscoverScreen: React.FC<Props> = ({
           // 札が入れ替わるまで鳴らし続けると、連続で送ったときに鳴っては切れを
           // 繰り返して聞こえる（2026-09-23 代表指示）。
           runOnJS(hushPreview)();
-          if (fromBack.value > 0.5) {
-            // 裏面から: カードは指に付けない。表へ戻す合図だけ先に出して、
-            // 送るかどうかは指を離したときに決める。
-            runOnJS(requestFront)();
-            return;
-          }
           dragging.value = 1;
           // 走っている寄せはスワイプが成立したここで止める。onBegin で止めると、
           // 寄せの途中のタップ（成立しない）で札がその場に取り残される。
@@ -1197,7 +1346,7 @@ export const DiscoverScreen: React.FC<Props> = ({
         })
         .onUpdate((e) => {
           'worklet';
-          if (!claimed.value || fromBack.value > 0.5) return;
+          if (!claimed.value) return;
           // 参照 move(): 見た目の位置＝指の移動量そのまま（1:1・上限なし）
           dragX.value = gestureStart.value + e.translationX;
           // 参照 2995行: 7px 動いたら「押した」を取り消す
@@ -1212,49 +1361,28 @@ export const DiscoverScreen: React.FC<Props> = ({
           'worklet';
           dragging.value = 0;
           if (!claimed.value) return;
-          const mag = Math.abs(e.translationX);
-          const dir = e.translationX < 0 ? 1 : -1;
-          const v = Math.abs(e.velocityX);
+          // 送るかどうかは再生画面・再生バナーと同じ基準（constants/swipe.ts）。
           // 参照は「押してから離すまでの総時間」で平均速度を出しており、
           // ゆっくり掴んでから素早く払うと成立しない欠陥がある。ここは
-          // RNGH の瞬時速度を使い、しきい値 500px/s だけ参照に合わせる。
-          const fast = v > CAR_VEL;
+          // RNGH の瞬時速度を使う。
+          const dir = swipeDirection(e.translationX, e.velocityX, cardW);
           const s = carGeo.step;
-          if (fromBack.value > 0.5) {
-            // 裏面からのスワイプ。ここまで来た時点で CAR_AXIS_BACK を越えた
-            // 「送る意思のある」横払いなので、そのまま 1 枚送る。
-            if (count > 1) {
-              const b = committedSV.value;
-              const back = b + Math.round((dragX.value - b) / s) * s - dir * s;
-              const t = Math.min(b + 2 * s, Math.max(b - 2 * s, back));
-              runOnJS(aimChrome)(t);
-              startSettle(t, CAR_SETTLE_MS);
-            } else {
-              runOnJS(resumePreview)();
-            }
-            return;
-          }
           let target = grabOrigin.value;
-          // 1 曲だけのときは隣の札が無いので送らない（元の位置へ戻すだけ）
-          if (count > 1 && (mag >= carGeo.thresh || (fast && mag > carGeo.fastMin))) {
-            // 強く払ったら 2 枚送る（2026-09-23 代表指示）。隣の隣まで描いてある
-            // ので 2 枚が上限。曲が 2 つしかないときは 1 枚（同じ札へ戻るため）。
-            const jump = v > CAR_VEL2 && count > 2 ? 2 : 1;
-            target -= dir * s * jump;
+          // 1 曲だけのときは隣の札が無いので送らない（元の位置へ戻すだけ）。
+          // 強く払っても 1 枚ずつ（2 枚送りは 2026-09-24 に外した）
+          if (count > 1 && dir !== 0) {
+            target -= dir * s;
           }
           // 隣の札は ±2 枚まで描いてある。受け渡しがそれより遅れたら、そこで止める
           const b = committedSV.value;
           target = Math.min(b + 2 * s, Math.max(b - 2 * s, target));
           runOnJS(aimChrome)(target);
-          // 2 枚ぶん滑るときだけ少し長く取る（滑る速さを揃える）
-          const far = Math.abs(target - dragX.value) > s * 1.2;
-          startSettle(target, far ? Math.round(CAR_SETTLE_MS * 1.35) : CAR_SETTLE_MS);
+          startSettle(target, e.velocityX);
         })
         .onFinalize(() => {
           'worklet';
           scrolling.value = 0;
           claimed.value = 0;
-          fromBack.value = 0;
           dragging.value = 0;
           // 参照 release(): pointerup / cancel / blur のいずれでも押し込みを戻す
           cardPress.value = withTiming(0, { duration: 220, easing: Easing.out(Easing.quad) });
@@ -1263,7 +1391,6 @@ export const DiscoverScreen: React.FC<Props> = ({
       flipped,
       carGeo,
       claimed,
-      fromBack,
       dragging,
       committedSV,
       cardRotation,
@@ -1273,8 +1400,6 @@ export const DiscoverScreen: React.FC<Props> = ({
       startSettle,
       aimChrome,
       hushPreview,
-      resumePreview,
-      requestFront,
       count,
       dragX,
       gestureStart,
@@ -1328,6 +1453,15 @@ export const DiscoverScreen: React.FC<Props> = ({
       let op = ringReady.value;
       if (Math.abs(rel) > 0.5 && carBusy.value < 0.5) op = 0;
       if (t === pos && glOn.value > 0.5) op = 0;
+      // 最後の砦: カードが傾き始めたら（＝裏返している）、3D カードが中央に
+      // いるかぎり中央の札は外す。受け渡しが済んでいなくても、平らな表の絵が
+      // 回っている 3D カードの手前に残ることはない
+      if (
+        t === pos &&
+        Math.abs(cardRotation.value) > FAV_HIDE_DEG &&
+        Math.abs(dragX.value - committedSV.value) < 0.5
+      )
+        op = 0;
       return { opacity: op, transform: [{ translateX: rel * st }] };
     }, [pos, carGeo.step, posAtMount]);
   const ring0 = useRingSlotStyle(0);
@@ -1361,6 +1495,51 @@ export const DiscoverScreen: React.FC<Props> = ({
     transform: [
       { translateY: floatY.value + cardTranslateY.value },
       // 参照 2999行: scale(1 - press*.035)。購入演出の cardScale へ乗算で合成する
+      { scale: cardScale.value * (1 - cardPress.value * CARD_PRESS_SCALE) },
+    ],
+  }));
+  /**
+   * ★（カードの右下の角のお気に入り）の層。カード層の中には入れず、隣に置いて
+   * 同じ値で動かす（2026-09-24）。カード層の中に入れると、★を押すたびに
+   * カード層（cardLayer の useMemo）が作り直され、スワイプ中にカードが
+   * 一瞬静止位置へ戻る（上の cardLayer の注意を参照）。
+   *
+   * 位置: カード本体と同じ横ズレ（dragX - committedSV）・浮遊・押し込みの縮み。
+   * 層はカードと同じ中心の全面なので、縮みの中心もカードの中心に揃う。
+   * 出し入れ: 止まっていて、表を向いているときだけ出す（160ms で出入り）。
+   * 受け渡しの間（CardGL が新しい絵を出すまで）は carBusy が立っているので出ない。
+   */
+  const favVis = useSharedValue(1);
+  // ボタンを押せる・押せない（React state）。以前は `flipped`（裏返しているか
+  // どうかだけの粗い判定）で切り替えていたが、flipToFront() は表へ戻る
+  // アニメーションの**開始**時点（まだ裏面がほぼ見えている・rotation≈180°）で
+  // 即座に flipped=false にする（曲送りのスワイプを早く解禁するための意図的な
+  // 仕様）。そのため裏→表に戻る間（数百ms）、★の当たり判定だけ先に有効になり、
+  // 裏面のその角を新たに触ると（見えていないのに）ウィッシュリストが切り替わって
+  // いた。見た目（favVis）とまったく同じ条件で連動させる（下のスピーカーボタンと
+  // 同じ直し方、2026-09-24）。
+  const [favActive, setFavActive] = useState(true);
+  useAnimatedReaction(
+    () => (carBusy.value < 0.5 && Math.abs(cardRotation.value) < FAV_HIDE_DEG ? 1 : 0),
+    (now, prev) => {
+      if (now !== prev) {
+        favVis.value = withTiming(now, { duration: 160 });
+        runOnJS(setFavActive)(!!now);
+      }
+    },
+  );
+  // 購入ボタンの周回する光を回すか（1=回す）。カードを送っている間・裏返して
+  // いる間は止め、止まった角度から続きを回す（仕様 v2 §7）
+  const orbitActive = useDerivedValue<number>(() =>
+    carBusy.value < 0.5 && scrolling.value < 0.5 && Math.abs(cardRotation.value) < FAV_HIDE_DEG
+      ? 1
+      : 0,
+  );
+  const favLayerStyle = useAnimatedStyle(() => ({
+    opacity: favVis.value,
+    transform: [
+      { translateX: dragX.value - committedSV.value },
+      { translateY: floatY.value + cardTranslateY.value },
       { scale: cardScale.value * (1 - cardPress.value * CARD_PRESS_SCALE) },
     ],
   }));
@@ -1416,8 +1595,17 @@ export const DiscoverScreen: React.FC<Props> = ({
   // （実際の再生・停止は上の effect が previewEnabled を見て行う）。
   const togglePreview = useCallback(() => {
     if (!shown) return;
+    // プレイリストが鳴っているときの EQ は「このカードを試聴する」。プレイリストを
+    // 一時停止して、試聴をオンにしたうえでこのカードを鳴らす
+    const engine = pbRef.current;
+    if (engine?.isPlayingNow()) {
+      engine.pause();
+      setPreviewEnabled(true);
+      schedulePreview();
+      return;
+    }
     setPreviewEnabled((prev) => !prev);
-  }, [shown]);
+  }, [shown, schedulePreview]);
 
   const toggleWishlist = useCallback(
     (id: string) => {
@@ -1450,14 +1638,10 @@ export const DiscoverScreen: React.FC<Props> = ({
   // 曲名・ボタンと同じ札（shown）を買う。カード本体（active）はまだ滑っている
   // ことがあるので、押したボタンの曲と食い違わないほうを採る。
   const handleBuy = useCallback(() => {
-    if (!shown) return;
-    if (isOwned(shown)) {
-      onPlay?.(shown.id);
-      return;
-    }
+    if (!shown || isOwned(shown)) return;
     purchase?.dismiss(); // 前回の失敗表示を持ち越さない
     setPurchaseTarget(shown);
-  }, [shown, isOwned, purchase, onPlay]);
+  }, [shown, isOwned, purchase]);
 
   // ポップアップの金額 or 確定ボタン → OS の課金シートへ。
   // ここでは所有状態も演出も動かさない。成立したかどうかは purchase.onSuccess で受ける
@@ -1555,9 +1739,9 @@ export const DiscoverScreen: React.FC<Props> = ({
                 shadow
                 frame={cardFrame}
                 onFlipChange={setFlipped}
-                closeSignal={closeSignal}
                 onFrontShown={handleFrontShown}
                 rotationOut={cardRotation}
+                hintRef={hintRef}
                 purchaseGlow={showPurchaseFx ? cardGlow : undefined}
                 backData={backData}
                 onArtistPress={
@@ -1600,7 +1784,6 @@ export const DiscoverScreen: React.FC<Props> = ({
       cardFrame,
       cardRotation,
       cardGlow,
-      closeSignal,
       handleFrontShown,
       showPurchaseFx,
       backData,
@@ -1608,10 +1791,128 @@ export const DiscoverScreen: React.FC<Props> = ({
     ],
   );
 
+  // 光の粒: ★の位置（画面座標）→ この画面の座標へ直して、プレイリストタブへ飛ばす
+  const rootRef = useRef<View>(null);
+  const [fly, setFly] = useState<{ key: number; from: { x: number; y: number } } | null>(null);
+  const handleBeadAdded = useCallback((from: { x: number; y: number }) => {
+    const root = rootRef.current;
+    if (!root) return;
+    root.measureInWindow((rx, ry) => {
+      setFly({ key: Date.now(), from: { x: from.x - rx, y: from.y - ry } });
+    });
+  }, []);
+  // フッターの 2 番目のタブ（プレイリスト）の絵の中心。フッターは 5 等分・左右 8px・
+  // 上 8px・絵 20px（components/Footer.tsx）。ホームではフッターがこの画面に重なる
+  const flyTo = useMemo(
+    () => ({ x: 8 + ((screenW - 16) * 1.5) / 5, y: slideH - bottomInset + 18 }),
+    [screenW, slideH, bottomInset],
+  );
+  const finishFly = useCallback(() => {
+    setFly(null);
+    onWishAdded?.();
+  }, [onWishAdded]);
+
+  // ★はカード本体の曲（active）に付ける。shown は指を離した時点で先に変わるので使わない。
+  // 購入済みの曲には出さない（試作の .owned）。
+  const favTrack = active;
+  const favOwned = favTrack ? isOwned(favTrack) : true;
+  const favFilled = favTrack ? wishlist.has(favTrack.id) : false;
+  const favId = favTrack?.id;
+  const onToggleFav = useCallback(() => {
+    if (favId) toggleWishlist(favId);
+  }, [favId, toggleWishlist]);
+  const favLayer = useMemo(
+    () =>
+      favId && !favOwned ? (
+        <Animated.View
+          style={[styles.slot, favLayerStyle]}
+          pointerEvents={favActive ? 'box-none' : 'none'}
+        >
+          <View
+            style={[
+              styles.beadAt,
+              {
+                left: screenW / 2 + cardW / 2 - BEAD_HIT / 2,
+                top: cardCenterY + cardH / 2 - BEAD_HIT / 2,
+              },
+            ]}
+            pointerEvents="box-none"
+          >
+            <FavBead filled={favFilled} onToggle={onToggleFav} onAdded={handleBeadAdded} />
+          </View>
+        </Animated.View>
+      ) : null,
+    [favId, favOwned, favFilled, favActive, favLayerStyle, screenW, cardW, cardH, cardCenterY, onToggleFav, handleBeadAdded],
+  );
+
+
+  // ── 初回だけの操作の案内 ──
+  const countRef = useRef(count);
+  countRef.current = count;
+  const flippedRef = useRef(flipped);
+  flippedRef.current = flipped;
+  /** 横にずれて戻る（UI スレッド）。止まっているときだけ */
+  const runNudge = useCallback(() => {
+    runOnUI((dist: number) => {
+      'worklet';
+      if (settleActive.value > 0.5 || dragging.value > 0.5 || scrolling.value > 0.5) return;
+      if (Math.abs(cardRotation.value) > 1) return;
+      const rest = committedSV.value;
+      if (Math.abs(dragX.value - rest) > 0.5) return;
+      dragX.value = withSequence(
+        withTiming(rest - dist, { duration: 460, easing: Easing.inOut(Easing.cubic) }),
+        withDelay(140, withSpring(rest, { ...SWIPE_SPRING, overshootClamping: false, damping: 22 })),
+      );
+    })(cardW * HINT_NUDGE_R);
+  }, [settleActive, dragging, scrolling, cardRotation, committedSV, dragX, cardW]);
+  const hintStarted = useRef(false);
+  const layoutReady = slideH > 0;
+  useEffect(() => {
+    if (!introDone || !layoutReady || hintStarted.current || DEBUG_BACKDROP_ONLY) return;
+    hintStarted.current = true;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    let cancelled = false;
+    (async () => {
+      let seen: string | null = null;
+      try {
+        seen = await AsyncStorage.getItem(HINT_KEY);
+      } catch {}
+      if (seen || cancelled) return;
+      // 一度きり。途中で止まっても次回は出さない
+      try {
+        await AsyncStorage.setItem(HINT_KEY, '1');
+      } catch {}
+      if (reduceMotion || cancelled) return;
+      timers.push(
+        setTimeout(() => {
+          const many = countRef.current > 1;
+          if (many) runNudge();
+          timers.push(
+            setTimeout(() => {
+              if (!flippedRef.current) hintRef.current?.();
+            }, many ? HINT_GAP_MS : 0),
+          );
+        }, HINT_DELAY_MS),
+      );
+    })();
+    return () => {
+      cancelled = true;
+      timers.forEach(clearTimeout);
+    };
+    // 案内は一度だけ。依存が変わってもやり直さない
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [introDone, layoutReady]);
+
+  // 起動時に全作品の絵を先読みしておく（スワイプ後に絵が遅れて出るのを防ぐ）
+  // （App でも曲の一覧が届いた時点で始めている。同じ URL は二度取りに行かない）
+  useEffect(() => {
+    prefetchArt(tracks.map((t) => t.artworkUrl));
+  }, [tracks]);
+
   const isPreviewing = playingId != null && playingId === shown?.id;
 
   return (
-    <View style={styles.root} onLayout={onRootLayout}>
+    <View ref={rootRef} style={styles.root} onLayout={onRootLayout}>
       <StatusBar barStyle="light-content" backgroundColor={C.page} />
 
       {/* 背景ブロック D の下半分（参照 z 順: bgbase → nebBand → bgstars）。
@@ -1736,6 +2037,8 @@ export const DiscoverScreen: React.FC<Props> = ({
                   固定の位置に並べる（中央・±1・±2）。札を送るときは、中に載せる
                   絵を 1 つずつずらすのと同時に dragX を 0 へ戻す。 */}
               {cardLayer}
+              {/* ★（カードの右下の角）。カード層の外に置き、同じ値で動かす */}
+              {favLayer}
             </View>
           </GestureDetector>
         </RNAnimated.View>
@@ -1760,12 +2063,18 @@ export const DiscoverScreen: React.FC<Props> = ({
                  acts行（★／試聴／購入する）に一本化した（同じ togglePreview を使う）。
                  EQメーターだけは残す（タップ不要の演出のため pointerEvents="none"）。
                  top はタイトルと同じ高さ（topRightY + 5 + TITLE_CHAR_SIZE）に揃える。 */}
-          <View
+          <Pressable
             style={[styles.topRight, { top: topRightY + 5 + TITLE_CHAR_SIZE }]}
-            pointerEvents="none"
+            hitSlop={14}
+            onPress={togglePreview}
+            accessibilityRole="button"
+            accessibilityState={{ selected: previewEnabled }}
+            accessibilityLabel={previewEnabled ? t('preview.toggleOff') : t('preview.toggleOn')}
           >
-            <EqBars active={isPreviewing} />
-          </View>
+            {/* 試聴のオン・オフ（2026-09-24。下の試聴ボタンをここへ移した）。
+                鳴っている間は棒が動き、止めている間は暗く止まる */}
+            <EqBars active={isPreviewing} keepIdle dim={!previewEnabled} />
+          </Pressable>
 
           {/* タイトル（1行のみ。eyeコピー・情景サブタイトルはモック確定値により非表示）。
               「1文字分下・1文字分内側へ」の指示により、title のフォントサイズ
@@ -1792,50 +2101,27 @@ export const DiscoverScreen: React.FC<Props> = ({
           ]}
           pointerEvents="box-none"
         >
-          {/* 下部: ★ウィッシュ ／ 試聴（スピーカー） ／ 購入するの3手。
-              コレクションの作品詳細と同じ並び・寸法に揃える。
-              所有済みは再生ボタン1つだけ（従来どおり）。裏返し中も位置は動かさない。 */}
-          <View style={[styles.bottom, { bottom: BOTTOM_BASE }]} pointerEvents="box-none">
-            {(() => {
-              const owned = isOwned(shown);
-              if (owned) {
-                return <BuyButton owned onPress={handleBuy} />;
-              }
-              return (
-                <View style={styles.acts}>
-                  <Pressable
-                    style={({ pressed }) => [styles.actStar, pressed && { opacity: 0.85 }]}
-                    hitSlop={6}
-                    accessibilityRole="button"
-                    accessibilityLabel="ウィッシュリスト"
-                    onPress={() => shown && toggleWishlist(shown.id)}
-                  >
-                    <StarIcon size={17} filled={shown ? wishlist.has(shown.id) : false} />
-                  </Pressable>
-
-                  {/* 試聴の再生／停止。アイコンは右上の試聴アイコンと同じスピーカー */}
-                  <Pressable
-                    style={({ pressed }) => [
-                      styles.actBtn,
-                      isPreviewing && styles.actBtnOn,
-                      pressed && { opacity: 0.85 },
-                    ]}
-                    accessibilityRole="button"
-                    accessibilityLabel="試聴"
-                    onPress={togglePreview}
-                  >
-                    <PreviewIcon size={19} on={isPreviewing} />
-                  </Pressable>
-
-                  <View style={styles.buyGap}>
-                    <BuyButton
-                      priceLabel={shown ? purchase?.displayPriceOf(shown.id) : undefined}
-                      onPress={handleBuy}
-                    />
-                  </View>
-                </View>
-              );
-            })()}
+          {/* 下部: 未購入は購入ボタン「周回する光」（仕様 v2・「購入する」だけで価格は
+              出さない）。所有済みは HOME では再生せず、マイリストへの一行だけ
+              （2026-09-25 岡さん指示）。裏返し中も位置は動かさない。 */}
+          <View style={[styles.bottom, { top: BUY_TOP, height: BUY_H }]} pointerEvents="box-none">
+            {isOwned(shown) ? (
+              <Pressable
+                onPress={onOpenMyList}
+                hitSlop={12}
+                accessibilityRole="button"
+                style={({ pressed }) => [styles.ownedLink, pressed && { opacity: 0.6 }]}
+              >
+                <Text style={styles.ownedLinkText}>{t('home.ownedGoMyList')}</Text>
+              </Pressable>
+            ) : (
+              <OrbitBuyButton
+                priceLabel={shown ? purchase?.displayPriceOf(shown.id) : undefined}
+                state={purchase?.state === 'busy' ? 'pending' : 'idle'}
+                active={orbitActive}
+                onPress={handleBuy}
+              />
+            )}
           </View>
         </RNAnimated.View>
       </View>
@@ -1871,6 +2157,9 @@ export const DiscoverScreen: React.FC<Props> = ({
         onConfirm={confirmPurchase}
         onCancel={closePurchase}
       />
+
+      {/* ★から飛ぶ光の粒（フッターより上に描く） */}
+      {fly && <FlyDot key={fly.key} from={fly.from} to={flyTo} onDone={finishFly} />}
     </View>
   );
 };
@@ -1902,6 +2191,7 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.page },
   /** 参照 .stage（position:absolute; inset:0）。3スロットの親 */
   stage: { position: 'absolute', left: 0, right: 0, top: 0 },
+  beadAt: { position: 'absolute' },
   /** 参照の card / peekL / peekR。中央基準で重ね、translateX で振り分ける */
   slot: {
     position: 'absolute',
@@ -1940,29 +2230,9 @@ const styles = StyleSheet.create({
     position: 'absolute', left: 0, right: 0,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
   },
-  // ★／試聴／購入の3手（CollectionScreen の作品詳細と同じ寸法・字組）。
-  // ★↔試聴は行の gap のまま、試聴↔購入だけ buyGap で追加の間隔を足す
-  // （2026-09-20 指示: 購入するボタンとは少し離す／お気に入りとの距離は維持）。
-  acts: { flexDirection: 'row', gap: 9, alignItems: 'center' },
-  // 角丸正方形（従来は円形だった。2026-09-21 指示: 試聴ボタンと同じ角の
-  // 丸さ・大きさに揃える）。
-  actStar: {
-    width: 42, height: 42, borderRadius: 12,
-    borderWidth: 1, borderColor: 'rgba(96,206,224,0.3)',
-    alignItems: 'center', justifyContent: 'center',
-  },
-  // 角丸正方形（従来は paddingでアイコン幅なりの横長の枠になっていた）。
-  // 枠線はお気に入りボタンと同じ太さ・色（1px / alpha .3）に揃える
-  // （2026-09-20 指示: 枠線を細く、お気に入りと同サイズに）。
-  actBtn: {
-    width: 42, height: 42, borderRadius: 12,
-    borderWidth: 1, borderColor: 'rgba(96,206,224,0.3)',
-    alignItems: 'center', justifyContent: 'center',
-  },
-  // 試聴中は枠を強めて「いま鳴っている」を示す（色は変えない＝シアン一本のまま）
-  actBtnOn: { borderColor: C.cyan, backgroundColor: 'rgba(96,206,224,0.12)' },
-  // 試聴ボタンから購入するボタンまでの追加の間隔（行の gap:9 に上乗せ）
-  buyGap: { marginLeft: 8 },
+  // 所有済みカードの「マイリストで聴けます」。ボタンではなく静かな一行
+  ownedLink: { paddingVertical: 10, paddingHorizontal: 16 },
+  ownedLinkText: { color: C.sub, fontSize: 12, letterSpacing: 1.2 },
 
   transport: {
     paddingVertical: 16, paddingHorizontal: 20, borderRadius: 16,

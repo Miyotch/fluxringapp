@@ -39,7 +39,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { COLOR, SPACE, ANIM } from '../constants/design-tokens';
 import { useT } from '../lib/i18n';
-import { NUM_FONT } from '../constants/fonts';
+import { NUM_FONT, JP_SERIF_FONT } from '../constants/fonts';
 
 export type PurchaseTarget = {
   id: string;
@@ -298,8 +298,8 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   heading: { color: COLOR.textSecondary, fontSize: 12, letterSpacing: 0.5 },
-  // 金額(22)との差を保ちつつ、この画面内で fontWeight 700 を1箇所も使わない（静かなトンマナ）
-  title: { color: COLOR.textPrimary, fontSize: 17, fontWeight: '600', letterSpacing: 0.8 },
+  // 曲名はほかの画面（HOME・作品詳細・再生バナー）と同じ明朝・細字
+  title: { color: COLOR.textPrimary, fontSize: 18, letterSpacing: 1, fontFamily: JP_SERIF_FONT },
 
   priceHit: { alignItems: 'center', marginTop: 2 },
   pricePressed: { opacity: 0.72, transform: [{ scale: 0.98 }] },
@@ -307,8 +307,8 @@ const styles = StyleSheet.create({
     color: COLOR.auraCyan,
     fontSize: 22,
     fontFamily: NUM_FONT, // 価格＝数字表記
-    // 太らせず大きさだけで主役にする（煽らない）
-    fontWeight: '600',
+    // 太らせず大きさだけで主役にする（煽らない）。EB Garamond は Regular しか
+    // 読み込んでいないので、太字を指定すると Android で擬似的に太らされる
     // BuyButton の price は 11px/ls1。モーダル内の金額は「読ませる値」なので字間で階層差をつける
     letterSpacing: 1.6,
   },
@@ -340,7 +340,7 @@ const styles = StyleSheet.create({
   confirmHit: { paddingVertical: 14, alignItems: 'center' },
   confirmRow: { flexDirection: 'row', alignItems: 'center' },
   confirmLabel: { color: COLOR.textPrimary, fontSize: 15, letterSpacing: 1 },
-  confirmPrice: { color: PRICE_SUB, fontSize: 12.5, letterSpacing: 1, marginLeft: 8 },
+  confirmPrice: { color: PRICE_SUB, fontSize: 13, letterSpacing: 1, marginLeft: 8, fontFamily: NUM_FONT },
 
   cancelBtn: { width: '100%', paddingVertical: 11, alignItems: 'center' },
   cancelLabel: { color: COLOR.textSecondary, fontSize: 12.5, letterSpacing: 0.8 },

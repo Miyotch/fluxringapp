@@ -75,6 +75,7 @@ import {
 import { CARD_VERTEX_SHADER, ART_FRAGMENT_SHADER, ALUMINUM_FRAGMENT_SHADER } from '../lib/cardShaders';
 import { CardAura } from './CardAura';
 import { CardSurface } from './CardSurface';
+import { CARD_PLACEHOLDER } from './CardFace';
 import { PurchaseGlow } from './PurchaseGlow';
 
 /**
@@ -135,6 +136,20 @@ function computeBackLiftRatio(
 const FOV = 28;
 // フリップのスラープ係数。参照は 1-exp(-dt*10)（τ=0.1秒・約300msで95%）。
 const FLIP_K = 10;
+/**
+ * 裏返しの重さ（2026-09-24 代表「やってみて考える」）。
+ * 以前は FLIP_K の一次遅れで、動き出した瞬間が一番速く、あとは減速するだけ
+ * だった（紙を弾いたような軽さ）。タップで裏返す・表へ戻すときだけ、ばねで
+ * 動かす: 止まった所から少しためて動き出し、着地で小さく揺れて止まる。
+ * 減衰比 0.76 で行き過ぎは約 2.5%（裏返しの 180° に対して 4〜5°）。
+ * 指で回している間は従来どおりの一次遅れ（指に遅れず付いてくる）。
+ */
+const FLIP_SPRING_W = 12;      // 固有角振動数 rad/s
+const FLIP_SPRING_Z = 0.76;    // 減衰比
+const FLIP_SPRING_STEP = 0.008; // 積分の刻み（秒）。dt が大きくても暴れないように分割
+/** 初回だけの「傾けられる」の案内: 傾ける角度（rad）と、傾いたまま待つ時間（秒） */
+const PEEK_YAW = 0.45;
+const PEEK_HOLD_S = 0.55;
 // 落影が消えきる回転角（度）。これ以上傾いたらカードの影は出さない。
 const AURA_HIDE_DEG = 10;
 // 1フレームで進める時間の上限（秒）。参照 startLoop(): min(max(dt,0),0.05)。
@@ -230,6 +245,13 @@ export type SpinState = {
   mode: FlipMode;
   /** closing に入ってからの経過秒。参照 close() の 1500ms 強制終了用 */
   closeElapsed: number;
+  /** 裏返しのばね（タップで裏返す・表へ戻す間だけ true） */
+  flipAnim: boolean;
+  /** ばねの速度（ヨー rad/s・開閉進捗 /s） */
+  fyV: number;
+  qqV: number;
+  /** 初回の案内で傾いたまま待つ残り秒（0 なら案内中ではない） */
+  peekT: number;
 };
 
 /** 'idle'=表で静止 / 'open'=裏（回転可） / 'closing'=表へ戻り中（入力を受けない） */
@@ -690,18 +712,71 @@ const CardMesh: React.FC<{
         // 指を離したらピッチだけ正面へ戻す（参照 v101）。倒れたまま止まらない
         s.tfx *= Math.exp(-dt * FLIP_PITCH_RECENTER);
       }
+      // 初回の案内: 傾いたまま少し待ってから、表の真正面へ戻す
+      if (s.mode === 'closing' && s.peekT > 0) {
+        s.peekT -= dt;
+        if (s.peekT <= 0) {
+          s.peekT = 0;
+          s.tfy = Math.round(s.fy / (2 * Math.PI)) * 2 * Math.PI;
+          s.flipAnim = true;
+          s.closeElapsed = 0;
+        }
+      }
       // 参照と同じ平滑化 sm = 1 - exp(-dt·10)
       const sm = 1 - Math.exp(-dt * FLIP_K);
-      s.fy += (s.tfy - s.fy) * sm;
+      if (s.flipAnim && !s.dragging) {
+        // 裏返し・表へ戻す間はばね（重さ）。刻みを細かくして安定させる
+        const w2 = FLIP_SPRING_W * FLIP_SPRING_W;
+        const c = 2 * FLIP_SPRING_Z * FLIP_SPRING_W;
+        const n = Math.max(1, Math.ceil(dt / FLIP_SPRING_STEP));
+        const h = dt / n;
+        for (let i = 0; i < n; i++) {
+          s.fyV += (w2 * (s.tfy - s.fy) - c * s.fyV) * h;
+          s.fy += s.fyV * h;
+          s.qqV += (w2 * (s.tqq - s.qq) - c * s.qqV) * h;
+          s.qq += s.qqV * h;
+          // 大きさ・持ち上げ（開閉進捗）は行き過ぎさせない。揺れは回転だけ。
+          // 行き過ぎると、表へ戻る着地でカードが一瞬本来より小さくなり、そのあと
+          // 平面の絵へ切り替わって「一回り大きくなった」ように見えた（2026-09-25 実機）
+          if (s.qq < 0) {
+            s.qq = 0;
+            if (s.qqV < 0) s.qqV = 0;
+          } else if (s.qq > 1) {
+            s.qq = 1;
+            if (s.qqV > 0) s.qqV = 0;
+          }
+        }
+        if (
+          Math.abs(s.tfy - s.fy) < 0.01 &&
+          Math.abs(s.fyV) < 0.15 &&
+          Math.abs(s.tqq - s.qq) < 0.01 &&
+          Math.abs(s.qqV) < 0.15
+        ) {
+          s.fy = s.tfy;
+          s.qq = s.tqq;
+          s.fyV = 0;
+          s.qqV = 0;
+          s.flipAnim = false;
+        }
+      } else {
+        s.fy += (s.tfy - s.fy) * sm;
+        s.qq += (s.tqq - s.qq) * sm;
+        s.fyV = 0;
+        s.qqV = 0;
+      }
       s.fx += (s.tfx - s.fx) * sm;
-      s.qq += (s.tqq - s.qq) * sm;
       // 表へ戻り切ったらスナップ（参照: |ΔangY|<0.06 && |angX|<0.06 && q<0.04
       //   || now-closeT0>1500）。後者の保険が無いと、着地条件を満たせない姿勢で
       //   止まったときに closing のまま入力を受け付けなくなる。
       if (s.mode === 'closing') {
         s.closeElapsed += dt;
+        // ばねが揺れ終わるまで着地にしない（途中で止めると揺れが途切れて跳ねる）
         const landed =
-          Math.abs(s.fy - s.tfy) < 0.06 && Math.abs(s.fx) < 0.06 && s.qq < 0.04;
+          !s.flipAnim &&
+          s.peekT <= 0 &&
+          Math.abs(s.fy - s.tfy) < 0.06 &&
+          Math.abs(s.fx) < 0.06 &&
+          s.qq < 0.04;
         if (landed || s.closeElapsed > CLOSE_TIMEOUT_S) {
         s.fy = s.tfy;
         s.fx = 0;
@@ -806,6 +881,7 @@ const CardMesh: React.FC<{
     const moving =
       s.dragging ||
       s.animating ||
+      s.flipAnim ||
       s.mode === 'closing' ||
       Math.abs(s.tfy - s.fy) > 1e-4 ||
       Math.abs(s.tfx - s.fx) > 1e-4 ||
@@ -910,6 +986,11 @@ export type CardGLProps = {
    * カードの実寸へスケールした近似矩形で行う（実機調整ポイント）。
    */
   onArtistPress?: () => void;
+  /**
+   * 初回だけの案内（少し傾いて戻る）を親から起こす窓口。CardGL が中身を入れる。
+   * 数や関数を props で渡すとカード層が描き直されるので、変わらない ref で渡す。
+   */
+  hintRef?: React.MutableRefObject<(() => void) | null>;
   style?: StyleProp<ViewStyle>;
 };
 
@@ -933,6 +1014,7 @@ export const CardGL: React.FC<CardGLProps> = ({
   dragXOut,
   purchaseGlow,
   onArtistPress,
+  hintRef,
   style,
 }) => {
   const spin = useRef<SpinState>({
@@ -958,6 +1040,10 @@ export const CardGL: React.FC<CardGLProps> = ({
     tqq: 0,
     mode: 'idle',
     closeElapsed: 0,
+    flipAnim: false,
+    fyV: 0,
+    qqV: 0,
+    peekT: 0,
   });
   const last = useRef({ x: 0, y: 0 });
   const moved = useRef(false);
@@ -1178,6 +1264,33 @@ export const CardGL: React.FC<CardGLProps> = ({
     overlayTimer.current = setTimeout(showOverlay, 900);
   };
 
+  // 初回だけの「傾けられる」の案内（2026-09-24）。表のまま少し傾いて、表へ戻る。
+  // 表へ戻る仕組み（closing → 着地で 2D の絵へ戻す）をそのまま使う。
+  // 表の絵を GL がまだ読めていないとき・表で静止していないときは何もしない。
+  const peek = () => {
+    const s = spin.current;
+    if (!isFlip || s.mode !== 'idle' || !frontReady) return;
+    glKick.current();
+    s.mode = 'closing';
+    s.closeElapsed = 0;
+    s.peekT = PEEK_HOLD_S;
+    clearOverlayTimer();
+    overlayOpacity.value = 0;
+    overlayShown.current = false;
+    setOverlayVisible(false);
+    s.tfy = PEEK_YAW;
+    s.tfx = 0;
+    s.tqq = 0;
+    s.fvx = 0;
+    s.fvy = 0;
+    s.flipAnim = true;
+    s.fyV = 0;
+    s.qqV = 0;
+    // 保険: 着地が来なくても 2D の絵へ戻す
+    overlayTimer.current = setTimeout(showOverlay, 2200);
+  };
+  if (hintRef) hintRef.current = peek;
+
   // 親からの「表へ戻して」（裏面を横スワイプしたとき）。開いていなければ
   // flipToFront 自身が何もしないので、初回や表向きのときは無害。
   const closeSignalSeen = useRef(closeSignal);
@@ -1212,6 +1325,11 @@ export const CardGL: React.FC<CardGLProps> = ({
     s.fvx = 0;
     s.fvy = 0;
     s.dragging = false;
+    // 裏返す・表へ戻すのはばねで（止まった所から動き出し、着地で小さく揺れる）
+    s.flipAnim = true;
+    s.fyV = 0;
+    s.qqV = 0;
+    s.peekT = 0;
     // 落影は useFrame が表向き度から毎フレーム決める（ここでは触らない）
   }, [flipped, isFlip]);
 
@@ -1237,6 +1355,11 @@ export const CardGL: React.FC<CardGLProps> = ({
           s.dragging = canRotate;
           s.vx = 0;
           s.vy = 0;
+          if (canRotate) {
+            s.flipAnim = false;
+            s.fyV = 0;
+            s.qqV = 0;
+          }
           // 参照 down() は慣性を必ず 0 にする。flip 用も消さないと、回っている
           // カードを指で押さえても前のフリックの勢いが生き残る。
           s.fvx = 0;
@@ -1408,6 +1531,16 @@ export const CardGL: React.FC<CardGLProps> = ({
   // ── A-3: Canvas へ渡すオブジェクトを固定する ──
   // インラインのリテラルだと毎レンダーで別物になり、R3F の CanvasImpl が
   // configure() + root.render() でツリーを丸ごと再 reconcile していた。
+  // 描画面の大きさ・カメラが変わったら必ず 1 フレーム描き直す（2026-09-25）。
+  // frameloop="demand" なので、止まっている間に置き場の大きさだけが変わると、
+  // 前の大きさで描いた絵が引き伸ばされて残り、平面の絵の後ろからはみ出して
+  // カードが二重に見えていた（再生画面で曲を送ったとき）
+  useEffect(() => {
+    glKick.current();
+    const id = requestAnimationFrame(() => glKick.current());
+    return () => cancelAnimationFrame(id);
+  }, [CW, CH, camZ]);
+
   const canvasStyle = useMemo(
     () => ({
       position: 'absolute' as const,
@@ -1511,6 +1644,18 @@ export const CardGL: React.FC<CardGLProps> = ({
             {/* いま出す絵と、隣の札の絵を重ねて載せる。見えるのは shownUri の1枚だけで、
                 残りは opacity 0 のまま先に読み込ませておく。札が入れ替わっても
                 ビューは作り直されないので、不透明度が入れ替わるだけで済む。 */}
+            {/* 絵が届くまでの下地（CardFace と同じ色）。無いと真っ黒な板に見えた */}
+            <View
+              style={{
+                position: 'absolute',
+                left: 0,
+                top: 0,
+                width,
+                height,
+                borderRadius: CORNER_RATIO * width,
+                backgroundColor: CARD_PLACEHOLDER,
+              }}
+            />
             {frontLayers.map((uri) => (
               <Image
                 key={uri}

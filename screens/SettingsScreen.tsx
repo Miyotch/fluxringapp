@@ -39,11 +39,13 @@ import {
   ScrollView,
   StyleSheet,
   StatusBar,
+  useWindowDimensions,
 } from 'react-native';
 import { COLOR, SPACE, RADIUS } from '../constants/design-tokens';
 import { JP_SERIF_FONT } from '../constants/fonts';
 import { useT } from '../lib/i18n';
 import { useTopInset } from '../lib/safeArea';
+import { CR, CreditsBackdrop } from '../components/CreditsBackdrop';
 
 export type SettingsKey =
   | 'account'
@@ -69,6 +71,7 @@ type Row = { key: SettingsKey | 'signout'; label: string };
 export const SettingsScreen: React.FC<Props> = ({ onSelect, onSignOut }) => {
   const t = useT();
   const scrollTop = useTopInset(12); // 従来 56px（=44+12）
+  const { width: screenW, height: screenH } = useWindowDimensions();
 
   const rows: Row[] = [
     { key: 'account', label: t('settings.account') },
@@ -86,7 +89,8 @@ export const SettingsScreen: React.FC<Props> = ({ onSelect, onSignOut }) => {
 
   return (
     <View style={styles.root}>
-      <StatusBar barStyle="light-content" backgroundColor={COLOR.bg} />
+      <StatusBar barStyle="light-content" backgroundColor={CR.deepest} />
+      <CreditsBackdrop w={screenW} h={screenH} />
 
       <ScrollView
         contentContainerStyle={[styles.scroll, { paddingTop: scrollTop }]}
@@ -95,17 +99,28 @@ export const SettingsScreen: React.FC<Props> = ({ onSelect, onSignOut }) => {
         <Text style={styles.h1}>{t('settings.title')}</Text>
 
         <View style={styles.list}>
-          {rows.map((row) => (
-            <Pressable
-              key={row.key}
-              style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
-              onPress={() => (row.key === 'signout' ? onSignOut() : onSelect(row.key))}
-              accessibilityRole="button"
-            >
-              <Text style={styles.cardLabel}>{row.label}</Text>
-              <Text style={styles.chevron}>›</Text>
-            </Pressable>
-          ))}
+          {rows.map((row) =>
+            row.key === 'signout' ? (
+              <Pressable
+                key={row.key}
+                style={({ pressed }) => [styles.card, styles.signout, pressed && styles.cardPressed]}
+                onPress={onSignOut}
+                accessibilityRole="button"
+              >
+                <Text style={[styles.cardLabel, styles.signoutLabel]}>{row.label}</Text>
+              </Pressable>
+            ) : (
+              <Pressable
+                key={row.key}
+                style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
+                onPress={() => onSelect(row.key as SettingsKey)}
+                accessibilityRole="button"
+              >
+                <Text style={styles.cardLabel}>{row.label}</Text>
+                <Text style={styles.chevron}>›</Text>
+              </Pressable>
+            ),
+          )}
         </View>
       </ScrollView>
     </View>
@@ -113,7 +128,7 @@ export const SettingsScreen: React.FC<Props> = ({ onSelect, onSignOut }) => {
 };
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: COLOR.bg },
+  root: { flex: 1, backgroundColor: CR.deepest },
   scroll: {
     // 既定値。実機では SafeArea の top を加味して JSX 側で上書き
     paddingTop: 56,
@@ -139,6 +154,8 @@ const styles = StyleSheet.create({
   cardPressed: { opacity: 0.7 },
   cardLabel: { color: COLOR.textPrimary, fontSize: 14, letterSpacing: 0.28, fontFamily: JP_SERIF_FONT },
   chevron: { color: COLOR.textSecondary, fontSize: 16 },
+  signout: { marginTop: 12, justifyContent: 'center' },
+  signoutLabel: { color: COLOR.textSecondary },
 });
 
 export default SettingsScreen;

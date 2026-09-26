@@ -58,13 +58,15 @@ export type ArtistTrack = {
   glowColor2?: string;
 };
 
+export type OpenStoryFn = (trackId: string, artistId: string) => void;
+
 type Stage = 'list' | 'profile' | 'tracks';
 
 type Props = {
   artists: Artist[];
   tracksByArtist: Record<string, ArtistTrack[]>;
   onBackToSettings: () => void;
-  onOpenStory: (trackId: string) => void;
+  onOpenStory: OpenStoryFn;
   /**
    * 指定すると①作家一覧を飛ばして、その作家の②プロフィールから開始する
    * （カード裏面の作家名タップなど、作家一覧を経由しない遷移用）。
@@ -196,13 +198,14 @@ export const ArtistScreen: React.FC<Props> = ({
       <ScrollView contentContainerStyle={styles.tracksGrid} showsVerticalScrollIndicator={false}>
         <View style={styles.gridRow}>
           {tracks.map((t, index) => (
+            // eslint-disable-next-line react/jsx-key
             // カードは段階的にふわっと浮き出る
             <Animated.View
               key={t.id}
               entering={FadeInUp.duration(420).delay((index % 8) * 55)}
               style={[styles.gridCell, { width: colW, opacity: t.owned ? 1 : 0.4 }]}
             >
-              <Pressable onPress={() => onOpenStory(t.id)}>
+              <Pressable onPress={() => selected && onOpenStory(t.id, selected.id)}>
                 {/* オーラ余白(PAD)を吸収して画像とテキストの中心を揃える */}
                 <View style={{ width: colW, height: colW * 1.5, alignItems: 'center', justifyContent: 'center' }}>
                   <ArtworkCard
@@ -214,10 +217,11 @@ export const ArtistScreen: React.FC<Props> = ({
                     subdued
                   />
                 </View>
+                {/* 未購入でも曲名は出す（2026-09-25 代表指示。以前は「？？？」だった）。
+                    所有していないことはカード自体の暗さ（opacity 0.4）とシルエットで示す */}
                 <Text style={styles.gridTitle} numberOfLines={1}>
-                  {t.owned ? t.title : '？？？'}
+                  {t.title}
                 </Text>
-                <Text style={styles.gridState}>{t.owned ? '所有=明' : '未所有=影'}</Text>
               </Pressable>
             </Animated.View>
           ))}
@@ -330,7 +334,6 @@ const styles = StyleSheet.create({
   gridRow: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.md },
   gridCell: { marginBottom: SPACE.md },
   gridTitle: { color: COLOR.textPrimary, fontSize: 13, marginTop: SPACE.sm, letterSpacing: 0.26, fontFamily: JP_SERIF_FONT },
-  gridState: { color: COLOR.textSecondary, fontSize: 11, marginTop: 2, letterSpacing: 0.22, fontFamily: JP_SERIF_FONT },
 });
 
 export default ArtistScreen;

@@ -13,6 +13,7 @@
  */
 
 import React, { useState } from 'react';
+import Constants from 'expo-constants';
 import {
   View,
   Text,
@@ -1158,7 +1159,8 @@ export const DocumentScreen: React.FC<{ kind: DocKind; onBack: () => void }> = (
 // 情報（規約類のまとめ）
 // ─────────────────────────────────────────────
 
-const APP_VERSION = '0.1.0';
+// 版は app.json の expo.version から読む（手書きだと上げ忘れてずれるため。2026-09-24）
+const APP_VERSION = Constants.expoConfig?.version ?? '';
 
 /**
  * 設定「情報」。CREDITS / 利用規約 / プライバシー / 特商法 を束ねる中間画面。

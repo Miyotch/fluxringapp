@@ -31,12 +31,14 @@ import {
 } from 'react-native';
 import Animated, {
   Easing,
+  Extrapolation,
   FadeInUp,
+  interpolate,
   useAnimatedStyle,
   useSharedValue,
   withTiming,
 } from 'react-native-reanimated';
-import { CardGL, CARD_BACK_SCALE_MAX } from '../components/CardGL';
+import { CardGL, CARD_ASPECT, CARD_BACK_SCALE_MAX } from '../components/CardGL';
 import { homeCardWidth } from '../constants/design-tokens';
 import Svg, { Defs, LinearGradient as SvgLinear, Stop, Rect } from 'react-native-svg';
 import { CR, CreditsBackdrop } from '../components/CreditsBackdrop';
@@ -51,6 +53,12 @@ import { previewUrl as r2PreviewUrl } from '../lib/r2';
 import { useLayoutAdjustConfig } from '../lib/layoutAdjust';
 import { NUM_FONT, JP_SERIF_FONT } from '../constants/fonts';
 import type { PurchaseController } from '../lib/usePurchaseFlow';
+import type { PlaylistsController } from '../lib/usePlaylists';
+import { MyPlaylists } from '../components/MyPlaylists';
+import { OrbitBuyButton } from '../components/OrbitBuyButton';
+import { FavBead, BEAD_HIT } from '../components/FavBead';
+import { EqBars } from '../components/EqBars';
+import { usePlaybackOptional } from '../lib/playback';
 
 export type CollectionItem = {
   id: string;
@@ -79,9 +87,12 @@ export type CollectionItem = {
   };
 };
 
-// 参照 fr_v98_wish.html の col-tabs（すべて / 所有 / ウィッシュリスト）
+// タブ。2026-09-24 にコレクションを「プレイリスト」に改め、並びを
+// マイプレイリスト / すべて / ウィッシュリスト にした（聴く場所として、
+// 自分のプレイリストを先頭に置く）。参照 fr_v98_wish.html の col-tabs は
+// すべて / 所有 / ウィッシュリスト の順だった。
 type Segment = 'all' | 'mine' | 'wish';
-const SEGMENTS: Segment[] = ['all', 'mine', 'wish'];
+const SEGMENTS: Segment[] = ['mine', 'all', 'wish'];
 
 type Props = {
   owned: CollectionItem[];
@@ -109,6 +120,18 @@ type Props = {
   wishlistIds?: Set<string>;
   /** 購入フロー。未指定なら購入ボタンは押しても何も起きない */
   purchase?: PurchaseController;
+  /**
+   * マイプレイリスト（スロット 2 以降）。App.tsx の usePlaylists が正。
+   * 未指定なら、マイプレイリストのページは従来の 21 枠の格子のまま。
+   */
+  playlists?: PlaylistsController;
+  /**
+   * マイプレイリストから流す。startId あり＝カードを押した（その曲から流して再生画面へ）、
+   * なし＝「このプレイリストを再生」（先頭から流す・画面は移らない）
+   */
+  onPlayList?: (trackIds: string[], startId?: string, source?: string) => void;
+  /** マイリストの編集シートから、その並びをその曲から流す（画面は移らない） */
+  onPlayFrom?: (trackIds: string[], startId: string, source?: string) => void;
 };
 
 // マイコレ／ウィッシュリストの並び順。両者とも props（owned/wishlist）の順は
@@ -139,6 +162,10 @@ const COL_GAP = 10;             // column-gap:10px
 const PAD_X = 22;               // padding 左右
 const PAD_TOP = 24;             // padding 上
 const PAD_BOTTOM = 78;          // padding 下（フッター潜り）
+// 作品詳細でカードの下に並ぶ塊の高さ。styles の workInfo〜workShelf の内訳と揃える
+//   カードとの間 20 ＋ 番号 16 ＋ 6 ＋ 曲名 28 ＋ 20 ＋ ボタン 40 ＋ 12 ＋ 一行 16
+const WORK_INFO_GAP = 20;
+const WORK_INFO_H = WORK_INFO_GAP + 16 + 6 + 28 + 20 + 40 + 12 + 16;
 const TILE_RADIUS = 10;         // .deck-slot border-radius
 const FRAME_INSET = 1.6;        // .deck-card::before inset:-1.6px
 const FRAME_RADIUS = 11.6;      // 10 + 1.6 の同心値（固定11pxは禁止）
@@ -178,12 +205,14 @@ type MineSlot = { key: string; item: CollectionItem | null; no: string };
 // 背景は設定配下（CREDITS等）と同じ CreditsBackdrop を使う（components/CreditsBackdrop.tsx）。
 
 // 上端フェード（原本の mask-image:linear-gradient(transparent 0, #000 22px) 相当）
+// 色はこの高さの背景（CreditsBackdrop の中心 #15132e）に合わせる。以前の #0a0a1c は
+// 背景より暗く、止まっているとタブの下に暗い帯が見えた（2026-09-25）
 const TopFade: React.FC<{ w: number }> = ({ w }) => (
   <Svg style={styles.topFade} width={w} height={FADE_H} pointerEvents="none">
     <Defs>
       <SvgLinear id="fade" x1="0" y1="0" x2="0" y2="1">
-        <Stop offset="0" stopColor="#0a0a1c" stopOpacity={1} />
-        <Stop offset="1" stopColor="#0a0a1c" stopOpacity={0} />
+        <Stop offset="0" stopColor="#15132e" stopOpacity={1} />
+        <Stop offset="1" stopColor="#15132e" stopOpacity={0} />
       </SvgLinear>
     </Defs>
     <Rect x="0" y="0" width={w} height={FADE_H} fill="url(#fade)" />
@@ -243,22 +272,33 @@ export const CollectionScreen: React.FC<Props> = ({
   onToggleWish,
   wishlistIds,
   purchase,
+  playlists,
+  onPlayList,
+  onPlayFrom,
 }) => {
   const t = useT();
-  const titleTop = useTopInset(14); // 従来 58px（=44+14）
+  const titleTop = useTopInset(12); // 設定タブの見出しと同じ高さ（従来は 14）
+  // 作品詳細の「戻る」の高さ。カードを眺める画面（PlayerScreen）と同じ位置に揃える
+  const workNavTop = useTopInset(8);
   // 作品詳細（カードをタップした後の画面）の★／試聴／購入するの行の縦位置の
   // 運営調整（設定→ボタン位置調整のスライダー）。既定値(0)では今の位置の
   // まま変わらない。
   const layoutAdjust = useLayoutAdjustConfig();
   const { width: screenW, height: screenH } = useWindowDimensions();
-  // 参照の既定タブは「すべて」。連作の全体像を先に見せ、そこから所有／欲しいへ絞る。
-  const [seg, setSeg] = useState<Segment>('all');
+  // 既定タブはマイプレイリスト（2026-09-24。以前は連作の全体像を先に見せる「すべて」）。
+  const [seg, setSeg] = useState<Segment>('mine');
+  const segRef = useRef<Segment>('mine');
+  segRef.current = seg;
+  const playlistsRef = useRef<PlaylistsController | undefined>(playlists);
+  playlistsRef.current = playlists;
   const [purchaseTarget, setPurchaseTarget] = useState<CollectionItem | null>(null);
   // 枠タップで立ち上がる作品詳細（参照 .work）。null=閉じている
   const [detailId, setDetailId] = useState<string | null>(null);
   // 試聴中の trackId。ホーム（DiscoverScreen）と同じ expo-audio の使い方に揃える
   const [previewingId, setPreviewingId] = useState<string | null>(null);
   const preview = useAudioPlayer();
+  // アプリ全体の再生（プレイリスト）。試聴と同時に鳴らさないために使う
+  const playback = usePlaybackOptional();
   // ウィッシュリストから買った直後に出す一行（「《朝靄》は No. 003 の枠へ。」）
   const [movedNote, setMovedNote] = useState<string | null>(null);
   // タップされたタイルの画面絶対座標を測るための参照（再生画面の残像アニメーション用）
@@ -268,15 +308,18 @@ export const CollectionScreen: React.FC<Props> = ({
   // Capture 側で「明確に横」のジェスチャだけ先に引き取る。
   //   ・非 Capture だと FlatList が先に応答者になり、スワイプが届かないことがある
   //   ・横優位（|dx| > 1.4×|dy|）に限定するので、通常の縦スクロールは奪わない
+  //   ・マイプレイリストのページでは引き取らない。カードの横スワイプと取り合うため
+  //     （2026-09-24）。そこではタブは上の見出しを押して切り替える
   const segSwipe = useRef(
     PanResponder.create({
       onMoveShouldSetPanResponderCapture: (_e, g) =>
+        !(segRef.current === 'mine' && playlistsRef.current) &&
         Math.abs(g.dx) > SWIPE_CLAIM_PX && Math.abs(g.dx) > Math.abs(g.dy) * SWIPE_H_RATIO,
       onPanResponderRelease: (_e, g) => {
         const far = Math.abs(g.dx) >= SWIPE_COMMIT_PX;
         const fast = Math.abs(g.vx) >= SWIPE_COMMIT_VX;
         if (!far && !fast) return; // 迷い程度の動きでは切り替えない
-        // タブは [すべて, 所有, ウィッシュ] の並び。左スワイプ=次 / 右スワイプ=前。
+        // タブは SEGMENTS の並び。左スワイプ=次 / 右スワイプ=前。
         setSeg((prev) => {
           const i = SEGMENTS.indexOf(prev);
           const next = i + (g.dx < 0 ? 1 : -1);
@@ -330,11 +373,13 @@ export const CollectionScreen: React.FC<Props> = ({
       }
       const url = item.previewUrl ?? (item.audioKey ? r2PreviewUrl(item.audioKey) : null);
       if (!url) return; // 試聴未設定
+      // プレイリストが鳴っていたら一時停止してから試聴する（0.2.0 第 2 段階）
+      playback?.pause();
       preview.replace({ uri: url });
       preview.play();
       setPreviewingId(item.id);
     },
-    [previewingId, preview],
+    [previewingId, preview, playback],
   );
 
   const stopPreview = useCallback(() => {
@@ -342,6 +387,16 @@ export const CollectionScreen: React.FC<Props> = ({
     preview.pause();
     setPreviewingId(null);
   }, [previewingId, preview]);
+
+
+  // プレイリストが鳴り始めたら、この画面の試聴は止める
+  const stopPreviewRef = useRef(stopPreview);
+  stopPreviewRef.current = stopPreview;
+  const onPbWillPlay = playback?.onWillPlay;
+  useEffect(() => {
+    if (!onPbWillPlay) return;
+    return onPbWillPlay(() => stopPreviewRef.current());
+  }, [onPbWillPlay]);
 
   // タブを移ったら試聴は止める（見えていない作品が鳴り続けないように）
   useEffect(() => {
@@ -361,6 +416,13 @@ export const CollectionScreen: React.FC<Props> = ({
     () => (detailId ? works.find((w) => w.id === detailId) ?? null : null),
     [detailId, works],
   );
+  const detailOwned = detail ? ownedIds.has(detail.id) : false;
+  const detailHasPreview = !!detail && !!(detail.previewUrl ?? detail.audioKey);
+  // 詳細を開いても試聴は自動で鳴らさない。右上の EQ を押したときだけ鳴る
+  // （2026-09-25 岡さん指示「試聴はデフォルト OFF」。HOME と同じ）
+  useEffect(() => {
+    setWorkFlipped(false);
+  }, [detailId]);
 
   // ── 作品詳細のカード ────────────────────────────────────────────
   // 平らな Image ではなく、ホーム／再生画面と同じ CardGL を置く。タップで表↔裏、
@@ -369,18 +431,36 @@ export const CollectionScreen: React.FC<Props> = ({
   // 寸法・見かけの大きさ・裏面の倍率は、すべて PlayerScreen（＝マイコレのタイルを
   // 押したときに開く面）と同じ式にする。どのタブから開いても、拡大したあとの
   // カードが同じ大きさ・同じ位置に着くようにするため。
-  const workCardW = Math.min(screenW - 96, 240);
-  const workCardH = Math.round(workCardW * 1.5);
-  // PlayerScreen のベール（再生前）と同じ見かけ倍率。CardGL 自体は実寸で固定し、
-  // ラッパーの scale だけで見かけを縮める（3Dシーンの作り直しを避ける）。
-  const CARD_FOCUS_SCALE = 1 / 1.08;
+  //
+  // 2026-09-25: カードと番号・曲名・ボタンを一つの塊にして、残りの縦幅の中央に置く
+  // （以前はカードだけを中央に置き、文字は画面の下端に寄せていたので、縦に長い
+  // 端末ほどカードと曲名が離れて見えた）。塊が収まらない小さな端末では、カードの
+  // ほうを縮めて収める。縦横比は PlayerScreen と同じ CARD_ASPECT（以前は 1.5 で、
+  // 同じカードが開く場所によって少し寸詰まりに見えていた）。
+  const [cardArea, setCardArea] = useState({ w: 0, h: 0 });
+  const workFitW = cardArea.h > 0 ? (cardArea.h - WORK_INFO_H - 16) / CARD_ASPECT : Infinity;
+  const workCardW = Math.floor(Math.max(120, Math.min(screenW - 96, 240, workFitW)));
+  const workCardH = Math.round(workCardW * CARD_ASPECT);
+  // 着地の見かけ倍率。以前は PlayerScreen のベールと同じ 1/1.08 に縮めていたが、
+  // 2026-09-24 に「押したらカードが拡大して、HOME と同じ購入ボタン」へ改めたので、
+  // 実寸（再生画面で流れているときと同じ大きさ）で着地させる。
+  const CARD_FOCUS_SCALE = 1;
   // 裏面（フリップ後）の絶対サイズをホームと揃える。frame からの自動算出だと
   // 上限 1.28 に張り付いて裏面が「戻る」まで覆うので、PlayerScreen と同じく
   // ホームの裏面幅から逆算した値を明示的に渡す。
   const workBackScale = (homeCardWidth(screenH) * CARD_BACK_SCALE_MAX) / workCardW;
-  // frame はカードを収める領域の実寸。裏面の持ち上げ量（枠高の3%）がここから
-  // 決まる。画面全体を渡すと持ち上がりすぎるので、実測した領域を渡す。
-  const [cardArea, setCardArea] = useState({ w: 0, h: 0 });
+  // frame はカードを収める領域の実寸（上の cardArea）。裏面の持ち上げ量（枠高の3%）が
+  // ここから決まる。画面全体を渡すと持ち上がりすぎるので、実測した領域を渡す。
+  // 詳細のカードが裏を向いているか（裏返し中は角の★を隠す）
+  const [workFlipped, setWorkFlipped] = useState(false);
+  // カードの傾き(度)。裏返すと裏面はひと回り大きくなって真下の番号・曲名に
+  // かかるので、HOME の左上の曲名と同じく、傾きに合わせて番号・曲名を消す
+  const workRot = useSharedValue(0);
+  const workInfoFade = useAnimatedStyle(() => {
+    const r = Math.abs(workRot.value) % 360;
+    const d = Math.min(r, 360 - r);
+    return { opacity: interpolate(d, [0, 45], [1, 0], Extrapolation.CLAMP) };
+  });
   const workCardFrame = useMemo(
     () => ({ width: cardArea.w, height: cardArea.h }),
     [cardArea.w, cardArea.h],
@@ -662,7 +742,9 @@ export const CollectionScreen: React.FC<Props> = ({
     <Animated.View
       key={`wish-${item.id}`}
       entering={FadeInUp.duration(420).delay((index % 8) * 55)}
-      style={{ width: wishW, marginBottom: WISH_GAP }}
+      // 行の間は 24。ボタンとカードの間（8）より狭いと、ボタンが下の段のカードに
+      // 付いて見えた（列の間の 12 は台帳どおり）
+      style={{ width: wishW, marginBottom: 24 }}
     >
       {/* タップ＝作品詳細。マイコレのタイル（タップ＝再生）と同じ「押したら
           その作品が立ち上がる」挙動に揃える。以前はホームの該当カードへ
@@ -759,11 +841,12 @@ export const CollectionScreen: React.FC<Props> = ({
   // 「全○作品｜所有○・ウィッシュリスト○」の進捗表示は撤去（2026-09-19 指示）。
   // 進捗バーも置かない。ウィッシュリストは「まだ持っていない」を並べる場なので、
   // 達成度を煽る形にすると PRICING.md の「煽らない・売り込まない」から外れる。
-  const renderWishHeader = () => (
-    <View style={styles.wishHeader}>
-      {!!movedNote && <Text style={styles.wishMoved}>{movedNote}</Text>}
-    </View>
-  );
+  const renderWishHeader = () =>
+    movedNote ? (
+      <View style={styles.wishHeader}>
+        <Text style={styles.wishMoved}>{movedNote}</Text>
+      </View>
+    ) : null;
 
   return (
     <View style={styles.root}>
@@ -785,9 +868,9 @@ export const CollectionScreen: React.FC<Props> = ({
       >
         {SEGMENTS.map((k) => {
           // 参照 .cnt: 0 件のときは数字を出さない（空の枠を数字で強調しない）。
-          // 件数を出すのは「すべて」「マイコレクション」の2タブだけ。ウィッシュ
-          // タブは数字を出さない（表示名のみ。2026-09-19 指示）。
-          const count = k === 'all' ? works.length : k === 'mine' ? owned.length : 0;
+          // 件数を出すのは「すべて」だけ。ウィッシュリストは表示名のみ（2026-09-19 指示）、
+          // マイリストも表示名のみ（2026-09-25 岡さん指示）。
+          const count = k === 'all' ? works.length : 0;
           const label =
             k === 'all'
               ? t('collection.all')
@@ -818,6 +901,14 @@ export const CollectionScreen: React.FC<Props> = ({
             columnWrapperStyle={{ gap: COL_GAP }}
             contentContainerStyle={styles.pages}
             showsVerticalScrollIndicator={false}
+          />
+        ) : seg === 'mine' && playlists ? (
+          <MyPlaylists
+            owned={ownedSorted}
+            playlists={playlists}
+            onPlayList={(ids, startId, source) => onPlayList?.(ids, startId, source)}
+            onPlayFrom={onPlayFrom}
+            onDiscover={onDiscover}
           />
         ) : seg === 'mine' ? (
           <FlatList
@@ -854,13 +945,14 @@ export const CollectionScreen: React.FC<Props> = ({
             showsVerticalScrollIndicator={false}
           />
         )}
-        <TopFade w={screenW} />
+        {/* マイリストのページは縦に流れないので要らない（チップの縁が暗く見えた） */}
+        {!(seg === 'mine' && playlists) && <TopFade w={screenW} />}
       </View>
 
       {/* 枠タップで立ち上がる作品（参照 .work）。所有なら「再生する」、
           未所有なら ★ / 30秒 試聴 / 迎える の3手。ここが「再生ではなく試聴と購入」の実体。 */}
       {detail && (
-        <View style={[styles.work, { paddingTop: titleTop + 8 }]}>
+        <View style={[styles.work, { paddingTop: workNavTop }]}>
           {/* 背景は PlayerScreen のベールと同じ組み立て＝暗幕＋作品アートを
               blurRadius 40 で薄く敷く。素通しの幕（.78）だと後ろの盤の細部が
               そのまま読めてしまい、特にウィッシュの2列（大きく明るいアート）が
@@ -874,13 +966,30 @@ export const CollectionScreen: React.FC<Props> = ({
             />
           </View>
 
-          <Pressable style={styles.workBack} hitSlop={10} onPress={closeDetail}>
-            <Text style={styles.workBackLabel}>{`‹ ${t('collection.back')}`}</Text>
-          </Pressable>
+          <View style={styles.workTop}>
+            <Pressable hitSlop={10} onPress={closeDetail}>
+              <Text style={styles.workBackLabel}>{`‹ ${t('collection.back')}`}</Text>
+            </Pressable>
+            {/* 右上の EQ＝試聴のオン・オフ（HOME の右上と同じ）。未購入の曲だけ */}
+            {!detailOwned && detailHasPreview && (
+              <Pressable
+                hitSlop={14}
+                onPress={() => togglePreview(detail)}
+                accessibilityRole="button"
+                accessibilityState={{ selected: previewingId === detail.id }}
+                accessibilityLabel={
+                  previewingId === detail.id ? t('collection.previewStop') : t('collection.preview')
+                }
+              >
+                <EqBars active={previewingId === detail.id} keepIdle dim={previewingId !== detail.id} />
+              </Pressable>
+            )}
+          </View>
 
-          {/* カードは PlayerScreen と同じく、残りの縦幅の中央に置く（cardArea:
-              flex:1 + center）。上の「戻る」と下の番号・曲名・3ボタンの間に
-              取れるだけ取り、その中心へ着地させる。 */}
+          {/* カードと、その下の番号・曲名・ボタンを一つの塊にして、残りの縦幅の
+              中央に置く（2026-09-25）。以前はカードだけを中央に置き、文字を画面の
+              下端に並べていたので、縦に長い端末ほどカードと曲名が離れて見えた。
+              塊はこの領域を測ってから出す（カードの寸法を領域に合わせるため）。 */}
           <View
             style={styles.workCardArea}
             onLayout={(ev) =>
@@ -890,119 +999,93 @@ export const CollectionScreen: React.FC<Props> = ({
               })
             }
           >
-            {/* 外枠はアニメを載せない＝着地点の実測用。内側の Animated.View だけが
-                タイルから飛んでくる。CardGL の Canvas はカード実寸より外へはみ出す
-                ので、ここで overflow を切ってはいけない。 */}
-            <View
-              ref={workCardRef}
-              onLayout={onWorkCardLayout}
-              style={{ width: workCardW, height: workCardH }}
-            >
-              {/* 未所有でも沈めない。沈みが情報になるのは所有と並ぶ「すべて」の盤
-                  だけで、1作品しか出ていないこの面では何とも比較されない。所有状態は
-                  下のボタン（再生する／★・試聴・購入する）と workShelf の一行で
-                  既に言い切っている。加えて CardGL では opacity がカード全体
-                  （金属の縁・ハイライト・落影まで）に効くため、参照 .wcard.dim の
-                  filter:brightness(.62)＝画像だけを暗くする、とは別物になる。 */}
-              <Animated.View
-                style={[{ width: workCardW, height: workCardH }, cardFlightStyle]}
-              >
-                <CardGL
-                  mode="flip"
-                  backStyle="aluminum"
-                  frontUri={detail.artworkUrl}
-                  width={workCardW}
-                  height={workCardH}
-                  // 厚み 1mm 相当。PlayerScreen と同じ値に揃える（既定の
-                  // 8.5/188.6 だと縁が3倍近く厚く見えて、マイコレから開いた
-                  // カードと別物に見える）
-                  depthRatio={0.016}
-                  shadow
-                  frame={workCardFrame}
-                  backScale={workBackScale}
-                  backData={workBackData}
-                />
-              </Animated.View>
-            </View>
-          </View>
-
-          {!!detail.serialNo && <Text style={styles.workNo}>{detail.serialNo}</Text>}
-          <Text style={styles.workTitle} numberOfLines={1}>{detail.title}</Text>
-
-          {/* ★／試聴／購入する（所有済みなら再生する）の行。運営調整
-              （設定→ボタン位置調整）の wishDetailActsOffsetY ぶん縦にずらす。 */}
-          <View style={[styles.workActs, { transform: [{ translateY: layoutAdjust.wishDetailActsOffsetY }] }]}>
-            {slotState(detail.id) === 'own' ? (
-              <Pressable
-                style={({ pressed }) => [
-                  styles.workBtn,
-                  styles.workBtnSolid,
-                  pressed && { opacity: 0.85 },
-                ]}
-                onPress={() => {
-                  closeDetail();
-                  onOpenTrack(detail.id);
-                }}
-              >
-                <Text style={[styles.workBtnLabel, styles.workBtnSolidLabel]}>
-                  {t('collection.play')}
-                </Text>
-              </Pressable>
-            ) : (
-              <>
-                {/* ★＝ウィッシュリストに置く／外す。板の空席からも入れる2つ目の登録点 */}
-                {onToggleWish && (
-                  <Pressable
-                    style={styles.workStar}
-                    hitSlop={6}
-                    accessibilityRole="button"
-                    accessibilityLabel={t('collection.wishRemove')}
-                    onPress={() => onToggleWish(detail.id)}
+            {cardArea.h > 0 && (
+              <View style={styles.workGroup}>
+                {/* 外枠はアニメを載せない＝着地点の実測用。内側の Animated.View だけが
+                    タイルから飛んでくる。CardGL の Canvas はカード実寸より外へはみ出す
+                    ので、ここで overflow を切ってはいけない。 */}
+                <View
+                  ref={workCardRef}
+                  onLayout={onWorkCardLayout}
+                  style={{ width: workCardW, height: workCardH }}
+                >
+                  {/* 未所有でも沈めない。沈みが情報になるのは所有と並ぶ「すべて」の盤
+                      だけで、1作品しか出ていないこの面では何とも比較されない。所有状態は
+                      下のボタン（再生／購入する）と workShelf の一行で既に言い切っている。
+                      加えて CardGL では opacity がカード全体（金属の縁・ハイライト・
+                      落影まで）に効くため、参照 .wcard.dim の filter:brightness(.62)＝
+                      画像だけを暗くする、とは別物になる。 */}
+                  <Animated.View
+                    style={[{ width: workCardW, height: workCardH }, cardFlightStyle]}
                   >
-                    <StarIcon size={17} filled={wishIds.has(detail.id)} />
-                  </Pressable>
-                )}
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.workBtn,
-                    previewingId === detail.id && styles.wishBtnOn,
-                    pressed && { opacity: 0.85 },
-                  ]}
-                  onPress={() => togglePreview(detail)}
-                >
-                  <Text style={styles.workBtnLabel}>
-                    {previewingId === detail.id
-                      ? t('collection.previewStop')
-                      : t('collection.preview')}
+                    <CardGL
+                      mode="flip"
+                      backStyle="aluminum"
+                      frontUri={detail.artworkUrl}
+                      width={workCardW}
+                      height={workCardH}
+                      // 厚み 1mm 相当。PlayerScreen と同じ値に揃える（既定の
+                      // 8.5/188.6 だと縁が3倍近く厚く見えて、マイコレから開いた
+                      // カードと別物に見える）
+                      depthRatio={0.016}
+                      shadow
+                      frame={workCardFrame}
+                      backScale={workBackScale}
+                      backData={workBackData}
+                      onFlipChange={setWorkFlipped}
+                      rotationOut={workRot}
+                    />
+                    {/* 右下の角に乗る★（HOME と同じ FavBead）。未購入の曲だけ。
+                        裏返している間は隠す */}
+                    {!detailOwned && onToggleWish && !workFlipped && (
+                      <View style={styles.workBead} pointerEvents="box-none">
+                        <FavBead
+                          filled={wishIds.has(detail.id)}
+                          onToggle={() => onToggleWish(detail.id)}
+                        />
+                      </View>
+                    )}
+                  </Animated.View>
+                </View>
+
+                {/* 番号と曲名。裏返すと消える（裏面が重なるため。HOME の曲名と同じ） */}
+                <Animated.View style={[styles.workInfo, workInfoFade]} pointerEvents="none">
+                  <Text style={styles.workNo} numberOfLines={1}>
+                    {detail.serialNo ?? ' '}
                   </Text>
-                </Pressable>
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.workBtn,
-                    styles.workBtnSolid,
-                    pressed && { opacity: 0.85 },
-                  ]}
-                  onPress={() => {
-                    stopPreview();
-                    purchase?.dismiss();
-                    setPurchaseTarget(detail);
-                  }}
-                >
-                  <Text style={[styles.workBtnLabel, styles.workBtnSolidLabel]} numberOfLines={1}>
-                    {t('collection.buy')}
-                  </Text>
-                </Pressable>
-              </>
+                  <Text style={styles.workTitle} numberOfLines={1}>{detail.title}</Text>
+                </Animated.View>
+
+                {/* HOME と同じ「周回する光」の購入ボタン。購入済みなら「再生」
+                    （2026-09-24。以前の ★／試聴／購入する の横並びは曲名と重なっていた） */}
+                <View style={styles.workBuy}>
+                  <OrbitBuyButton
+                    owned={detailOwned}
+                    priceLabel={detailOwned ? undefined : purchase?.displayPriceOf(detail.id)}
+                    state={purchase?.state === 'busy' ? 'pending' : 'idle'}
+                    onPress={() => {
+                      if (detailOwned) {
+                        closeDetail();
+                        onOpenTrack(detail.id);
+                        return;
+                      }
+                      stopPreview();
+                      purchase?.dismiss();
+                      setPurchaseTarget(detail);
+                    }}
+                  />
+                </View>
+
+                <Text style={styles.workShelf} numberOfLines={1}>
+                  {slotState(detail.id) === 'own'
+                    ? t('collection.ownedHere')
+                    : wishIds.has(detail.id)
+                    ? t('collection.wishHere')
+                    : ' '}
+                </Text>
+              </View>
             )}
           </View>
-
-          <Text style={styles.workShelf}>
-            {slotState(detail.id) === 'own'
-              ? t('collection.ownedHere')
-              : wishIds.has(detail.id)
-              ? t('collection.wishHere')
-              : ''}
-          </Text>
         </View>
       )}
 
@@ -1045,6 +1128,7 @@ const styles = StyleSheet.create({
     fontSize: 18,
     letterSpacing: 0.9,
     color: C.text,
+    fontFamily: JP_SERIF_FONT,
   },
 
   // .col-tabs / .col-tab
@@ -1134,7 +1218,7 @@ const styles = StyleSheet.create({
   wishSerial: {
     position: 'absolute',
     left: 10,
-    top: 7,
+    top: 11,
     fontSize: 11,
     letterSpacing: 2.2,
     color: C.filledNum,
@@ -1155,16 +1239,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   // 購入ボタンはタイルの外・全幅（v98 はアート上に重ねていた）
+  // 押しやすさのため高さ 36 以上（以前は約 28・9.5px で小さかった）
   wishBtn: {
     marginTop: 8,
-    paddingVertical: 7,
+    minHeight: 36,
+    paddingVertical: 9,
     paddingHorizontal: 8,
     borderWidth: 1,
     borderColor: C.wishBtnBorder,
-    borderRadius: 11,
+    borderRadius: 12,
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  wishBtnLabel: { fontSize: 9.5, letterSpacing: 0.95, color: C.cyan, fontFamily: NUM_FONT }, // 価格＝数字表記
+  wishBtnLabel: { fontSize: 11, letterSpacing: 1.1, color: C.cyan },
   // 試聴／購入の横並び。ボタン2つで幅を割るので gap は列間より詰める
   wishActs: { flexDirection: 'row', gap: 6 },
   wishActBtn: { flex: 1, paddingHorizontal: 4 },
@@ -1219,6 +1306,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(6,5,16,0.93)',
     alignItems: 'center',
     paddingHorizontal: 22,
+    paddingBottom: 12,
   },
   // 作品詳細が開いている間だけ見出し・タブを消す（レイアウトは動かさない）
   hiddenWhileWork: { opacity: 0 },
@@ -1227,17 +1315,42 @@ const styles = StyleSheet.create({
   // zIndex はカードより手前に置くため。RN は後ろの兄弟が上に描かれるので、
   // これが無いとフリップした裏面が「戻る」の上に被って押せなくなる。
   workBack: { alignSelf: 'flex-start', zIndex: 2 },
+  // 戻る（左）と試聴の EQ（右）の行。カードより手前に置く
+  workTop: {
+    alignSelf: 'stretch',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    zIndex: 2,
+  },
+  // カードの右下の角に★の中心を合わせる
+  workBead: { position: 'absolute', right: -BEAD_HIT / 2, bottom: -BEAD_HIT / 2 },
+  // 番号・曲名の塊。カードの真下に 20px あけて置く（高さは WORK_INFO_H の内訳）
+  workInfo: { marginTop: WORK_INFO_GAP, alignItems: 'center', alignSelf: 'stretch' },
+  workBuy: { marginTop: 20, height: 40, alignItems: 'center', justifyContent: 'center' },
   // 他画面の「戻る」導線（PlayerScreen の navText 等）と書体を揃えて明朝に。
   // 字間は指示により今までの 0.6 より狭く 0.2 へ
-  workBackLabel: { color: C.back, fontSize: 12, letterSpacing: 0.2, fontFamily: JP_SERIF_FONT },
+  // 字組はカードを眺める画面（PlayerScreen の navText）と同じ 13px・字間 0.5
+  workBackLabel: { color: C.back, fontSize: 13, letterSpacing: 0.5, fontFamily: JP_SERIF_FONT },
   // 参照 .wcard 164x246（枠幅380基準 = 43%）。実寸は workCardW/H で渡す。
   // borderRadius / overflow は付けない — 角丸はカード自身（CardGL）が持っており、
   // ここでクリップすると裏面の拡大分と落影が切れる。
   // PlayerScreen の cardArea と同じ「残りを全部使って中央寄せ」。
   // overflow:hidden は付けない — CardGL の Canvas はカード実寸より外へ描く。
-  workCardArea: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  workNo: { marginTop: 22, fontSize: 9.5, letterSpacing: 2.66, color: C.sub, fontFamily: NUM_FONT },
-  workTitle: { marginTop: 7, fontSize: 21, letterSpacing: 1.26, color: C.text, fontFamily: JP_SERIF_FONT },
+  workCardArea: { flex: 1, alignSelf: 'stretch', alignItems: 'center', justifyContent: 'center' },
+  // カード＋番号・曲名・ボタン・一行の塊（この塊ごと workCardArea の中央へ）
+  workGroup: { alignItems: 'center', alignSelf: 'stretch' },
+  workNo: { height: 16, lineHeight: 16, fontSize: 11, letterSpacing: 2.2, color: C.sub, fontFamily: NUM_FONT },
+  workTitle: {
+    marginTop: 6,
+    height: 28,
+    lineHeight: 28,
+    maxWidth: '100%',
+    fontSize: 21,
+    letterSpacing: 1.26,
+    color: C.text,
+    fontFamily: JP_SERIF_FONT,
+  },
   workActs: { flexDirection: 'row', gap: 9, alignItems: 'center', marginTop: 26 },
   workBtn: {
     paddingVertical: 11,
@@ -1260,7 +1373,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  workShelf: { marginTop: 14, fontSize: 9.5, letterSpacing: 0.95, color: '#5a6088' },
+  // 以前は 9.5px・#5a6088 で、暗幕の上では読みにくかった
+  workShelf: { marginTop: 12, height: 16, lineHeight: 16, fontSize: 11, letterSpacing: 0.9, color: C.sub },
 
   // ウィッシュリストの見出し（集める行 ＋ 移動の一行）
   wishHeader: { marginBottom: 14, gap: 8 },
@@ -1276,7 +1390,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 32,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: 'rgba(150,165,210,0.22)',
+    borderColor: 'rgba(96,206,224,0.38)',
   },
   discoverLabel: { color: C.text, fontSize: 14, letterSpacing: 0.5 },
 });

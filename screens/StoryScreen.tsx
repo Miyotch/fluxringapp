@@ -25,6 +25,7 @@ import {
 import { ArtworkCard } from '../components/ArtworkCard';
 import { COLOR, SPACE, RADIUS } from '../constants/design-tokens';
 import { useTopInset } from '../lib/safeArea';
+import { JP_SERIF_FONT } from '../constants/fonts';
 
 export type StoryData = {
   trackId: string;
@@ -59,7 +60,7 @@ export const StoryScreen: React.FC<Props> = ({ data, onBack, onOpenArtist }) => 
       </Pressable>
 
       <ScrollView
-        contentContainerStyle={styles.scroll}
+        contentContainerStyle={[styles.scroll, { paddingTop: backTop + 44 }]}
         showsVerticalScrollIndicator={false}
       >
         {/* ① サムネ（中央上部・小サイズのカード構造） */}
@@ -71,6 +72,7 @@ export const StoryScreen: React.FC<Props> = ({ data, onBack, onOpenArtist }) => 
             glow2={data.glowColor2}
             inset={5}
           />
+          <Text style={styles.title} numberOfLines={2}>{data.title}</Text>
         </View>
 
         {/* ② Story（フロスト枠・短文でも固定高さ・縦中央寄せ） */}
@@ -125,6 +127,15 @@ const styles = StyleSheet.create({
     gap: SPACE.md,
   },
   thumbWrap: { alignItems: 'center', marginBottom: SPACE.sm },
+  title: {
+    marginTop: 14,
+    textAlign: 'center',
+    color: COLOR.textPrimary,
+    fontSize: 20,
+    lineHeight: 28,
+    letterSpacing: 1.2,
+    fontFamily: JP_SERIF_FONT,
+  },
   frost: {
     borderRadius: RADIUS.lg,
     borderWidth: 1,

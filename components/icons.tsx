@@ -48,6 +48,25 @@ export const PreviewIcon: React.FC<IconProps & { on?: boolean }> = ({
   );
 };
 
+// 音の ON/OFF（ホームのカード裏面の右上。2026-09-24）。
+// ON=シアンで音の波 2 本 / OFF=グレーで × 印。
+export const SpeakerIcon: React.FC<IconProps & { on?: boolean }> = ({ size = 16, on = true }) => {
+  const color = on ? COLOR.auraCyan : COLOR.textSecondary;
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M11 5L6 9H2v6h4l5 4z" stroke={color} strokeWidth={1.6} {...STROKE} />
+      {on ? (
+        <>
+          <Path d="M15.5 9a4 4 0 010 6" stroke={color} strokeWidth={1.6} {...STROKE} />
+          <Path d="M18.5 6.5a7.5 7.5 0 010 11" stroke={color} strokeWidth={1.6} {...STROKE} />
+        </>
+      ) : (
+        <Path d="M16 9.5l5 5M21 9.5l-5 5" stroke={color} strokeWidth={1.6} {...STROKE} />
+      )}
+    </Svg>
+  );
+};
+
 // ループ。ON=発光シアン / OFF=グレー。
 export const LoopIcon: React.FC<IconProps & { on?: boolean }> = ({ size = 16, on = true }) => {
   const color = on ? '#9FE0EC' : '#6E7796';

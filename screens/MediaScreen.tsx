@@ -25,6 +25,7 @@ import {
 import { COLOR, SPACE, RADIUS } from '../constants/design-tokens';
 import { CR, CreditsBackdrop } from '../components/CreditsBackdrop';
 import { useTopInset } from '../lib/safeArea';
+import { useT } from '../lib/i18n';
 import { NUM_FONT } from '../constants/fonts';
 import { InstagramIcon } from '../components/icons';
 import { NotificationsList, type Notice } from './NotificationsScreen';
@@ -115,6 +116,7 @@ export const MediaScreen: React.FC<Props> = ({
   notices = [],
   onOpenNotice,
 }) => {
+  const t = useT();
   const { width: screenW, height: screenH } = useWindowDimensions();
   const barTop = useTopInset(12); // 従来 56px（=44+12）
   const [tab, setTab] = useState<MediaTab>('media');
@@ -129,13 +131,13 @@ export const MediaScreen: React.FC<Props> = ({
       <View style={[styles.tabBar, { paddingTop: barTop }]}>
         <Pressable style={styles.tab} onPress={() => setTab('you')}>
           <View style={styles.tabLabelRow}>
-            <Text style={[styles.tabText, tab === 'you' && styles.tabTextOn]}>あなた宛</Text>
+            <Text style={[styles.tabText, tab === 'you' && styles.tabTextOn]}>{t('media.tabYou')}</Text>
             {hasUnread && <View style={styles.tabDot} />}
           </View>
           {tab === 'you' && <View style={styles.tabUnderline} />}
         </Pressable>
         <Pressable style={styles.tab} onPress={() => setTab('media')}>
-          <Text style={[styles.tabText, tab === 'media' && styles.tabTextOn]}>メディア</Text>
+          <Text style={[styles.tabText, tab === 'media' && styles.tabTextOn]}>{t('media.tabMedia')}</Text>
           {tab === 'media' && <View style={styles.tabUnderline} />}
         </Pressable>
       </View>
@@ -143,7 +145,7 @@ export const MediaScreen: React.FC<Props> = ({
       {tab === 'you' ? (
         <ScrollView showsVerticalScrollIndicator={false}>
           {notices.length === 0 ? (
-            <Text style={styles.emptyText}>お知らせはまだありません。</Text>
+            <Text style={styles.emptyText}>{t('media.empty')}</Text>
           ) : (
             <NotificationsList notices={notices} onOpen={(id) => onOpenNotice?.(id)} />
           )}
@@ -186,7 +188,7 @@ export const MediaScreen: React.FC<Props> = ({
                 onPress={() => a.linkUrl && Linking.openURL(a.linkUrl).catch(() => {})}
               >
                 <Text style={styles.articleDate}>{a.date}</Text>
-                <Text style={styles.articleTitle}>件名：{a.title}</Text>
+                <Text style={styles.articleTitle}>{a.title}</Text>
                 {/* 入れた要素だけ表示 */}
                 {a.thumbnailUrl && (
                   <Image source={{ uri: a.thumbnailUrl }} style={styles.thumb} resizeMode="cover" />
@@ -200,7 +202,7 @@ export const MediaScreen: React.FC<Props> = ({
                 onPress={onLoadMoreArticles}
                 disabled={loadingMoreArticles}
               >
-                <Text style={styles.moreLabel}>{loadingMoreArticles ? '読み込み中…' : 'もっと見る'}</Text>
+                <Text style={styles.moreLabel}>{loadingMoreArticles ? t('playback.loading') : t('media.more')}</Text>
               </Pressable>
             )}
           </ScrollView>

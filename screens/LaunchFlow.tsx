@@ -620,7 +620,7 @@ const PostSteps: React.FC<{ onDone: (info: { name: string; scene: string }) => v
         <>
           <View style={s.stepHead}>
             <Text style={s.stepH2}>作品に表示される{'\n'}お名前を決めてください。</Text>
-            <Text style={s.stepSub}>コレクションとカードの裏面に表示されます。{'\n'}あとから変更できます。</Text>
+            <Text style={s.stepSub}>プレイリストとカードの裏面に表示されます。{'\n'}あとから変更できます。</Text>
           </View>
           <View style={s.stepFoot}>
             <TextInput
@@ -678,7 +678,7 @@ const PostSteps: React.FC<{ onDone: (info: { name: string; scene: string }) => v
             <PlaceholderArt w={112} />
             <PlaceholderArt w={112} />
           </View>
-          <Text style={s.giftText}>2枚の作品を、{'\n'}コレクションにお納めしました。</Text>
+          <Text style={s.giftText}>2枚の作品を、{'\n'}マイリストにお納めしました。</Text>
           <Pressable
             style={({ pressed }) => [s.btn, s.btnPri, { width: 196, marginTop: 36 }, pressed && s.btnPressed]}
             onPress={() => onDone({ name, scene })}
