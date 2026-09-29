@@ -26,7 +26,7 @@ import { configureAudioMode } from './lib/audio';
 import { APP_FONTS } from './constants/fonts';
 import { loadNumTypeface } from './lib/skiaFonts';
 import { LanguageProvider } from './lib/i18n';
-import { onUserChanged, deleteAccount, signOut } from './lib/firebaseAuth';
+import { onUserChanged, deleteAccount, signOut, restoreSession } from './lib/firebaseAuth';
 import { usePurchaseFlow } from './lib/usePurchaseFlow';
 import { useTracks } from './lib/useTracks';
 import { useArtists } from './lib/useArtists';
@@ -519,6 +519,10 @@ function AppInner() {
   useEffect(() => { configureAudioMode(); }, []);
   useEffect(() => { loadNumTypeface().finally(() => setSkiaFontReady(true)); }, []);
 
+  // decideLaunch（下）から restartLaunch を呼ぶための橋。restartLaunch は decideLaunch を
+  // 呼ぶので、依存を循環させないよう ref 経由にする。
+  const restartLaunchRef = useRef<() => void>(() => {});
+
   // 起動時の分岐判定: セッション（永続復元を待つ）・オンボ済み・規約同意状態から
   //   launchScreen（p0 / login / consent / app）と consent の合流先を決める。
   const decideLaunch = useCallback(async () => {
@@ -527,19 +531,17 @@ function AppInner() {
       AsyncStorage.getItem(KEY_ONBOARDED).catch(() => null),
       AsyncStorage.getItem(KEY_AGREED).catch(() => null),
     ]);
-    // 最初の認証コールバック（永続セッション復元）を待つ
-    const user = await new Promise<unknown>((resolve) => {
-      let done = false;
+    // 永続セッションの復元を待つ。通信が遅くて終わらないときは、端末に保存済みの
+    // ログイン状態を信じて先へ進む（以前は 1.5 秒で未ログイン扱いにしていて、4G だと
+    // ログイン済みでも毎回ログイン画面へ送られていた。lib/firebaseAuth.ts 参照）。
+    const { signedIn: hasSession, provisional } = await restoreSession();
+    if (provisional) {
+      // 先へ進んだあとで Firebase が「無効なセッション」と返したら起動フローへ戻す
       const unsub = onUserChanged((u) => {
-        if (done) return;
-        done = true;
-        resolve(u);
         setTimeout(() => { try { unsub(); } catch {} }, 0);
+        if (!u) restartLaunchRef.current();
       });
-      // 復元が来ない環境向けのタイムアウト（未ログイン扱い）
-      setTimeout(() => { if (!done) { done = true; resolve(null); } }, 1500);
-    });
-    const hasSession = !!user;
+    }
     const needConsent = agreed !== TERMS_VERSION;
     const onboardedDone = onboarded === '1';
 
@@ -574,6 +576,9 @@ function AppInner() {
     footerFade.setValue(0);
     decideLaunch();
   }, [decideLaunch, appFade, footerFade, playback]);
+  useEffect(() => {
+    restartLaunchRef.current = restartLaunch;
+  }, [restartLaunch]);
 
   // 同梱アートの展開（起動フローの裏で実行）。
   // downloadAsync で localUri（file://）を確定させ、Skia / GL テクスチャが
