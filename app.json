@@ -2,7 +2,7 @@
   "expo": {
     "name": "FLUX RING",
     "slug": "fluxring",
-    "version": "0.2.5",
+    "version": "0.2.6",
     "scheme": "fluxring",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
