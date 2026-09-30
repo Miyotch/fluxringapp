@@ -280,8 +280,13 @@ function AppInner() {
   // 更新のたびにスワイプ中のカードが入れ替わって見えてしまうため。
   const randomOrderRef = useRef<{ key: string; ids: string[] }>({ key: '', ids: [] });
   const homeTracks = useMemo(() => {
+    // homeVisible===false（管理画面の「アプリのホームに出す」を「出さない」にした曲）は、
+    // 所有していてもホームに出さない（2026-09-30）。プレイリスト・作家の楽曲一覧には出る。
     const eligible = discoverTracks.filter(
-      (t) => !!t.artworkUrl && (isTrackOnSale(t) || ownedTrackIds.has(t.id)),
+      (t) =>
+        t.homeVisible !== false &&
+        !!t.artworkUrl &&
+        (isTrackOnSale(t) || ownedTrackIds.has(t.id)),
     );
     const randomIds = eligible
       .filter((t) => t.homeOrderMode === 'random')

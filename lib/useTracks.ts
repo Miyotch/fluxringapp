@@ -125,6 +125,8 @@ export function useTracks(count = 50): Track[] {
               sale: parseSale(data.sale),
               homeOrderMode,
               homeOrder,
+              // 管理画面の「アプリのホームに出す」。false のときだけ出さない（未設定の既存曲は出す）
+              homeVisible: data.homeVisible !== false,
               back: {
                 story: str(data.story),
                 tuning: tuningLabel,
