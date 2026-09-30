@@ -30,6 +30,7 @@ import { onUserChanged, deleteAccount, signOut, restoreSession } from './lib/fir
 import { usePurchaseFlow } from './lib/usePurchaseFlow';
 import { useTracks } from './lib/useTracks';
 import { useArtists } from './lib/useArtists';
+import { useSeries } from './lib/useSeries';
 import { useUserProfileSync } from './lib/useUserProfileSync';
 import { useArticles } from './lib/useArticles';
 import { useWishlist } from './lib/useWishlist';
@@ -455,6 +456,8 @@ function AppInner() {
 
   // 設定 →「Artistのご紹介」。Firestore の artists コレクションが正。
   const artists = useArtists();
+  // シリーズ（アルバム）。作家の楽曲一覧をシリーズごとに分けて見せる（2026-09-30）
+  const series = useSeries();
 
   // 作家ごとの楽曲一覧（所有=明 / 未所有=影）。discoverTracks（Firestore の
   // tracks）を artistId で振り分ける。
@@ -470,6 +473,7 @@ function AppInner() {
         owned: ownedTrackIds.has(tr.id),
         glowColor: tr.glowColor,
         glowColor2: tr.glowColor2,
+        seriesId: tr.seriesId,
       });
     }
     return map;
@@ -652,6 +656,7 @@ function AppInner() {
       <ArtistScreen
         artists={artists}
         tracksByArtist={tracksByArtist}
+        series={series}
         focusArtistId={artistFocusId}
         onBackToSettings={() => {
           setOverlay(null);

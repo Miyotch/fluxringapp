@@ -26,6 +26,8 @@ export const usersCol    = () => collection(db, 'users')
 // 楽曲情報（サムネイル・R2音源URL等）。旧 sound コレクションから移行。
 // ドキュメントIDが所有権判定のtrackId（= audioKey）と一致する前提。
 export const tracksCol   = () => collection(db, 'tracks')
+// シリーズ（アルバム）。{name, trackIds, description, jacketUrl, jacketThumbUrl}
+export const seriesCol   = () => collection(db, 'series')
 
 // ── ディスカバー：全楽曲を新着順で取得 ─────────────
 export const fetchArtworks = (count = 20) =>
