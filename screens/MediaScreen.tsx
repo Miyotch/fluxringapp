@@ -120,6 +120,9 @@ export const MediaScreen: React.FC<Props> = ({
   const { width: screenW, height: screenH } = useWindowDimensions();
   const barTop = useTopInset(12); // 従来 56px（=44+12）
   const [tab, setTab] = useState<MediaTab>('media');
+  // 開いているお知らせ（一覧で押すと本文を出す。2026-09-30。以前は押しても何も開かなかった）
+  const [openId, setOpenId] = useState<string | null>(null);
+  const opened = openId ? notices.find((n) => n.id === openId) ?? null : null;
   const hasUnread = notices.some((n) => n.unread);
 
   return (
@@ -129,7 +132,7 @@ export const MediaScreen: React.FC<Props> = ({
 
       {/* タブ（あなた宛 / メディア） */}
       <View style={[styles.tabBar, { paddingTop: barTop }]}>
-        <Pressable style={styles.tab} onPress={() => setTab('you')}>
+        <Pressable style={styles.tab} onPress={() => { setTab('you'); setOpenId(null); }}>
           <View style={styles.tabLabelRow}>
             <Text style={[styles.tabText, tab === 'you' && styles.tabTextOn]}>{t('media.tabYou')}</Text>
             {hasUnread && <View style={styles.tabDot} />}
@@ -143,13 +146,30 @@ export const MediaScreen: React.FC<Props> = ({
       </View>
 
       {tab === 'you' ? (
-        <ScrollView showsVerticalScrollIndicator={false}>
-          {notices.length === 0 ? (
-            <Text style={styles.emptyText}>{t('media.empty')}</Text>
-          ) : (
-            <NotificationsList notices={notices} onOpen={(id) => onOpenNotice?.(id)} />
-          )}
-        </ScrollView>
+        opened ? (
+          <ScrollView contentContainerStyle={styles.detail} showsVerticalScrollIndicator={false}>
+            <Pressable onPress={() => setOpenId(null)} hitSlop={12} style={styles.detailBack}>
+              <Text style={styles.detailBackText}>‹ {t('media.back')}</Text>
+            </Pressable>
+            {opened.date !== '' && <Text style={styles.detailDate}>{opened.date}</Text>}
+            <Text style={styles.detailTitle}>{opened.title}</Text>
+            {opened.body ? <Text style={styles.detailBody}>{opened.body}</Text> : null}
+          </ScrollView>
+        ) : (
+          <ScrollView showsVerticalScrollIndicator={false}>
+            {notices.length === 0 ? (
+              <Text style={styles.emptyText}>{t('media.empty')}</Text>
+            ) : (
+              <NotificationsList
+                notices={notices}
+                onOpen={(id) => {
+                  onOpenNotice?.(id); // 既読にする
+                  setOpenId(id);
+                }}
+              />
+            )}
+          </ScrollView>
+        )
       ) : (
         <>
           {/* SNS 常設 */}
@@ -232,6 +252,12 @@ const styles = StyleSheet.create({
     position: 'absolute', left: 0, right: 0, bottom: 0,
     height: 1.5, borderRadius: 1, backgroundColor: COLOR.auraCyan,
   },
+  detail: { paddingHorizontal: SPACE.lg, paddingTop: SPACE.md, paddingBottom: 60 },
+  detailBack: { alignSelf: 'flex-start', paddingVertical: SPACE.sm },
+  detailBackText: { color: COLOR.textSecondary, fontSize: 14, letterSpacing: 0.5 },
+  detailDate: { marginTop: SPACE.md, color: COLOR.textSecondary, fontSize: 12, letterSpacing: 0.5, fontFamily: NUM_FONT },
+  detailTitle: { marginTop: SPACE.sm, color: COLOR.textPrimary, fontSize: 19, lineHeight: 28, letterSpacing: 0.4, fontWeight: '600' },
+  detailBody: { marginTop: SPACE.lg, color: COLOR.textPrimary, fontSize: 15, lineHeight: 27, letterSpacing: 0.3 },
   emptyText: {
     color: COLOR.textSecondary,
     fontSize: 13,
