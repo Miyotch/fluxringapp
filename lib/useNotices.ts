@@ -16,6 +16,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { onSnapshot } from 'firebase/firestore';
 import type { Notice } from '../screens/NotificationsScreen';
@@ -58,6 +59,11 @@ export function useNotices(): NoticeFeed {
   const email = (user?.email ?? '').trim().toLowerCase();
 
   const [raw, setRaw] = useState<Raw[] | null>(null);
+  // Firestore から正しく届いたか。読み取りエラー（raw=[]）のときに、空の既読を保存して
+  // 「過去分が全部未読で光る」ことにならないよう、種まきは届いたときだけ行う
+  const [synced, setSynced] = useState(false);
+  // 配信日時が来たお知らせを、アプリを開いたまま・裏から戻ったときにも出すための再計算の合図
+  const [tick, setTick] = useState(0);
   // null = まだ端末から読めていない。読めたら Set（空も含む）
   const [readIds, setReadIds] = useState<Set<string> | null>(null);
   const [hadStored, setHadStored] = useState(false);
@@ -66,6 +72,7 @@ export function useNotices(): NoticeFeed {
     const unsub = onSnapshot(
       notificationsCol(),
       (snap) => {
+        setSynced(true);
         setRaw(
           snap.docs.map((d) => {
             const data = d.data() as Record<string, unknown>;
@@ -83,8 +90,11 @@ export function useNotices(): NoticeFeed {
           }),
         );
       },
-      // 読めないとき（ルール・通信）は「お知らせなし」として静かに扱う
-      () => setRaw([]),
+      // 読めないとき（ルール・通信）は「お知らせなし」として静かに扱う（既読の種まきはしない）
+      () => {
+        setSynced(false);
+        setRaw([]);
+      },
     );
     return unsub;
   }, []);
@@ -115,6 +125,27 @@ export function useNotices(): NoticeFeed {
     };
   }, [who]);
 
+  // 未来の配信日時が来る時刻に、一覧を作り直す。裏から戻ったときも作り直す
+  useEffect(() => {
+    if (!raw) return;
+    const now = Date.now();
+    const next = raw
+      .filter((n) => n.visible && n.dateMs != null && n.dateMs > now)
+      .reduce<number | null>((m, n) => (m === null || (n.dateMs as number) < m ? (n.dateMs as number) : m), null);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    if (next !== null) {
+      // setTimeout の上限（約24.8日）を超えないようにする。超える分は次の回で拾う
+      timer = setTimeout(() => setTick((t) => t + 1), Math.min(next - now + 500, 2 ** 31 - 1));
+    }
+    const sub = AppState.addEventListener('change', (st) => {
+      if (st === 'active') setTick((t) => t + 1);
+    });
+    return () => {
+      if (timer) clearTimeout(timer);
+      sub.remove();
+    };
+  }, [raw, tick]);
+
   // 今この人に見せてよいもの（新しい順）
   const visible = useMemo(() => {
     if (!raw) return [];
@@ -124,7 +155,7 @@ export function useNotices(): NoticeFeed {
       .filter((n) => n.dateMs == null || n.dateMs <= now)
       .filter((n) => n.target !== 'user' || (email !== '' && n.to.includes(email)))
       .sort((a, b) => (b.dateMs ?? 0) - (a.dateMs ?? 0));
-  }, [raw, email]);
+  }, [raw, email, tick]);
 
   const persist = useCallback(
     (ids: Set<string>) => {
@@ -135,12 +166,12 @@ export function useNotices(): NoticeFeed {
 
   // 初めて開いたとき: 届いている分を既読にして、過去の分が未読で光らないようにする
   useEffect(() => {
-    if (readIds === null || raw === null || hadStored) return;
+    if (readIds === null || raw === null || !synced || hadStored) return;
     const next = new Set(visible.map((n) => n.id));
     setReadIds(next);
     setHadStored(true);
     persist(next);
-  }, [readIds, raw, hadStored, visible, persist]);
+  }, [readIds, raw, synced, hadStored, visible, persist]);
 
   const markRead = useCallback(
     (id: string) => {
