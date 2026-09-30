@@ -205,7 +205,12 @@ export type Track = {
   subtitle?: string;        // 情景の言葉（効能は語らない）
   artistName: string;
   artistId?: string;         // artists コレクションのドキュメントID（作家紹介の紐付け用）
+  /** 画面に出す絵。縮小版（artworkThumbUrl）があればそちら、無ければ元の絵 */
   artworkUrl: string;
+  /** 元の絵（長辺 2048px 級）。縮小版が無い曲は artworkUrl と同じ */
+  artworkFullUrl?: string;
+  /** シリーズ（アルバム）のドキュメントID。tracks/{id}.seriesId から */
+  seriesId?: string;
   audioKey: string;         // R2 音源キー（試聴は公開・フルは署名付き）
   previewUrl: string | null;
   priceLabel: string;
@@ -227,6 +232,8 @@ export type Track = {
    *  0 または未設定は「固定の曲の中で末尾」。'random' のときは未使用。
    *  Firestore tracks/{id}.homeOrder から。 */
   homeOrder?: number;
+  /** ホームに出すか。false なら出さない（未設定は出す）。Firestore tracks/{id}.homeVisible から */
+  homeVisible?: boolean;
   // 裏面（タップで表示する説明）
   back?: {
     serial?: string;         // 'No. 001'

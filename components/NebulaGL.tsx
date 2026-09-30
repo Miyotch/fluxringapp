@@ -15,6 +15,7 @@ import React, { useMemo, useRef } from 'react';
 import { StyleProp, ViewStyle, StyleSheet } from 'react-native';
 import { Canvas, useFrame, useThree } from '@react-three/fiber/native';
 import * as THREE from 'three';
+import { useAppForeground } from '../lib/usePausableClock';
 
 const VERT = /* glsl */ `
 varying vec2 vUv;
@@ -89,7 +90,8 @@ const NebulaQuad: React.FC = () => {
   useFrame((_, dt) => {
     const m = matRef.current;
     if (!m) return;
-    m.uniforms.iTime.value += dt;
+    // 再開した最初の 1 フレームの差分で雲が飛ばないよう、1 フレームで進める量に上限を置く
+    m.uniforms.iTime.value += Math.min(dt, 0.1);
     // アスペクト比のため解像度を反映（DPR 込みのドローバッファサイズ）
     const dpr = viewport.dpr || 1;
     m.uniforms.iRes.value.set(size.width * dpr, size.height * dpr);
@@ -110,16 +112,25 @@ const NebulaQuad: React.FC = () => {
   );
 };
 
-export const NebulaGL: React.FC<{ style?: StyleProp<ViewStyle> }> = ({ style }) => (
-  <Canvas
-    style={StyleSheet.flatten([StyleSheet.absoluteFill, style])}
-    gl={{ alpha: false, antialias: false }}
-    orthographic
-    camera={{ position: [0, 0, 1] }}
-    pointerEvents="none"
-  >
-    <NebulaQuad />
-  </Canvas>
-);
+// 背面に回ったら描画ループごと止める（frameloop='never'）。
+// FLUX RING は UIBackgroundModes:["audio"] で背面でも曲が鳴り続ける。この Canvas は
+// 既定の 'always' だと背面でも毎フレーム回り続け、iOS の背面 CPU 上限（60 秒で 80%）を
+// 超えて 50 秒前後でプロセスごと落とされていた（2026-09-29 岡さん報告・再生が 50 秒で
+// 途切れ、戻るとホームが初期状態）。
+export const NebulaGL: React.FC<{ style?: StyleProp<ViewStyle> }> = ({ style }) => {
+  const foreground = useAppForeground();
+  return (
+    <Canvas
+      style={StyleSheet.flatten([StyleSheet.absoluteFill, style])}
+      gl={{ alpha: false, antialias: false }}
+      orthographic
+      camera={{ position: [0, 0, 1] }}
+      frameloop={foreground ? 'always' : 'never'}
+      pointerEvents="none"
+    >
+      <NebulaQuad />
+    </Canvas>
+  );
+};
 
 export default NebulaGL;

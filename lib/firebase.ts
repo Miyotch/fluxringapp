@@ -34,11 +34,21 @@ function setupAuth(): Auth {
         persistence: getReactNativePersistence(AsyncStorage),
       })
     }
-  } catch {
+    console.warn('[auth] getReactNativePersistence が無い: セッションが端末に残らない')
+  } catch (e) {
     // initializeAuth が既に呼ばれている / persistence 解決失敗 → 既存インスタンスへ
+    // （RN の getAuth は永続化なし＝再起動のたびにログインを求める。開発中の再読込以外で
+    //  ここへ来るなら異常なので、ログに残す）
+    console.warn('[auth] initializeAuth に失敗して getAuth へ退避:', e)
   }
   return getAuth(app)
 }
+
+/**
+ * Firebase Auth が端末（AsyncStorage）に保存するログイン状態のキー。
+ * 起動時、通信が遅くて復元が終わらなくても「保存済みか」だけは即座に分かる。
+ */
+export const PERSISTED_AUTH_KEY = `firebase:authUser:${firebaseConfig.apiKey}:${app.name}`
 
 export const auth = setupAuth()
 
