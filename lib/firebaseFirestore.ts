@@ -28,6 +28,8 @@ export const usersCol    = () => collection(db, 'users')
 export const tracksCol   = () => collection(db, 'tracks')
 // シリーズ（アルバム）。{name, trackIds, description, jacketUrl, jacketThumbUrl}
 export const seriesCol   = () => collection(db, 'series')
+// お知らせ（メディア「あなた宛」）。管理画面の「お知らせ」が書く
+export const notificationsCol = () => collection(db, 'notifications')
 
 // ── ディスカバー：全楽曲を新着順で取得 ─────────────
 export const fetchArtworks = (count = 20) =>

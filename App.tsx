@@ -64,11 +64,10 @@ import { StoryScreen } from './screens/StoryScreen';
 import { PlayerScreen, PlayerTrack } from './screens/PlayerScreen';
 import { ALL_OWNED } from './components/MyPlaylists';
 import { VipScreen } from './screens/VipScreen';
-import type { Notice } from './screens/NotificationsScreen';
+import { useNotices } from './lib/useNotices';
 // import { ComponentGallery } from './screens/ComponentGallery'; // 部品デモを見るとき有効化
 
 import {
-  STUB_NOTICES,
   STUB_VIP_CARDS,
 } from './constants/stubData';
 
@@ -237,14 +236,9 @@ function AppInner() {
   // 公開日時（date）の降順・10件ずつページングで取得
   const articleFeed = useArticles();
 
-  // メディア「あなた宛」の通知一覧（現状は STUB_NOTICES。Firestore 化は別途）。
-  // タップで既読にできるよう state で持つ。未読が1件でもあれば、フッターの
-  // メディアタブへ赤バッジを出し、既読にすると消える。
-  const [notices, setNotices] = useState<Notice[]>(STUB_NOTICES);
-  const hasUnreadNotices = useMemo(() => notices.some((n) => n.unread), [notices]);
-  const markNoticeRead = useCallback((id: string) => {
-    setNotices((prev) => prev.map((n) => (n.id === id ? { ...n, unread: false } : n)));
-  }, []);
+  // メディア「あなた宛」のお知らせ。管理画面「お知らせ」（Firestore の notifications）から読む。
+  // 未読が1件でもあれば、フッターのメディアタブへ赤バッジを出し、開いて読むと消える。
+  const { notices, hasUnread: hasUnreadNotices, markRead: markNoticeRead } = useNotices();
 
   // カード裏面の作家名タップ → 作家一覧を経由せず、その作家のプロフィールへ
   // 直接開く（2026-09-19 指示）。
