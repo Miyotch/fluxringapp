@@ -111,7 +111,11 @@ export function useTracks(count = 50): Track[] {
               subtitle: str(data.scene),
               artistName: artist?.name ?? '',
               artistId,
-              artworkUrl: str(data.artworkUrl) ?? '',
+              // 縮小版（管理画面がアップロード時に作る長辺 1536px の JPEG）を優先する。
+              // 元の絵は 1 枚 3MB 級の PNG で、4G ではカードの絵が大きく遅れていた（2026-09-30）
+              artworkUrl: str(data.artworkThumbUrl) ?? str(data.artworkUrl) ?? '',
+              artworkFullUrl: str(data.artworkUrl),
+              seriesId: str(data.seriesId),
               audioKey: d.id,
               previewUrl: str(data.r2_preview_url) ?? null,
               priceLabel: buyLabel(price),
@@ -121,6 +125,8 @@ export function useTracks(count = 50): Track[] {
               sale: parseSale(data.sale),
               homeOrderMode,
               homeOrder,
+              // 管理画面の「アプリのホームに出す」。false のときだけ出さない（未設定の既存曲は出す）
+              homeVisible: data.homeVisible !== false,
               back: {
                 story: str(data.story),
                 tuning: tuningLabel,

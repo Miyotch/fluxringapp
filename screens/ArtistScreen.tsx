@@ -30,6 +30,7 @@ import { COLOR, SPACE, RADIUS } from '../constants/design-tokens';
 import { NUM_FONT, JP_SERIF_FONT } from '../constants/fonts';
 import { CR, CreditsBackdrop } from '../components/CreditsBackdrop';
 import { SubHeader } from './SettingsDetailScreens';
+import { groupBySeries, type Series } from '../lib/useSeries';
 
 // SNSリンク1件（artists.snsLinks[].typeId を sns_type コレクションで解決したもの）
 export type ArtistSnsLink = {
@@ -56,6 +57,7 @@ export type ArtistTrack = {
   owned: boolean;        // 所有=明 / 未所有=シルエット
   glowColor?: string;
   glowColor2?: string;
+  seriesId?: string;
 };
 
 export type OpenStoryFn = (trackId: string, artistId: string) => void;
@@ -74,11 +76,14 @@ type Props = {
    * useEffect で改めて解決する。
    */
   focusArtistId?: string | null;
+  /** シリーズ（アルバム）。楽曲一覧をシリーズごとに分けて、ジャケットと説明を見出しに出す */
+  series?: Series[];
 };
 
 export const ArtistScreen: React.FC<Props> = ({
   artists,
   tracksByArtist,
+  series = [],
   onBackToSettings,
   onOpenStory,
   focusArtistId,
@@ -190,42 +195,66 @@ export const ArtistScreen: React.FC<Props> = ({
 
   // ── ③ 楽曲一覧（所有=明 / 未所有=シルエット） ──
   const tracks = selected ? tracksByArtist[selected.id] ?? [] : [];
+  // シリーズごとに分ける（2026-09-30）。シリーズに入っていない曲は最後にまとめる。
+  // この作家の曲が1つもシリーズに入っていなければ、従来どおり見出し無しの一覧。
+  const { groups, rest } = groupBySeries(tracks, series);
+
+  const renderCard = (t: ArtistTrack, index: number) => (
+    // カードは段階的にふわっと浮き出る
+    <Animated.View
+      key={t.id}
+      entering={FadeInUp.duration(420).delay((index % 8) * 55)}
+      style={[styles.gridCell, { width: colW, opacity: t.owned ? 1 : 0.4 }]}
+    >
+      <Pressable onPress={() => selected && onOpenStory(t.id, selected.id)}>
+        {/* オーラ余白(PAD)を吸収して画像とテキストの中心を揃える */}
+        <View style={{ width: colW, height: colW * 1.5, alignItems: 'center', justifyContent: 'center' }}>
+          <ArtworkCard
+            width={colW}
+            imageUri={t.artworkUrl}
+            glow={t.glowColor}
+            glow2={t.glowColor2}
+            inset={5}
+            subdued
+          />
+        </View>
+        {/* 未購入でも曲名は出す（2026-09-25 代表指示。以前は「？？？」だった）。
+            所有していないことはカード自体の暗さ（opacity 0.4）とシルエットで示す */}
+        <Text style={styles.gridTitle} numberOfLines={1}>
+          {t.title}
+        </Text>
+      </Pressable>
+    </Animated.View>
+  );
+
   return (
     <View style={styles.root}>
       <StatusBar barStyle="light-content" backgroundColor={CR.deepest} />
       <CreditsBackdrop w={screenW} h={screenH} />
       <SubHeader title="楽曲一覧" onBack={() => setStage('profile')} />
       <ScrollView contentContainerStyle={styles.tracksGrid} showsVerticalScrollIndicator={false}>
-        <View style={styles.gridRow}>
-          {tracks.map((t, index) => (
-            // eslint-disable-next-line react/jsx-key
-            // カードは段階的にふわっと浮き出る
-            <Animated.View
-              key={t.id}
-              entering={FadeInUp.duration(420).delay((index % 8) * 55)}
-              style={[styles.gridCell, { width: colW, opacity: t.owned ? 1 : 0.4 }]}
-            >
-              <Pressable onPress={() => selected && onOpenStory(t.id, selected.id)}>
-                {/* オーラ余白(PAD)を吸収して画像とテキストの中心を揃える */}
-                <View style={{ width: colW, height: colW * 1.5, alignItems: 'center', justifyContent: 'center' }}>
-                  <ArtworkCard
-                    width={colW}
-                    imageUri={t.artworkUrl}
-                    glow={t.glowColor}
-                    glow2={t.glowColor2}
-                    inset={5}
-                    subdued
-                  />
-                </View>
-                {/* 未購入でも曲名は出す（2026-09-25 代表指示。以前は「？？？」だった）。
-                    所有していないことはカード自体の暗さ（opacity 0.4）とシルエットで示す */}
-                <Text style={styles.gridTitle} numberOfLines={1}>
-                  {t.title}
-                </Text>
-              </Pressable>
-            </Animated.View>
-          ))}
-        </View>
+        {groups.map(({ series: s, tracks: list }) => (
+          <View key={s.id} style={styles.seriesBlock}>
+            <View style={styles.seriesHead}>
+              <View style={styles.seriesJacket}>
+                {s.jacketUrl && <Image source={{ uri: s.jacketUrl }} style={styles.seriesJacketImg} />}
+              </View>
+              <View style={styles.seriesText}>
+                <Text style={styles.seriesLabel}>SERIES</Text>
+                <Text style={styles.seriesName} numberOfLines={2}>{s.name}</Text>
+                <Text style={styles.seriesCount}>{list.length} 曲</Text>
+              </View>
+            </View>
+            {s.description && <Text style={styles.seriesDesc}>{s.description}</Text>}
+            <View style={styles.gridRow}>{list.map(renderCard)}</View>
+          </View>
+        ))}
+        {rest.length > 0 && (
+          <View style={groups.length > 0 ? styles.seriesBlock : undefined}>
+            {groups.length > 0 && <Text style={styles.restLabel}>その他の作品</Text>}
+            <View style={styles.gridRow}>{rest.map(renderCard)}</View>
+          </View>
+        )}
       </ScrollView>
     </View>
   );
@@ -334,6 +363,33 @@ const styles = StyleSheet.create({
   gridRow: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.md },
   gridCell: { marginBottom: SPACE.md },
   gridTitle: { color: COLOR.textPrimary, fontSize: 13, marginTop: SPACE.sm, letterSpacing: 0.26, fontFamily: JP_SERIF_FONT },
+
+  // シリーズ（アルバム）の見出し：正方形のジャケット＋名称＋曲数、その下に説明
+  seriesBlock: { marginBottom: SPACE.xl },
+  seriesHead: { flexDirection: 'row', alignItems: 'center', gap: SPACE.md, marginBottom: SPACE.md },
+  seriesJacket: {
+    width: 84,
+    height: 84,
+    borderRadius: RADIUS.md,
+    backgroundColor: 'rgba(124,98,214,0.30)',
+    borderWidth: 1,
+    borderColor: COLOR.border,
+    overflow: 'hidden',
+  },
+  seriesJacketImg: { width: '100%', height: '100%' },
+  seriesText: { flex: 1, gap: 4 },
+  seriesLabel: { color: COLOR.textSecondary, fontSize: 10, letterSpacing: 2, fontFamily: NUM_FONT },
+  seriesName: { color: COLOR.textPrimary, fontSize: 17, letterSpacing: 0.34, fontFamily: JP_SERIF_FONT },
+  seriesCount: { color: COLOR.textSecondary, fontSize: 12, letterSpacing: 0.24, fontFamily: JP_SERIF_FONT },
+  seriesDesc: {
+    color: COLOR.textPrimary,
+    fontSize: 13,
+    lineHeight: 23,
+    letterSpacing: 0.26,
+    marginBottom: SPACE.md,
+    fontFamily: JP_SERIF_FONT,
+  },
+  restLabel: { color: COLOR.textSecondary, fontSize: 12, letterSpacing: 0.24, marginBottom: SPACE.md, fontFamily: JP_SERIF_FONT },
 });
 
 export default ArtistScreen;
