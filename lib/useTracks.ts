@@ -16,8 +16,9 @@
  * ・tuning フィールドは ["432Hz","純正律"] のように周波数と調律名が
  *   混在した配列で保存されているため、"Hz" を含む要素を frequencies、
  *   それ以外を tuning ラベルとして振り分ける。
- * ・back.serial（通し番号）はここでは付けない。取得した並び順から
- *   連番を振る（App.tsx 側）。
+ * ・back.serial（通し番号）は管理画面のシリアルナンバー（tracks/{id}.serial）を
+ *   「No. 017」の形にして渡す。管理画面が登録順の全曲通し番号（3桁）を自動で振る
+ *   （2026-10-01〜）。空の曲だけ、App.tsx 側で取得した並び順から連番を振る。
  */
 
 import { useEffect, useState } from 'react';
@@ -99,6 +100,7 @@ export function useTracks(count = 50): Track[] {
             const artistId = str(data.artistId);
             const artist = artistId ? artists.get(artistId) : undefined;
             const price = typeof data.price === 'number' ? data.price : undefined;
+            const serial = str(data.serial)?.trim();
             const homeOrderMode: Track['homeOrderMode'] =
               data.homeOrderMode === 'random' ? 'random' : 'fixed';
             const homeOrder =
@@ -128,6 +130,7 @@ export function useTracks(count = 50): Track[] {
               // 管理画面の「アプリのホームに出す」。false のときだけ出さない（未設定の既存曲は出す）
               homeVisible: data.homeVisible !== false,
               back: {
+                serial: serial ? `No. ${serial}` : undefined,
                 story: str(data.story),
                 tuning: tuningLabel,
                 frequencies,
