@@ -40,6 +40,8 @@ export type CardBackData = {
   /** 用途タグ（例: ['睡眠', '勉強', '集中力']）。Story の真下に「ー case ー」の
    *  見出しとともに並べる。Firestore tracks/{id}.useCases から。 */
   useCases?: string[];
+  /** 所属シリーズ名。あるときだけ作家名の上に「ー series ー」＋シリーズ名を刻む */
+  series?: string;
 };
 
 // 磨きアルミの帯色
@@ -509,6 +511,15 @@ export function renderAluminumInkPixels(
   const nameX = cx - groupW / 2 + nw / 2;
   printAlum(c, signature, nameX, nameY, 40, '400', alum(1), nameLetterSpacing, 'c');
   printAlum(c, '›', nameX + nw / 2 + chevronGap, H - 192, 42, '400', alum(0.75), 0, 'l');
+
+  // 「ー series ー」＋シリーズ名（作家名のすぐ上）。シリーズに入っている曲だけ。
+  // 無い曲には見出しごと出さない。作家名・タップ領域の位置は動かさない
+  // （実機調整ポイント: 調律の行と近いので、見えを確認して間隔を詰める／広げる）。
+  const seriesName = data.series?.trim();
+  if (seriesName) {
+    printAlum(c, 'ー series ー', cx, nameY - 150, 32, '300', alum(0.75), 8, 'c');
+    printAlum(c, seriesName, cx, nameY - 92, 40, '300', alum(1), 6, 'c');
+  }
 
   const img = surface.makeImageSnapshot();
   // GLSL 側で `mix(metalColor, ink.rgb, ink.a)` とストレートアルファ合成する

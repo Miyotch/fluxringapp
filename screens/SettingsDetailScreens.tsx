@@ -489,7 +489,6 @@ const CREDITS: CreditEntry[] = [
   { role: 'ENGINEER', name: 'Satoru Miyosawa' },
   { role: 'DESIGNER', name: 'Naoki Oka' },
   { role: 'NAMING', name: 'Mizuki Yasuoka' },
-  { role: 'ADVISOR', name: 'Sachi Nishimoto' },
   { role: 'SPECIAL THANKS', name: 'Donuts, Inc.' },
   { role: 'SPECIAL THANKS', name: 'Tokyo 7th Sisters' },
 ];

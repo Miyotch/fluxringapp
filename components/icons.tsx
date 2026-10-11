@@ -218,3 +218,15 @@ export const StarIcon: React.FC<IconProps & { filled?: boolean }> = ({
     />
   </Svg>
 );
+
+// 巻き戻し／早送り（再生バナー）。二重の三角
+export const RewindIcon: React.FC<IconProps> = ({ size = 18, color = '#BFE8F1' }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" opacity={0.85}>
+    <Path d="M11 6v12l-7-6zM20 6v12l-7-6z" fill={color} />
+  </Svg>
+);
+export const FastForwardIcon: React.FC<IconProps> = ({ size = 18, color = '#BFE8F1' }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" opacity={0.85}>
+    <Path d="M13 6v12l7-6zM4 6v12l7-6z" fill={color} />
+  </Svg>
+);

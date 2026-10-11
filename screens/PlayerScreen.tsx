@@ -70,6 +70,8 @@ export type PlayerTrack = {
   tuning?: string;           // 調律名（例: '純正律'）
   frequencies?: string[];    // 周波数のみ（例: ['432 Hz', '7.83 Hz']）
   artist?: string;           // 'NAOKI OKA'
+  artistName?: string;       // 作家名（表記どおり。タイトルの下に出す）
+  series?: string;           // 所属シリーズ名（裏面の「ー series ー」。無ければ出さない）
   useCases?: string[];       // 用途タグ（例: ['睡眠', '勉強', '集中力']）
   /** 試聴として流す（まだ持っていない曲）。再生の中枢は試聴音源で鳴らす */
   preview?: boolean;
@@ -440,6 +442,7 @@ export const PlayerScreen: React.FC<Props> = ({
       frequencies: active.frequencies,
       artist: active.artist ?? 'NAOKI OKA',
       useCases: active.useCases,
+      series: active.series,
     }),
     [active],
   );
@@ -534,6 +537,7 @@ export const PlayerScreen: React.FC<Props> = ({
             >
               <Text style={styles.no} numberOfLines={1}>{shown.serial ?? ' '}</Text>
               <Text style={styles.title} numberOfLines={1}>{shown.title}</Text>
+              {!!shown.artistName && <Text style={styles.artistName} numberOfLines={1}>{shown.artistName}</Text>}
               <View style={styles.subRow} pointerEvents="box-none">
                 {canPlayHere ? (
                   <Pressable
@@ -597,6 +601,7 @@ const styles = StyleSheet.create({
   },
   // 状態の一行か「この曲を再生」。どちらでも高さは同じ（切り替わっても上が動かない）
   subRow: { marginTop: 10, height: 34, alignItems: 'center', justifyContent: 'center' },
+  artistName: { marginTop: 4, color: COLOR.textSecondary, fontSize: 12, letterSpacing: 1, fontFamily: JP_SERIF_FONT },
   sub: {
     height: 18,
     lineHeight: 18,

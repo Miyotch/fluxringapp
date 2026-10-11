@@ -220,6 +220,9 @@ function AppInner() {
   // カードはすべて tracks コレクションを参照する。
   // back.serial（通し番号）が無い曲には、並び順で連番を振る。
   const firestoreTracks = useTracks();
+  // シリーズ（アルバム）。作家の楽曲一覧をシリーズごとに分けて見せる（2026-09-30）。
+  // カード裏面の「ー series ー」にも、曲が入っているシリーズ名を渡す
+  const series = useSeries();
   const discoverTracks = useMemo(
     () =>
       firestoreTracks.map((t, i) => ({
@@ -227,9 +230,10 @@ function AppInner() {
         back: t.back && {
           ...t.back,
           serial: t.back.serial ?? `No. ${String(i + 1).padStart(3, '0')}`,
+          series: series.find((s) => s.id === t.seriesId || s.trackIds.includes(t.id))?.name,
         },
       })),
-    [firestoreTracks],
+    [firestoreTracks, series],
   );
 
   // メディア画面の記事一覧。Firestore の article コレクションから
@@ -347,6 +351,8 @@ function AppInner() {
         tuning: tr.back?.tuning,
         frequencies: tr.back?.frequencies,
         artist: tr.back?.artist,
+        series: tr.back?.series,
+        artistName: tr.artistName || undefined,
         useCases: tr.back?.useCases,
       })),
     [discoverTracks, ownedTrackIds],
@@ -455,8 +461,6 @@ function AppInner() {
 
   // 設定 →「Artistのご紹介」。Firestore の artists コレクションが正。
   const artists = useArtists();
-  // シリーズ（アルバム）。作家の楽曲一覧をシリーズごとに分けて見せる（2026-09-30）
-  const series = useSeries();
 
   // 作家ごとの楽曲一覧（所有=明 / 未所有=影）。discoverTracks（Firestore の
   // tracks）を artistId で振り分ける。
