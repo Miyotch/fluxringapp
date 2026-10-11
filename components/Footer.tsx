@@ -40,6 +40,14 @@ const TABS: TabDef[] = [
   { key: 'settings',   labelKey: 'tab.settings',   Icon: TabSettingsIcon },
 ];
 
+// タップの余白。iPhone は画面の端（ベゼル／ホームインジケータ）ぎりぎりまで
+// 反応して意図せず触れてしまうため、下と左右の余白をなくし上だけ残す。
+// Android は従来どおり全方向 8。
+const TAB_HIT_SLOP =
+  Platform.OS === 'ios'
+    ? { top: 6, bottom: 0, left: 0, right: 0 }
+    : { top: 8, bottom: 8, left: 8, right: 8 };
+
 type FooterProps = {
   active: TabKey;
   onChange: (key: TabKey) => void;
@@ -120,7 +128,7 @@ export const Footer: React.FC<FooterProps> = ({
             key={tab.key}
             style={styles.tab}
             onPress={() => onChange(tab.key)}
-            hitSlop={8}
+            hitSlop={TAB_HIT_SLOP}
             accessibilityRole="tab"
             accessibilityState={{ selected: isActive }}
             accessibilityLabel={t(tab.labelKey)}

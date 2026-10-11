@@ -88,6 +88,19 @@ const Row: React.FC<{
   playing?: boolean;
   playingLabel?: string;
 }> = ({ item, children, onPlay, playing, playingLabel }) => {
+  const [pressed, setPressed] = useState(false);
+  const tap = useMemo(
+    () =>
+      Gesture.Tap()
+        .runOnJS(true)
+        .maxDuration(LIFT_MS - 20)
+        .onBegin(() => setPressed(true))
+        .onFinalize(() => setPressed(false))
+        .onEnd((_e, ok) => {
+          if (ok) onPlay?.();
+        }),
+    [onPlay],
+  );
   const body = (
     <>
       <View>
@@ -113,19 +126,21 @@ const Row: React.FC<{
   return (
     <View style={styles.row}>
       {onPlay ? (
-        // 長押しは並べ替え（DragRow）に渡すので、ここでは軽く押したときだけ流す。
-        // onLongPress を空で置くのは、長押しのあと指を離したときに onPress が
-        // 走らないようにするため
-        <Pressable
-          onPress={onPlay}
-          onLongPress={() => {}}
-          delayLongPress={250}
-          style={({ pressed }) => [styles.rowMain, pressed && { opacity: 0.7 }]}
-          accessibilityRole="button"
-          accessibilityLabel={item.title}
-        >
-          {body}
-        </Pressable>
+        // 長押しは並べ替え（DragRow の Pan）に渡すので、ここでは軽く押したときだけ流す。
+        // RN の Pressable ではなく同じジェスチャー系（RNGH）の Tap にしている。Pressable は
+        // 長押しの間タッチを握ってしまい、並べ替えの Pan が始まらなくなっていた
+        // （2026-09-26 に行を押して流せるようにして以来）。長押しの時間より前に
+        // 離したときだけ成立する（それ以降は Pan が先に取る）
+        <GestureDetector gesture={tap}>
+          <View
+            style={[styles.rowMain, pressed && { opacity: 0.7 }]}
+            accessible
+            accessibilityRole="button"
+            accessibilityLabel={item.title}
+          >
+            {body}
+          </View>
+        </GestureDetector>
       ) : (
         <View style={styles.rowMain}>{body}</View>
       )}

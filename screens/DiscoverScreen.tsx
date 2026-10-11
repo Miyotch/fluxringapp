@@ -243,6 +243,7 @@ export type Track = {
     frequencies?: string[];  // 周波数のみ（例: ['432 Hz', '7.83 Hz']）
     artist?: string;         // 'NAOKI OKA'
     useCases?: string[];     // 用途タグ（例: ['睡眠', '勉強', '集中力']）
+    series?: string;         // 所属シリーズ名。無ければ裏面に「ー series ー」を出さない
   };
 };
 
@@ -1592,6 +1593,7 @@ export const DiscoverScreen: React.FC<Props> = ({
             frequencies: active.back?.frequencies,
             artist: active.back?.artist,
             useCases: active.back?.useCases,
+            series: active.back?.series,
           }
         : undefined,
     [active],
@@ -2092,6 +2094,7 @@ export const DiscoverScreen: React.FC<Props> = ({
             pointerEvents="none"
           >
             <Text style={styles.title} numberOfLines={1}>{shown?.title}</Text>
+            {!!shown?.artistName && <Text style={styles.artistName} numberOfLines={1}>{shown.artistName}</Text>}
           </RNAnimated.View>
         </RNAnimated.View>
 
@@ -2219,7 +2222,8 @@ const styles = StyleSheet.create({
   // height24・justifyContent:'center' は撤去済みの旧・右上アイコン列と高さを
   // 揃えていた名残り（フォント行送りの誤差を吸収するため維持）。
   // left は旧位置22pxから TITLE_CHAR_SIZE（1文字分）だけ内側へ寄せた。
-  texts: { position: 'absolute', left: 22 + TITLE_CHAR_SIZE, right: 120, height: 24, justifyContent: 'center' },
+  texts: { position: 'absolute', left: 22 + TITLE_CHAR_SIZE, right: 120, height: 24, justifyContent: 'center', overflow: 'visible' },
+  artistName: { marginTop: 3, color: C.sub, fontSize: 11, letterSpacing: 0.9, fontFamily: JP_SERIF_FONT },
   // .title: 18px / 字間.05em / text-shadow 0 1px 10px rgba(0,0,0,.5)
   title: {
     fontSize: 20,
