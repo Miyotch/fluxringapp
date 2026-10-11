@@ -480,7 +480,7 @@ export type DocKind = 'thanks' | 'terms' | 'privacy' | 'tokushoho';
 type DocSection = { heading?: string; body: string };
 type TextDoc = { title: string; lead?: string; sections: DocSection[] };
 
-// CREDITS（Special Thanks）: 役職ラベル＋名前の縦積み。
+// CREDITS（Special Thanks）: 役職ラベル＋名前の縦積み（同じ役職の複数人は名前を横並び）。
 // hero=true は上部の大きな枠（ファウンダー）で、下に区切り線を引く。
 type CreditEntry = { role: string; name: string; hero?: boolean };
 const CREDITS: CreditEntry[] = [
@@ -1043,6 +1043,13 @@ const CreditsScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const contentW = screenW - SPACE.xl * 2; // paddingHorizontal 34相当 = SPACE.xl
 
   const [founder, ...crew] = CREDITS;
+  // 同じ役職は1つにまとめる（出てきた順）
+  const crewGroups: { role: string; names: string[] }[] = [];
+  for (const c of crew) {
+    const g = crewGroups.find((x) => x.role === c.role);
+    if (g) g.names.push(c.name);
+    else crewGroups.push({ role: c.role, names: [c.name] });
+  }
 
   return (
     <View style={cs.root}>
@@ -1064,10 +1071,16 @@ const CreditsScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         <FadeLine w={contentW} h={1} color={CR.border} style={cs.rule} />
 
         <View style={cs.crewList}>
-          {crew.map((c, i) => (
-            <View key={`${c.role}-${c.name}-${i}`} style={cs.crewRow}>
-              <Text style={cs.roleLabel}>{c.role}</Text>
-              <Text style={cs.personName}>{c.name}</Text>
+          {crewGroups.map((g) => (
+            <View key={g.role} style={cs.crewRow}>
+              <Text style={cs.roleLabel}>{g.role}</Text>
+              {/* 同じ役職が複数人のときは、役職を1回だけ出して名前を横に並べる
+                  （入りきらなければ折り返す） */}
+              <View style={cs.nameRow}>
+                {g.names.map((n, i) => (
+                  <Text key={`${n}-${i}`} style={cs.personName}>{n}</Text>
+                ))}
+              </View>
             </View>
           ))}
         </View>
@@ -1092,6 +1105,7 @@ const cs = StyleSheet.create({
   rule: { marginBottom: 42, opacity: 0.5 },
   crewList: { gap: 26, alignItems: 'flex-start' },
   crewRow: { alignItems: 'flex-start' },
+  nameRow: { flexDirection: 'row', flexWrap: 'wrap', columnGap: 24 },
   // role-label: 10px / 字間.2em(=2.0) / --sub / uppercase / weight400
   roleLabel: {
     color: CR.sub,
