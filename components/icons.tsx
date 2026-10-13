@@ -112,6 +112,34 @@ export const CardDetailIcon: React.FC<IconProps> = ({ size = 20, color = COLOR.t
   </Svg>
 );
 
+// プレイリストに追加（丸に＋）。原本 svg なし（2026-10-13）
+export const AddToListIcon: React.FC<IconProps & { on?: boolean }> = ({
+  size = 22,
+  color = COLOR.textSecondary,
+  on = false,
+}) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+    <Circle cx={12} cy={12} r={9} stroke={on ? COLOR.auraCyan : color} strokeWidth={1.5} fill={on ? 'rgba(96,206,224,0.16)' : 'none'} />
+    {on ? (
+      <Path d="M8 12.2l2.7 2.6L16 9.5" stroke={COLOR.auraCyan} strokeWidth={1.7} {...STROKE} />
+    ) : (
+      <Path d="M12 8v8M8 12h8" stroke={color} strokeWidth={1.5} {...STROKE} />
+    )}
+  </Svg>
+);
+
+// 端末に保存（下向きの矢印を丸で囲む）。done で塗りつぶしのシアン。原本 svg なし（2026-10-13）
+export const DownloadIcon: React.FC<IconProps & { done?: boolean }> = ({
+  size = 22,
+  color = COLOR.textSecondary,
+  done = false,
+}) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+    <Circle cx={12} cy={12} r={9} stroke={done ? COLOR.auraCyan : color} strokeWidth={1.5} fill={done ? COLOR.auraCyan : 'none'} />
+    <Path d="M12 7.5v8M8.5 12.2L12 15.7l3.5-3.5" stroke={done ? '#06222A' : color} strokeWidth={1.6} {...STROKE} />
+  </Svg>
+);
+
 // 出力／共有。assets/icons/export.svg
 export const ShareIcon: React.FC<IconProps> = ({ size = 18, color = COLOR.textSecondary }) => (
   <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">

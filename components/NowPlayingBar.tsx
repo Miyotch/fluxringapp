@@ -29,7 +29,8 @@ import {
 import { swipeDirection } from '../constants/swipe';
 import { homeCardWidth } from '../constants/design-tokens';
 import { usePlayback, usePlaybackProgress } from '../lib/playback';
-import { PlayMark, PauseMark, SkipIcon, SkipPrevIcon } from './icons';
+import { PlayMark, PauseMark, SkipIcon, SkipPrevIcon, LoopIcon, AddToListIcon } from './icons';
+import { DownloadButton } from './DownloadButton';
 import { useT } from '../lib/i18n';
 import { JP_SERIF_FONT, NUM_FONT } from '../constants/fonts';
 
@@ -215,6 +216,156 @@ export const NowPlayingBar: React.FC<Props> = ({ onOpen, onLayout }) => {
     </View>
   );
 };
+
+/**
+ * 大きい再生パネル（カードを眺める画面の下）。2026-10-13
+ * 詳細は「今の曲を味わう画面」なので、Spotify の再生中画面と同じく操作を大きく出す。
+ *   ・1 行目: 流れている曲の札・曲名・作家名／プレイリストに追加／端末に保存
+ *   ・時間つきのシークバー（押す・ドラッグ）
+ *   ・リピート／前／再生・一時停止（大きな白い丸）／次／（左右の釣り合い用の空き）
+ */
+const FullSeek: React.FC = () => {
+  const { position, duration } = usePlaybackProgress();
+  const pb = usePlayback();
+  const pbRef = useRef(pb);
+  pbRef.current = pb;
+  const durRef = useRef(duration);
+  durRef.current = duration;
+  const [drag, setDrag] = useState<number | null>(null);
+  const widthRef = useRef(0);
+  const pos = drag ?? position;
+  const p = duration > 0 ? Math.min(1, pos / duration) : 0;
+  const at = (x: number) =>
+    widthRef.current > 0 ? Math.max(0, Math.min(1, x / widthRef.current)) * durRef.current : 0;
+  const pan = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderTerminationRequest: () => false,
+      onPanResponderGrant: (e) => setDrag(at(e.nativeEvent.locationX)),
+      onPanResponderMove: (e) => setDrag(at(e.nativeEvent.locationX)),
+      onPanResponderRelease: (e) => {
+        pbRef.current.seekTo(at(e.nativeEvent.locationX));
+        setDrag(null);
+      },
+      onPanResponderTerminate: () => setDrag(null),
+    }),
+  ).current;
+  const seeking = drag != null;
+  return (
+    <View>
+      <View
+        style={full.rail}
+        onLayout={(e) => {
+          widthRef.current = e.nativeEvent.layout.width;
+        }}
+        {...pan.panHandlers}
+        accessibilityRole="adjustable"
+        accessibilityValue={{ text: `${fmt(pos)} / ${fmt(duration)}` }}
+      >
+        <View style={[full.line, seeking && full.lineOn]} pointerEvents="none">
+          <View style={[full.fill, { width: `${p * 100}%` }]} />
+        </View>
+        <View style={[full.knob, seeking && full.knobOn, { left: `${p * 100}%` }]} pointerEvents="none" />
+      </View>
+      <View style={full.times}>
+        <Text style={[full.time, seeking && { color: '#60CEE0' }]}>{fmt(pos)}</Text>
+        <Text style={full.time}>{`-${fmt(Math.max(0, duration - pos))}`}</Text>
+      </View>
+    </View>
+  );
+};
+
+export const NowPlayingFull: React.FC<{
+  /** プレイリストに追加のシートを開く */
+  onAddToPlaylist?: (track: { id: string; title: string }) => void;
+}> = ({ onAddToPlaylist }) => {
+  const t = useT();
+  const pb = usePlayback();
+  const cur = pb.current;
+  if (!cur) return null;
+  const many = pb.queue.length >= 2;
+  const artist = cur.artistName || cur.artist;
+  return (
+    <View style={full.wrap}>
+      <View style={full.head}>
+        <Image source={{ uri: cur.artworkUrl }} style={full.art} />
+        <View style={full.texts}>
+          <Text style={full.title} numberOfLines={1}>{cur.title}</Text>
+          <Text style={full.sub} numberOfLines={1}>
+            {pb.loading ? t('playback.loading') : cur.preview ? t('playback.previewing') : artist ?? ''}
+          </Text>
+        </View>
+        {!cur.preview && onAddToPlaylist && (
+          <Pressable
+            onPress={() => onAddToPlaylist({ id: cur.id, title: cur.title })}
+            hitSlop={6}
+            style={({ pressed }) => [full.icon, pressed && full.iconPressed]}
+            accessibilityRole="button"
+            accessibilityLabel={t('playlist.addTo')}
+          >
+            <AddToListIcon size={24} />
+          </Pressable>
+        )}
+        {!cur.preview && <DownloadButton keys={[cur.audioKey]} label={cur.title} size={24} />}
+      </View>
+      <FullSeek />
+      <View style={full.ctrls}>
+        <Pressable
+          onPress={() => pb.setRepeat(pb.repeat === 'one' ? 'ring' : 'one')}
+          hitSlop={8}
+          style={full.side}
+          accessibilityRole="button"
+          accessibilityLabel={t('playback.repeat')}
+          accessibilityState={{ selected: pb.repeat === 'one' }}
+        >
+          <LoopIcon size={20} on={pb.repeat === 'one'} />
+        </Pressable>
+        <Pressable onPress={pb.prev} hitSlop={8} style={full.skip} disabled={!many}
+          accessibilityRole="button" accessibilityLabel={t('playback.prev')}>
+          <View style={!many && styles.off}><SkipPrevIcon size={24} /></View>
+        </Pressable>
+        <Pressable
+          onPress={pb.toggle}
+          style={({ pressed }) => [full.play, pressed && { transform: [{ scale: 0.94 }] }]}
+          accessibilityRole="button"
+          accessibilityLabel={pb.playing ? t('playback.pause') : t('playback.play')}
+        >
+          {pb.playing ? <PauseMark size={28} color="#0B0B1D" /> : <PlayMark size={30} color="#0B0B1D" />}
+        </Pressable>
+        <Pressable onPress={pb.next} hitSlop={8} style={full.skip} disabled={!many}
+          accessibilityRole="button" accessibilityLabel={t('playback.next')}>
+          <View style={!many && styles.off}><SkipIcon size={24} /></View>
+        </Pressable>
+        {/* 左のリピートと釣り合わせる空き */}
+        <View style={full.side} />
+      </View>
+    </View>
+  );
+};
+
+const full = StyleSheet.create({
+  wrap: { paddingHorizontal: 22, paddingTop: 6, paddingBottom: 4 },
+  head: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  art: { width: 30, height: 47, borderRadius: 4, backgroundColor: 'rgba(255,255,255,0.05)' },
+  texts: { flex: 1, minWidth: 0 },
+  title: { color: '#ECEEF7', fontSize: 16, letterSpacing: 0.8, fontFamily: JP_SERIF_FONT },
+  sub: { color: '#9498BE', fontSize: 12, marginTop: 3, letterSpacing: 0.8, fontFamily: JP_SERIF_FONT },
+  icon: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
+  iconPressed: { backgroundColor: 'rgba(96,206,224,0.12)' },
+  rail: { height: 28, justifyContent: 'center', marginTop: 8 },
+  line: { height: 3, borderRadius: 2, backgroundColor: 'rgba(236,238,247,0.18)', overflow: 'hidden' },
+  lineOn: { height: 5 },
+  fill: { height: '100%', backgroundColor: '#60CEE0' },
+  knob: { position: 'absolute', top: 8, width: 12, height: 12, borderRadius: 6, marginLeft: -6, backgroundColor: '#ECEEF7' },
+  knobOn: { transform: [{ scale: 1.4 }] },
+  times: { flexDirection: 'row', justifyContent: 'space-between', marginTop: -2 },
+  time: { fontFamily: NUM_FONT, fontSize: 11, color: '#9498BE' },
+  ctrls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 },
+  side: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  skip: { width: 52, height: 52, alignItems: 'center', justifyContent: 'center' },
+  play: { width: 64, height: 64, borderRadius: 32, backgroundColor: '#ECEEF7', alignItems: 'center', justifyContent: 'center' },
+});
 
 const styles = StyleSheet.create({
   wrap: { paddingHorizontal: 10, paddingBottom: 8 },

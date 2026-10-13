@@ -143,8 +143,10 @@ type Props = {
   onPlayList?: (trackIds: string[], startId?: string, source?: string) => void;
   /** リストの行を押した／編集シートで曲を押した → その並びをその曲から流す（画面は移らない） */
   onPlayFrom?: (trackIds: string[], startId: string, source?: string) => void;
-  /** リストの行のカードのアイコン → カードを眺める画面（再生は変えない） */
-  onViewCard?: (trackIds: string[], id: string, source?: string) => void;
+  /** リストの行のカードのアイコン → カードを眺める画面（再生は変えない）。origin は押した札の位置 */
+  onViewCard?: (trackIds: string[], id: string, source?: string, origin?: CardOrigin) => void;
+  /** リストの行を長押し → プレイリストに追加のシート（App が持つ） */
+  onAddToPlaylist?: (track: { id: string; title: string }) => void;
 };
 
 // マイコレ／ウィッシュリストの並び順。両者とも props（owned/wishlist）の順は
@@ -289,6 +291,7 @@ export const CollectionScreen: React.FC<Props> = ({
   onPlayList,
   onPlayFrom,
   onViewCard,
+  onAddToPlaylist,
 }) => {
   const t = useT();
   const titleTop = useTopInset(12); // 設定タブの見出しと同じ高さ（従来は 14）
@@ -610,6 +613,7 @@ export const CollectionScreen: React.FC<Props> = ({
         artworkUrl: c.artworkUrl,
         serialNo: c.serialNo,
         artist: c.back?.artist,
+        audioKey: c.audioKey,
       })),
     [ownedSorted],
   );
@@ -1008,7 +1012,8 @@ export const CollectionScreen: React.FC<Props> = ({
             source={ALL_OWNED}
             onPlayFrom={(ids, startId, source) => onPlayFrom?.(ids, startId, source)}
             onPlayAll={(ids, source) => onPlayList?.(ids, undefined, source)}
-            onViewCard={(ids, id, source) => onViewCard?.(ids, id, source)}
+            onViewCard={(ids, id, source, origin) => onViewCard?.(ids, id, source, origin)}
+            onAddToPlaylist={onAddToPlaylist ? (it) => onAddToPlaylist({ id: it.id, title: it.title }) : undefined}
             onDiscover={onDiscover}
           />
         ) : seg === 'pl' && playlists ? (
@@ -1020,7 +1025,8 @@ export const CollectionScreen: React.FC<Props> = ({
               source={currentList.id}
               onPlayFrom={(ids, startId, source) => onPlayFrom?.(ids, startId, source)}
               onPlayAll={(ids, source) => onPlayList?.(ids, undefined, source)}
-              onViewCard={(ids, id, source) => onViewCard?.(ids, id, source)}
+              onViewCard={(ids, id, source, origin) => onViewCard?.(ids, id, source, origin)}
+              onAddToPlaylist={onAddToPlaylist ? (it) => onAddToPlaylist({ id: it.id, title: it.title }) : undefined}
               onEdit={() => setEditorFor(currentList.id)}
             />
           ) : (

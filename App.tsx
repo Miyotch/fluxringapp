@@ -25,7 +25,7 @@ import { useFonts } from 'expo-font';
 import { configureAudioMode } from './lib/audio';
 import { APP_FONTS } from './constants/fonts';
 import { loadNumTypeface } from './lib/skiaFonts';
-import { LanguageProvider } from './lib/i18n';
+import { LanguageProvider, useT } from './lib/i18n';
 import { onUserChanged, deleteAccount, signOut, restoreSession } from './lib/firebaseAuth';
 import { usePurchaseFlow } from './lib/usePurchaseFlow';
 import { useTracks } from './lib/useTracks';
@@ -36,7 +36,11 @@ import { useArticles } from './lib/useArticles';
 import { useWishlist } from './lib/useWishlist';
 import { usePlaylists } from './lib/usePlaylists';
 import { PlaybackProvider, usePlayback } from './lib/playback';
-import { NowPlayingBar } from './components/NowPlayingBar';
+import { NowPlayingBar, NowPlayingFull } from './components/NowPlayingBar';
+import { ViewerTransition } from './components/ViewerTransition';
+import { AddToPlaylistSheet, type AddTarget } from './components/AddToPlaylistSheet';
+import type { CardOrigin } from './components/CardAfterimage';
+import { ToastHost, showToast } from './lib/toast';
 import { shuffle } from './lib/shuffle';
 import { prefetchArtwork } from './constants/artwork';
 import { prefetchArt } from './lib/artPrefetch';
@@ -87,6 +91,7 @@ const KEY_ONBOARDED = 'fr.onboardingDone';
 const KEY_AGREED = 'fr.agreedTermsVersion';
 
 function AppInner() {
+  const t = useT();
   // 数字・欧文の EB Garamond を読み込む。読み込み前に fontFamily を当てると
   // 一瞬だけ別書体で描かれるため、起動フローの判定と同じゲートで待つ。
   const [fontsLoaded] = useFonts(APP_FONTS);
@@ -166,9 +171,13 @@ function AppInner() {
     startId: string;
     key: number;
     source: string | null;
+    /** 押したリストの札の位置（開く・閉じる動きの起点）。再生バナーから開いたときは無し */
+    origin?: CardOrigin;
   } | null>(
     null,
   );
+  // 「プレイリストに追加」のシートの対象（2026-10-13）
+  const [addTarget, setAddTarget] = useState<AddTarget | null>(null);
   // 再生バナーの高さ（HOME で購入ボタンを逃がす量）
   const [bannerH, setBannerH] = useState(0);
   // カードを眺める画面をどのタブから開いたか（「戻る」の戻り先）
@@ -381,8 +390,9 @@ function AppInner() {
       startId: string,
       returnTab: 'home' | 'collection',
       source: string | null = null,
+      origin?: CardOrigin,
     ) => {
-      setViewer({ ids, startId, key: Date.now(), source });
+      setViewer({ ids, startId, key: Date.now(), source, origin });
       setPlayerReturnTab(returnTab);
       setOverlay('player');
     },
@@ -615,27 +625,34 @@ function AppInner() {
   }
 
   // ── オーバーレイ（フッター非表示） ──
-  if (overlay === 'player' && viewer && viewerTracks.length > 0) {
-    return (
-      <PlayerScreen
-        key={viewer.key}
-        tracks={viewerTracks}
-        startId={viewer.startId}
-        backLabel="‹ 戻る"
-        onBackHome={() => {
-          // 開いたタブへ戻す。音は止めない（再生バナーで続く）
-          setOverlay(null);
-          setTab(playerReturnTab);
-          setViewer(null);
-        }}
-        // 再生の操作は再生バナーだけ（2026-09-25 岡さん案）。この画面でも出したまま
-        footer={<NowPlayingBar onOpen={openPlayerFromBanner} />}
-        // 見ているカードが流れている曲でないときの「この曲を再生」。眺めている並びを
-        // その曲から流す（2026-09-26 岡さん相談②）
-        onPlayHere={(id) => playback.playQueue(viewerTracks, id, viewer.source)}
-      />
-    );
-  }
+  // カードを眺める画面は、下のタブ画面を消さずに上へ重ねる（2026-10-13）。
+  // 以前はここで画面を丸ごと差し替えていたので、戻るとプレイリストが作り直されて
+  // 先頭（所有カード）へ戻り、行き来も一瞬で切り替わっていた。重ね方は ViewerTransition。
+  const playerOpen = overlay === 'player' && !!viewer && viewerTracks.length > 0;
+  const closeViewer = () => {
+    // 開いたタブへ戻す。音は止めない（再生バナーで続く）
+    setOverlay(null);
+    setTab(playerReturnTab);
+    setViewer(null);
+  };
+  const playerOverlay = playerOpen && viewer ? (
+    <ViewerTransition key={viewer.key} origin={viewer.origin} onClosed={closeViewer}>
+      {(close) => (
+        <PlayerScreen
+          tracks={viewerTracks}
+          startId={viewer.startId}
+          backLabel="‹ 戻る"
+          onBackHome={close}
+          // 詳細は「今の曲を味わう画面」なので、再生の操作を大きく出す（2026-10-13。
+          // 以前は小さい再生バナーのままだった）
+          footer={<NowPlayingFull onAddToPlaylist={setAddTarget} />}
+          // 見ているカードが流れている曲でないときの「この曲を再生」。眺めている並びを
+          // その曲から流す（2026-09-26 岡さん相談②）
+          onPlayHere={(id) => playback.playQueue(viewerTracks, id, viewer.source)}
+        />
+      )}
+    </ViewerTransition>
+  ) : null;
 
   if (overlay === 'story' && storyData) {
     return (
@@ -727,7 +744,8 @@ function AppInner() {
     <View style={styles.appFadeBackdrop}>
       <Animated.View style={[styles.root, { opacity: appFade }]}>
         <View style={styles.body}>
-          {tab === 'home' && (
+          {/* HOME は 3D の描画が重いので、カードを眺める画面の下には残さない */}
+          {tab === 'home' && !playerOpen && (
             <DiscoverScreen
               tracks={homeTracks}
               focusTrackId={homeFocusId}
@@ -782,10 +800,12 @@ function AppInner() {
                 const tracks = ids.map((id) => byId.get(id)).filter((t): t is PlayerTrack => !!t);
                 if (tracks.length) playback.playQueue(tracks, startId, source);
               }}
-              onViewCard={(ids, id, source) => {
-                // 行の右端のカードのアイコン → カードを眺める画面。再生は変えない（2026-10-13）
-                openViewer(ids, id, 'collection', source ?? null);
+              onViewCard={(ids, id, source, origin) => {
+                // 行の右端のカードのアイコン → カードを眺める画面。再生は変えない。
+                // 押した札の位置から大きくなって開く（2026-10-13）
+                openViewer(ids, id, 'collection', source ?? null, origin);
               }}
+              onAddToPlaylist={setAddTarget}
               onOpenTrack={(id) => {
                 // 作品詳細の ▶（所有済み）→ 所有曲すべてをこの曲から流し、カードを
                 // 眺める画面へ（▶ は「流す」をはっきり押したので、流れていても切り替える）
@@ -869,7 +889,33 @@ function AppInner() {
           />
           </View>
         </Animated.View>
+        {playerOverlay}
       </Animated.View>
+      {/* 「プレイリストに追加」（リストの行の長押し・再生画面の＋から） */}
+      <AddToPlaylistSheet
+        target={addTarget}
+        lists={playlists.lists}
+        defaultName={t('playlist.defaultName', { n: playlists.lists.length + 1 })}
+        onToggle={(listId, add) => {
+          const list = playlists.lists.find((l) => l.id === listId);
+          if (!list || !addTarget) return;
+          const ids = add
+            ? [...list.trackIds.filter((x) => x !== addTarget.id), addTarget.id]
+            : list.trackIds.filter((x) => x !== addTarget.id);
+          playlists.setTracks(listId, ids);
+          showToast(
+            t(add ? 'playlist.added' : 'playlist.removedFrom', { title: addTarget.title, name: list.name }),
+          );
+        }}
+        onCreate={(name) => {
+          if (!addTarget) return;
+          playlists.create(name, [addTarget.id]);
+          showToast(t('playlist.createdWith', { name, title: addTarget.title }));
+          setAddTarget(null);
+        }}
+        onClose={() => setAddTarget(null)}
+      />
+      <ToastHost bottom={(playerOpen ? 220 : footerH + (playback.current ? bannerH : 0)) + 12} />
     </View>
   );
 }

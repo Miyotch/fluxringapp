@@ -10,7 +10,7 @@
  * どのリストを出すか・プルダウン・編集シートは CollectionScreen が持つ。ここは並べるだけ。
  */
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { FlatList, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, {
   Easing,
@@ -21,11 +21,16 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { CARD_ASPECT } from './CardGL';
-import { CardDetailIcon, PauseMark, PlayMark } from './icons';
+import { CardDetailIcon, DownloadIcon, PauseMark, PlayMark } from './icons';
 import { EqBars } from './EqBars';
+import { DownloadButton } from './DownloadButton';
+import type { CardOrigin } from './CardAfterimage';
 import { NUM_FONT, JP_SERIF_FONT } from '../constants/fonts';
 import { useT } from '../lib/i18n';
 import { usePlaybackOptional } from '../lib/playback';
+import { useDownloads } from '../lib/downloads';
+import { showToast } from '../lib/toast';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export type PlaylistItem = {
   id: string;
@@ -33,6 +38,8 @@ export type PlaylistItem = {
   artworkUrl: string;
   serialNo?: string;
   artist?: string;
+  /** 音源のキー（端末に保存するときに使う）。無ければ id */
+  audioKey?: string;
 };
 
 type Props = {
@@ -45,13 +52,19 @@ type Props = {
   onPlayFrom: (trackIds: string[], startId: string, source: string) => void;
   /** 先頭から流す（画面は移らない） */
   onPlayAll: (trackIds: string[], source: string) => void;
-  /** カードを眺める画面を開く（再生は変えない） */
-  onViewCard: (trackIds: string[], id: string, source: string) => void;
+  /** カードを眺める画面を開く（再生は変えない）。origin は押した行の札の画面上の位置（開く動きの起点） */
+  onViewCard: (trackIds: string[], id: string, source: string, origin?: CardOrigin) => void;
+  /** 行を長押し → プレイリストに追加のシート */
+  onAddToPlaylist?: (item: PlaylistItem) => void;
   /** 空のリストで「曲を入れる」を押した（自分のプレイリストのときだけ渡す） */
   onEdit?: () => void;
   /** 所有曲が 0 のとき「作品と出会う」 */
   onDiscover?: () => void;
 };
+
+/** 長押しで追加できることを、最初に一度だけ知らせたか */
+const HINT_KEY = 'fr.playlist.longPressHint.v1';
+let hintChecked = false;
 
 /** スロット 1（所有曲すべて）の目印。再生の中枢の source にもこの値を渡す */
 export const ALL_OWNED = '__all__';
@@ -93,10 +106,38 @@ export const MyPlaylists: React.FC<Props> = ({
   onViewCard,
   onEdit,
   onDiscover,
+  onAddToPlaylist,
 }) => {
   const t = useT();
   const pb = usePlaybackOptional();
+  const dl = useDownloads();
   const ids = tracks.map((x) => x.id);
+  const keyOf = (x: PlaylistItem) => x.audioKey || x.id;
+  // 長押しで「プレイリストに追加」は目に見えないので、曲が並んだ最初の一度だけ一言で知らせる
+  const hasRows = tracks.length > 0 && !!onAddToPlaylist;
+  useEffect(() => {
+    if (!hasRows || hintChecked) return;
+    hintChecked = true;
+    AsyncStorage.getItem(HINT_KEY)
+      .then((v) => {
+        if (v) return;
+        showToast(t('playlist.longPress'));
+        AsyncStorage.setItem(HINT_KEY, '1').catch(() => {});
+      })
+      .catch(() => {});
+  }, [hasRows, t]);
+  // 行の札。カードを開くとき、押した札の位置から大きくなるように測る
+  const artRefs = useRef(new Map<string, View>());
+  const openCard = (id: string) => {
+    const node = artRefs.current.get(id);
+    if (!node) {
+      onViewCard(ids, id, source);
+      return;
+    }
+    node.measureInWindow((x, y, width, height) =>
+      onViewCard(ids, id, source, width > 0 ? { x, y, width, height } : undefined),
+    );
+  };
   // このリストを流しているか（流している曲が、このリストから流したものか）
   const live = !!pb?.current && pb.source === source;
   const playing = live && !!pb?.playing;
@@ -122,6 +163,8 @@ export const MyPlaylists: React.FC<Props> = ({
         <Text style={styles.headTitle} numberOfLines={1}>{title}</Text>
         <Text style={styles.headCount}>{t('playlist.count', { n: tracks.length })}</Text>
       </View>
+      {/* このリストを丸ごと端末に保存 */}
+      {tracks.length > 0 && <DownloadButton keys={tracks.map(keyOf)} label={title} size={24} />}
       <Pressable
         disabled={tracks.length === 0}
         onPress={() => (live ? pb?.toggle() : onPlayAll(ids, source))}
@@ -169,21 +212,42 @@ export const MyPlaylists: React.FC<Props> = ({
         return (
           <Pressable
             onPress={() => (on ? pb?.toggle() : onPlayFrom(ids, item.id, source))}
+            onLongPress={onAddToPlaylist ? () => onAddToPlaylist(item) : undefined}
+            delayLongPress={380}
             style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
             accessibilityRole="button"
             accessibilityLabel={item.title}
             accessibilityHint={on ? (playing ? t('playback.pause') : t('playback.play')) : t('playback.playThis')}
+            accessibilityActions={onAddToPlaylist ? [{ name: 'longpress', label: t('playlist.addTo') }] : undefined}
+            onAccessibilityAction={(e) => {
+              if (e.nativeEvent.actionName === 'longpress') onAddToPlaylist?.(item);
+            }}
           >
-            <Image source={{ uri: item.artworkUrl }} style={styles.art} />
+            <View
+              ref={(el) => {
+                if (el) artRefs.current.set(item.id, el);
+                else artRefs.current.delete(item.id);
+              }}
+              collapsable={false}
+            >
+              <Image source={{ uri: item.artworkUrl }} style={styles.art} />
+            </View>
             <View style={styles.meta}>
               <Text style={[styles.title, on && styles.titleOn]} numberOfLines={1}>{item.title}</Text>
-              <Text style={styles.sub} numberOfLines={1}>
-                {[item.serialNo, item.artist].filter(Boolean).join('  ·  ')}
-              </Text>
+              <View style={styles.subRow}>
+                {dl.stateOf(keyOf(item)).status === 'done' && (
+                  <View accessibilityLabel={t('download.badge')}>
+                    <DownloadIcon size={13} done />
+                  </View>
+                )}
+                <Text style={styles.sub} numberOfLines={1}>
+                  {[item.serialNo, item.artist].filter(Boolean).join('  ·  ')}
+                </Text>
+              </View>
             </View>
             {on && <EqBars active={playing} keepIdle />}
             <Pressable
-              onPress={() => onViewCard(ids, item.id, source)}
+              onPress={() => openCard(item.id)}
               hitSlop={6}
               style={({ pressed }) => [styles.cardBtn, pressed && styles.cardBtnPressed]}
               accessibilityRole="button"
@@ -211,6 +275,7 @@ const styles = StyleSheet.create({
     paddingBottom: 10,
   },
   headTexts: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'baseline', gap: 10 },
+  // ↑ 見出しの右に「丸ごと保存」と「先頭から再生」が並ぶ
   headTitle: { color: C.text, fontSize: 18, letterSpacing: 0.9, flexShrink: 1, fontFamily: JP_SERIF_FONT },
   headCount: { color: C.sub, fontSize: 12, letterSpacing: 0.6 },
   // 先頭から流す丸いボタン（Spotify の緑の丸にあたる。FLUX RING はシアン）
@@ -245,7 +310,8 @@ const styles = StyleSheet.create({
   meta: { flex: 1, minWidth: 0 },
   title: { color: C.text, fontSize: 15, letterSpacing: 0.6, fontFamily: JP_SERIF_FONT },
   titleOn: { color: C.cyan },
-  sub: { color: C.sub, fontSize: 11.5, marginTop: 4, letterSpacing: 1, fontFamily: NUM_FONT },
+  subRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
+  sub: { flexShrink: 1, color: C.sub, fontSize: 11.5, letterSpacing: 1, fontFamily: NUM_FONT },
   cardBtn: { width: 40, height: 44, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
   cardBtnPressed: { backgroundColor: 'rgba(96,206,224,0.12)' },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, gap: 14 },
