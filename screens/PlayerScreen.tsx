@@ -179,7 +179,7 @@ export const PlayerScreen: React.FC<Props> = ({
   const backHalfP = (cardH * backScale * PERSP) / 2;
   // 表の塊（カード＋番号・曲名・作家名）は、余った縦幅を上 6：下 4 に分けて置く。
   // 領域は「戻る」と下の再生パネルの間なので、ちょうど真ん中だと画面全体では上に
-  // 寄って見える（2026-10-14 代表「少し中心より上にあるように感じる」）。
+  // 寄って見える（2026-10-14）。
   // 上の空きは、回したときのふくらみより狭くしない
   const topSpace = Math.max(0, cardArea.h - cardH - INFO_H);
   const topGap = Math.min(topSpace, Math.max(topSpace * 0.6, frontHalfP - cardH / 2 + 8));
