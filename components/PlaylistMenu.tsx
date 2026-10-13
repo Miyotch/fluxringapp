@@ -21,6 +21,8 @@ import type { Playlist } from '../lib/usePlaylists';
 
 /** プルダウンでウィッシュリストを表す目印 */
 export const WISHLIST_KEY = '__wish__';
+/** プルダウンで「端末に保存した曲」を表す目印（2026-10-14） */
+export const DOWNLOADS_KEY = '__dl__';
 
 type Props = {
   visible: boolean;
@@ -28,6 +30,8 @@ type Props = {
   top: number;
   lists: Playlist[];
   wishCount: number;
+  /** 端末に保存した曲の数 */
+  dlCount: number;
   /** いま選んでいるもの（プレイリストの id か WISHLIST_KEY）。所有カード・すべてなら null */
   selected: string | null;
   onSelect: (key: string) => void;
@@ -52,6 +56,7 @@ export const PlaylistMenu: React.FC<Props> = ({
   top,
   lists,
   wishCount,
+  dlCount,
   selected,
   onSelect,
   onNew,
@@ -162,6 +167,7 @@ export const PlaylistMenu: React.FC<Props> = ({
         <ScrollView style={{ maxHeight: 420 }} keyboardShouldPersistTaps="handled" bounces={false}>
           {lists.map((p) => item(p.id, p.name, p.trackIds.length, true))}
           {item(WISHLIST_KEY, t('collection.wishlist'), wishCount, false)}
+          {item(DOWNLOADS_KEY, t('download.listName'), dlCount, false)}
         </ScrollView>
         <View style={styles.addWrap}>
           <Pressable

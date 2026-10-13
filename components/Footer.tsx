@@ -1,7 +1,8 @@
 /**
- * Footer.tsx — FLUX RING 共通フッター（5タブ）
+ * Footer.tsx — FLUX RING 共通フッター（4タブ）
  * ------------------------------------------------------------------
- * ワイヤーフレーム: ホーム / コレ / VIP / メディア / 設定
+ * ホーム / プレイリスト / メディア / 設定（2026-10-14 VIP をフッターから外した。代表指示）。
+ * 型の 'vip' と VipScreen は残してあるので、戻すときは TABS に 1 行足すだけ。
  *   ・4タブ（ホーム/プレイリスト/メディア/設定）はいつでも相互遷移（プレイリストは 2026-09-24 にコレクションから改称。キーは collection のまま）
  *   ・VIP はシアン強調＋ロックマーク（未成約時）
  *   ・プレイヤー / ストーリー / 購入完了画面では非表示（呼び出し側で出し分け）
@@ -35,7 +36,6 @@ type TabDef = { key: TabKey; labelKey: string; Icon?: TabIcon; glyph?: string };
 const TABS: TabDef[] = [
   { key: 'home',       labelKey: 'tab.home',       Icon: TabHomeIcon },
   { key: 'collection', labelKey: 'tab.collection', Icon: TabCollectionIcon },
-  { key: 'vip',        labelKey: 'tab.vip',        glyph: '✦' },
   { key: 'media',      labelKey: 'tab.media',      Icon: TabMediaIcon },
   { key: 'settings',   labelKey: 'tab.settings',   Icon: TabSettingsIcon },
 ];
@@ -141,9 +141,9 @@ export const Footer: React.FC<FooterProps> = ({
               ]}
             >
               {tab.Icon ? (
-                <tab.Icon size={20} color={tint} />
+                <tab.Icon size={22} color={tint} />
               ) : isVip && vipLocked ? (
-                <LockIcon size={20} color={tint} />
+                <LockIcon size={22} color={tint} />
               ) : (
                 <Text style={[styles.glyph, { color: tint }]}>{tab.glyph}</Text>
               )}
@@ -171,10 +171,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-around',
-    paddingTop: 8,
+    paddingTop: 10,
     // paddingBottom は SafeArea の bottom を JSX 側で上書き
     paddingBottom: Platform.OS === 'ios' ? 28 : 12,
-    paddingHorizontal: 8,
+    paddingHorizontal: 16,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: COLOR.border,
     backgroundColor: 'rgba(23,20,48,0.92)',
@@ -191,7 +191,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     flexDirection: 'row',
-    paddingHorizontal: 8,
+    paddingHorizontal: 16,
   },
   indicatorSlot: {
     flex: 1,
@@ -200,7 +200,7 @@ const styles = StyleSheet.create({
   tab: {
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 3,
+    gap: 4,
     flex: 1,
   },
   glyphWrap: {
@@ -223,11 +223,11 @@ const styles = StyleSheet.create({
     borderRadius: 3.5,
     backgroundColor: COLOR.badge,
   },
-  // .tb: 9px / weight 500 / letter-spacing .12em
+  // .tb: 4 タブになって幅に余裕ができたので 9px → 10px（2026-10-14）。字間 .12em はそのまま
   label: {
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: '500',
-    letterSpacing: 1.08,
+    letterSpacing: 1.2,
   },
 });
 

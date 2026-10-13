@@ -55,7 +55,8 @@ import { NUM_FONT, JP_SERIF_FONT } from '../constants/fonts';
 import type { PurchaseController } from '../lib/usePurchaseFlow';
 import type { PlaylistsController } from '../lib/usePlaylists';
 import { MyPlaylists, ALL_OWNED, type PlaylistItem } from '../components/MyPlaylists';
-import { PlaylistMenu, WISHLIST_KEY } from '../components/PlaylistMenu';
+import { PlaylistMenu, WISHLIST_KEY, DOWNLOADS_KEY } from '../components/PlaylistMenu';
+import { useDownloads } from '../lib/downloads';
 import { PlaylistEditor, type EditorTrack } from '../components/PlaylistEditor';
 import { OrbitBuyButton } from '../components/OrbitBuyButton';
 import { FavBead, BEAD_HIT } from '../components/FavBead';
@@ -100,10 +101,11 @@ export type CollectionItem = {
 //   ・wish … ウィッシュリスト。タブには出さず、プルダウンの中の 1 つとして選ぶ
 //            （表示中は「プレイリスト」のタブが灯る）
 //   ・all  … 連作の板（従来どおり）
-type Segment = 'all' | 'mine' | 'pl' | 'wish';
+//   ・dl   … 端末に保存した曲（2026-10-14）。これもプルダウンの中の 1 つ
+type Segment = 'all' | 'mine' | 'pl' | 'wish' | 'dl';
 const SEGMENTS: Segment[] = ['mine', 'pl', 'all'];
 /** タブの並びの中での位置（ウィッシュリストはプレイリストのタブの中） */
-const tabOf = (s: Segment): Segment => (s === 'wish' ? 'pl' : s);
+const tabOf = (s: Segment): Segment => (s === 'wish' || s === 'dl' ? 'pl' : s);
 
 type Props = {
   owned: CollectionItem[];
@@ -618,6 +620,9 @@ export const CollectionScreen: React.FC<Props> = ({
     [ownedSorted],
   );
   const ownedRowById = useMemo(() => new Map(ownedRows.map((o) => [o.id, o])), [ownedRows]);
+  // 端末に保存した曲（所有曲のうち、保存が済んだもの）
+  const dl = useDownloads();
+  const dlRows = ownedRows.filter((r) => dl.stateOf(r.audioKey || r.id).status === 'done');
   const lists = playlists?.lists ?? [];
   // 選んでいたリストが消えていたら先頭のリスト
   const currentList = lists.find((p) => p.id === plSelected) ?? lists[0] ?? null;
@@ -646,6 +651,10 @@ export const CollectionScreen: React.FC<Props> = ({
       setSeg('wish');
       return;
     }
+    if (key === DOWNLOADS_KEY) {
+      setSeg('dl');
+      return;
+    }
     setPlSelected(key);
     setSeg('pl');
   };
@@ -670,7 +679,8 @@ export const CollectionScreen: React.FC<Props> = ({
     playlists?.remove(id);
     if (plSelected === id) setPlSelected(null);
   };
-  const menuSelected = seg === 'wish' ? WISHLIST_KEY : seg === 'pl' ? currentList?.id ?? null : null;
+  const menuSelected =
+    seg === 'wish' ? WISHLIST_KEY : seg === 'dl' ? DOWNLOADS_KEY : seg === 'pl' ? currentList?.id ?? null : null;
 
   // マイコレは常に21枠。所有分を先頭から詰め、残りは番号だけの空枠にする。
   const mineSlots: MineSlot[] = Array.from({ length: TOTAL_SLOTS }, (_, i) => ({
@@ -1016,6 +1026,17 @@ export const CollectionScreen: React.FC<Props> = ({
             onAddToPlaylist={onAddToPlaylist ? (it) => onAddToPlaylist({ id: it.id, title: it.title }) : undefined}
             onDiscover={onDiscover}
           />
+        ) : seg === 'dl' && playlists ? (
+          <MyPlaylists
+            variant="downloads"
+            tracks={dlRows}
+            title={t('download.listName')}
+            source={DOWNLOADS_KEY}
+            onPlayFrom={(ids, startId, source) => onPlayFrom?.(ids, startId, source)}
+            onPlayAll={(ids, source) => onPlayList?.(ids, undefined, source)}
+            onViewCard={(ids, id, source, origin) => onViewCard?.(ids, id, source, origin)}
+            onAddToPlaylist={onAddToPlaylist ? (it) => onAddToPlaylist({ id: it.id, title: it.title }) : undefined}
+          />
         ) : seg === 'pl' && playlists ? (
           currentList ? (
             <MyPlaylists
@@ -1090,6 +1111,7 @@ export const CollectionScreen: React.FC<Props> = ({
           top={tabsBottom}
           lists={lists}
           wishCount={wishlist.length}
+          dlCount={dlRows.length}
           selected={menuSelected}
           onSelect={onMenuSelect}
           onNew={() => {

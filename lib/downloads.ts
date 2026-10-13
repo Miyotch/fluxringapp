@@ -150,5 +150,16 @@ export function useDownloads() {
     countDone: (keys: string[]) => keys.filter((k) => !!saved[k]).length,
     /** 並びのうち、保存中の数 */
     countRunning: (keys: string[]) => keys.filter((k) => running.has(k)).length,
+    /** 保存した大きさの合計（バイト） */
+    bytesOf: (keys: string[]) => keys.reduce((a, k) => a + (saved[k]?.bytes ?? 0), 0),
+    /** まとめて消す */
+    removeAll: (keys: string[]) => keys.forEach((k) => removeDownload(k)),
   };
+}
+
+/** バイト数を「182.4 MB」のように */
+export function formatBytes(n: number): string {
+  if (n < 1024 * 1024) return `${Math.max(0, Math.round(n / 1024))} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
+  return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }

@@ -11,7 +11,7 @@
  */
 
 import React, { useEffect, useRef } from 'react';
-import { FlatList, Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, FlatList, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, {
   Easing,
   cancelAnimation,
@@ -28,7 +28,7 @@ import type { CardOrigin } from './CardAfterimage';
 import { NUM_FONT, JP_SERIF_FONT } from '../constants/fonts';
 import { useT } from '../lib/i18n';
 import { usePlaybackOptional } from '../lib/playback';
-import { useDownloads } from '../lib/downloads';
+import { formatBytes, useDownloads } from '../lib/downloads';
 import { showToast } from '../lib/toast';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -60,6 +60,11 @@ type Props = {
   onEdit?: () => void;
   /** 所有曲が 0 のとき「作品と出会う」 */
   onDiscover?: () => void;
+  /**
+   * 'downloads' … 端末に保存した曲の一覧（2026-10-14）。見出しに曲数と大きさ・「すべて消す」、
+   * 行の右端は保存の印（押すとその曲だけ消す）
+   */
+  variant?: 'list' | 'downloads';
 };
 
 /** 長押しで追加できることを、最初に一度だけ知らせたか */
@@ -107,6 +112,7 @@ export const MyPlaylists: React.FC<Props> = ({
   onEdit,
   onDiscover,
   onAddToPlaylist,
+  variant = 'list',
 }) => {
   const t = useT();
   const pb = usePlaybackOptional();
@@ -157,14 +163,51 @@ export const MyPlaylists: React.FC<Props> = ({
     );
   }
 
+  const isDl = variant === 'downloads';
+  const allKeys = tracks.map(keyOf);
+  // 端末に保存した曲を、確かめてからまとめて消す
+  const removeAll = () =>
+    Alert.alert(
+      t('download.removeTitle'),
+      t('download.removeAllBody', { n: tracks.length, size: formatBytes(dl.bytesOf(allKeys)) }),
+      [
+        { text: t('playlist.cancel'), style: 'cancel' },
+        {
+          text: t('download.remove'),
+          style: 'destructive',
+          onPress: () => {
+            dl.removeAll(allKeys);
+            showToast(t('download.removedAll'));
+          },
+        },
+      ],
+    );
+
   const header = (
     <View style={styles.head}>
       <View style={styles.headTexts}>
         <Text style={styles.headTitle} numberOfLines={1}>{title}</Text>
-        <Text style={styles.headCount}>{t('playlist.count', { n: tracks.length })}</Text>
+        <Text style={styles.headCount}>
+          {isDl
+            ? t('download.size', { n: tracks.length, size: formatBytes(dl.bytesOf(allKeys)) })
+            : t('playlist.count', { n: tracks.length })}
+        </Text>
       </View>
-      {/* このリストを丸ごと端末に保存 */}
-      {tracks.length > 0 && <DownloadButton keys={tracks.map(keyOf)} label={title} size={24} />}
+      {isDl ? (
+        tracks.length > 0 && (
+          <Pressable
+            onPress={removeAll}
+            hitSlop={8}
+            style={({ pressed }) => [styles.removeAll, pressed && { opacity: 0.7 }]}
+            accessibilityRole="button"
+          >
+            <Text style={styles.removeAllText}>{t('download.removeAll')}</Text>
+          </Pressable>
+        )
+      ) : (
+        // このリストを丸ごと端末に保存
+        tracks.length > 0 && <DownloadButton keys={allKeys} label={title} size={24} />
+      )}
       <Pressable
         disabled={tracks.length === 0}
         onPress={() => (live ? pb?.toggle() : onPlayAll(ids, source))}
@@ -187,9 +230,9 @@ export const MyPlaylists: React.FC<Props> = ({
       <View style={styles.root}>
         {header}
         <View style={styles.empty}>
-          <Text style={styles.emptyTitle}>{t('playlist.emptyTitle')}</Text>
-          <Text style={styles.emptyBody}>{t('playlist.emptyBodyMenu')}</Text>
-          {onEdit && (
+          <Text style={styles.emptyTitle}>{isDl ? t('download.emptyTitle') : t('playlist.emptyTitle')}</Text>
+          <Text style={styles.emptyBody}>{isDl ? t('download.emptyBody') : t('playlist.emptyBodyMenu')}</Text>
+          {onEdit && !isDl && (
             <Pressable style={({ pressed }) => [styles.emptyBtn, pressed && { opacity: 0.8 }]} onPress={onEdit}>
               <Text style={styles.emptyBtnLabel}>{t('playlist.addTracks')}</Text>
             </Pressable>
@@ -246,6 +289,8 @@ export const MyPlaylists: React.FC<Props> = ({
               </View>
             </View>
             {on && <EqBars active={playing} keepIdle />}
+            {/* 保存した曲の一覧では、右端は保存の印（押すとその曲だけ消す） */}
+            {isDl && <DownloadButton keys={[keyOf(item)]} label={item.title} size={20} />}
             <Pressable
               onPress={() => openCard(item.id)}
               hitSlop={6}
@@ -312,6 +357,14 @@ const styles = StyleSheet.create({
   titleOn: { color: C.cyan },
   subRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
   sub: { flexShrink: 1, color: C.sub, fontSize: 11.5, letterSpacing: 1, fontFamily: NUM_FONT },
+  removeAll: {
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,120,120,0.35)',
+  },
+  removeAllText: { color: '#FF8A8A', fontSize: 12.5, letterSpacing: 0.8 },
   cardBtn: { width: 40, height: 44, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
   cardBtnPressed: { backgroundColor: 'rgba(96,206,224,0.12)' },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, gap: 14 },
