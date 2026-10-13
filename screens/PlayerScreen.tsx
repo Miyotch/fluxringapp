@@ -114,7 +114,7 @@ const stepOf = (cardW: number) => (190 + 188.59 / 2 + 188.59 * 0.2) * (cardW / 1
  * コレクションの作品詳細と同じ並び（カードの真下に番号と曲名）。
  */
 const INFO_GAP = 20;
-const INFO_H = INFO_GAP + 16 + 6 + 28 + 10 + 34;
+const INFO_H = INFO_GAP + 16 + 6 + 28 + 20 + 10 + 34; // 20 = 作家名の行（marginTop 4 ＋ 16）
 
 /** 輪の札 1 枚（平らな絵）。絵柄が変わらないかぎり描き直さない */
 const RingSlot = React.memo(function RingSlot({
@@ -158,11 +158,31 @@ export const PlayerScreen: React.FC<Props> = ({
   const fitW = cardArea.h > 0 ? (cardArea.h - INFO_H - 16) / CARD_ASPECT : Infinity;
   const cardW = Math.floor(Math.max(120, Math.min(screenW - 96, 240, fitW)));
   const cardH = Math.round(cardW * CARD_ASPECT);
-  // 裏面の絶対サイズは HOME と揃える（HOME の裏面幅から逆算した倍率）
-  const backScale = (homeCardWidth(screenH) * CARD_BACK_SCALE_MAX) / cardW;
+  // 裏面の絶対サイズは HOME と揃える（HOME の裏面幅から逆算した倍率）。ただし下に大きい
+  // 再生パネルを置いてから領域が低くなり、裏返すと上が切れていた（2026-10-14）ので、
+  // 領域の高さに収まる大きさを上限にする
+  const backScale = Math.min(
+    (homeCardWidth(screenH) * CARD_BACK_SCALE_MAX) / cardW,
+    cardArea.h > 0 ? Math.max(1, (cardArea.h - 24) / cardH) : Infinity,
+  );
   const step = stepOf(cardW);
+  // 裏返すと裏面は枠高の 3% だけ持ち上がる（CardGL の backLiftRatio）
+  const liftPx = cardArea.h * 0.03;
+  const backHalf = (cardH * backScale) / 2;
+  // 塊（カード＋番号・曲名・作家名）の置き方。以前は縦の真ん中で、カードが上に寄って
+  // 見え、裏返すと大きくなった裏面の上が切れた。裏面がふくらむぶんの空きを上に取り、
+  // 塊を下へ寄せる（2026-10-14 代表指示「カードやタイトルは下にした方がいい」）
+  const topSpace = Math.max(0, cardArea.h - cardH - INFO_H);
+  const overhang = backHalf - cardH / 2 + liftPx + 10;
+  const topGap = Math.min(topSpace, Math.max(topSpace / 2, overhang));
   // 塊の中でのカードの中心（領域の上端から）。番号・曲名はこの下に置く
-  const cardCenterY = (cardArea.h - INFO_H) / 2;
+  const cardCenterY = topGap + cardH / 2;
+  // 裏返したときのカードの中心。表の文字は消えるので、裏面が領域に収まるところまで下げる
+  const flipCenterY = Math.min(
+    Math.max(cardCenterY, 8 + liftPx + backHalf),
+    Math.max(cardCenterY, cardArea.h - 8 + liftPx - backHalf),
+  );
+  const flipShift = flipCenterY - cardCenterY;
   const cardFrame = useMemo(() => ({ width: cardArea.w, height: cardArea.h }), [cardArea.w, cardArea.h]);
 
   // ── 通し番号（HOME と同じ。送るたびに ±1。曲は tracks[通し番号 mod 曲数]） ──
@@ -481,6 +501,15 @@ export const PlayerScreen: React.FC<Props> = ({
   // 番号・曲名の出し入れ。札を払っている間は札が中央から離れるほど薄くし（行き先の
   // 曲名は指を離した時点で差し替わる）、裏返すと消す（裏面はひと回り大きくなって
   // 真下の文字にかかる。HOME の左上の曲名と同じく裏面では表の情報を出さない）
+  // 裏返すにつれてカードを下へ寄せる（表の文字が消えた場所を裏面に使う）
+  const stageFlipStyle = useAnimatedStyle(() => {
+    const r = Math.abs(cardRotation.value) % 360;
+    const tilt = Math.min(r, 360 - r);
+    return {
+      transform: [{ translateY: flipShift * interpolate(tilt, [0, 60], [0, 1], Extrapolation.CLAMP) }],
+    };
+  }, [flipShift]);
+
   const infoFade = useAnimatedStyle(() => {
     const f = dragX.value / step;
     const off = Math.abs(f - Math.round(f)); // 0 = 札が真ん中 / 0.5 = 札と札の中間
@@ -525,9 +554,12 @@ export const PlayerScreen: React.FC<Props> = ({
           <>
             {/* 札の舞台は下を INFO_H だけ空け、カードを塊の上側に置く */}
             <GestureDetector gesture={gesture}>
-              <View style={[styles.stage, { bottom: INFO_H }]} pointerEvents="box-none">
+              <Animated.View
+                style={[styles.stage, { bottom: cardArea.h - cardCenterY * 2 }, stageFlipStyle]}
+                pointerEvents="box-none"
+              >
                 {cardLayer}
-              </View>
+              </Animated.View>
             </GestureDetector>
 
             <Animated.View
