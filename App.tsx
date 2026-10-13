@@ -775,11 +775,16 @@ function AppInner() {
                 openViewer(ids, startId, 'collection', source ?? null);
               }}
               onPlayFrom={(ids, startId, source) => {
-                // 編集シートで曲の行を押した → 並びのまま、その曲から流す（はっきり
-                // 押したので、流れていても切り替える）。画面は移らない（2026-09-26）
+                // リストの行・編集シートで曲を押した → 並びのまま、その曲から流す（はっきり
+                // 押したので、流れていても切り替える）。画面は移らない（2026-09-26・10-13
+                // Spotify と同じく、行を押したらすぐ鳴る）
                 const byId = new Map(playerTracks.map((t) => [t.id, t]));
                 const tracks = ids.map((id) => byId.get(id)).filter((t): t is PlayerTrack => !!t);
                 if (tracks.length) playback.playQueue(tracks, startId, source);
+              }}
+              onViewCard={(ids, id, source) => {
+                // 行の右端のカードのアイコン → カードを眺める画面。再生は変えない（2026-10-13）
+                openViewer(ids, id, 'collection', source ?? null);
               }}
               onOpenTrack={(id) => {
                 // 作品詳細の ▶（所有済み）→ 所有曲すべてをこの曲から流し、カードを

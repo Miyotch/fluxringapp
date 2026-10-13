@@ -103,6 +103,15 @@ export const SkipPrevIcon: React.FC<IconProps> = ({ size = 16, color = '#BFE8F1'
   </Svg>
 );
 
+// カード詳細（プレイリストの行の右端）。縦長のカードに文字の行＝曲の情報が書かれた裏面。
+// 原本 svg なし（2026-10-13 プレイリスト縦リスト化で追加）
+export const CardDetailIcon: React.FC<IconProps> = ({ size = 20, color = COLOR.textSecondary }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+    <Rect x={6} y={3} width={12} height={18} rx={2} stroke={color} strokeWidth={1.5} />
+    <Path d="M9 8h6M9 11.5h6M9 15h3.5" stroke={color} strokeWidth={1.5} {...STROKE} />
+  </Svg>
+);
+
 // 出力／共有。assets/icons/export.svg
 export const ShareIcon: React.FC<IconProps> = ({ size = 18, color = COLOR.textSecondary }) => (
   <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
