@@ -54,7 +54,10 @@ import { useLayoutAdjustConfig } from '../lib/layoutAdjust';
 import { NUM_FONT, JP_SERIF_FONT } from '../constants/fonts';
 import type { PurchaseController } from '../lib/usePurchaseFlow';
 import type { PlaylistsController } from '../lib/usePlaylists';
-import { MyPlaylists } from '../components/MyPlaylists';
+import { MyPlaylists, ALL_OWNED, type PlaylistItem } from '../components/MyPlaylists';
+import { PlaylistMenu, WISHLIST_KEY, DOWNLOADS_KEY } from '../components/PlaylistMenu';
+import { useDownloads } from '../lib/downloads';
+import { PlaylistEditor, type EditorTrack } from '../components/PlaylistEditor';
 import { OrbitBuyButton } from '../components/OrbitBuyButton';
 import { FavBead, BEAD_HIT } from '../components/FavBead';
 import { EqBars } from '../components/EqBars';
@@ -92,8 +95,17 @@ export type CollectionItem = {
 // マイプレイリスト / すべて / ウィッシュリスト にした（聴く場所として、
 // 自分のプレイリストを先頭に置く）。参照 fr_v98_wish.html の col-tabs は
 // すべて / 所有 / ウィッシュリスト の順だった。
-type Segment = 'all' | 'mine' | 'wish';
-const SEGMENTS: Segment[] = ['mine', 'all', 'wish'];
+// 2026-10-13 所有カード / プレイリスト ▾ / すべて の 3 つへ（代表指示）。
+//   ・mine … 所有カードの縦リスト
+//   ・pl   … 自分のプレイリストの縦リスト。タブを押すとプルダウンで切り替え・新規・編集・削除
+//   ・wish … ウィッシュリスト。タブには出さず、プルダウンの中の 1 つとして選ぶ
+//            （表示中は「プレイリスト」のタブが灯る）
+//   ・all  … 連作の板（従来どおり）
+//   ・dl   … 端末に保存した曲（2026-10-14）。これもプルダウンの中の 1 つ
+type Segment = 'all' | 'mine' | 'pl' | 'wish' | 'dl';
+const SEGMENTS: Segment[] = ['mine', 'pl', 'all'];
+/** タブの並びの中での位置（ウィッシュリストはプレイリストのタブの中） */
+const tabOf = (s: Segment): Segment => (s === 'wish' || s === 'dl' ? 'pl' : s);
 
 type Props = {
   owned: CollectionItem[];
@@ -131,8 +143,12 @@ type Props = {
    * なし＝「このプレイリストを再生」（先頭から流す・画面は移らない）
    */
   onPlayList?: (trackIds: string[], startId?: string, source?: string) => void;
-  /** マイリストの編集シートから、その並びをその曲から流す（画面は移らない） */
+  /** リストの行を押した／編集シートで曲を押した → その並びをその曲から流す（画面は移らない） */
   onPlayFrom?: (trackIds: string[], startId: string, source?: string) => void;
+  /** リストの行のカードのアイコン → カードを眺める画面（再生は変えない）。origin は押した札の位置 */
+  onViewCard?: (trackIds: string[], id: string, source?: string, origin?: CardOrigin) => void;
+  /** リストの行を長押し → プレイリストに追加のシート（App が持つ） */
+  onAddToPlaylist?: (track: { id: string; title: string }) => void;
 };
 
 // マイコレ／ウィッシュリストの並び順。両者とも props（owned/wishlist）の順は
@@ -276,6 +292,8 @@ export const CollectionScreen: React.FC<Props> = ({
   playlists,
   onPlayList,
   onPlayFrom,
+  onViewCard,
+  onAddToPlaylist,
 }) => {
   const t = useT();
   const titleTop = useTopInset(12); // 設定タブの見出しと同じ高さ（従来は 14）
@@ -288,10 +306,16 @@ export const CollectionScreen: React.FC<Props> = ({
   const { width: screenW, height: screenH } = useWindowDimensions();
   // 既定タブはマイプレイリスト（2026-09-24。以前は連作の全体像を先に見せる「すべて」）。
   const [seg, setSeg] = useState<Segment>('mine');
-  const segRef = useRef<Segment>('mine');
-  segRef.current = seg;
-  const playlistsRef = useRef<PlaylistsController | undefined>(playlists);
-  playlistsRef.current = playlists;
+  // プレイリストのタブで出しているリストの id（消えていたら先頭のリスト）
+  const [plSelected, setPlSelected] = useState<string | null>(null);
+  // 「プレイリスト ▾」のプルダウン。開いている間はタブの横払いを止める
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuOpenRef = useRef(false);
+  menuOpenRef.current = menuOpen;
+  // プルダウンを出す高さ（タブの下端）
+  const [tabsBottom, setTabsBottom] = useState(0);
+  // 編集シート。'new' | プレイリストの id | null
+  const [editorFor, setEditorFor] = useState<string | null>(null);
   const [purchaseTarget, setPurchaseTarget] = useState<CollectionItem | null>(null);
   // 枠タップで立ち上がる作品詳細（参照 .work）。null=閉じている
   const [detailId, setDetailId] = useState<string | null>(null);
@@ -309,12 +333,12 @@ export const CollectionScreen: React.FC<Props> = ({
   // Capture 側で「明確に横」のジェスチャだけ先に引き取る。
   //   ・非 Capture だと FlatList が先に応答者になり、スワイプが届かないことがある
   //   ・横優位（|dx| > 1.4×|dy|）に限定するので、通常の縦スクロールは奪わない
-  //   ・マイプレイリストのページでは引き取らない。カードの横スワイプと取り合うため
-  //     （2026-09-24）。そこではタブは上の見出しを押して切り替える
+  //   ・2026-10-13 リストが縦になってカードの横スワイプが無くなったので、どのタブでも払える。
+  //     プルダウンが開いている間だけ止める
   const segSwipe = useRef(
     PanResponder.create({
       onMoveShouldSetPanResponderCapture: (_e, g) =>
-        !(segRef.current === 'mine' && playlistsRef.current) &&
+        !menuOpenRef.current &&
         Math.abs(g.dx) > SWIPE_CLAIM_PX && Math.abs(g.dx) > Math.abs(g.dy) * SWIPE_H_RATIO,
       onPanResponderRelease: (_e, g) => {
         const far = Math.abs(g.dx) >= SWIPE_COMMIT_PX;
@@ -322,7 +346,7 @@ export const CollectionScreen: React.FC<Props> = ({
         if (!far && !fast) return; // 迷い程度の動きでは切り替えない
         // タブは SEGMENTS の並び。左スワイプ=次 / 右スワイプ=前。
         setSeg((prev) => {
-          const i = SEGMENTS.indexOf(prev);
+          const i = SEGMENTS.indexOf(tabOf(prev));
           const next = i + (g.dx < 0 ? 1 : -1);
           return SEGMENTS[Math.max(0, Math.min(SEGMENTS.length - 1, next))];
         });
@@ -581,6 +605,82 @@ export const CollectionScreen: React.FC<Props> = ({
   // 並べ替えないと「前詰め」で詰めた先頭の枠に新着順で入ってしまう。
   const ownedSorted = useMemo(() => [...owned].sort(bySerialAsc), [owned]);
   const wishlistSorted = useMemo(() => [...wishlist].sort(bySerialAsc), [wishlist]);
+
+  // ── 縦リスト（所有カード／プレイリスト）に渡す行 ──
+  const ownedRows = useMemo<PlaylistItem[]>(
+    () =>
+      ownedSorted.map((c) => ({
+        id: c.id,
+        title: c.title,
+        artworkUrl: c.artworkUrl,
+        serialNo: c.serialNo,
+        artist: c.back?.artist,
+        audioKey: c.audioKey,
+      })),
+    [ownedSorted],
+  );
+  const ownedRowById = useMemo(() => new Map(ownedRows.map((o) => [o.id, o])), [ownedRows]);
+  // 端末に保存した曲（所有曲のうち、保存が済んだもの）
+  const dl = useDownloads();
+  const dlRows = ownedRows.filter((r) => dl.stateOf(r.audioKey || r.id).status === 'done');
+  const lists = playlists?.lists ?? [];
+  // 選んでいたリストが消えていたら先頭のリスト
+  const currentList = lists.find((p) => p.id === plSelected) ?? lists[0] ?? null;
+  const listRows = useMemo<PlaylistItem[]>(
+    () =>
+      currentList
+        ? currentList.trackIds.map((id) => ownedRowById.get(id)).filter((x): x is PlaylistItem => !!x)
+        : [],
+    [currentList, ownedRowById],
+  );
+
+  // ── プルダウンと編集シート ──
+  const onTabPress = (k: Segment) => {
+    if (k === 'pl') {
+      // プレイリストのタブ＝プルダウンを開閉する。別のタブにいたら、ついでにこのタブへ移る
+      if (tabOf(seg) !== 'pl') setSeg('pl');
+      setMenuOpen((o) => !o);
+      return;
+    }
+    setMenuOpen(false);
+    setSeg(k);
+  };
+  const onMenuSelect = (key: string) => {
+    setMenuOpen(false);
+    if (key === WISHLIST_KEY) {
+      setSeg('wish');
+      return;
+    }
+    if (key === DOWNLOADS_KEY) {
+      setSeg('dl');
+      return;
+    }
+    setPlSelected(key);
+    setSeg('pl');
+  };
+  const editing = editorFor && editorFor !== 'new' ? lists.find((p) => p.id === editorFor) ?? null : null;
+  const editorInitial = useMemo(
+    () => (editing ? { name: editing.name, trackIds: editing.trackIds } : null),
+    [editing],
+  );
+  const onEditorDone = (name: string, trackIds: string[]) => {
+    if (!playlists) return;
+    if (editorFor === 'new') {
+      const id = playlists.create(name, trackIds);
+      setPlSelected(id);
+      setSeg('pl');
+    } else if (editorFor) {
+      playlists.rename(editorFor, name);
+      playlists.setTracks(editorFor, trackIds);
+    }
+    setEditorFor(null);
+  };
+  const deleteList = (id: string) => {
+    playlists?.remove(id);
+    if (plSelected === id) setPlSelected(null);
+  };
+  const menuSelected =
+    seg === 'wish' ? WISHLIST_KEY : seg === 'dl' ? DOWNLOADS_KEY : seg === 'pl' ? currentList?.id ?? null : null;
 
   // マイコレは常に21枠。所有分を先頭から詰め、残りは番号だけの空枠にする。
   const mineSlots: MineSlot[] = Array.from({ length: TOTAL_SLOTS }, (_, i) => ({
@@ -867,25 +967,36 @@ export const CollectionScreen: React.FC<Props> = ({
       <View
         style={[styles.colTabs, !!detail && styles.hiddenWhileWork]}
         pointerEvents={detail ? 'none' : 'auto'}
+        onLayout={(e) => {
+          const { y, height } = e.nativeEvent.layout;
+          setTabsBottom(y + height);
+        }}
       >
         {SEGMENTS.map((k) => {
           // 参照 .cnt: 0 件のときは数字を出さない（空の枠を数字で強調しない）。
-          // 件数を出すのは「すべて」だけ。ウィッシュリストは表示名のみ（2026-09-19 指示）、
-          // マイリストも表示名のみ（2026-09-25 岡さん指示）。
+          // 件数を出すのは「すべて」だけ（2026-09-19・09-25 指示）。
           const count = k === 'all' ? works.length : 0;
           const label =
             k === 'all'
               ? t('collection.all')
               : k === 'mine'
-              ? t('collection.owned')
-              : t('collection.wishlist');
+              ? t('playlist.allOwned')
+              : t('collection.playlists');
+          const on = tabOf(seg) === k;
           return (
-            <Pressable key={k} style={styles.colTab} onPress={() => setSeg(k)}>
-              <Text style={[styles.colTabText, seg === k && styles.colTabTextOn]} numberOfLines={1}>
+            <Pressable
+              key={k}
+              style={styles.colTab}
+              onPress={() => onTabPress(k)}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: on, expanded: k === 'pl' ? menuOpen : undefined }}
+            >
+              <Text style={[styles.colTabText, on && styles.colTabTextOn]} numberOfLines={1}>
                 {label}
                 {count > 0 ? ` ${count}` : ''}
+                {k === 'pl' ? (menuOpen ? '  ▴' : '  ▾') : ''}
               </Text>
-              {seg === k && <View style={styles.colTabUnderline} />}
+              {on && <View style={styles.colTabUnderline} />}
             </Pressable>
           );
         })}
@@ -906,12 +1017,55 @@ export const CollectionScreen: React.FC<Props> = ({
           />
         ) : seg === 'mine' && playlists ? (
           <MyPlaylists
-            owned={ownedSorted}
-            playlists={playlists}
-            onPlayList={(ids, startId, source) => onPlayList?.(ids, startId, source)}
-            onPlayFrom={onPlayFrom}
+            tracks={ownedRows}
+            title={t('playlist.allOwned')}
+            source={ALL_OWNED}
+            onPlayFrom={(ids, startId, source) => onPlayFrom?.(ids, startId, source)}
+            onPlayAll={(ids, source) => onPlayList?.(ids, undefined, source)}
+            onViewCard={(ids, id, source, origin) => onViewCard?.(ids, id, source, origin)}
+            onAddToPlaylist={onAddToPlaylist ? (it) => onAddToPlaylist({ id: it.id, title: it.title }) : undefined}
             onDiscover={onDiscover}
           />
+        ) : seg === 'dl' && playlists ? (
+          <MyPlaylists
+            variant="downloads"
+            tracks={dlRows}
+            title={t('download.listName')}
+            source={DOWNLOADS_KEY}
+            onPlayFrom={(ids, startId, source) => onPlayFrom?.(ids, startId, source)}
+            onPlayAll={(ids, source) => onPlayList?.(ids, undefined, source)}
+            onViewCard={(ids, id, source, origin) => onViewCard?.(ids, id, source, origin)}
+            onAddToPlaylist={onAddToPlaylist ? (it) => onAddToPlaylist({ id: it.id, title: it.title }) : undefined}
+          />
+        ) : seg === 'pl' && playlists ? (
+          currentList ? (
+            <MyPlaylists
+              key={currentList.id}
+              tracks={listRows}
+              title={currentList.name}
+              source={currentList.id}
+              onPlayFrom={(ids, startId, source) => onPlayFrom?.(ids, startId, source)}
+              onPlayAll={(ids, source) => onPlayList?.(ids, undefined, source)}
+              onViewCard={(ids, id, source, origin) => onViewCard?.(ids, id, source, origin)}
+              onAddToPlaylist={onAddToPlaylist ? (it) => onAddToPlaylist({ id: it.id, title: it.title }) : undefined}
+              onEdit={() => setEditorFor(currentList.id)}
+            />
+          ) : (
+            // まだプレイリストが 1 つも無い
+            <View style={styles.empty}>
+              <Text style={styles.emptyTitle}>{t('playlist.noListsTitle')}</Text>
+              <Text style={styles.emptyBody}>{t('playlist.noListsBody')}</Text>
+              <Pressable
+                style={({ pressed }) => [styles.discoverBtn, pressed && { opacity: 0.8 }]}
+                onPress={() => {
+                  setMenuOpen(false);
+                  setEditorFor('new');
+                }}
+              >
+                <Text style={styles.discoverLabel}>{`＋ ${t('playlist.new')}`}</Text>
+              </Pressable>
+            </View>
+          )
         ) : seg === 'mine' ? (
           <FlatList
             data={mineSlots}
@@ -947,9 +1101,57 @@ export const CollectionScreen: React.FC<Props> = ({
             showsVerticalScrollIndicator={false}
           />
         )}
-        {/* マイリストのページは縦に流れないので要らない（チップの縁が暗く見えた） */}
-        {!(seg === 'mine' && playlists) && <TopFade w={screenW} />}
+        <TopFade w={screenW} />
       </View>
+
+      {/* 「プレイリスト ▾」のプルダウン（タブの下に重ねる） */}
+      {playlists && (
+        <PlaylistMenu
+          visible={menuOpen && !detail}
+          top={tabsBottom}
+          lists={lists}
+          wishCount={wishlist.length}
+          dlCount={dlRows.length}
+          selected={menuSelected}
+          onSelect={onMenuSelect}
+          onNew={() => {
+            setMenuOpen(false);
+            setEditorFor('new');
+          }}
+          onEdit={(id) => {
+            setMenuOpen(false);
+            setEditorFor(id);
+          }}
+          onDelete={deleteList}
+          onClose={() => setMenuOpen(false)}
+        />
+      )}
+
+      {/* プレイリストの編集シート（新規・編集）。削除はプルダウンからも、ここからもできる */}
+      {playlists && (
+        <PlaylistEditor
+          visible={editorFor != null}
+          initial={editorInitial}
+          defaultName={t('playlist.defaultName', { n: lists.length + 1 })}
+          owned={ownedSorted as EditorTrack[]}
+          onDone={onEditorDone}
+          onCancel={() => setEditorFor(null)}
+          onDelete={
+            editing
+              ? () => {
+                  deleteList(editing.id);
+                  setEditorFor(null);
+                }
+              : undefined
+          }
+          // 下書きの並びのまま流す。作り途中（まだ保存していない新しいリスト）は目印なし
+          onPlayTrack={
+            onPlayFrom
+              ? (ids, id) => onPlayFrom(ids, id, editorFor && editorFor !== 'new' ? editorFor : undefined)
+              : undefined
+          }
+        />
+      )}
 
       {/* 枠タップで立ち上がる作品（参照 .work）。所有なら「再生する」、
           未所有なら ★ / 30秒 試聴 / 迎える の3手。ここが「再生ではなく試聴と購入」の実体。 */}

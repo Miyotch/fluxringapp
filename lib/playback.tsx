@@ -34,6 +34,7 @@ import { createAudioPlayer, useAudioPlayerStatus, type AudioPlayer } from 'expo-
 import { fullAudioUrl, previewUrl } from './r2';
 import { logPlayback } from './logPlayback';
 import type { PlayerTrack } from '../screens/PlayerScreen';
+import { localAudioUri } from './downloads';
 
 export type Repeat = 'ring' | 'one';
 
@@ -144,6 +145,9 @@ export const PlaybackProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       const pv = t.previewUrl ?? previewUrl(t.audioKey);
       return pv ? { url: pv, note: null } : null;
     }
+    // 端末に保存してあれば、ネットに行かずにそのファイルを鳴らす（電波がなくても聴ける）
+    const local = localAudioUri(t.audioKey);
+    if (local) return { url: local, note: null };
     const hit = urlCache.current.get(t.audioKey);
     if (hit) return hit;
     try {
