@@ -21,7 +21,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { CARD_ASPECT } from './CardGL';
-import { CardDetailIcon, DownloadIcon, PauseMark, PlayMark } from './icons';
+import { CardDetailIcon, PauseMark, PlayMark } from './icons';
 import { EqBars } from './EqBars';
 import { DownloadButton } from './DownloadButton';
 import type { CardOrigin } from './CardAfterimage';
@@ -75,6 +75,13 @@ type Props = {
 const ChevronDown: React.FC = () => (
   <Svg width={10} height={6} viewBox="0 0 10 6" fill="none">
     <Path d="M1 1 L5 5 L9 1" stroke="#60CEE0" strokeWidth={1.2} strokeLinecap="round" />
+  </Svg>
+);
+
+/** 保存済みの印（細いシアンの ↓・矢印だけ） */
+const SavedArrow: React.FC = () => (
+  <Svg width={10} height={10} viewBox="0 0 24 24" fill="none">
+    <Path d="M12 4v13M6 11l6 6 6-6" stroke="#60CEE0" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" />
   </Svg>
 );
 
@@ -306,8 +313,8 @@ export const MyPlaylists: React.FC<Props> = ({
             >
               <Image source={{ uri: item.artworkUrl }} style={styles.art} />
             </View>
-            {/* 2026-10-15 岡さんデザイン（E 行レイアウト）: 左に No. ／ 曲名、右の列に作家名 ／ 時間。
-                端末に保存済みの曲は時間の左にシアンの ↓ */}
+            {/* 2026-10-15 岡さんデザイン（行レイアウト）: 左に No. ／ 曲名、右に 作家名・↓・時間を
+                横一列で。↓ は端末に保存済みの曲だけ（無い曲も幅は取って時間の位置をそろえる） */}
             <View style={styles.meta}>
               {!!item.serialNo && <Text style={styles.serial} numberOfLines={1}>{item.serialNo}</Text>}
               <Text style={[styles.title, on && styles.titleOn]} numberOfLines={1}>{item.title}</Text>
@@ -315,16 +322,14 @@ export const MyPlaylists: React.FC<Props> = ({
             {on && <EqBars active={playing} keepIdle />}
             <View style={styles.side}>
               {!!item.artist && <Text style={styles.artist} numberOfLines={1}>{item.artist}</Text>}
-              <View style={styles.timeRow}>
-                {dl.stateOf(keyOf(item)).status === 'done' ? (
-                  <View accessibilityLabel={t('download.badge')}>
-                    <DownloadIcon size={11} done />
-                  </View>
-                ) : (
-                  <View style={{ width: 11 }} />
-                )}
-                <Text style={styles.time}>{durOf.get(item.id) != null ? formatDuration(durOf.get(item.id)!) : ' '}</Text>
-              </View>
+              {dl.stateOf(keyOf(item)).status === 'done' ? (
+                <View accessibilityLabel={t('download.badge')} style={styles.savedMark}>
+                  <SavedArrow />
+                </View>
+              ) : (
+                <View style={styles.savedMark} />
+              )}
+              <Text style={styles.time}>{durOf.get(item.id) != null ? formatDuration(durOf.get(item.id)!) : ''}</Text>
             </View>
             {/* 保存した曲の一覧では、右端は保存の印（押すとその曲だけ消す） */}
             {isDl && <DownloadButton keys={[keyOf(item)]} label={item.title} size={20} />}
@@ -395,10 +400,10 @@ const styles = StyleSheet.create({
   serial: { color: '#6E759A', fontSize: 10, letterSpacing: 1.4, fontVariant: ['tabular-nums'] },
   title: { color: C.text, fontSize: 17, letterSpacing: 0.3, marginTop: 2, fontFamily: JP_SERIF_FONT },
   titleOn: { color: C.cyan },
-  side: { alignItems: 'flex-end', gap: 5, maxWidth: '34%' },
-  artist: { color: '#8D93B5', fontSize: 11, fontWeight: '300', letterSpacing: 0.7 },
-  timeRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  time: { color: '#6E759A', fontSize: 12, fontWeight: '300', fontVariant: ['tabular-nums'], minWidth: 30, textAlign: 'right' },
+  side: { flexDirection: 'row', alignItems: 'center', gap: 8, maxWidth: '46%' },
+  artist: { flexShrink: 1, color: '#8D93B5', fontSize: 11, fontWeight: '300', letterSpacing: 0.7 },
+  savedMark: { width: 10, alignItems: 'center', justifyContent: 'center' },
+  time: { color: '#6E759A', fontSize: 12, fontWeight: '300', fontVariant: ['tabular-nums'], minWidth: 32, textAlign: 'right' },
   removeAll: {
     paddingVertical: 8,
     paddingHorizontal: 14,
