@@ -26,6 +26,7 @@ import { getDocs } from 'firebase/firestore';
 import type { Track } from '../screens/DiscoverScreen';
 import { artistsCol, subscribeTracks } from './firebaseFirestore';
 import { buyLabel } from '../constants/pricing';
+import { registerTrackAudio } from './durations';
 
 const str = (v: unknown): string | undefined =>
   typeof v === 'string' && v.trim() !== '' ? v : undefined;
@@ -107,6 +108,13 @@ export function useTracks(count = 50): Track[] {
               typeof data.homeOrder === 'number' && Number.isFinite(data.homeOrder)
                 ? data.homeOrder
                 : 0;
+            // 曲の長さ（プレイリストの行・合計時間）。管理画面の値があればそれ、
+            // 無ければ音源のヘッダから割り出す（lib/durations.ts）
+            registerTrackAudio(
+              d.id,
+              str(data.r2_url),
+              typeof data.durationSec === 'number' ? data.durationSec : undefined,
+            );
             const track: Track = {
               id: d.id,
               title: str(data.title) ?? '',

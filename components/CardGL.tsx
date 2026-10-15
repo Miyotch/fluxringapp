@@ -1154,12 +1154,11 @@ export const CardGL: React.FC<CardGLProps> = ({
   useEffect(() => {
     lastShownRef.current = shownUri;
   }, [shownUri]);
-  // 裏返しのあいだオーバーレイごと外れるので、読み込み済みの記録も畳む。
-  // 残しておくと、戻った直後のスワイプで「載っているはずの絵」を出しに行き、
-  // まだ描けていないビューを見せてしまう。
-  useEffect(() => {
-    if (!overlayVisible) loadedRef.current.clear();
-  }, [overlayVisible]);
+  // 裏返しのあいだもオーバーレイは外さず（不透明度 0・タップ無効で）残すので、
+  // 読み込み済みの記録はそのまま使える。以前は裏返すたびにオーバーレイごと
+  // 外していたため、表へ戻って着地した瞬間に <Image> が作り直され、復号が
+  // 終わるまでの数フレーム、下地の無地（CARD_PLACEHOLDER）がフェードインして
+  // 「表に戻った直後に絵が一瞬消える」ように見えていた（2026-10-15 実機収録）。
   const handleFrontLoaded = (uri: string) => {
     if (loadedRef.current.has(uri)) return;
     loadedRef.current.add(uri);
@@ -1238,9 +1237,9 @@ export const CardGL: React.FC<CardGLProps> = ({
     glKick.current();
     s.mode = 'open';
     clearOverlayTimer();
-    overlayOpacity.value = 1; // 次回の復帰に備えて初期値へ
+    overlayOpacity.value = 0; // オーバーレイを透明にして GL のフリップを見せる（外さない）
     overlayShown.current = false;
-    setOverlayVisible(false); // 実体オーバーレイを外して GL のフリップを見せる
+    setOverlayVisible(false); // タップ受けを GL 側（裏面）へ渡す
     setFlipped(true);
     onFlipChange?.(true);
   };
@@ -1624,8 +1623,11 @@ export const CardGL: React.FC<CardGLProps> = ({
           タップ受けを兼ねる。透明ビューや GL レイヤーのタップ判定に依存しない
           ＝実機で確実に反応する（794793f で実証済みの方式）。
           RN Image は即時表示されるため、GL テクスチャ生成待ちの無地も隠れる */}
-      {isFlip && overlayVisible && (
-        <Animated.View style={[StyleSheet.absoluteFill, overlayStyle]}>
+      {isFlip && (
+        <Animated.View
+          pointerEvents={overlayVisible ? 'auto' : 'none'}
+          style={[StyleSheet.absoluteFill, overlayStyle]}
+        >
           {/* Pressable の onPress は指がカードの矩形内で離れれば、どれだけ動いても
               発火する。横スワイプが縦ブレでカルーセルに取られなかったとき、その
               スワイプが「タップ」になって裏返っていた（2026-09-15）。

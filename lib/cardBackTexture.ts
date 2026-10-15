@@ -78,11 +78,19 @@ function estWidth(text: string, fs: number, font: SkFont | null): number {
 
 // 文字数固定の折り返し（幅ではなく「1行20文字・最大4行=80文字」で機械的に区切る）。
 // 改行は考慮せず、文字数だけで maxLines 行に分割し、超過分は切り捨てる。
+// 行頭禁則: 次の行が句読点・閉じ括弧で始まるときは、その文字を前の行に
+// ぶら下げる（1行は最大 charsPerLine+1 文字。「空気／。」のように句点だけが
+// 次の行の頭に落ちるのを防ぐ）。
+const NO_LINE_START = new Set([...'、。，．,.）)」』】〕〉》！？!?ー…・：；']);
 function wrapFixedChars(text: string, charsPerLine: number, maxLines: number): string[] {
-  const chars = [...text];
+  const chars = [...text.replace(/\s*\n\s*/g, '')];
   const lines: string[] = [];
-  for (let i = 0; i < chars.length && lines.length < maxLines; i += charsPerLine) {
-    lines.push(chars.slice(i, i + charsPerLine).join(''));
+  let i = 0;
+  while (i < chars.length && lines.length < maxLines) {
+    let end = Math.min(chars.length, i + charsPerLine);
+    if (end < chars.length && NO_LINE_START.has(chars[end])) end += 1;
+    lines.push(chars.slice(i, end).join(''));
+    i = end;
   }
   return lines;
 }
@@ -389,116 +397,117 @@ export function renderAluminumInkPixels(
   // 2px→6pxへ拡大）
   printAlum(c, data.title, cx, 368, 52, '600', alum(1), 6, 'c');
 
-  // Story 40px / weight300 / lh72 / 字間8px（同上の理由で2px→8pxへ拡大）。
-  // 最大4行・1行20文字・合計80文字までの固定文字数で折り返す
-  // （幅ベースだと半角文字混じりで1行の文字数がぶれるため、文字数優先の指定）。
-  // ゾーン[470, H-460]の中央に文字ブロックを配置（__dvMakeInk 準拠）。
-  // storyBottom は Story 最終行のベースライン。この下に「ー case ー」を積む。
-  let storyBottom = 470;
-  if (data.story) {
-    const fs = 42;
-    const lh = 72;
-    const CHARS_PER_LINE = 20;
-    const STORY_LETTER_SPACING = 2;
-    const storyFont = makeFont(fs, '300', INK_FONT);
-    const zoneTop = 470;
-    const zoneBottom = H - 460;
-    // Story本文は最大4行まで（詰まりすぎ防止のミーティング指摘）。
-    // ゾーン高さから計算される行数がそれより多くても4行で打ち切る。
-    const maxLines = Math.min(4, Math.floor((zoneBottom - zoneTop) / lh));
-    const lines = wrapFixedChars(data.story, CHARS_PER_LINE, maxLines);
-    // 左右の余白を必ず均等にするため、固定x=112ではなく、実測でもっとも
-    // 幅の広い行を基準にブロック全体をカード中央へ配置してから左揃えで描く
-    // （文字数は同じでも半角混じりで実測幅は行ごとに変わりうるため、
-    // 「一番長い行」を基準にすれば短い行だけが自然に右側の余白を持つ
-    // 通常の左揃え段落の見た目のまま、ブロックの左右マージンは揃う）。
-    const blockWidth = lines.length
-      ? Math.max(...lines.map((ln) => measureAlumWidth(ln, fs, storyFont, STORY_LETTER_SPACING)))
-      : 0;
-    const blockX = (W - blockWidth) / 2;
-    const mid = (zoneTop + zoneBottom) / 2;
-    let y = Math.max(zoneTop, mid - (lines.length * lh) / 2);
-    for (const ln of lines) {
-      if (y > zoneBottom - lh) break;
-      printAlum(c, ln, blockX, y, fs, '300', alum(1), STORY_LETTER_SPACING, 'l');
-      storyBottom = y;
-      y += lh;
-    }
-  }
+  // ── 中段（Story → case → 調律 → series）は1本の段組みとして組む ──
+  // 以前は Story〜調律を上から積み、series と作家名を下端からの固定座標で
+  // 置いていたため、両者の間に衝突の確認がなく、Story が3〜4行のカードや
+  // case の無いシリーズ曲で「調律」と「series」の行が重なっていた。
+  // いまは全体の高さを先に測り、[STACK_TOP, STACK_BOTTOM] に収まるよう
+  //   1) 段の間隔を MIN まで詰める → 2) それでも溢れたら Story の行を減らす
+  // の順で調整してから、ブロック全体を縦中央に置く。作家名は従来どおり固定。
+  const nameY = H - ARTIST_NAME_Y_OFFSET;
+  const STACK_TOP = 470;                // Story 1行目のベースラインの上限
+  const STACK_BOTTOM = nameY - 110;     // 最後の行のベースラインの下限（作家名との余白）
+  const SECTION_GAP = 128;              // 前の段の最終行 → 次の見出し
+  const SECTION_GAP_MIN = 84;
 
-  // ── 「ー case ー」＋ 用途タグ（Story の真下） ──
-  // 見出しは「ー 調律 ー」と同じ字送り（32px/weight300/字間8px/alpha.75）、
-  // タグ本体は調律の行と同じ（40px/weight300/字間6px）にして、裏面の
-  // 見出し＋内容という既存のリズムに合わせる。
-  // 位置は固定座標ではなく Story の最終行ベースラインからの相対にする
-  // （Story は行数に応じてゾーン内で上下に動くため、固定だと本文が短い
-  //  カードで間延びしたり、長いカードで重なったりする）。
+  const STORY_FS = 42;
+  const STORY_LH = 72;
+  const STORY_LS = 2;
+  const CHARS_PER_LINE = 20;
+  const storyFont = makeFont(STORY_FS, '300', INK_FONT);
+  let storyLines = data.story ? wrapFixedChars(data.story, CHARS_PER_LINE, 4) : [];
+
+  // case: 全角スペース区切りで詰め、はみ出す手前で折り返す（最大2行）
+  const CASE_FS = 40;
+  const CASE_LS = 6;
+  const CASE_LH = 58;
   const useCases = (data.useCases ?? []).map((s) => s.trim()).filter(Boolean);
-  // Case ブロックの最終行の y（調律ブロックの位置決めに使う。storyBottom と
-  // 同じ「最後に描いた行のベースライン」の意味。case が無ければ null）。
-  let caseBottom: number | null = null;
+  const caseLines: string[] = [];
   if (useCases.length > 0) {
-    const CASE_FS = 40;
-    const CASE_LS = 6;
-    const CASE_LH = 58;
     const caseFont = makeFont(CASE_FS, '300', INK_FONT);
     const maxW = W - 224; // Story ブロックと同程度の左右マージン
-    // 全角スペース区切りで詰め、はみ出す手前で折り返す（最大2行）
-    const lines: string[] = [];
     let cur = '';
     for (const tag of useCases) {
       const next = cur ? cur + '　' + tag : tag;
       if (cur && measureAlumWidth(next, CASE_FS, caseFont, CASE_LS) > maxW) {
-        lines.push(cur);
-        if (lines.length >= 2) { cur = ''; break; }
+        caseLines.push(cur);
+        if (caseLines.length >= 2) { cur = ''; break; }
         cur = tag;
       } else {
         cur = next;
       }
     }
-    if (cur && lines.length < 2) lines.push(cur);
-
-    let y = storyBottom + 128;
-    // 「ー 調律 ー」と同じ全角の長音符（ー）。半角ハイフンで組んでいたのを修正
-    // （2026-09-19 指摘）。
-    printAlum(c, 'ー case ー', cx, y, 32, '300', alum(0.75), 8, 'c');
-    y += CASE_LH;
-    for (const ln of lines) {
-      printAlum(c, ln, cx, y, CASE_FS, '300', alum(1), CASE_LS, 'c');
-      caseBottom = y;
-      y += CASE_LH;
-    }
+    if (cur && caseLines.length < 2) caseLines.push(cur);
   }
 
-  // 見出しラベル「ー 調律 ー」32px / weight300 / 字間8px。
-  // Case ブロックがあるときは、その最終行からの相対位置にする（2026-09-20
-  // 指示: Caseと調律の間を今の半分にする）。以前は H-372 の固定座標で、
-  // Case の有無・行数を一切考慮していなかった（Story の長さで Case の終端は
-  // 動くのに、調律は常に同じ位置＝カードごとに間隔がばらついていた）。
-  // CASE_TUNING_GAP は「よくある間隔（目安 storyBottom 2行分で ≒255px）」の
-  // 半分（実機調整ポイント: 実際の見えを見て再調整すること）。
-  // Case が無いカードでは従来どおり H-372 の固定位置のまま（挙動を変えない）。
-  const CASE_TUNING_GAP = 128;
-  const tuningHeadingY = caseBottom != null ? caseBottom + CASE_TUNING_GAP : H - 372;
-  printAlum(c, 'ー 調律 ー', cx, tuningHeadingY, 32, '300', alum(0.75), 8, 'c');
-
-  // 調律 40px / weight300 / 字間6px（2px→6pxへ拡大）/ 単色。調律名＋全角スペース
-  // ＋周波数群（周波数は data.freqs、無ければ frequencies）。原材料(materials)は
-  // このアルミ面には出さない（原材料欄は renderCardBackPixels/StoryBack 側のみ）。
-  // 見出しとの間隔（70px）は従来どおり維持。
+  // 調律名＋全角スペース＋周波数群（周波数は data.freqs、無ければ frequencies）。
+  // 原材料(materials)はこのアルミ面には出さない。
   const tuning = data.tuning ?? '';
   const freqs = (data.freqs ?? data.frequencies ?? []).filter(Boolean);
-  if (tuning || freqs.length > 0) {
-    const tuneText = tuning + '　' + freqs.join('　');
-    printAlum(c, tuneText, cx, tuningHeadingY + 70, 40, '300', alum(1), 6, 'c');
+  const tuneText = tuning || freqs.length > 0 ? [tuning, ...freqs].filter(Boolean).join('　') : '';
+  const seriesName = data.series?.trim() ?? '';
+
+  // 段の定義。lead は「見出し → 1行目」、lh は2行目以降の行送り。
+  type Section = { heading: string; lines: string[]; lead: number; lh: number };
+  const sections: Section[] = [];
+  if (caseLines.length > 0) sections.push({ heading: 'ー case ー', lines: caseLines, lead: CASE_LH, lh: CASE_LH });
+  // 調律の見出しは内容が空でも従来どおり出す（全カード共通の見出し）
+  sections.push({ heading: 'ー 調律 ー', lines: tuneText ? [tuneText] : [], lead: 70, lh: 70 });
+  if (seriesName) sections.push({ heading: 'ー series ー', lines: [seriesName], lead: 58, lh: 58 });
+
+  const sectionSpan = (s: Section) => (s.lines.length > 0 ? s.lead + (s.lines.length - 1) * s.lh : 0);
+  const storySpan = () => Math.max(0, storyLines.length - 1) * STORY_LH;
+  const totalSpan = (gap: number) =>
+    storySpan() +
+    sections.reduce((sum, s, i) => sum + (i === 0 && storyLines.length === 0 ? 0 : gap) + sectionSpan(s), 0);
+
+  const room = STACK_BOTTOM - STACK_TOP;
+  let gap = SECTION_GAP;
+  if (totalSpan(gap) > room) {
+    const gapsCount = storyLines.length > 0 ? sections.length : sections.length - 1;
+    const over = totalSpan(gap) - room;
+    gap = Math.max(SECTION_GAP_MIN, gap - Math.ceil(over / Math.max(1, gapsCount)));
   }
+  // それでも溢れたら Story を1行ずつ減らす（最終行の末尾を「…」にする）
+  let storyTruncated = false;
+  while (storyLines.length > 1 && totalSpan(gap) > room) {
+    storyLines = storyLines.slice(0, -1);
+    storyTruncated = true;
+  }
+  if (storyTruncated && storyLines.length > 0) {
+    const last = [...storyLines[storyLines.length - 1]];
+    storyLines[storyLines.length - 1] = last.slice(0, Math.max(0, last.length - 1)).join('') + '…';
+  }
+
+  let y = Math.max(STACK_TOP, STACK_TOP + (room - totalSpan(gap)) / 2);
+
+  // Story 42px / weight300 / lh72。左右の余白を揃えるため、実測でもっとも幅の
+  // 広い行を基準にブロックをカード中央へ置き、左揃えで描く。
+  if (storyLines.length > 0) {
+    const blockWidth = Math.max(
+      ...storyLines.map((ln) => measureAlumWidth(ln, STORY_FS, storyFont, STORY_LS)),
+    );
+    const blockX = (W - blockWidth) / 2;
+    storyLines.forEach((ln, i) => {
+      if (i > 0) y += STORY_LH;
+      printAlum(c, ln, blockX, y, STORY_FS, '300', alum(1), STORY_LS, 'l');
+    });
+  }
+
+  // 見出し 32px / weight300 / 字間8px / alpha.75、内容 40px / weight300 / 字間6px
+  sections.forEach((s, i) => {
+    if (i > 0 || storyLines.length > 0) y += gap;
+    printAlum(c, s.heading, cx, y, 32, '300', alum(0.75), 8, 'c');
+    s.lines.forEach((ln, j) => {
+      y += j === 0 ? s.lead : s.lh;
+      printAlum(c, ln, cx, y, 40, '300', alum(1), 6, 'c');
+    });
+  });
 
   // Artist名 40px / weight400 / 字間10px / 大文字。直後に '›' を添える。
   // 名前＋間隔＋シェブロンの合計幅を先に測ってから cx を中心に配置することで、
-  // 名前だけを中心に置いてシェブロン分だけ右へ余分に伸びる非対称（左に寄って見える
-  // 原因）を避ける（__dvMakeInk の nameX=500 固定値は使わない）。
+  // 名前だけを中心に置いてシェブロン分だけ右へ余分に伸びる非対称を避ける。
   const signature = (data.artist ?? 'NAOKI OKA').toUpperCase();
-  const nameY = H - ARTIST_NAME_Y_OFFSET;
   const nameFont = makeFont(40, '400', INK_FONT);
   const nameLetterSpacing = 10;
   const nameChars = [...signature];
@@ -511,15 +520,6 @@ export function renderAluminumInkPixels(
   const nameX = cx - groupW / 2 + nw / 2;
   printAlum(c, signature, nameX, nameY, 40, '400', alum(1), nameLetterSpacing, 'c');
   printAlum(c, '›', nameX + nw / 2 + chevronGap, H - 192, 42, '400', alum(0.75), 0, 'l');
-
-  // 「ー series ー」＋シリーズ名（作家名のすぐ上）。シリーズに入っている曲だけ。
-  // 無い曲には見出しごと出さない。作家名・タップ領域の位置は動かさない
-  // （実機調整ポイント: 調律の行と近いので、見えを確認して間隔を詰める／広げる）。
-  const seriesName = data.series?.trim();
-  if (seriesName) {
-    printAlum(c, 'ー series ー', cx, nameY - 150, 32, '300', alum(0.75), 8, 'c');
-    printAlum(c, seriesName, cx, nameY - 92, 40, '300', alum(1), 6, 'c');
-  }
 
   const img = surface.makeImageSnapshot();
   // GLSL 側で `mix(metalColor, ink.rgb, ink.a)` とストレートアルファ合成する

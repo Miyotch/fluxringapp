@@ -32,6 +32,7 @@ import React, {
 } from 'react';
 import { createAudioPlayer, useAudioPlayerStatus, type AudioPlayer } from 'expo-audio';
 import { fullAudioUrl, previewUrl } from './r2';
+import { rememberDuration } from './durations';
 import { logPlayback } from './logPlayback';
 import type { PlayerTrack } from '../screens/PlayerScreen';
 import { localAudioUri } from './downloads';
@@ -386,6 +387,14 @@ export const PlaybackProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const position = status.currentTime || 0;
   const duration = status.duration || current?.durationSec || 0;
+  // 音源から分かった実際の長さを覚える（プレイリストの時間表示に使う）。
+  // 試聴（30 秒）を流しているときは覚えない。フル音源が取れず試聴へ落ちた
+  // 場合も区別できるよう、試聴の長さ（〜30 秒）以下は捨てる。
+  useEffect(() => {
+    if (current?.audioKey && !current.preview && status.duration > 40) {
+      rememberDuration(current.audioKey, status.duration);
+    }
+  }, [current?.audioKey, current?.preview, status.duration]);
   const progress = useMemo(() => ({ position, duration }), [position, duration]);
 
   return (

@@ -637,9 +637,15 @@ export const CollectionScreen: React.FC<Props> = ({
   // ── プルダウンと編集シート ──
   const onTabPress = (k: Segment) => {
     if (k === 'pl') {
-      // プレイリストのタブ＝プルダウンを開閉する。別のタブにいたら、ついでにこのタブへ移る
-      if (tabOf(seg) !== 'pl') setSeg('pl');
-      setMenuOpen((o) => !o);
+      // 2026-10-15 岡さん指摘: タブは表示の切り替えだけにする（所有カード→プレイリスト→すべて
+      // と渡るたびにシートを閉じる1タップが増えていた）。選ぶ・作るは見出しのリスト名（▾）から。
+      // すでにこのタブにいるときにもう一度押したら、シートを開く（見出しが空状態で出ない時の入口）
+      if (tabOf(seg) !== 'pl') {
+        setMenuOpen(false);
+        setSeg('pl');
+      } else {
+        setMenuOpen(true);
+      }
       return;
     }
     setMenuOpen(false);
@@ -943,12 +949,28 @@ export const CollectionScreen: React.FC<Props> = ({
   // 「全○作品｜所有○・ウィッシュリスト○」の進捗表示は撤去（2026-09-19 指示）。
   // 進捗バーも置かない。ウィッシュリストは「まだ持っていない」を並べる場なので、
   // 達成度を煽る形にすると PRICING.md の「煽らない・売り込まない」から外れる。
-  const renderWishHeader = () =>
-    movedNote ? (
-      <View style={styles.wishHeader}>
-        <Text style={styles.wishMoved}>{movedNote}</Text>
-      </View>
-    ) : null;
+  // ウィッシュリストはプレイリストのタブの中の1つ。見出しの名前（▾）から他のリストへ切り替える
+  const renderWishHeader = () => (
+    <>
+      {seg === 'wish' && (
+        <Pressable
+          onPress={() => setMenuOpen(true)}
+          hitSlop={8}
+          style={({ pressed }) => [styles.listSwitch, pressed && { opacity: 0.6 }]}
+          accessibilityRole="button"
+          accessibilityLabel={t('playlist.switch')}
+        >
+          <Text style={styles.listSwitchText}>{t('collection.wishlist')}</Text>
+          <Text style={styles.listSwitchChevron}>▾</Text>
+        </Pressable>
+      )}
+      {movedNote ? (
+        <View style={styles.wishHeader}>
+          <Text style={styles.wishMoved}>{movedNote}</Text>
+        </View>
+      ) : null}
+    </>
+  );
 
   return (
     <View style={styles.root}>
@@ -989,12 +1011,11 @@ export const CollectionScreen: React.FC<Props> = ({
               style={styles.colTab}
               onPress={() => onTabPress(k)}
               accessibilityRole="tab"
-              accessibilityState={{ selected: on, expanded: k === 'pl' ? menuOpen : undefined }}
+              accessibilityState={{ selected: on }}
             >
               <Text style={[styles.colTabText, on && styles.colTabTextOn]} numberOfLines={1}>
                 {label}
                 {count > 0 ? ` ${count}` : ''}
-                {k === 'pl' ? (menuOpen ? '  ▴' : '  ▾') : ''}
               </Text>
               {on && <View style={styles.colTabUnderline} />}
             </Pressable>
@@ -1032,6 +1053,7 @@ export const CollectionScreen: React.FC<Props> = ({
             tracks={dlRows}
             title={t('download.listName')}
             source={DOWNLOADS_KEY}
+            onTitlePress={() => setMenuOpen(true)}
             onPlayFrom={(ids, startId, source) => onPlayFrom?.(ids, startId, source)}
             onPlayAll={(ids, source) => onPlayList?.(ids, undefined, source)}
             onViewCard={(ids, id, source, origin) => onViewCard?.(ids, id, source, origin)}
@@ -1049,6 +1071,7 @@ export const CollectionScreen: React.FC<Props> = ({
               onViewCard={(ids, id, source, origin) => onViewCard?.(ids, id, source, origin)}
               onAddToPlaylist={onAddToPlaylist ? (it) => onAddToPlaylist({ id: it.id, title: it.title }) : undefined}
               onEdit={() => setEditorFor(currentList.id)}
+              onTitlePress={() => setMenuOpen(true)}
             />
           ) : (
             // まだプレイリストが 1 つも無い
@@ -1322,6 +1345,9 @@ export const CollectionScreen: React.FC<Props> = ({
 };
 
 const styles = StyleSheet.create({
+  listSwitch: { flexDirection: 'row', alignItems: 'center', gap: 8, alignSelf: 'flex-start', paddingTop: 14, paddingBottom: 12 },
+  listSwitchText: { color: '#ECEEF7', fontSize: 20, fontWeight: '500', letterSpacing: 0.8 },
+  listSwitchChevron: { color: '#60CEE0', fontSize: 11 },
   root: { flex: 1, backgroundColor: CR.deepest },
 
   // .skh: padding 58px 22px 6px / 18px / 字間.05em / #ECEEF7
