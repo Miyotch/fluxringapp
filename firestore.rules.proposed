@@ -1,0 +1,84 @@
+rules_version = '2';
+// FLUX RING — 公開前に入れる Firestore セキュリティルールの案（2026-10-15）
+// ------------------------------------------------------------------
+// まだデプロイしない。入れる前に確かめること:
+//   1) 管理画面（flux-ring-manager）がどの権限で書いているか。クライアント SDK で
+//      書いているなら、管理者だけに付けたカスタムクレーム admin == true が要る
+//      （isAdmin()）。Admin SDK / サービスアカウントならルールの外なので影響しない
+//   2) usePurchaseFlow.ts の MOCK_PURCHASES が false（＝購入の権利は
+//      audio-gateway だけが書く）になっていること。モックのままだと、
+//      アプリから users/{uid}/purchases に書けず購入が通らない
+//   3) tracks/{id}.r2_url を tracks/{id}/private/audio に移し終えていること
+//      （infra/audio-gateway/scripts/move-audio-keys.mjs）
+// 現在のルールは Firebase コンソール側にあり、このリポジトリには無い。
+// 差し替える前に、コンソールの今のルールを控えておく。
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function isSelf(uid) { return signedIn() && request.auth.uid == uid; }
+    function isAdmin() { return signedIn() && request.auth.token.admin == true; }
+
+    // ── 公開の読み物（未ログインのホームでも出す） ──
+    match /tracks/{trackId} {
+      allow read: if true;
+      allow write: if isAdmin();
+
+      // フル音源の場所。アプリからは誰も読めない（audio-gateway がサービスアカウントで読む）
+      match /private/{doc=**} {
+        allow read, write: if false;
+      }
+    }
+    match /artists/{id}       { allow read: if true; allow write: if isAdmin(); }
+    match /artworks/{id}      { allow read: if true; allow write: if isAdmin(); }
+    match /series/{id}        { allow read: if true; allow write: if isAdmin(); }
+    match /article/{id}       { allow read: if true; allow write: if isAdmin(); }
+    match /sns_type/{id}      { allow read: if true; allow write: if isAdmin(); }
+    match /notifications/{id} { allow read: if true; allow write: if isAdmin(); }
+    match /config/{id}        { allow read: if true; allow write: if isAdmin(); }
+
+    // ── ひとりぶんのデータ ──
+    match /users/{uid} {
+      allow read, write: if isSelf(uid) || isAdmin();
+
+      // 所有権。書けるのは audio-gateway（ストアで検証してから）だけ
+      match /purchases/{trackId} {
+        allow read: if isSelf(uid) || isAdmin();
+        allow write: if false;
+      }
+      // そのほかの下のコレクション（プレイリスト等）。重なった match は「どれかが
+      // 許せば通る」ので、purchases をここで必ず外す
+      match /{other}/{doc=**} {
+        allow read, write: if isSelf(uid) && other != 'purchases';
+      }
+    }
+
+    // 購入の記録（作家への分配・売上の元帳）。書くのは audio-gateway だけ
+    match /purchase_history/{id} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+    // 同じ支払いの使い回し防止の台帳
+    match /iap_transactions/{id} {
+      allow read, write: if false;
+    }
+
+    // 再生の記録（作家への再生レポートの元）。自分の uid でだけ追記できる
+    match /playback_history/{id} {
+      allow create: if signedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.durationSec is int
+        && request.resource.data.durationSec >= 1
+        && request.resource.data.durationSec <= 86400;
+      allow read: if isAdmin();
+      allow update, delete: if false;
+    }
+
+    // お問い合わせ。送るだけ
+    match /inquiries/{id} {
+      allow create: if true;
+      allow read, update, delete: if isAdmin();
+    }
+  }
+}

@@ -49,7 +49,7 @@
 | パス | 公開範囲 | 用途 |
 |---|---|---|
 | `preview/{key}.wav` | 公開（r2.dev） | 試聴30秒。誰でも取得可 |
-| `full/{key}.wav` | 非公開 | フル音源。`infra/r2-audio-worker.js` 経由のみ |
+| `full/{key}.wav` | 非公開 | フル音源。`infra/audio-gateway` 経由のみ |
 
 `key` は `blue` / `white` / `red`（`constants/stubData.ts` の `audioKey` と一致させる）。
-詳細は `lib/r2.ts` / `infra/r2-audio-worker.js` を参照。
+詳細は `lib/r2.ts` / `infra/audio-gateway` を参照。

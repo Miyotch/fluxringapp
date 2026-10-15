@@ -4,8 +4,8 @@
  * レシート検証は必ずサーバ側で行う。フル音源（R2 の署名付きURL）は ¥2,500 の
  * 対価そのものなので、所有権の判定をアプリ内に置くと改ざんで取られる。
  *
- * 既定では音源 Worker（infra/r2-audio-worker.js）と同居させる:
- *   POST {workerUrl}/iap/verify
+ * 既定では音源 Worker（infra/audio-gateway）と同居させる:
+ *   POST {workerUrl}/v1/iap/verify（infra/audio-gateway）
  *     ヘッダ: Authorization: Bearer <Firebase ID token>
  *     ボディ: { platform, productId, purchaseToken, transactionId }
  *   → サーバが Apple / Google に検証をかけ、Firestore
@@ -23,7 +23,7 @@ import Constants from 'expo-constants'
 import { R2_WORKER_URL } from './mediaConfig'
 
 type IapConfig = {
-  /** 検証エンドポイントの絶対URL。空なら Worker と同居（{workerUrl}/iap/verify） */
+  /** 検証エンドポイントの絶対URL。空なら Worker と同居（{workerUrl}/v1/iap/verify） */
   verifyUrl?: string
 }
 
@@ -32,7 +32,7 @@ const iap = (Constants.expoConfig?.extra?.iap as IapConfig | undefined) ?? {}
 const explicit = (iap.verifyUrl ?? '').replace(/\/+$/, '')
 
 export const IAP_VERIFY_URL =
-  explicit || (R2_WORKER_URL ? `${R2_WORKER_URL}/iap/verify` : '')
+  explicit || (R2_WORKER_URL ? `${R2_WORKER_URL}/v1/iap/verify` : '')
 
 /** サーバ検証が設定済みか。false の間は「ストア購入は通るがサーバ権利は残らない」 */
 export const isIapVerifyConfigured = Boolean(IAP_VERIFY_URL)

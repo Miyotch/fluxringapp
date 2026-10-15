@@ -32,9 +32,12 @@ import React, {
 } from 'react';
 import { createAudioPlayer, useAudioPlayerStatus, type AudioPlayer } from 'expo-audio';
 import { fullAudioUrl, previewUrl } from './r2';
+import { rememberDuration } from './durations';
+import { R2_WORKER_URL } from '../constants/mediaConfig';
 import { logPlayback } from './logPlayback';
 import type { PlayerTrack } from '../screens/PlayerScreen';
-import { localAudioUri } from './downloads';
+import { isLocalEncrypted, localAudioUri } from './downloads';
+import { playableUri } from './secureAudio';
 
 export type Repeat = 'ring' | 'one';
 
@@ -147,8 +150,16 @@ export const PlaybackProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
     // 端末に保存してあれば、ネットに行かずにそのファイルを鳴らす（電波がなくても聴ける）
     const local = localAudioUri(t.audioKey);
-    if (local) return { url: local, note: null };
-    const hit = urlCache.current.get(t.audioKey);
+    if (local) {
+      // 暗号化して保存した曲は、鳴らす直前にキャッシュへ復号する（lib/secureAudio.ts）。
+      // 復号できなければ（鍵が無い・壊れている）ネットの音源へ落とす
+      if (!isLocalEncrypted(t.audioKey)) return { url: local, note: null };
+      try {
+        return { url: await playableUri(t.audioKey, local), note: null };
+      } catch {}
+    }
+    // audio-gateway の署名URLは期限があるので、ここでは覚えない（r2.ts が期限つきで覚える）
+    const hit = R2_WORKER_URL ? undefined : urlCache.current.get(t.audioKey);
     if (hit) return hit;
     try {
       const url = await fullAudioUrl(t.audioKey);
@@ -166,7 +177,7 @@ export const PlaybackProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const lockMeta = (t: PlayerTrack) => ({
     title: t.title,
     artist: t.artist ?? 'NAOKI OKA',
-    albumTitle: 'FLUX RING',
+    albumTitle: 'FluxRing',
     artworkUrl: t.artworkUrl,
   });
 
@@ -386,6 +397,14 @@ export const PlaybackProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const position = status.currentTime || 0;
   const duration = status.duration || current?.durationSec || 0;
+  // 音源から分かった実際の長さを覚える（プレイリストの時間表示に使う）。
+  // 試聴（30 秒）を流しているときは覚えない。フル音源が取れず試聴へ落ちた
+  // 場合も区別できるよう、試聴の長さ（〜30 秒）以下は捨てる。
+  useEffect(() => {
+    if (current?.audioKey && !current.preview && status.duration > 40) {
+      rememberDuration(current.audioKey, status.duration);
+    }
+  }, [current?.audioKey, current?.preview, status.duration]);
   const progress = useMemo(() => ({ position, duration }), [position, duration]);
 
   return (

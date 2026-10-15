@@ -1086,7 +1086,7 @@ const CreditsScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         </View>
 
         <View style={cs.footerWrap}>
-          <Text style={cs.footerMark}>FLUX RING</Text>
+          <Text style={cs.footerMark}>FluxRing</Text>
           <Text style={[cs.footerMark, cs.footerMarkDim]}>Operated by Numéro.8</Text>
         </View>
       </ScrollView>
@@ -1128,8 +1128,8 @@ const cs = StyleSheet.create({
   // footer-mark: 9px / 字間.3em(=2.7) / --tertiary / uppercase。2行目のみ opacity 0.55
   footerMark: {
     color: CR.tertiary,
-    fontSize: 9,
-    letterSpacing: 2.7,
+    fontSize: 10,
+    letterSpacing: 1,
     textTransform: 'uppercase',
     fontFamily: NUM_FONT,
   },

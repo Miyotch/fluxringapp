@@ -18,7 +18,7 @@ export const STUB_NOTICES: Notice[] = [
   { id: 'n1', title: '今月の一曲を更新しました', date: '2026.06.20', unread: true, body: '新しい一曲が届きました。' },
   { id: 'n2', title: '夜明けのための新しい作品が加わりました', date: '2026.06.14', unread: true },
   { id: 'n3', title: 'メンテナンスのお知らせ', date: '2026.06.07', unread: false },
-  { id: 'n4', title: 'はじめまして。FLUX RING です', date: '2026.06.01', unread: false },
+  { id: 'n4', title: 'はじめまして。FluxRing です', date: '2026.06.01', unread: false },
 ];
 
 export const STUB_STORY: StoryData = {

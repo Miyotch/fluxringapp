@@ -2,7 +2,7 @@
  * ownership.ts — 所有権（買い切りで手に入れた作品）の読み出し
  * ------------------------------------------------------------------
  * ■ 正は Firestore `users/{uid}/purchases/{trackId}`
- *   ドキュメントID = trackId（= audioKey）。infra/r2-audio-worker.js が
+ *   ドキュメントID = trackId（= audioKey）。infra/audio-gateway が
  *   期待する `users/{uid}/purchases/{audioKey}` とそのまま一致し、同じ作品を
  *   二重に購入しても同じ doc に収束する（冪等）。
  *

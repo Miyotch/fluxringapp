@@ -63,6 +63,7 @@ import Animated, {
   withTiming,
   useSharedValue,
   useAnimatedStyle,
+  useAnimatedReaction,
   SharedValue,
 } from 'react-native-reanimated';
 import {
@@ -157,7 +158,11 @@ const AURA_HIDE_DEG = 10;
 // 角速度 6rad/s × dt がそのまま積まれ、一気に 100° 以上回る（＝「回転しすぎる」）。
 const DT_MAX = 0.05;
 // 2D（表面オーバーレイ）復帰時のクロスフェード（ms）。GL 面との差をならす。
-const OVERLAY_FADE_MS = 140;
+// 2D の絵を重ねる時間（保険のタイマーで戻すときだけ使う。通常は傾きで重ねる）
+const OVERLAY_FADE_MS = 260;
+// 表へ戻るとき、この傾き（度）から 0° にかけて 2D の絵を重ねる。ここより小さい傾きなら
+// 平面の絵とカードの形の差（幅 cos8°≒0.99）は見分けられない
+const OVERLAY_RAMP_DEG = 8;
 // 表面ライティング（uMotion）が効き切る回転角（度）。0°＝素の作品画像、
 // これ以上傾いたら参照どおりのライティング。AURA_HIDE_DEG と同値にして、
 // 「落影が消える＝カードが動き出した」の境目と揃える。
@@ -252,6 +257,8 @@ export type SpinState = {
   qqV: number;
   /** 初回の案内で傾いたまま待つ残り秒（0 なら案内中ではない） */
   peekT: number;
+  /** 表へ戻る途中で、もう 2D の絵を出し始めたか（着地を待たずに重ね始める。2026-10-15） */
+  preLanded: boolean;
 };
 
 /** 'idle'=表で静止 / 'open'=裏（回転可） / 'closing'=表へ戻り中（入力を受けない） */
@@ -720,6 +727,7 @@ const CardMesh: React.FC<{
           s.tfy = Math.round(s.fy / (2 * Math.PI)) * 2 * Math.PI;
           s.flipAnim = true;
           s.closeElapsed = 0;
+          s.preLanded = false;
         }
       }
       // 参照と同じ平滑化 sm = 1 - exp(-dt·10)
@@ -869,6 +877,22 @@ const CardMesh: React.FC<{
     // UI スレッド側の derived で出せる。
     const tiltDeg = (Math.acos(z) * 180) / Math.PI;
     rotationOut.value = tiltDeg;
+    // 表へ戻る途中、ほぼ正面（傾き 2.5° 未満・持ち上げもほぼ戻った）に来たら、ばねが
+    // 止まり切るのを待たずに 2D の絵を重ね始める。以前は完全に止まるまで（約 0.5 秒）
+    // GL の絵のままで、その間に表面のライティングが抜けて絵が少しずつ暗くなり、
+    // そこへ明るい 2D の絵が急に乗るので「戻った直後にちらつく」と見えた（2026-10-15 実機収録）
+    if (
+      flipDrive &&
+      s.mode === 'closing' &&
+      !s.preLanded &&
+      s.peekT <= 0 &&
+      s.closeElapsed > 0.15 &&
+      tiltDeg < 2.5 &&
+      s.qq < 0.06
+    ) {
+      s.preLanded = true;
+      onClosedRef.current?.();
+    }
     // 表面ライティングの効き。flip（ホーム）は静止時に RN <Image> と一致させたい
     // ので 0 まで落とす。spin（プレイヤー）は平面オーバーレイを持たないため常時 1。
     frontMaterial.uniforms.uMotion.value = flipDrive
@@ -1044,6 +1068,7 @@ export const CardGL: React.FC<CardGLProps> = ({
     fyV: 0,
     qqV: 0,
     peekT: 0,
+    preLanded: false,
   });
   const last = useRef({ x: 0, y: 0 });
   const moved = useRef(false);
@@ -1154,12 +1179,11 @@ export const CardGL: React.FC<CardGLProps> = ({
   useEffect(() => {
     lastShownRef.current = shownUri;
   }, [shownUri]);
-  // 裏返しのあいだオーバーレイごと外れるので、読み込み済みの記録も畳む。
-  // 残しておくと、戻った直後のスワイプで「載っているはずの絵」を出しに行き、
-  // まだ描けていないビューを見せてしまう。
-  useEffect(() => {
-    if (!overlayVisible) loadedRef.current.clear();
-  }, [overlayVisible]);
+  // 裏返しのあいだもオーバーレイは外さず（不透明度 0・タップ無効で）残すので、
+  // 読み込み済みの記録はそのまま使える。以前は裏返すたびにオーバーレイごと
+  // 外していたため、表へ戻って着地した瞬間に <Image> が作り直され、復号が
+  // 終わるまでの数フレーム、下地の無地（CARD_PLACEHOLDER）がフェードインして
+  // 「表に戻った直後に絵が一瞬消える」ように見えていた（2026-10-15 実機収録）。
   const handleFrontLoaded = (uri: string) => {
     if (loadedRef.current.has(uri)) return;
     loadedRef.current.add(uri);
@@ -1197,7 +1221,35 @@ export const CardGL: React.FC<CardGLProps> = ({
 
   // 復帰時の短いクロスフェード（GL 面 → オーバーレイの差をならす）
   const overlayOpacity = useSharedValue(1);
-  const overlayStyle = useAnimatedStyle(() => ({ opacity: overlayOpacity.value }));
+  // 表へ戻る間（と初回の案内の傾き）は、時間ではなく**傾き**で 2D の絵を重ねる（2026-10-15）。
+  // GL の表面と RN の <Image> は、実機でわずかに明るさ・鮮明さが違う（録画で GL 側が
+  // 1〜2 割暗い）。時間で切り替えると、どれだけ短く／長くしても正面で段差が出た。
+  // 傾き OVERLAY_RAMP_DEG → 0° に合わせて 0 → 1 にすると、回りながら溶け込むので段差にならない
+  const returning = useSharedValue(0);
+  // 一度でも重ね始める角度より大きく傾いたか（初回の案内は 0° から傾き始めるので、
+  // 傾く前に「正面に着いた」と取り違えないための目印）
+  const rampArmed = useSharedValue(0);
+  // 正面に着いたら（傾きがほぼ 0）、傾きで重ねるのをやめて不透明のまま固定する。
+  // 残しておくと、ホームの横送りなど別の理由で傾きが動いたときに絵が薄くなる
+  useAnimatedReaction(
+    () => rotSV.value,
+    (deg) => {
+      if (returning.value < 0.5) return;
+      if (deg > OVERLAY_RAMP_DEG) rampArmed.value = 1;
+      else if (rampArmed.value > 0.5 && deg < 0.3) {
+        overlayOpacity.value = 1;
+        returning.value = 0;
+        rampArmed.value = 0;
+      }
+    },
+  );
+  const overlayStyle = useAnimatedStyle(() => {
+    if (returning.value > 0.5) {
+      const ramp = 1 - rotSV.value / OVERLAY_RAMP_DEG;
+      return { opacity: ramp <= 0 ? 0 : ramp >= 1 ? 1 : ramp };
+    }
+    return { opacity: overlayOpacity.value };
+  });
 
   const clearOverlayTimer = () => {
     if (overlayTimer.current) { clearTimeout(overlayTimer.current); overlayTimer.current = null; }
@@ -1238,9 +1290,11 @@ export const CardGL: React.FC<CardGLProps> = ({
     glKick.current();
     s.mode = 'open';
     clearOverlayTimer();
-    overlayOpacity.value = 1; // 次回の復帰に備えて初期値へ
+    returning.value = 0;
+    rampArmed.value = 0;
+    overlayOpacity.value = 0; // オーバーレイを透明にして GL のフリップを見せる（外さない）
     overlayShown.current = false;
-    setOverlayVisible(false); // 実体オーバーレイを外して GL のフリップを見せる
+    setOverlayVisible(false); // タップ受けを GL 側（裏面）へ渡す
     setFlipped(true);
     onFlipChange?.(true);
   };
@@ -1250,11 +1304,13 @@ export const CardGL: React.FC<CardGLProps> = ({
     glKick.current();
     s.mode = 'closing';
     s.closeElapsed = 0;
+    s.preLanded = false;
     setFlipped(false);
     // 横スワイプ（曲切替）は戻り始めた時点で解禁する。戻り切るまで待つと
     // 「2Dに戻ったのにスワイプが効かない」空白が出る。
     onFlipChange?.(false);
     overlayOpacity.value = 0;
+    returning.value = 1; // ここからは傾きで重ねる（overlayStyle）
     // showOverlay は overlayShown で二重発火を弾く。ここで false に戻して
     // おかないと、開く経路が flipToBack を通らなかった場合に「透明のまま
     // 復帰済み扱い」で取り残され、GL 面が見えっぱなしになる。
@@ -1273,9 +1329,11 @@ export const CardGL: React.FC<CardGLProps> = ({
     glKick.current();
     s.mode = 'closing';
     s.closeElapsed = 0;
+    s.preLanded = false;
     s.peekT = PEEK_HOLD_S;
     clearOverlayTimer();
     overlayOpacity.value = 0;
+    returning.value = 1;
     overlayShown.current = false;
     setOverlayVisible(false);
     s.tfy = PEEK_YAW;
@@ -1624,8 +1682,11 @@ export const CardGL: React.FC<CardGLProps> = ({
           タップ受けを兼ねる。透明ビューや GL レイヤーのタップ判定に依存しない
           ＝実機で確実に反応する（794793f で実証済みの方式）。
           RN Image は即時表示されるため、GL テクスチャ生成待ちの無地も隠れる */}
-      {isFlip && overlayVisible && (
-        <Animated.View style={[StyleSheet.absoluteFill, overlayStyle]}>
+      {isFlip && (
+        <Animated.View
+          pointerEvents={overlayVisible ? 'auto' : 'none'}
+          style={[StyleSheet.absoluteFill, overlayStyle]}
+        >
           {/* Pressable の onPress は指がカードの矩形内で離れれば、どれだけ動いても
               発火する。横スワイプが縦ブレでカルーセルに取られなかったとき、その
               スワイプが「タップ」になって裏返っていた（2026-09-15）。

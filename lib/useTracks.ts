@@ -26,6 +26,8 @@ import { getDocs } from 'firebase/firestore';
 import type { Track } from '../screens/DiscoverScreen';
 import { artistsCol, subscribeTracks } from './firebaseFirestore';
 import { buyLabel } from '../constants/pricing';
+import { registerTrackAudio } from './durations';
+import { registerPaidTracks } from '../constants/iapProducts';
 
 const str = (v: unknown): string | undefined =>
   typeof v === 'string' && v.trim() !== '' ? v : undefined;
@@ -93,6 +95,12 @@ export function useTracks(count = 50): Track[] {
     const unsub = subscribeTracks(
       count,
       (docs) => {
+        // ストアで売る曲 = 価格が 0 より大きい曲（商品IDは com.fluxring.app.track.<id>）
+        registerPaidTracks(
+          docs
+            .filter((d) => typeof (d as Record<string, unknown>).price === 'number' && ((d as Record<string, unknown>).price as number) > 0)
+            .map((d) => d.id),
+        );
         setTracks(
           docs.map((d) => {
             const data = d as Record<string, unknown>;
@@ -107,6 +115,13 @@ export function useTracks(count = 50): Track[] {
               typeof data.homeOrder === 'number' && Number.isFinite(data.homeOrder)
                 ? data.homeOrder
                 : 0;
+            // 曲の長さ（プレイリストの行・合計時間）。管理画面の値があればそれ、
+            // 無ければ音源のヘッダから割り出す（lib/durations.ts）
+            registerTrackAudio(
+              d.id,
+              str(data.r2_url),
+              typeof data.durationSec === 'number' ? data.durationSec : undefined,
+            );
             const track: Track = {
               id: d.id,
               title: str(data.title) ?? '',

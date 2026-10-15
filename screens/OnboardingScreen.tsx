@@ -72,7 +72,7 @@ export const OnboardingScreen: React.FC<Props> = ({ onSignUp, onLogin }) => {
 
       <View style={styles.brandWrap}>
         <Image source={LOGO} style={styles.logo} />
-        <Text style={styles.brand}>FLUX RING</Text>
+        <Text style={styles.brand}>FluxRing</Text>
       </View>
 
       {/* 情景カード（横スワイプ3枚） */}
@@ -127,7 +127,8 @@ const styles = StyleSheet.create({
     height: 56,
     borderRadius: 14,
   },
-  brand: { color: COLOR.textSecondary, fontSize: 13, letterSpacing: 6 },
+  // 正式な製品名は FluxRing（1語・F と R が大文字）。全大文字の字間を広げた組みから、字間を詰めた表記へ（2026-10-15）
+  brand: { color: COLOR.textSecondary, fontSize: 14, letterSpacing: 1.8 },
   pager: { flex: 1 },
   scene: {
     flex: 1,

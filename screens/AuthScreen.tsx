@@ -141,7 +141,7 @@ export const AuthScreen: React.FC<Props> = ({ mode, onSwitchMode, onAuthenticate
       <View style={[styles.body, formWidthStyle]}>
         {/* アプリアイコン（ブランド名の真上・角丸のアプリアイコン風） */}
         <Image source={require('../icon.png')} style={styles.logo} resizeMode="cover" />
-        <Text style={styles.brand}>FLUX RING</Text>
+        <Text style={styles.brand}>FluxRing</Text>
         <Text style={styles.title}>{isSignup ? '新規登録' : 'ログイン'}</Text>
 
         {/* メール / パスワード */}
@@ -241,7 +241,8 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     marginBottom: SPACE.xs,
   },
-  brand: { color: COLOR.textSecondary, fontSize: 12, letterSpacing: 5, textAlign: 'center' },
+  // 正式な製品名は FluxRing（1語・F と R が大文字）。全大文字の字間を広げた組みから、字間を詰めた表記へ（2026-10-15）
+  brand: { color: COLOR.textSecondary, fontSize: 13, letterSpacing: 1.5, textAlign: 'center' },
   title: {
     color: COLOR.textPrimary,
     fontSize: 24,

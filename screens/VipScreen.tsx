@@ -139,7 +139,7 @@ const VipUnlocked: React.FC<{ cards: VipCard[]; onSubmitCode?: (code: string) =>
             </Animated.View>
             {/* 裏（証明） */}
             <Animated.View style={[styles.cardFace, styles.cardBack, backStyle, { width: cardW, height: cardW * 1.5 }]}>
-              <Text style={styles.backBrand}>FLUX RING</Text>
+              <Text style={styles.backBrand}>FluxRing</Text>
               <Text style={styles.backSerialNo}>{card.serial?.replace(/\D/g, '') || '001'}</Text>
               <Text style={styles.backEdition}>{card.edition ?? '1 OF 1'}</Text>
               <View style={styles.backRule} />
@@ -228,7 +228,7 @@ const styles = StyleSheet.create({
     padding: SPACE.lg,
     justifyContent: 'center',
   },
-  backBrand: { color: COLOR.textSecondary, fontSize: 10, letterSpacing: 3 },
+  backBrand: { color: COLOR.textSecondary, fontSize: 11, letterSpacing: 1 },
   // シリアル番号・エディション・各フィールド＝数字表記
   backSerialNo: { color: COLOR.auraCyan, fontSize: 36, fontWeight: '700', letterSpacing: 2, marginTop: 8, fontFamily: NUM_FONT },
   backEdition: { color: COLOR.textSecondary, fontSize: 11, letterSpacing: 2, fontFamily: NUM_FONT },

@@ -21,14 +21,16 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { CARD_ASPECT } from './CardGL';
-import { CardDetailIcon, DownloadIcon, PauseMark, PlayMark } from './icons';
+import { CardDetailIcon, PauseMark, PlayMark } from './icons';
 import { EqBars } from './EqBars';
 import { DownloadButton } from './DownloadButton';
 import type { CardOrigin } from './CardAfterimage';
-import { NUM_FONT, JP_SERIF_FONT } from '../constants/fonts';
+import { JP_SERIF_FONT } from '../constants/fonts';
+import Svg, { Path } from 'react-native-svg';
 import { useT } from '../lib/i18n';
 import { usePlaybackOptional } from '../lib/playback';
 import { formatBytes, useDownloads } from '../lib/downloads';
+import { formatDuration, sumDurations, useDurations } from '../lib/durations';
 import { showToast } from '../lib/toast';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -65,7 +67,23 @@ type Props = {
    * 行の右端は保存の印（押すとその曲だけ消す）
    */
   variant?: 'list' | 'downloads';
+  /** 見出しの名前（▾）を押した → プレイリストを選ぶシートを開く（2026-10-15） */
+  onTitlePress?: () => void;
 };
+
+/** 見出しの名前の右の ▾（シアンの細い山形） */
+const ChevronDown: React.FC = () => (
+  <Svg width={10} height={6} viewBox="0 0 10 6" fill="none">
+    <Path d="M1 1 L5 5 L9 1" stroke="#60CEE0" strokeWidth={1.2} strokeLinecap="round" />
+  </Svg>
+);
+
+/** 保存済みの印（細いシアンの ↓・矢印だけ） */
+const SavedArrow: React.FC = () => (
+  <Svg width={10} height={10} viewBox="0 0 24 24" fill="none">
+    <Path d="M12 4v13M6 11l6 6 6-6" stroke="#60CEE0" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" />
+  </Svg>
+);
 
 /** 長押しで追加できることを、最初に一度だけ知らせたか */
 const HINT_KEY = 'fr.playlist.longPressHint.v1';
@@ -113,12 +131,17 @@ export const MyPlaylists: React.FC<Props> = ({
   onDiscover,
   onAddToPlaylist,
   variant = 'list',
+  onTitlePress,
 }) => {
   const t = useT();
   const pb = usePlaybackOptional();
   const dl = useDownloads();
   const ids = tracks.map((x) => x.id);
   const keyOf = (x: PlaylistItem) => x.audioKey || x.id;
+  // 曲の長さ（行の右に出す・見出しに合計を出す）。分かりしだい描き直す
+  const durs = useDurations(tracks.map(keyOf));
+  const durOf = new Map(tracks.map((x, i) => [x.id, durs[i]]));
+  const total = sumDurations(durs);
   // 長押しで「プレイリストに追加」は目に見えないので、曲が並んだ最初の一度だけ一言で知らせる
   const hasRows = tracks.length > 0 && !!onAddToPlaylist;
   useEffect(() => {
@@ -183,15 +206,30 @@ export const MyPlaylists: React.FC<Props> = ({
       ],
     );
 
+  // 見出しの2行目: 「5曲 · 24:10」（保存した曲の一覧は大きさも）。合計は全曲の長さが分かってから
+  const countText = isDl
+    ? t('download.size', { n: tracks.length, size: formatBytes(dl.bytesOf(allKeys)) })
+    : t('playlist.count', { n: tracks.length });
+  const headSub = total != null && total > 0 ? `${countText}  ·  ${formatDuration(total)}` : countText;
   const header = (
     <View style={styles.head}>
       <View style={styles.headTexts}>
-        <Text style={styles.headTitle} numberOfLines={1}>{title}</Text>
-        <Text style={styles.headCount}>
-          {isDl
-            ? t('download.size', { n: tracks.length, size: formatBytes(dl.bytesOf(allKeys)) })
-            : t('playlist.count', { n: tracks.length })}
-        </Text>
+        {onTitlePress ? (
+          <Pressable
+            onPress={onTitlePress}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            style={({ pressed }) => [styles.headTitleBtn, pressed && { opacity: 0.6 }]}
+            accessibilityRole="button"
+            accessibilityLabel={t('playlist.switch')}
+            accessibilityHint={title}
+          >
+            <Text style={styles.headTitle} numberOfLines={1}>{title}</Text>
+            <ChevronDown />
+          </Pressable>
+        ) : (
+          <Text style={styles.headTitle} numberOfLines={1}>{title}</Text>
+        )}
+        <Text style={styles.headCount}>{headSub}</Text>
       </View>
       {isDl ? (
         tracks.length > 0 && (
@@ -275,20 +313,24 @@ export const MyPlaylists: React.FC<Props> = ({
             >
               <Image source={{ uri: item.artworkUrl }} style={styles.art} />
             </View>
+            {/* 2026-10-15 岡さんデザイン（行レイアウト）: 左に No. ／ 曲名、右に 作家名・↓・時間を
+                横一列で。↓ は端末に保存済みの曲だけ（無い曲も幅は取って時間の位置をそろえる） */}
             <View style={styles.meta}>
+              {!!item.serialNo && <Text style={styles.serial} numberOfLines={1}>{item.serialNo}</Text>}
               <Text style={[styles.title, on && styles.titleOn]} numberOfLines={1}>{item.title}</Text>
-              <View style={styles.subRow}>
-                {dl.stateOf(keyOf(item)).status === 'done' && (
-                  <View accessibilityLabel={t('download.badge')}>
-                    <DownloadIcon size={13} done />
-                  </View>
-                )}
-                <Text style={styles.sub} numberOfLines={1}>
-                  {[item.serialNo, item.artist].filter(Boolean).join('  ·  ')}
-                </Text>
-              </View>
             </View>
             {on && <EqBars active={playing} keepIdle />}
+            <View style={styles.side}>
+              {!!item.artist && <Text style={styles.artist} numberOfLines={1}>{item.artist}</Text>}
+              {dl.stateOf(keyOf(item)).status === 'done' ? (
+                <View accessibilityLabel={t('download.badge')} style={styles.savedMark}>
+                  <SavedArrow />
+                </View>
+              ) : (
+                <View style={styles.savedMark} />
+              )}
+              <Text style={styles.time}>{durOf.get(item.id) != null ? formatDuration(durOf.get(item.id)!) : ''}</Text>
+            </View>
             {/* 保存した曲の一覧では、右端は保存の印（押すとその曲だけ消す） */}
             {isDl && <DownloadButton keys={[keyOf(item)]} label={item.title} size={20} />}
             <Pressable
@@ -319,10 +361,12 @@ const styles = StyleSheet.create({
     paddingTop: 18,
     paddingBottom: 10,
   },
-  headTexts: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'baseline', gap: 10 },
-  // ↑ 見出しの右に「丸ごと保存」と「先頭から再生」が並ぶ
-  headTitle: { color: C.text, fontSize: 18, letterSpacing: 0.9, flexShrink: 1, fontFamily: JP_SERIF_FONT },
-  headCount: { color: C.sub, fontSize: 12, letterSpacing: 0.6 },
+  // 見出し: 1行目に名前（▾ で切り替え）、2行目に「5曲 · 24:10」（2026-10-15 デザイン D）。
+  // 右に「丸ごと保存」と「先頭から再生」が並ぶ
+  headTexts: { flex: 1, minWidth: 0 },
+  headTitleBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, alignSelf: 'flex-start', maxWidth: '100%' },
+  headTitle: { color: C.text, fontSize: 20, fontWeight: '500', letterSpacing: 0.8, flexShrink: 1 },
+  headCount: { color: '#8D93B5', fontSize: 11, letterSpacing: 0.7, marginTop: 4, fontVariant: ['tabular-nums'] },
   // 先頭から流す丸いボタン（Spotify の緑の丸にあたる。FLUX RING はシアン）
   playAll: {
     width: 48,
@@ -353,10 +397,13 @@ const styles = StyleSheet.create({
   rowPressed: { backgroundColor: 'rgba(255,255,255,0.05)', transform: [{ scale: 0.985 }] },
   art: { width: ART_W, height: ART_H, borderRadius: 5, backgroundColor: 'rgba(255,255,255,0.05)' },
   meta: { flex: 1, minWidth: 0 },
-  title: { color: C.text, fontSize: 15, letterSpacing: 0.6, fontFamily: JP_SERIF_FONT },
+  serial: { color: '#6E759A', fontSize: 10, letterSpacing: 1.4, fontVariant: ['tabular-nums'] },
+  title: { color: C.text, fontSize: 17, letterSpacing: 0.3, marginTop: 2, fontFamily: JP_SERIF_FONT },
   titleOn: { color: C.cyan },
-  subRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
-  sub: { flexShrink: 1, color: C.sub, fontSize: 11.5, letterSpacing: 1, fontFamily: NUM_FONT },
+  side: { flexDirection: 'row', alignItems: 'center', gap: 8, maxWidth: '46%' },
+  artist: { flexShrink: 1, color: '#8D93B5', fontSize: 11, fontWeight: '300', letterSpacing: 0.7 },
+  savedMark: { width: 10, alignItems: 'center', justifyContent: 'center' },
+  time: { color: '#6E759A', fontSize: 12, fontWeight: '300', fontVariant: ['tabular-nums'], minWidth: 32, textAlign: 'right' },
   removeAll: {
     paddingVertical: 8,
     paddingHorizontal: 14,

@@ -190,6 +190,15 @@ const SPIN_PAUSE_DEG = 2;
 // styles.title の fontSize と同じにして、和文全角1文字ぶん
 // 下げる／内側へ寄せるという指示をそのまま数値化する。
 const TITLE_CHAR_SIZE = 20;
+/**
+ * 曲名の行の高さと、ブロックを持ち上げる量（2026-10-15）。
+ * 以前は高さ 24 に固定した枠へ曲名（20px）と作家名の 2 行を縦中央で詰めていて、
+ * 文字を大きくした端末や行の高い書体（Android の serif）では、はみ出した分が切れていた。
+ * いまは枠の高さを固定せず、上から並べて下へ伸ばす。持ち上げ量は、元の
+ * 「24 の枠の中央」に曲名の中心が来ていた位置と見た目がそろうように決めた値
+ */
+const TITLE_LINE_H = 28;
+const TITLE_BLOCK_LIFT = 11;
 
 const C = {
   page: '#0E0C20',
@@ -295,8 +304,13 @@ type Props = {
   tracks?: Track[];
   /** 購入が**成立した**ときだけ呼ばれる（キャンセル・失敗では呼ばない） */
   onBuy?: (track: Track) => void;
-  /** 起動時に最初に表示するカードの id（コレクションのウィッシュから飛んできたとき用） */
+  /**
+   * 最初に表示するカードの id。ほかのタブから戻ったときに、最後に見ていたカードから
+   * 始めるのに使う（App.tsx が覚えて渡す。2026-10-15）。無い・見つからなければ 1 枚目
+   */
   focusTrackId?: string | null;
+  /** 中央のカードが替わった（App.tsx が覚えて、次にホームへ戻ったときに focusTrackId で返す） */
+  onActiveTrackChange?: (trackId: string) => void;
   /** 所有している trackId（App.tsx の usePurchaseFlow から。Firestore が正） */
   ownedIds?: Set<string>;
   /**
@@ -367,6 +381,7 @@ export const DiscoverScreen: React.FC<Props> = ({
   tracks = FALLBACK,
   onBuy,
   focusTrackId,
+  onActiveTrackChange,
   ownedIds,
   wishlistIds,
   onToggleWishlist,
@@ -594,6 +609,11 @@ export const DiscoverScreen: React.FC<Props> = ({
    */
   const trackAt = (p: number) => tracks[(((p % count) + count) % count)];
   const active = trackAt(pos) ?? tracks[0];
+  // 中央のカードを App へ知らせる（タブを移ってもホームを最後のカードから再開するため）
+  useEffect(() => {
+    if (active?.id) onActiveTrackChange?.(active.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active?.id]);
   /** 曲名・ボタン・試聴が指している札（指を離した時点で切り替わる） */
   const shown = trackAt(chromePos) ?? active;
   // 試聴のタイマーから読む用の写し（仕掛けた時点の値で固まらないように）
@@ -2090,11 +2110,13 @@ export const DiscoverScreen: React.FC<Props> = ({
               （TITLE_CHAR_SIZE=20）を1文字分の基準にして、旧位置（topRightY + 5 /
               left: 22）からそれぞれ+20した。 */}
           <RNAnimated.View
-            style={[styles.texts, { top: topRightY + 5 + TITLE_CHAR_SIZE, opacity: titleFade }]}
+            style={[styles.texts, { top: topRightY + 5 + TITLE_CHAR_SIZE - TITLE_BLOCK_LIFT, opacity: titleFade }]}
             pointerEvents="none"
           >
-            <Text style={styles.title} numberOfLines={1}>{shown?.title}</Text>
-            {!!shown?.artistName && <Text style={styles.artistName} numberOfLines={1}>{shown.artistName}</Text>}
+            <Text style={styles.title} numberOfLines={1} maxFontSizeMultiplier={1.4}>{shown?.title}</Text>
+            {!!shown?.artistName && (
+              <Text style={styles.artistName} numberOfLines={1} maxFontSizeMultiplier={1.4}>{shown.artistName}</Text>
+            )}
           </RNAnimated.View>
         </RNAnimated.View>
 
@@ -2222,11 +2244,12 @@ const styles = StyleSheet.create({
   // height24・justifyContent:'center' は撤去済みの旧・右上アイコン列と高さを
   // 揃えていた名残り（フォント行送りの誤差を吸収するため維持）。
   // left は旧位置22pxから TITLE_CHAR_SIZE（1文字分）だけ内側へ寄せた。
-  texts: { position: 'absolute', left: 22 + TITLE_CHAR_SIZE, right: 120, height: 24, justifyContent: 'center', overflow: 'visible' },
-  artistName: { marginTop: 3, color: C.sub, fontSize: 11, letterSpacing: 0.9, fontFamily: JP_SERIF_FONT },
+  texts: { position: 'absolute', left: 22 + TITLE_CHAR_SIZE, right: 120 },
+  artistName: { marginTop: 3, color: C.sub, fontSize: 11, lineHeight: 16, letterSpacing: 0.9, fontFamily: JP_SERIF_FONT },
   // .title: 18px / 字間.05em / text-shadow 0 1px 10px rgba(0,0,0,.5)
   title: {
     fontSize: 20,
+    lineHeight: TITLE_LINE_H,
     letterSpacing: 0.36, // fontSize×0.02
     color: C.text,
     fontFamily: JP_SERIF_FONT, // 和文＝明朝（ゴシックで出ていたのを修正）

@@ -15,7 +15,7 @@
  *                    /iap/verify）のベースURL。未実装・未設定（空文字）。
  *
  * ※ フル音源URL（tracks/{id}.r2_url）は lib/r2.ts が Firestore から直接読む。
- *   infra/r2-audio-worker.js（Firebase認証＋所有権確認を挟んで非公開バケットから
+ *   infra/audio-gateway（Firebase認証＋所有権確認を挟んで非公開バケットから
  *   配信するテンプレート）は実際にはデプロイされておらず、R2バケットも公開設定の
  *   ため、現状のアクセス制御はアプリのUI上のみ（URLを知っていれば誰でも取得できる）。
  *   本当の意味でのアクセス制御が必要になったら、Workerを実際にデプロイして
