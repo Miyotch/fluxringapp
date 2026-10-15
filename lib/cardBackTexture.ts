@@ -388,8 +388,8 @@ export function renderAluminumInkPixels(
 
   const cx = W / 2;
 
-  // FLUX RING（見出しラベル役・彫り込み・字間22px）
-  carve(c, 'FLUX RING', cx, 180, 62, '600', 22, 'c');
+  // FluxRing（見出しラベル役・彫り込み）。正式な製品名は FluxRing（1語・F と R が大文字）。全大文字の字間を広げた組みから、字間を詰めた表記へ（2026-10-15）
+  carve(c, 'FluxRing', cx, 180, 62, '600', 6, 'c');
   // No.（彫り込み・字間6px）※通し番号
   carve(c, data.no ?? data.serial ?? 'No. 001', cx, 266, 38, '500', 6, 'c');
 

@@ -36,7 +36,8 @@ import { rememberDuration } from './durations';
 import { R2_WORKER_URL } from '../constants/mediaConfig';
 import { logPlayback } from './logPlayback';
 import type { PlayerTrack } from '../screens/PlayerScreen';
-import { localAudioUri } from './downloads';
+import { isLocalEncrypted, localAudioUri } from './downloads';
+import { playableUri } from './secureAudio';
 
 export type Repeat = 'ring' | 'one';
 
@@ -149,7 +150,14 @@ export const PlaybackProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
     // 端末に保存してあれば、ネットに行かずにそのファイルを鳴らす（電波がなくても聴ける）
     const local = localAudioUri(t.audioKey);
-    if (local) return { url: local, note: null };
+    if (local) {
+      // 暗号化して保存した曲は、鳴らす直前にキャッシュへ復号する（lib/secureAudio.ts）。
+      // 復号できなければ（鍵が無い・壊れている）ネットの音源へ落とす
+      if (!isLocalEncrypted(t.audioKey)) return { url: local, note: null };
+      try {
+        return { url: await playableUri(t.audioKey, local), note: null };
+      } catch {}
+    }
     // audio-gateway の署名URLは期限があるので、ここでは覚えない（r2.ts が期限つきで覚える）
     const hit = R2_WORKER_URL ? undefined : urlCache.current.get(t.audioKey);
     if (hit) return hit;
@@ -169,7 +177,7 @@ export const PlaybackProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const lockMeta = (t: PlayerTrack) => ({
     title: t.title,
     artist: t.artist ?? 'NAOKI OKA',
-    albumTitle: 'FLUX RING',
+    albumTitle: 'FluxRing',
     artworkUrl: t.artworkUrl,
   });
 

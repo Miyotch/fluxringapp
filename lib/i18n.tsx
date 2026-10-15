@@ -218,7 +218,7 @@ const JA: Dict = {
   'settings.delete.confirm': '削除する',
   'settings.delete.cancel': '戻る',
   'settings.delete.failed': '削除に失敗しました。再度ログインしてからお試しください。',
-  'settings.version': 'FLUX RING　バージョン {v}',
+  'settings.version': 'FluxRing　バージョン {v}',
   'settings.langName': '日本語',
   'settings.notLoggedIn': '未ログイン',
   // 設定・末端
@@ -445,7 +445,7 @@ const EN: Dict = {
   'settings.delete.confirm': 'Delete',
   'settings.delete.cancel': 'Back',
   'settings.delete.failed': 'Deletion failed. Please sign in again and retry.',
-  'settings.version': 'FLUX RING  Version {v}',
+  'settings.version': 'FluxRing  Version {v}',
   'settings.langName': 'English',
   'settings.notLoggedIn': 'Not signed in',
   'account.title': 'Account',

@@ -540,7 +540,7 @@ export const PlayerScreen: React.FC<Props> = ({
   }, [step]);
 
   const onShare = useCallback(() => {
-    Share.share({ message: `FLUX RING — ${shown.title}` }).catch(() => {});
+    Share.share({ message: `FluxRing — ${shown.title}` }).catch(() => {});
   }, [shown.title]);
 
   // 見ているカードが流れている曲なら、その状態を一行で

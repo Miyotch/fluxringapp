@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "FLUX RING",
+    "name": "FluxRing",
     "slug": "fluxring",
     "version": "0.3.1",
     "scheme": "fluxring",
@@ -13,7 +13,9 @@
       "backgroundColor": "#0E0C20",
       "resizeMode": "contain"
     },
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.fluxring.app",
@@ -22,7 +24,9 @@
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "CADisableMinimumFrameDurationOnPhone": false,
-        "UIBackgroundModes": ["audio"],
+        "UIBackgroundModes": [
+          "audio"
+        ],
         "CFBundleURLTypes": [
           {
             "CFBundleURLSchemes": [
@@ -55,8 +59,14 @@
         {
           "ios": {
             "extraPods": [
-              { "name": "GoogleUtilities", "modular_headers": true },
-              { "name": "FirebaseABTesting", "modular_headers": true }
+              {
+                "name": "GoogleUtilities",
+                "modular_headers": true
+              },
+              {
+                "name": "FirebaseABTesting",
+                "modular_headers": true
+              }
             ]
           }
         }
@@ -69,7 +79,8 @@
           "recordAudioAndroid": false,
           "microphonePermission": false
         }
-      ]
+      ],
+      "expo-secure-store"
     ],
     "extra": {
       "eas": {

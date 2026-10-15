@@ -9,14 +9,16 @@
  *   ・左右に払うと、札と曲名が指について動き、離すと画面の外へ抜けて次（前）の曲が
  *     反対側から入ってくる（以前は 6 割だけ動いて元の位置へ戻っていた）
  *   ・何も流していない（キューが空）ときは描かない。一時停止中は出たまま
+ *   ・2026-10-15 払う動きを PanResponder＋RN Animated から RNGH の Pan＋Reanimated へ移した。
+ *     以前は指の位置を JS で受けてから札へ書いていたので、再生の状態更新・カードの描画で
+ *     JS が詰まると指から遅れ、離したあとの寄せも途中で書き戻されて小刻みに揺れた。
+ *     いまは指の追従・寄せ・抜けて入る動きがすべて UI スレッドで完結する（曲の切り替えだけ JS）
  *
  * 位置の更新（0.25 秒ごと）は usePlaybackProgress で受け、SeekLine だけが描き直す。
  */
 
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Animated,
-  Easing,
   Image,
   PanResponder,
   Pressable,
@@ -26,7 +28,16 @@ import {
   useWindowDimensions,
   type LayoutChangeEvent,
 } from 'react-native';
-import { swipeDirection } from '../constants/swipe';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Animated, {
+  Easing,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
+import { SWIPE_SPRING, swipeDirection } from '../constants/swipe';
 import { homeCardWidth } from '../constants/design-tokens';
 import { usePlayback, usePlaybackProgress } from '../lib/playback';
 import { PlayMark, PauseMark, SkipIcon, SkipPrevIcon, LoopIcon, AddToListIcon } from './icons';
@@ -112,66 +123,63 @@ export const NowPlayingBar: React.FC<Props> = ({ onOpen, onLayout }) => {
   pbRef.current = pb;
   // 送る基準は HOME・再生画面と同じ（constants/swipe.ts）。カード幅は HOME のカード
   const { width: screenW, height: screenH } = useWindowDimensions();
-  const cardWRef = useRef(homeCardWidth(screenH));
-  cardWRef.current = homeCardWidth(screenH);
   const screenWRef = useRef(screenW);
   screenWRef.current = screenW;
-  // 札と曲名の横位置。指に 1:1 でついてくる
-  const tx = useRef(new Animated.Value(0)).current;
-  const busy = useRef(false);
+  // 札と曲名の横位置。指に 1:1 でついてくる（UI スレッドで書く）
+  const tx = useSharedValue(0);
+  const busy = useSharedValue(0);
+  const manySV = useSharedValue(0);
+  // 描画中に共有値へ書かない（Reanimated の注意）。キューの長さが変わったときだけ写す
+  const queueLen = pb.queue.length;
+  useEffect(() => {
+    manySV.value = queueLen >= 2 ? 1 : 0;
+  }, [queueLen, manySV]);
+  const cardW = homeCardWidth(screenH);
 
-  const snapBack = (vx = 0) =>
-    Animated.spring(tx, {
-      toValue: 0,
-      velocity: vx,
-      stiffness: 260,
-      damping: 30,
-      mass: 1,
-      useNativeDriver: true,
-    }).start();
-
-  /** 画面の外へ抜けてから曲を替え、反対側から入れる。dir: 1=次 / -1=前 */
-  const slideTo = (dir: 1 | -1) => {
-    const w = screenWRef.current;
-    busy.current = true;
-    Animated.timing(tx, {
-      toValue: -dir * w,
-      duration: 160,
-      easing: Easing.in(Easing.quad),
-      useNativeDriver: true,
-    }).start(() => {
-      if (dir === 1) pbRef.current.next();
-      else pbRef.current.prev();
-      tx.setValue(dir * w * 0.5);
-      Animated.timing(tx, {
-        toValue: 0,
-        duration: 240,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }).start(() => {
-        busy.current = false;
-      });
+  /** 抜けきったあと（JS）: 曲を替えて、反対側から入れる */
+  const afterOut = (dir: 1 | -1) => {
+    if (dir === 1) pbRef.current.next();
+    else pbRef.current.prev();
+    tx.value = dir * screenWRef.current * 0.5;
+    tx.value = withTiming(0, { duration: 240, easing: Easing.out(Easing.cubic) }, () => {
+      busy.value = 0;
     });
   };
 
   // 左右に払うと曲送り。縦や小さな動きは取らない（押す＝再生画面を開く、を邪魔しない）
-  const swipe = useRef(
-    PanResponder.create({
-      onMoveShouldSetPanResponder: (_e, g) =>
-        !busy.current && Math.abs(g.dx) > 10 && Math.abs(g.dx) > Math.abs(g.dy) * 1.5,
-      onPanResponderMove: (_e, g) => {
-        // 1 曲しかないときは送れないので、ゴムのように少しだけ動かす
-        const single = pbRef.current.queue.length < 2;
-        tx.setValue(single ? g.dx * 0.25 : g.dx);
-      },
-      onPanResponderRelease: (_e, g) => {
-        const dir = swipeDirection(g.dx, g.vx * 1000, cardWRef.current);
-        if (dir !== 0 && pbRef.current.queue.length >= 2) slideTo(dir);
-        else snapBack(g.vx);
-      },
-      onPanResponderTerminate: () => snapBack(),
-    }),
-  ).current;
+  const swipe = useMemo(
+    () =>
+      Gesture.Pan()
+        .activeOffsetX([-10, 10])
+        .failOffsetY([-14, 14])
+        .onUpdate((e) => {
+          'worklet';
+          if (busy.value) return;
+          // 1 曲しかないときは送れないので、ゴムのように少しだけ動かす
+          tx.value = manySV.value ? e.translationX : e.translationX * 0.25;
+        })
+        .onEnd((e) => {
+          'worklet';
+          if (busy.value) return;
+          const dir = swipeDirection(e.translationX, e.velocityX, cardW);
+          if (dir !== 0 && manySV.value) {
+            busy.value = 1;
+            tx.value = withTiming(
+              -dir * screenW,
+              { duration: 160, easing: Easing.in(Easing.quad) },
+              (finished) => {
+                if (finished) runOnJS(afterOut)(dir);
+                else busy.value = 0;
+              },
+            );
+          } else {
+            tx.value = withSpring(0, { ...SWIPE_SPRING, velocity: e.velocityX });
+          }
+        }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [cardW, screenW],
+  );
+  const slideStyle = useAnimatedStyle(() => ({ transform: [{ translateX: tx.value }] }));
 
   const cur = pb.current;
   if (!cur) return null;
@@ -181,8 +189,9 @@ export const NowPlayingBar: React.FC<Props> = ({ onOpen, onLayout }) => {
 
   return (
     <View style={styles.wrap} onLayout={onLayout}>
-      <View style={styles.bar} {...swipe.panHandlers}>
-        <View style={styles.row}>
+      <View style={styles.bar}>
+        <GestureDetector gesture={swipe}>
+        <View style={styles.row} collapsable={false}>
           {/* 札と曲名。押すと再生画面、払うと曲送り（ここだけが指について動く） */}
           <Pressable
             style={styles.openArea}
@@ -190,7 +199,7 @@ export const NowPlayingBar: React.FC<Props> = ({ onOpen, onLayout }) => {
             accessibilityRole="button"
             accessibilityLabel={t('playback.open', { title: cur.title })}
           >
-            <Animated.View style={[styles.slide, { transform: [{ translateX: tx }] }]}>
+            <Animated.View style={[styles.slide, slideStyle]}>
               <Image source={{ uri: cur.artworkUrl }} style={styles.art} />
               <View style={styles.texts}>
                 <Text style={styles.title} numberOfLines={1}>{cur.title}</Text>
@@ -211,6 +220,7 @@ export const NowPlayingBar: React.FC<Props> = ({ onOpen, onLayout }) => {
             <View style={!many && styles.off}><SkipIcon size={16} /></View>
           </Pressable>
         </View>
+        </GestureDetector>
         <SeekLine />
       </View>
     </View>

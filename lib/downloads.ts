@@ -2,6 +2,9 @@
  * downloads.ts — 買った曲を端末に保存して、電波がなくても聴けるようにする（2026-10-13）
  * ------------------------------------------------------------------
  *   ・保存先はアプリの中（Paths.document/fr-audio/）。他のアプリやファイル一覧からは見えない
+ *   ・2026-10-15 暗号化して置く（lib/secureAudio.ts。AES-256-GCM・鍵は端末の保管庫）。
+ *     落とすのはキャッシュの一時ファイル → 暗号化して fr-audio/*.fra → 一時ファイルを消す。
+ *     それまでに平文で保存した曲は、起動後に裏で暗号化し直す
  *   ・どの曲を保存したかは AsyncStorage に覚える（key = audioKey）
  *   ・再生の中枢（playback.tsx）は、保存済みならネットに行かずに端末のファイルを鳴らす
  *   ・試聴（まだ持っていない曲）は保存しない
@@ -16,6 +19,7 @@ import { useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Directory, DownloadTask, File, Paths } from 'expo-file-system';
 import { fullAudioUrl } from './r2';
+import { clearPlayCache, encryptFile, forgetPlayable, isEncryptedFile } from './secureAudio';
 
 const STORAGE_KEY = 'fr.downloads.v1';
 
@@ -27,7 +31,8 @@ export type DownloadState =
   | { status: 'done'; uri: string; bytes: number }
   | { status: 'error' };
 
-type Saved = Record<string, { uri: string; bytes: number }>;
+/** enc: 暗号化済み（.fra）。無い・false は 2026-10-15 より前の平文の保存 */
+type Saved = Record<string, { uri: string; bytes: number; enc?: boolean }>;
 
 let saved: Saved = {};
 type Job = { progress: number; abort: AbortController; task?: DownloadTask; paused: boolean };
@@ -43,7 +48,11 @@ const emit = () => listeners.forEach((l) => l());
 const dir = () => new Directory(Paths.document, 'fr-audio');
 
 /** audioKey をファイル名に使える形へ（/ などを避ける） */
-const fileNameOf = (audioKey: string) => `${audioKey.replace(/[^A-Za-z0-9._-]/g, '_')}.audio`;
+const safeName = (audioKey: string) => audioKey.replace(/[^A-Za-z0-9._-]/g, '_');
+const fileNameOf = (audioKey: string) => `${safeName(audioKey)}.fra`;
+/** 落としている途中の一時ファイル（平文）。暗号化が済んだら消す */
+const partDir = () => new Directory(Paths.cache, 'fr-dl');
+const partOf = (audioKey: string) => new File(partDir(), `${safeName(audioKey)}.part`);
 
 const persist = () => AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(saved)).catch(() => {});
 
@@ -66,12 +75,50 @@ async function load() {
     saved = {};
   }
   emit();
+  clearPlayCache();
+  migrateLegacy();
 }
 load();
+
+/** 平文で保存していた曲（〜2026-10-15）を、1 曲ずつ暗号化し直す */
+async function migrateLegacy() {
+  for (const [key, v] of Object.entries(saved)) {
+    if (v.enc) continue;
+    try {
+      const src = new File(v.uri);
+      if (!src.exists) continue;
+      if (isEncryptedFile(src)) {
+        saved = { ...saved, [key]: { ...v, enc: true } };
+        persist();
+        continue;
+      }
+      const d = dir();
+      d.create({ idempotent: true, intermediates: true });
+      const dst = new File(d, fileNameOf(key));
+      await encryptFile(src, dst);
+      // 途中で消された（removeDownload）ときは書いたものを片付ける
+      if (!saved[key]) {
+        if (dst.exists) dst.delete();
+        continue;
+      }
+      saved = { ...saved, [key]: { uri: dst.uri, bytes: dst.size ?? v.bytes, enc: true } };
+      persist();
+      if (src.uri !== dst.uri && src.exists) src.delete();
+      emit();
+    } catch {
+      // 暗号化できなかった曲は平文のまま残す（次の起動でまた試す）
+    }
+  }
+}
 
 /** 再生の中枢から同期で読む。保存済みなら file:// の URI */
 export function localAudioUri(audioKey: string): string | null {
   return saved[audioKey]?.uri ?? null;
+}
+
+/** 保存済みの曲が暗号化されているか（再生の中枢が、復号してから鳴らすかを決める） */
+export function isLocalEncrypted(audioKey: string): boolean {
+  return !!saved[audioKey]?.enc;
 }
 
 export function downloadState(audioKey: string): DownloadState {
@@ -94,7 +141,22 @@ async function settle(audioKey: string, job: Job, run: () => Promise<File | null
       return false;
     }
     if (!file || !file.exists) throw new Error('download failed');
-    saved = { ...saved, [audioKey]: { uri: file.uri, bytes: file.size ?? 0 } };
+    // 平文の一時ファイル → 暗号化して保存先へ → 一時ファイルを消す
+    const d = dir();
+    d.create({ idempotent: true, intermediates: true });
+    const dst = new File(d, fileNameOf(audioKey));
+    try {
+      await encryptFile(file, dst);
+    } finally {
+      try {
+        if (file.exists) file.delete();
+      } catch {}
+    }
+    if (job.abort.signal.aborted) {
+      if (dst.exists) dst.delete();
+      throw new Error('aborted');
+    }
+    saved = { ...saved, [audioKey]: { uri: dst.uri, bytes: dst.size ?? 0, enc: true } };
     persist();
     running.delete(audioKey);
     emit();
@@ -119,9 +181,9 @@ export async function downloadTrack(audioKey: string): Promise<boolean> {
   emit();
   try {
     const url = await fullAudioUrl(audioKey);
-    const d = dir();
-    d.create({ idempotent: true, intermediates: true });
-    const target = new File(d, fileNameOf(audioKey));
+    const pd = partDir();
+    pd.create({ idempotent: true, intermediates: true });
+    const target = partOf(audioKey);
     // 途中で止まった前回の残りがあれば消してから
     if (target.exists) target.delete();
     const task = new DownloadTask(url, target, {
@@ -211,6 +273,12 @@ export function removeDownload(audioKey: string) {
   } catch {}
   running.delete(audioKey);
   failed.delete(audioKey);
+  // 落としかけの一時ファイルと、再生用に復号したものも残さない
+  try {
+    const part = partOf(audioKey);
+    if (part.exists) part.delete();
+  } catch {}
+  forgetPlayable(audioKey);
   const s = saved[audioKey];
   if (s) {
     try {
