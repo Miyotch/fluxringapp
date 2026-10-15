@@ -63,6 +63,7 @@ import Animated, {
   withTiming,
   useSharedValue,
   useAnimatedStyle,
+  useAnimatedReaction,
   SharedValue,
 } from 'react-native-reanimated';
 import {
@@ -157,8 +158,11 @@ const AURA_HIDE_DEG = 10;
 // 角速度 6rad/s × dt がそのまま積まれ、一気に 100° 以上回る（＝「回転しすぎる」）。
 const DT_MAX = 0.05;
 // 2D（表面オーバーレイ）復帰時のクロスフェード（ms）。GL 面との差をならす。
-// 2D の絵を重ねる時間。GL の絵とわずかに明るさ・鮮明さが違うので、短いと段差に見える
+// 2D の絵を重ねる時間（保険のタイマーで戻すときだけ使う。通常は傾きで重ねる）
 const OVERLAY_FADE_MS = 260;
+// 表へ戻るとき、この傾き（度）から 0° にかけて 2D の絵を重ねる。ここより小さい傾きなら
+// 平面の絵とカードの形の差（幅 cos8°≒0.99）は見分けられない
+const OVERLAY_RAMP_DEG = 8;
 // 表面ライティング（uMotion）が効き切る回転角（度）。0°＝素の作品画像、
 // これ以上傾いたら参照どおりのライティング。AURA_HIDE_DEG と同値にして、
 // 「落影が消える＝カードが動き出した」の境目と揃える。
@@ -1217,7 +1221,35 @@ export const CardGL: React.FC<CardGLProps> = ({
 
   // 復帰時の短いクロスフェード（GL 面 → オーバーレイの差をならす）
   const overlayOpacity = useSharedValue(1);
-  const overlayStyle = useAnimatedStyle(() => ({ opacity: overlayOpacity.value }));
+  // 表へ戻る間（と初回の案内の傾き）は、時間ではなく**傾き**で 2D の絵を重ねる（2026-10-15）。
+  // GL の表面と RN の <Image> は、実機でわずかに明るさ・鮮明さが違う（録画で GL 側が
+  // 1〜2 割暗い）。時間で切り替えると、どれだけ短く／長くしても正面で段差が出た。
+  // 傾き OVERLAY_RAMP_DEG → 0° に合わせて 0 → 1 にすると、回りながら溶け込むので段差にならない
+  const returning = useSharedValue(0);
+  // 一度でも重ね始める角度より大きく傾いたか（初回の案内は 0° から傾き始めるので、
+  // 傾く前に「正面に着いた」と取り違えないための目印）
+  const rampArmed = useSharedValue(0);
+  // 正面に着いたら（傾きがほぼ 0）、傾きで重ねるのをやめて不透明のまま固定する。
+  // 残しておくと、ホームの横送りなど別の理由で傾きが動いたときに絵が薄くなる
+  useAnimatedReaction(
+    () => rotSV.value,
+    (deg) => {
+      if (returning.value < 0.5) return;
+      if (deg > OVERLAY_RAMP_DEG) rampArmed.value = 1;
+      else if (rampArmed.value > 0.5 && deg < 0.3) {
+        overlayOpacity.value = 1;
+        returning.value = 0;
+        rampArmed.value = 0;
+      }
+    },
+  );
+  const overlayStyle = useAnimatedStyle(() => {
+    if (returning.value > 0.5) {
+      const ramp = 1 - rotSV.value / OVERLAY_RAMP_DEG;
+      return { opacity: ramp <= 0 ? 0 : ramp >= 1 ? 1 : ramp };
+    }
+    return { opacity: overlayOpacity.value };
+  });
 
   const clearOverlayTimer = () => {
     if (overlayTimer.current) { clearTimeout(overlayTimer.current); overlayTimer.current = null; }
@@ -1258,6 +1290,8 @@ export const CardGL: React.FC<CardGLProps> = ({
     glKick.current();
     s.mode = 'open';
     clearOverlayTimer();
+    returning.value = 0;
+    rampArmed.value = 0;
     overlayOpacity.value = 0; // オーバーレイを透明にして GL のフリップを見せる（外さない）
     overlayShown.current = false;
     setOverlayVisible(false); // タップ受けを GL 側（裏面）へ渡す
@@ -1276,6 +1310,7 @@ export const CardGL: React.FC<CardGLProps> = ({
     // 「2Dに戻ったのにスワイプが効かない」空白が出る。
     onFlipChange?.(false);
     overlayOpacity.value = 0;
+    returning.value = 1; // ここからは傾きで重ねる（overlayStyle）
     // showOverlay は overlayShown で二重発火を弾く。ここで false に戻して
     // おかないと、開く経路が flipToBack を通らなかった場合に「透明のまま
     // 復帰済み扱い」で取り残され、GL 面が見えっぱなしになる。
@@ -1298,6 +1333,7 @@ export const CardGL: React.FC<CardGLProps> = ({
     s.peekT = PEEK_HOLD_S;
     clearOverlayTimer();
     overlayOpacity.value = 0;
+    returning.value = 1;
     overlayShown.current = false;
     setOverlayVisible(false);
     s.tfy = PEEK_YAW;
