@@ -184,6 +184,13 @@ function AppInner() {
   const [playerReturnTab, setPlayerReturnTab] = useState<'home' | 'collection'>('collection');
   // ホーム（ディスカバー）で最初に表示するカード id（ウィッシュから飛んできたとき用）
   const [homeFocusId, setHomeFocusId] = useState<string | null>(null);
+  // ホームで最後に中央にいたカード。ほかのタブ・再生画面から戻ったとき、1 枚目に
+  // 戻さずここから再開する（ホームはタブを移るたびに作り直すため、App が覚える）。
+  // アプリを起動し直したときは null ＝これまでどおり 1 枚目から
+  const homeLastIdRef = useRef<string | null>(null);
+  const rememberHomeCard = useCallback((id: string) => {
+    homeLastIdRef.current = id;
+  }, []);
   // Artistのご紹介で最初に開くプロフィールの artistId（カード裏面の作家名
   // タップなど、作家一覧を経由しない遷移用）。null なら①作家一覧から開始。
   const [artistFocusId, setArtistFocusId] = useState<string | null>(null);
@@ -748,7 +755,8 @@ function AppInner() {
           {tab === 'home' && !playerOpen && (
             <DiscoverScreen
               tracks={homeTracks}
-              focusTrackId={homeFocusId}
+              focusTrackId={homeFocusId ?? homeLastIdRef.current}
+              onActiveTrackChange={rememberHomeCard}
               ownedIds={ownedTrackIds}
               wishlistIds={wishlist.ids}
               onToggleWishlist={wishlist.toggle}

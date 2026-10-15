@@ -295,8 +295,13 @@ type Props = {
   tracks?: Track[];
   /** 購入が**成立した**ときだけ呼ばれる（キャンセル・失敗では呼ばない） */
   onBuy?: (track: Track) => void;
-  /** 起動時に最初に表示するカードの id（コレクションのウィッシュから飛んできたとき用） */
+  /**
+   * 最初に表示するカードの id。ほかのタブから戻ったときに、最後に見ていたカードから
+   * 始めるのに使う（App.tsx が覚えて渡す。2026-10-15）。無い・見つからなければ 1 枚目
+   */
   focusTrackId?: string | null;
+  /** 中央のカードが替わった（App.tsx が覚えて、次にホームへ戻ったときに focusTrackId で返す） */
+  onActiveTrackChange?: (trackId: string) => void;
   /** 所有している trackId（App.tsx の usePurchaseFlow から。Firestore が正） */
   ownedIds?: Set<string>;
   /**
@@ -367,6 +372,7 @@ export const DiscoverScreen: React.FC<Props> = ({
   tracks = FALLBACK,
   onBuy,
   focusTrackId,
+  onActiveTrackChange,
   ownedIds,
   wishlistIds,
   onToggleWishlist,
@@ -594,6 +600,11 @@ export const DiscoverScreen: React.FC<Props> = ({
    */
   const trackAt = (p: number) => tracks[(((p % count) + count) % count)];
   const active = trackAt(pos) ?? tracks[0];
+  // 中央のカードを App へ知らせる（タブを移ってもホームを最後のカードから再開するため）
+  useEffect(() => {
+    if (active?.id) onActiveTrackChange?.(active.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active?.id]);
   /** 曲名・ボタン・試聴が指している札（指を離した時点で切り替わる） */
   const shown = trackAt(chromePos) ?? active;
   // 試聴のタイマーから読む用の写し（仕掛けた時点の値で固まらないように）
