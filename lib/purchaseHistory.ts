@@ -4,7 +4,7 @@
  * 本番のストア連携（レシート検証・/iap/verify）が入るまでの間、
  * 「誰がどの楽曲を購入したか」を追える状態にするための暫定書き込み。
  *
- * infra/r2-audio-worker.js の冒頭コメントに記載された本番スキーマに
+ * infra/audio-gateway の冒頭コメントに記載された本番スキーマに
  * 合わせて、以下の2箇所へ書く（本番実装時に差し替えやすくするため）:
  *   1) users/{uid}/purchases/{trackId} … 所有権の正（lib/ownership.ts が購読）
  *   2) purchase_history                … 購入イベントの監査ログ（1購入1件）

@@ -27,6 +27,7 @@ import type { Track } from '../screens/DiscoverScreen';
 import { artistsCol, subscribeTracks } from './firebaseFirestore';
 import { buyLabel } from '../constants/pricing';
 import { registerTrackAudio } from './durations';
+import { registerPaidTracks } from '../constants/iapProducts';
 
 const str = (v: unknown): string | undefined =>
   typeof v === 'string' && v.trim() !== '' ? v : undefined;
@@ -94,6 +95,12 @@ export function useTracks(count = 50): Track[] {
     const unsub = subscribeTracks(
       count,
       (docs) => {
+        // ストアで売る曲 = 価格が 0 より大きい曲（商品IDは com.fluxring.app.track.<id>）
+        registerPaidTracks(
+          docs
+            .filter((d) => typeof (d as Record<string, unknown>).price === 'number' && ((d as Record<string, unknown>).price as number) > 0)
+            .map((d) => d.id),
+        );
         setTracks(
           docs.map((d) => {
             const data = d as Record<string, unknown>;

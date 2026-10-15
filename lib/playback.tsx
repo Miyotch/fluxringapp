@@ -33,6 +33,7 @@ import React, {
 import { createAudioPlayer, useAudioPlayerStatus, type AudioPlayer } from 'expo-audio';
 import { fullAudioUrl, previewUrl } from './r2';
 import { rememberDuration } from './durations';
+import { R2_WORKER_URL } from '../constants/mediaConfig';
 import { logPlayback } from './logPlayback';
 import type { PlayerTrack } from '../screens/PlayerScreen';
 import { localAudioUri } from './downloads';
@@ -149,7 +150,8 @@ export const PlaybackProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     // 端末に保存してあれば、ネットに行かずにそのファイルを鳴らす（電波がなくても聴ける）
     const local = localAudioUri(t.audioKey);
     if (local) return { url: local, note: null };
-    const hit = urlCache.current.get(t.audioKey);
+    // audio-gateway の署名URLは期限があるので、ここでは覚えない（r2.ts が期限つきで覚える）
+    const hit = R2_WORKER_URL ? undefined : urlCache.current.get(t.audioKey);
     if (hit) return hit;
     try {
       const url = await fullAudioUrl(t.audioKey);

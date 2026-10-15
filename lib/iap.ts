@@ -63,7 +63,7 @@ export function isNativeIapAvailable(): boolean {
 import { auth } from './firebase'
 import { IAP_VERIFY_URL, isIapVerifyConfigured } from '../constants/iapConfig'
 import {
-  ALL_PRODUCT_IDS,
+  allProductIds,
   isPurchasableTrack,
   productIdOf,
   trackIdOfProduct,
@@ -229,7 +229,7 @@ export async function loadStorePrices(): Promise<StorePrices> {
   try {
     const m = loadIap()
     if (!m) return empty
-    const result = await m.fetchProducts({ skus: ALL_PRODUCT_IDS, type: 'in-app' })
+    const result = await m.fetchProducts({ skus: allProductIds(), type: 'in-app' })
     // 返りは Product / ProductSubscription の広い union だが、id と displayPrice は
     // ProductCommon が全変種に持たせている。必要なのはこの2つだけなので絞って読む。
     const items = (result ?? []) as Array<{ id?: string; displayPrice?: string }>
@@ -290,6 +290,8 @@ export async function verifyOnServer(purchase: Purchase): Promise<VerifyResult> 
     }),
   })
 
+  // 202 = ストア側で支払いが保留（コンビニ払いなど）。finish させずに次回また送る
+  if (res.status === 202) throw new Error('支払いの完了を待っています')
   if (!res.ok) throw new Error(`レシート検証に失敗しました (${res.status})`)
   return { status: 'verified' }
 }

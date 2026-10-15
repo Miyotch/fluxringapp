@@ -1,0 +1,23 @@
+# FLUX RING audio-gateway — フル音源の配信と購入の検証
+# ------------------------------------------------------------------
+# 手順は README.md。シークレットは wrangler secret put で入れる（このファイルに書かない）。
+
+name = "fluxring-audio-gateway"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+[[r2_buckets]]
+binding = "AUDIO"
+# フル音源のバケット。公開アクセス（r2.dev・カスタムドメイン）は切ってから本番に出す
+bucket_name = "music-app-storage"
+
+[vars]
+FIREBASE_PROJECT_ID = "sound-curtain-5unwwh"
+APPLE_BUNDLE_ID = "com.fluxring.app"
+ANDROID_PACKAGE = "com.fluxring.app"
+PRODUCT_ID_PREFIX = "com.fluxring.app.track."
+# TestFlight と App Review の購入は Sandbox。審査を通すために本番でも受ける（記録には environment が残る）
+APPLE_ALLOW_SANDBOX = "true"
+
+[observability]
+enabled = true

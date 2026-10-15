@@ -48,6 +48,7 @@ import {
   subscribeOwnedIds,
 } from './ownership'
 import { recordMockPurchase } from './purchaseHistory'
+import { isIapVerifyConfigured } from '../constants/iapConfig'
 
 /**
  * busy のまま何のイベントも来なかったときに、モーダルを閉じられる状態へ戻すまでの時間(ms)。
@@ -67,7 +68,9 @@ const PURCHASE_WATCHDOG_MS = 120000
  * 購入**後**の挙動（所有化・完了演出・コレクション反映等）を確認するため。
  * 本番のIAP動線を復活させるときは false に戻す（lib/iap.ts 側は無改変）。
  */
-const MOCK_PURCHASES = true
+// 2026-10-15: 購入検証の窓口（audio-gateway の /v1/iap/verify）が設定されたら、
+// 自動で本物の課金に切り替わる。未設定のあいだは従来どおりモック。
+const MOCK_PURCHASES = !isIapVerifyConfigured
 /** モック購入で「busy」表示を見せる時間(ms)。0だと演出前に一瞬で完了してしまう */
 const MOCK_PURCHASE_DELAY_MS = 700
 

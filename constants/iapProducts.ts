@@ -3,13 +3,8 @@
  * ------------------------------------------------------------------
  * 命名規則: `com.fluxring.app.track.<trackId>`
  *
- *   trackId | productId                     | 作品
- *   --------|-------------------------------|------------------
- *   blue    | com.fluxring.app.track.blue   | 冬明け
- *   white   | com.fluxring.app.track.white  | 薄明
- *   mesh    | com.fluxring.app.track.mesh   | 白鉛筆 I（仮）
- *   kite    | com.fluxring.app.track.kite   | 白鉛筆 II（仮）
- *   bloom   | com.fluxring.app.track.bloom  | 白鉛筆 III（仮）
+ *   trackId は Firestore の tracks のドキュメントID（例: snow-in-focus →
+ *   com.fluxring.app.track.snow-in-focus）
  *
  * trackId を軸に置く理由:
  *   constants/stubData.ts の STUB_TRACKS.id と、R2 の音源キー（audioKey /
@@ -38,40 +33,56 @@
 /** 商品IDの共通プレフィックス（app.json の bundleIdentifier / package と一致させる） */
 export const PRODUCT_ID_PREFIX = 'com.fluxring.app.track.'
 
-/** ストアに登録する有料トラックの trackId（= audioKey = Firestore doc id） */
-export const PAID_TRACK_IDS = ['blue', 'white', 'mesh', 'kite', 'bloom'] as const
+/**
+ * ストアで売る曲。2026-10-15 から Firestore の tracks（price > 0）で決める
+ * （以前は試作の5曲 blue/white/mesh/kite/bloom を固定で持っていて、実際の曲と
+ * ずれていた）。useTracks が曲を読んだときに registerPaidTracks で入れる。
+ * App Store Connect / Google Play には、同じ命名で商品を1曲ずつ作っておくこと。
+ */
+export type PaidTrackId = string
 
-export type PaidTrackId = (typeof PAID_TRACK_IDS)[number]
+const TRACK_ID_RE = /^[A-Za-z0-9_-]{1,128}$/
+
+/**
+ * productId → trackId の明示的な逆引き表。
+ * プレフィックスの split で済ませないのは、Firestore に無い曲の商品IDを
+ * 所有権として書き込まない（ストアから来た値を信用しない）ため。
+ */
+const productToTrack = new Map<string, PaidTrackId>()
 
 /** trackId → productId */
 export function productIdOf(trackId: string): string {
   return `${PRODUCT_ID_PREFIX}${trackId}`
 }
 
-/**
- * productId → trackId の明示的な逆引き表。
- * プレフィックスの split で済ませないのは、将来 trackId にドットや別体系が
- * 入ったときに黙って壊れる（誤った trackId を所有権として書き込む）ため。
- */
-export const PRODUCT_ID_TO_TRACK_ID: Record<string, PaidTrackId> = {
-  'com.fluxring.app.track.blue': 'blue',
-  'com.fluxring.app.track.white': 'white',
-  'com.fluxring.app.track.mesh': 'mesh',
-  'com.fluxring.app.track.kite': 'kite',
-  'com.fluxring.app.track.bloom': 'bloom',
+/** Firestore の有料曲を登録する（呼ぶたびに置き換え） */
+export function registerPaidTracks(trackIds: string[]) {
+  productToTrack.clear()
+  for (const id of trackIds) if (TRACK_ID_RE.test(id)) productToTrack.set(productIdOf(id), id)
 }
 
 /** fetchProducts に渡す skus 配列 */
-export const ALL_PRODUCT_IDS: string[] = PAID_TRACK_IDS.map(productIdOf)
+export function allProductIds(): string[] {
+  return [...productToTrack.keys()]
+}
 
 /** productId → trackId（未知の商品IDは null。ストアから来た値を信用しないため） */
 export function trackIdOfProduct(productId: string | null | undefined): PaidTrackId | null {
   if (!productId) return null
-  return PRODUCT_ID_TO_TRACK_ID[productId] ?? null
+  const hit = productToTrack.get(productId)
+  if (hit) return hit
+  // 起動直後（曲の一覧がまだ届く前）に未完了の購入を引き取ることがある。そのときは
+  // 命名規則から読む。権利を書くのはサーバ（audio-gateway）で、サーバは Firestore に
+  // その曲が在るかを確かめ直すので、ここで通しても知らない曲の権利は生まれない
+  if (productToTrack.size === 0 && productId.startsWith(PRODUCT_ID_PREFIX)) {
+    const id = productId.slice(PRODUCT_ID_PREFIX.length)
+    return TRACK_ID_RE.test(id) ? id : null
+  }
+  return null
 }
 
 /** その trackId がストア購入の対象か（無料トラック・未登録作品は false） */
 export function isPurchasableTrack(trackId: string | null | undefined): trackId is PaidTrackId {
   if (!trackId) return false
-  return Object.prototype.hasOwnProperty.call(PRODUCT_ID_TO_TRACK_ID, productIdOf(trackId))
+  return productToTrack.has(productIdOf(trackId))
 }
