@@ -157,7 +157,8 @@ const AURA_HIDE_DEG = 10;
 // 角速度 6rad/s × dt がそのまま積まれ、一気に 100° 以上回る（＝「回転しすぎる」）。
 const DT_MAX = 0.05;
 // 2D（表面オーバーレイ）復帰時のクロスフェード（ms）。GL 面との差をならす。
-const OVERLAY_FADE_MS = 140;
+// 2D の絵を重ねる時間。GL の絵とわずかに明るさ・鮮明さが違うので、短いと段差に見える
+const OVERLAY_FADE_MS = 260;
 // 表面ライティング（uMotion）が効き切る回転角（度）。0°＝素の作品画像、
 // これ以上傾いたら参照どおりのライティング。AURA_HIDE_DEG と同値にして、
 // 「落影が消える＝カードが動き出した」の境目と揃える。
@@ -252,6 +253,8 @@ export type SpinState = {
   qqV: number;
   /** 初回の案内で傾いたまま待つ残り秒（0 なら案内中ではない） */
   peekT: number;
+  /** 表へ戻る途中で、もう 2D の絵を出し始めたか（着地を待たずに重ね始める。2026-10-15） */
+  preLanded: boolean;
 };
 
 /** 'idle'=表で静止 / 'open'=裏（回転可） / 'closing'=表へ戻り中（入力を受けない） */
@@ -720,6 +723,7 @@ const CardMesh: React.FC<{
           s.tfy = Math.round(s.fy / (2 * Math.PI)) * 2 * Math.PI;
           s.flipAnim = true;
           s.closeElapsed = 0;
+          s.preLanded = false;
         }
       }
       // 参照と同じ平滑化 sm = 1 - exp(-dt·10)
@@ -869,6 +873,22 @@ const CardMesh: React.FC<{
     // UI スレッド側の derived で出せる。
     const tiltDeg = (Math.acos(z) * 180) / Math.PI;
     rotationOut.value = tiltDeg;
+    // 表へ戻る途中、ほぼ正面（傾き 2.5° 未満・持ち上げもほぼ戻った）に来たら、ばねが
+    // 止まり切るのを待たずに 2D の絵を重ね始める。以前は完全に止まるまで（約 0.5 秒）
+    // GL の絵のままで、その間に表面のライティングが抜けて絵が少しずつ暗くなり、
+    // そこへ明るい 2D の絵が急に乗るので「戻った直後にちらつく」と見えた（2026-10-15 実機収録）
+    if (
+      flipDrive &&
+      s.mode === 'closing' &&
+      !s.preLanded &&
+      s.peekT <= 0 &&
+      s.closeElapsed > 0.15 &&
+      tiltDeg < 2.5 &&
+      s.qq < 0.06
+    ) {
+      s.preLanded = true;
+      onClosedRef.current?.();
+    }
     // 表面ライティングの効き。flip（ホーム）は静止時に RN <Image> と一致させたい
     // ので 0 まで落とす。spin（プレイヤー）は平面オーバーレイを持たないため常時 1。
     frontMaterial.uniforms.uMotion.value = flipDrive
@@ -1044,6 +1064,7 @@ export const CardGL: React.FC<CardGLProps> = ({
     fyV: 0,
     qqV: 0,
     peekT: 0,
+    preLanded: false,
   });
   const last = useRef({ x: 0, y: 0 });
   const moved = useRef(false);
@@ -1249,6 +1270,7 @@ export const CardGL: React.FC<CardGLProps> = ({
     glKick.current();
     s.mode = 'closing';
     s.closeElapsed = 0;
+    s.preLanded = false;
     setFlipped(false);
     // 横スワイプ（曲切替）は戻り始めた時点で解禁する。戻り切るまで待つと
     // 「2Dに戻ったのにスワイプが効かない」空白が出る。
@@ -1272,6 +1294,7 @@ export const CardGL: React.FC<CardGLProps> = ({
     glKick.current();
     s.mode = 'closing';
     s.closeElapsed = 0;
+    s.preLanded = false;
     s.peekT = PEEK_HOLD_S;
     clearOverlayTimer();
     overlayOpacity.value = 0;

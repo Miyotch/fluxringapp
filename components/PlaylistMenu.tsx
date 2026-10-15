@@ -13,9 +13,10 @@
  * 外側（暗幕）を押すと閉じる。開閉と選択の状態は CollectionScreen が持つ。
  */
 
-import React, { useEffect, useMemo, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import Animated, { FadeIn, FadeOut, SlideInDown, SlideOutDown } from 'react-native-reanimated';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Animated as RNAnimated, Easing, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import Animated, { FadeIn } from 'react-native-reanimated';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { EqBars } from './EqBars';
 import { useT } from '../lib/i18n';
 import { usePlaybackOptional } from '../lib/playback';
@@ -89,6 +90,23 @@ export const PlaylistMenu: React.FC<Props> = ({
       setEditing(false);
     }
   }, [visible]);
+  // 開く動き。Android のモーダルの中で Reanimated の entering（SlideInDown）を使うと、
+  // 動き終わってもタッチの当たり判定がずれて、行も「編集」も押せなかった（2026-10-15 実機）。
+  // RN の Animated（ネイティブ駆動）で、暗幕の濃さとシートの位置だけを動かす
+  const appear = useRef(new RNAnimated.Value(0)).current;
+  useEffect(() => {
+    if (!visible) {
+      appear.setValue(0);
+      return;
+    }
+    RNAnimated.timing(appear, {
+      toValue: 1,
+      duration: 260,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [visible, appear]);
+  const sheetY = appear.interpolate({ inputRange: [0, 1], outputRange: [480, 0] });
 
   // 各プレイリストの合計時間（1曲でも分からなければ曲数だけ出す）
   const allIds = useMemo(() => [...new Set(lists.flatMap((p) => p.trackIds))], [lists]);
@@ -189,18 +207,14 @@ export const PlaylistMenu: React.FC<Props> = ({
   };
 
   return (
-    <Modal visible={visible} transparent animationType="none" statusBarTranslucent onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
       {visible && (
-        <View style={StyleSheet.absoluteFill}>
+        <GestureHandlerRootView style={StyleSheet.absoluteFill}>
           {/* 暗幕。押すと閉じる */}
-          <Animated.View entering={FadeIn.duration(180)} exiting={FadeOut.duration(140)} style={StyleSheet.absoluteFill}>
+          <RNAnimated.View style={[StyleSheet.absoluteFill, { opacity: appear }]}>
             <Pressable style={styles.scrim} onPress={onClose} accessibilityLabel={t('playlist.close')} />
-          </Animated.View>
-          <Animated.View
-            entering={SlideInDown.duration(260)}
-            exiting={SlideOutDown.duration(180)}
-            style={[styles.sheet, { paddingBottom: bottom }]}
-          >
+          </RNAnimated.View>
+          <RNAnimated.View style={[styles.sheet, { paddingBottom: bottom, transform: [{ translateY: sheetY }] }]}>
             <View style={styles.handle} />
             <View style={styles.head}>
               <Text style={styles.headTitle}>{t('playlist.choose')}</Text>
@@ -237,8 +251,8 @@ export const PlaylistMenu: React.FC<Props> = ({
                 <Text style={styles.addText}>{t('playlist.new')}</Text>
               </Pressable>
             </View>
-          </Animated.View>
-        </View>
+          </RNAnimated.View>
+        </GestureHandlerRootView>
       )}
     </Modal>
   );
