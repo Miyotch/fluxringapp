@@ -21,7 +21,8 @@
  *   （2026-10-01〜）。空の曲だけ、App.tsx 側で取得した並び順から連番を振る。
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getDocs } from 'firebase/firestore';
 import type { Track } from '../screens/DiscoverScreen';
 import { artistsCol, subscribeTracks } from './firebaseFirestore';
@@ -58,10 +59,16 @@ function splitTuning(tuning: unknown): { tuningLabel?: string; frequencies?: str
 }
 
 // Firestore Timestamp（.toMillis() を持つ）をエポックミリ秒へ。それ以外は null（無期限扱い）
-const toMillis = (v: unknown): number | null =>
-  v && typeof v === 'object' && typeof (v as { toMillis?: unknown }).toMillis === 'function'
-    ? (v as { toMillis: () => number }).toMillis()
-    : null;
+// 端末に覚えた写し（JSON）では Timestamp が {seconds, nanoseconds} の素のオブジェクトになっている
+const toMillis = (v: unknown): number | null => {
+  if (!v || typeof v !== 'object') return null;
+  const o = v as { toMillis?: unknown; seconds?: unknown; nanoseconds?: unknown };
+  if (typeof o.toMillis === 'function') return (o.toMillis as () => number)();
+  if (typeof o.seconds === 'number') {
+    return o.seconds * 1000 + (typeof o.nanoseconds === 'number' ? Math.floor(o.nanoseconds / 1e6) : 0);
+  }
+  return null;
+};
 
 function parseSale(v: unknown): Track['sale'] {
   if (!v || typeof v !== 'object') return undefined;
@@ -73,95 +80,145 @@ function parseSale(v: unknown): Track['sale'] {
   };
 }
 
+type RawTrackDoc = { id: string } & Record<string, unknown>;
+
+/**
+ * オフライン起動のための写し（2026-10-18）。
+ * Firestore JS SDK は React Native では端末に何も残さない（メモリだけ）ので、電波なしで
+ * 起動すると曲の一覧が空になり、所有曲も再生画面も出なかった。最後に通信で届いた
+ * tracks と作家名を AsyncStorage に覚えておき、届くまではそれで画面を組む。
+ * 所有権・音源の配信可否には使わない（表示専用。所有は lib/ownership.ts、音源は Worker）。
+ */
+const TRACKS_CACHE_KEY = 'fr.tracks.v1';
+const ARTISTS_CACHE_KEY = 'fr.artists.v1';
+
+async function readCache<T>(key: string): Promise<T | null> {
+  try {
+    const raw = await AsyncStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : null;
+  } catch {
+    return null;
+  }
+}
+const writeCache = (key: string, value: unknown) => {
+  try {
+    AsyncStorage.setItem(key, JSON.stringify(value)).catch(() => {});
+  } catch {
+    /* 写しが残らなくても、通信できる限り動作は変わらない */
+  }
+};
+
+function toTrack(d: RawTrackDoc, artists: Map<string, ArtistInfo>): Track {
+  const data = d as Record<string, unknown>;
+  const { tuningLabel, frequencies } = splitTuning(data.tuning);
+  const artistId = str(data.artistId);
+  const artist = artistId ? artists.get(artistId) : undefined;
+  const price = typeof data.price === 'number' ? data.price : undefined;
+  const serial = str(data.serial)?.trim();
+  const homeOrderMode: Track['homeOrderMode'] =
+    data.homeOrderMode === 'random' ? 'random' : 'fixed';
+  const homeOrder =
+    typeof data.homeOrder === 'number' && Number.isFinite(data.homeOrder)
+      ? data.homeOrder
+      : 0;
+  return {
+    id: d.id,
+    title: str(data.title) ?? '',
+    subtitle: str(data.scene),
+    artistName: artist?.name ?? '',
+    artistId,
+    // 縮小版（管理画面がアップロード時に作る長辺 1536px の JPEG）を優先する。
+    // 元の絵は 1 枚 3MB 級の PNG で、4G ではカードの絵が大きく遅れていた（2026-09-30）
+    artworkUrl: str(data.artworkThumbUrl) ?? str(data.artworkUrl) ?? '',
+    artworkFullUrl: str(data.artworkUrl),
+    seriesId: str(data.seriesId),
+    audioKey: d.id,
+    previewUrl: str(data.r2_preview_url) ?? null,
+    priceLabel: buyLabel(price),
+    priceJpy: price,
+    glowColor: str(data.glow),
+    glowColor2: str(data.glow2),
+    sale: parseSale(data.sale),
+    homeOrderMode,
+    homeOrder,
+    // 管理画面の「アプリのホームに出す」。false のときだけ出さない（未設定の既存曲は出す）
+    homeVisible: data.homeVisible !== false,
+    back: {
+      serial: serial ? `No. ${serial}` : undefined,
+      story: str(data.story),
+      tuning: tuningLabel,
+      frequencies,
+      artist: artist?.nameRoman?.toUpperCase(),
+      useCases: parseUseCases(data.useCases),
+    },
+  };
+}
+
 export function useTracks(count = 50): Track[] {
   const [artists, setArtists] = useState<Map<string, ArtistInfo>>(new Map());
-  const [tracks, setTracks] = useState<Track[]>([]);
+  const [docs, setDocs] = useState<RawTrackDoc[]>([]);
 
-  // 作家名はほぼ変わらないので、購読ではなく起動時に1回だけ取得する
+  // 作家名はほぼ変わらないので、購読ではなく起動時に1回だけ取得する。
+  // 通信できなければ前回の写しのまま
   useEffect(() => {
+    let fresh = false;
+    readCache<Record<string, ArtistInfo>>(ARTISTS_CACHE_KEY).then((cached) => {
+      if (!fresh && cached) setArtists(new Map(Object.entries(cached)));
+    });
     getDocs(artistsCol())
       .then((snap) => {
+        if (snap.metadata.fromCache) return;
         const map = new Map<string, ArtistInfo>();
         snap.forEach((d) => {
           const data = d.data() as Record<string, unknown>;
           map.set(d.id, { name: str(data.name), nameRoman: str(data.nameRoman) });
         });
+        fresh = true;
         setArtists(map);
+        writeCache(ARTISTS_CACHE_KEY, Object.fromEntries(map));
       })
       .catch(() => {});
   }, []);
 
   useEffect(() => {
+    let fresh = false;
+    readCache<RawTrackDoc[]>(TRACKS_CACHE_KEY).then((cached) => {
+      if (!fresh && Array.isArray(cached)) setDocs(cached);
+    });
     const unsub = subscribeTracks(
       count,
-      (docs) => {
-        // ストアで売る曲 = 価格が 0 より大きい曲（商品IDは com.fluxring.app.track.<id>）
-        registerPaidTracks(
-          docs
-            .filter((d) => typeof (d as Record<string, unknown>).price === 'number' && ((d as Record<string, unknown>).price as number) > 0)
-            .map((d) => d.id),
-        );
-        setTracks(
-          docs.map((d) => {
-            const data = d as Record<string, unknown>;
-            const { tuningLabel, frequencies } = splitTuning(data.tuning);
-            const artistId = str(data.artistId);
-            const artist = artistId ? artists.get(artistId) : undefined;
-            const price = typeof data.price === 'number' ? data.price : undefined;
-            const serial = str(data.serial)?.trim();
-            const homeOrderMode: Track['homeOrderMode'] =
-              data.homeOrderMode === 'random' ? 'random' : 'fixed';
-            const homeOrder =
-              typeof data.homeOrder === 'number' && Number.isFinite(data.homeOrder)
-                ? data.homeOrder
-                : 0;
-            // 曲の長さ（プレイリストの行・合計時間）。管理画面の値があればそれ、
-            // 無ければ音源のヘッダから割り出す（lib/durations.ts）
-            registerTrackAudio(
-              d.id,
-              str(data.r2_url),
-              typeof data.durationSec === 'number' ? data.durationSec : undefined,
-            );
-            const track: Track = {
-              id: d.id,
-              title: str(data.title) ?? '',
-              subtitle: str(data.scene),
-              artistName: artist?.name ?? '',
-              artistId,
-              // 縮小版（管理画面がアップロード時に作る長辺 1536px の JPEG）を優先する。
-              // 元の絵は 1 枚 3MB 級の PNG で、4G ではカードの絵が大きく遅れていた（2026-09-30）
-              artworkUrl: str(data.artworkThumbUrl) ?? str(data.artworkUrl) ?? '',
-              artworkFullUrl: str(data.artworkUrl),
-              seriesId: str(data.seriesId),
-              audioKey: d.id,
-              previewUrl: str(data.r2_preview_url) ?? null,
-              priceLabel: buyLabel(price),
-              priceJpy: price,
-              glowColor: str(data.glow),
-              glowColor2: str(data.glow2),
-              sale: parseSale(data.sale),
-              homeOrderMode,
-              homeOrder,
-              // 管理画面の「アプリのホームに出す」。false のときだけ出さない（未設定の既存曲は出す）
-              homeVisible: data.homeVisible !== false,
-              back: {
-                serial: serial ? `No. ${serial}` : undefined,
-                story: str(data.story),
-                tuning: tuningLabel,
-                frequencies,
-                artist: artist?.nameRoman?.toUpperCase(),
-                useCases: parseUseCases(data.useCases),
-              },
-            };
-            return track;
-          }),
-        );
+      (next, fromCache) => {
+        // 通信できずに手元から返ってきたもの（オフライン起動では空）は、写しより信用しない
+        if (fromCache) {
+          if (!fresh && next.length === 0) return;
+        } else {
+          fresh = true;
+          writeCache(TRACKS_CACHE_KEY, next);
+        }
+        setDocs(next);
       },
-      () => setTracks([]),
+      // 権限エラー・通信エラーでも、写しで出しているものは消さない
+      () => {},
     );
     return unsub;
-    // artists が後から届いても、次の tracks 更新まで待たず反映されるよう依存に含める
-  }, [count, artists]);
+  }, [count]);
 
-  return tracks;
+  // ストアで売る曲 = 価格が 0 より大きい曲（商品IDは com.fluxring.app.track.<id>）。
+  // 曲の長さ（プレイリストの行・合計時間）も、ここで音源ごとに登録する
+  useEffect(() => {
+    registerPaidTracks(
+      docs.filter((d) => typeof d.price === 'number' && (d.price as number) > 0).map((d) => d.id),
+    );
+    // 管理画面の値があればそれ、無ければ音源のヘッダから割り出す（lib/durations.ts）
+    for (const d of docs) {
+      registerTrackAudio(
+        d.id,
+        str(d.r2_url),
+        typeof d.durationSec === 'number' ? d.durationSec : undefined,
+      );
+    }
+  }, [docs]);
+
+  // artists が後から届いても、次の tracks 更新まで待たず反映される
+  return useMemo(() => docs.map((d) => toTrack(d, artists)), [docs, artists]);
 }
