@@ -10,6 +10,7 @@
  *   ・曲順を並べ替える（編集シートへ）
  *
  * 見た目は AddToPlaylistSheet と同じ下からのシート。
+ * 書体: 曲名（《》）だけ明朝、メニューなどの UI の文字はゴシック（OS 既定）。2026-10-18 岡さん指定。
  */
 
 import React from 'react';
@@ -110,11 +111,11 @@ const styles = StyleSheet.create({
   },
   grab: { alignSelf: 'center', width: 36, height: 4, borderRadius: 2, backgroundColor: 'rgba(236,238,247,0.25)', marginBottom: 14 },
   heading: { color: C.text, fontSize: 16, letterSpacing: 1, fontFamily: JP_SERIF_FONT, textAlign: 'center' },
-  sub: { color: C.sub, fontSize: 12.5, marginTop: 4, marginBottom: 10, textAlign: 'center', fontFamily: JP_SERIF_FONT },
+  sub: { color: C.sub, fontSize: 12.5, marginTop: 4, marginBottom: 10, textAlign: 'center' },
   row: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 14, paddingHorizontal: 8, borderRadius: 10 },
   pressed: { backgroundColor: 'rgba(255,255,255,0.06)' },
   icon: { width: 24, alignItems: 'center' },
-  label: { flex: 1, color: C.text, fontSize: 15, letterSpacing: 0.6, fontFamily: JP_SERIF_FONT },
+  label: { flex: 1, color: C.text, fontSize: 15, letterSpacing: 0.6 },
   labelDanger: { color: '#F2A7B4' },
   done: { marginTop: 8, alignSelf: 'stretch', paddingVertical: 13, borderRadius: 24, borderWidth: 1, borderColor: 'rgba(96,206,224,0.45)', alignItems: 'center' },
   doneText: { color: C.text, fontSize: 14, letterSpacing: 2 },

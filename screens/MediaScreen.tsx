@@ -1,5 +1,5 @@
 /**
- * MediaScreen.tsx — メディア（あなた宛 / メディア）
+ * MediaScreen.tsx — メディア（あなた宛 / 記事）
  * ------------------------------------------------------------------
  * ワイヤーフレーム 03 / メディア 記事 + 通知一覧の統合:
  *   ・タブ切替（あなた宛 / メディア）。ホーム画面のベルはここに統合したため廃止。
@@ -26,7 +26,7 @@ import { COLOR, SPACE, RADIUS } from '../constants/design-tokens';
 import { CR, CreditsBackdrop } from '../components/CreditsBackdrop';
 import { useTopInset } from '../lib/safeArea';
 import { useT } from '../lib/i18n';
-import { NUM_FONT } from '../constants/fonts';
+import { NUM_FONT, JP_SERIF_FONT } from '../constants/fonts';
 import { InstagramIcon } from '../components/icons';
 import { NotificationsList, type Notice } from './NotificationsScreen';
 
@@ -130,19 +130,23 @@ export const MediaScreen: React.FC<Props> = ({
       <StatusBar barStyle="light-content" backgroundColor={CR.deepest} />
       <CreditsBackdrop w={screenW} h={screenH} />
 
-      {/* タブ（あなた宛 / メディア） */}
-      <View style={[styles.tabBar, { paddingTop: barTop }]}>
-        <Pressable style={styles.tab} onPress={() => { setTab('you'); setOpenId(null); }}>
-          <View style={styles.tabLabelRow}>
-            <Text style={[styles.tabText, tab === 'you' && styles.tabTextOn]}>{t('media.tabYou')}</Text>
-            {hasUnread && <View style={styles.tabDot} />}
-          </View>
-          {tab === 'you' && <View style={styles.tabUnderline} />}
-        </Pressable>
-        <Pressable style={styles.tab} onPress={() => setTab('media')}>
-          <Text style={[styles.tabText, tab === 'media' && styles.tabTextOn]}>{t('media.tabMedia')}</Text>
-          {tab === 'media' && <View style={styles.tabUnderline} />}
-        </Pressable>
+      {/* 画面の見出し（明朝）とタブ（あなた宛 / 記事）。2026-10-18 岡さん指定で
+          見出しを足し、タブの「メディア」を「記事」に改めた */}
+      <View style={[styles.header, { paddingTop: barTop }]}>
+        <Text style={styles.h1} maxFontSizeMultiplier={1.4}>{t('tab.media')}</Text>
+        <View style={styles.tabBar}>
+          <Pressable style={styles.tab} onPress={() => { setTab('you'); setOpenId(null); }}>
+            <View style={styles.tabLabelRow}>
+              <Text style={[styles.tabText, tab === 'you' && styles.tabTextOn]}>{t('media.tabYou')}</Text>
+              {hasUnread && <View style={styles.tabDot} />}
+            </View>
+            {tab === 'you' && <View style={styles.tabUnderline} />}
+          </Pressable>
+          <Pressable style={styles.tab} onPress={() => setTab('media')}>
+            <Text style={[styles.tabText, tab === 'media' && styles.tabTextOn]}>{t('media.tabMedia')}</Text>
+            {tab === 'media' && <View style={styles.tabUnderline} />}
+          </Pressable>
+        </View>
       </View>
 
       {tab === 'you' ? (
@@ -234,14 +238,18 @@ export const MediaScreen: React.FC<Props> = ({
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: CR.deepest },
-  tabBar: {
+  header: {
     // 既定値。実機では SafeArea の top を加味して JSX 側で上書き
     paddingTop: 56,
     paddingHorizontal: SPACE.lg,
-    flexDirection: 'row',
-    gap: SPACE.lg,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: COLOR.border,
+  },
+  // 設定画面の見出し（SettingsScreen の h1）と同じ書体・大きさ
+  h1: { color: COLOR.textPrimary, fontSize: 18, letterSpacing: 0.36, marginBottom: SPACE.md, fontFamily: JP_SERIF_FONT },
+  tabBar: {
+    flexDirection: 'row',
+    gap: SPACE.lg,
   },
   tab: { paddingBottom: SPACE.sm, alignItems: 'center' },
   tabLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },

@@ -10,6 +10,10 @@
  *       上が明るく下が重い＝上方光源下の質量の見え。
  *   (c) 下端の内側シャドウ
  *       inset 0 -18px 30px rgba(3,5,14,.22)
+ *   (d) 外周の縁取り（ガラス端面のハイライト・2026-10-18 岡さん指定）
+ *       1pt / rgba(255,255,255,.18) / カードと同じ角丸 / 内側に描く。
+ *       カード下の落影（CardAura・CardGround）はこれに置き換えて撤去した。
+ *       全カード同じ値（ジャケットの明暗で変えない）・外への発光なし。
  *
  * ── 単位変換（HTML → Skia）──────────────────────────────
  * CSS の「ぼかし」は 2 系統あり、同じ数値でも意味が違う:
@@ -26,6 +30,7 @@ import {
   Group,
   Path,
   Rect,
+  RoundedRect,
   LinearGradient,
   Blur,
   Skia,
@@ -58,6 +63,10 @@ const INNER_DY = -18;
 const INNER_BLUR = 30; // box-shadow 記法 = 2σ
 const INNER_COLOR = 'rgba(3,5,14,0.22)';
 
+// (d) 外周の縁取り。線の中心を 0.5 内側へ寄せ、線幅ぶんがちょうどカードの内側に収まる
+const EDGE_WIDTH = 1;
+const EDGE_COLOR = 'rgba(255,255,255,0.18)';
+
 export type CardSurfaceProps = {
   width: number;
   height: number;
@@ -87,6 +96,8 @@ export const CardSurface: React.FC<CardSurfaceProps> = ({
     p.setFillType(FillType.EvenOdd);
     return p;
   }, [width, height, r, dy, pad]);
+  const h = EDGE_WIDTH / 2;
+  const edge = rrect(rect(h, h, width - EDGE_WIDTH, height - EDGE_WIDTH), r - h, r - h);
 
   return (
     <Canvas
@@ -109,6 +120,9 @@ export const CardSurface: React.FC<CardSurfaceProps> = ({
           <Blur blur={(INNER_BLUR / 2) * s} />
         </Path>
       </Group>
+
+      {/* (d) 外周の縁取り */}
+      <RoundedRect rect={edge} style="stroke" strokeWidth={EDGE_WIDTH} color={EDGE_COLOR} />
 
     </Canvas>
   );

@@ -14,7 +14,7 @@
  *           アルファ合成。lib/cardShaders.ts の ALUMINUM_FRAGMENT_SHADER
  *           backStyle='story' = 従来のフラットテクスチャ（現状呼び出し元
  *           なし・後方互換のため維持）
- *   ・落影: shadow 指定時に card-aura（v99-tsubasa: 黒3層）を Skia で重ねる
+ *   ・落影: 2026-10-18 に撤去（岡さん指定）。輪郭は CardSurface の 1pt の縁取り
  * ジオメトリは 角丸Shape の表裏プレート＋ExtrudeGeometry の側面リング。
  *
  * 回転（トラックボール方式）:
@@ -74,7 +74,6 @@ import {
   ARTIST_HIT_ZONE,
 } from '../lib/cardBackTexture';
 import { CARD_VERTEX_SHADER, ART_FRAGMENT_SHADER, ALUMINUM_FRAGMENT_SHADER } from '../lib/cardShaders';
-import { CardAura } from './CardAura';
 import { CardSurface } from './CardSurface';
 import { CARD_PLACEHOLDER } from './CardFace';
 import { PurchaseGlow } from './PurchaseGlow';
@@ -955,12 +954,6 @@ export type CardGLProps = {
   mode?: 'spin' | 'flip';
   /** 裏面デザイン。aluminum=アルミ刻印（既定・ホーム / プレイヤー） / story=フロストのストーリー面（v98） */
   backStyle?: 'aluminum' | 'story';
-  /**
-   * カード背後の落影（card-aura）を描くか。
-   * プレイヤーは CardBackdrop 側で描くため false（既定）。
-   * v99-tsubasa で色指定は廃止（黒3層固定）。光は面側 CardSurface が担う。
-   */
-  shadow?: boolean;
   /** 厚み比（対カード幅）。既定は v99-tsubasa の 8.5/188.6。プレイヤーは 1mm 相当 0.016 を指定 */
   depthRatio?: number;
   /**
@@ -1026,7 +1019,6 @@ export const CardGL: React.FC<CardGLProps> = ({
   backData,
   mode = 'spin',
   backStyle = 'aluminum',
-  shadow = false,
   depthRatio = DEPTH_RATIO,
   frame,
   backScale: backScaleProp,
@@ -1124,14 +1116,6 @@ export const CardGL: React.FC<CardGLProps> = ({
   // 内部の SharedValue を使い、CardMesh からの書き込みは常に 1 本で済ませる。
   const rotInternal = useSharedValue(0);
   const rotSV = rotationOut ?? rotInternal;
-  // 落影は回り始めたら消す。cos(回転角) で落とすと、45° あたりでもまだ 0.7 残り、
-  // 「細くなったカードの後ろにカード型の黒い影が出ている」状態になっていた
-  // （実機で指摘）。影はカードと違って回らない板なので、少しでも残ると必ず
-  // ズレて見える。参照も開いた瞬間にフェードアウトさせて回転には連動させない。
-  const auraStyle = useAnimatedStyle(
-    () => ({ opacity: Math.max(0, 1 - Math.abs(rotSV.value) / AURA_HIDE_DEG) }),
-    [rotSV],
-  );
 
   // ── フリップ状態は CardGL 内部で完結させる ──
   // 親（FlatList のセル）経由で状態を渡すと、リストのセル再レンダー最適化に
@@ -1629,13 +1613,6 @@ export const CardGL: React.FC<CardGLProps> = ({
 
   return (
     <View ref={wrapRef} onLayout={measureWrap} style={[{ width, height }, style]} {...handlers}>
-      {/* card-aura（v99-tsubasa: 黒3層の落影）。指定時のみ */}
-      {shadow && (
-        <Animated.View style={[StyleSheet.absoluteFill, auraStyle]} pointerEvents="none">
-          <CardAura width={width} height={height} />
-        </Animated.View>
-      )}
-
       {/* 購入時の靄（外周シアングロー2層）。カードより背面 */}
       {purchaseGlow && (
         <PurchaseGlow layer="haze" width={width} height={height} progress={purchaseGlow} />

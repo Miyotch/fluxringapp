@@ -1390,7 +1390,6 @@ export const CollectionScreen: React.FC<Props> = ({
                       // 8.5/188.6 だと縁が3倍近く厚く見えて、マイコレから開いた
                       // カードと別物に見える）
                       depthRatio={0.016}
-                      shadow
                       frame={workCardFrame}
                       backScale={workBackScale}
                       backData={workBackData}

@@ -57,17 +57,15 @@ import { CardFace } from '../components/CardFace';
 import { BackdropSky } from '../components/BackdropSky';
 import { BackdropVeil } from '../components/BackdropVeil';
 import { CardVeil } from '../components/CardVeil';
-import { CardGround } from '../components/CardGround';
 import { StarSeal, type SealInkImage } from '../components/StarSeal';
 import {
   CardGL,
   CARD_ASPECT,
 } from '../components/CardGL';
 import { OrbitBuyButton } from '../components/OrbitBuyButton';
-import { FavBead, FlyDot, BEAD_HIT } from '../components/FavBead';
+import { FavBead, FlyDot, PreviewBead, BEAD_HIT, BEAD_STEP } from '../components/FavBead';
 import { PurchaseModal } from '../components/PurchaseModal';
-import { EqBars } from '../components/EqBars';
-import { useTopInset } from '../lib/safeArea';
+import { MarqueeText } from '../components/MarqueeText';
 import { useT } from '../lib/i18n';
 import { prefetchArt, waitArt } from '../lib/artPrefetch';
 import { usePlaybackOptional } from '../lib/playback';
@@ -181,24 +179,18 @@ const HINT_GAP_MS = 1400;
 // 参照 2995行: 指が 7px 動いたら「押した」を取り消す（＝スワイプの入り口）
 const CARD_PRESS_SLOP = 7;
 
-// カードが表からこれ以上傾いたら接地影を消して固定する（参照の hideEls 相当）
-const GROUND_HIDE_DEG = 8;
 // これ以上傾いている間は背景（天の川・星・調律陣の光点）の時計を止める
 const SPIN_PAUSE_DEG = 2;
 
-// ホーム左上の曲名タイトルの位置調整に使う「1文字分」の基準値。
-// styles.title の fontSize と同じにして、和文全角1文字ぶん
-// 下げる／内側へ寄せるという指示をそのまま数値化する。
-const TITLE_CHAR_SIZE = 20;
 /**
- * 曲名の行の高さと、ブロックを持ち上げる量（2026-10-15）。
- * 以前は高さ 24 に固定した枠へ曲名（20px）と作家名の 2 行を縦中央で詰めていて、
+ * 曲名の行の高さ（2026-10-15）。以前は高さ 24 に固定した枠へ曲名と作家名を詰めていて、
  * 文字を大きくした端末や行の高い書体（Android の serif）では、はみ出した分が切れていた。
- * いまは枠の高さを固定せず、上から並べて下へ伸ばす。持ち上げ量は、元の
- * 「24 の枠の中央」に曲名の中心が来ていた位置と見た目がそろうように決めた値
  */
 const TITLE_LINE_H = 28;
-const TITLE_BLOCK_LIFT = 11;
+/** 曲名ブロック（曲名＋作家名）の下端から、カードの上端までの間 */
+const TITLE_CARD_GAP = 26;
+/** 中央揃えの曲名ブロックの左右の余白 */
+const TITLE_SIDE_INSET = 32;
 
 const C = {
   page: '#0E0C20',
@@ -398,10 +390,7 @@ export const DiscoverScreen: React.FC<Props> = ({
   const initialIndex = focusTrackId
     ? Math.max(0, tracks.findIndex((t) => t.id === focusTrackId))
     : 0;
-  // タイトルはセーフエリア下へ寄せる。右上のEQメーターと同じ top
-  // （topRightY + 5 + TITLE_CHAR_SIZE）を使い、高さを揃える。
   const t = useT();
-  const topRightY = useTopInset(8);
   const [slideH, setSlideH] = useState(0);
   // 調律陣が焼いた彫刻シルエット。星の平面をこの形で削るためだけに使う。
   // 調律陣そのものの描画には関与しない（BackdropSky → StaticStars の SealOccluder）。
@@ -652,6 +641,8 @@ export const DiscoverScreen: React.FC<Props> = ({
   // カード本体／下部ボタン行の縦位置の運営調整（設定→ボタン位置調整のスライダー）。
   // 既定値(0)では今の位置のまま変わらない。
   const layoutAdjust = useLayoutAdjustConfig();
+  // カードの上端（運営調整の上下オフセット込み）。曲名ブロックはここから上に置く
+  const cardTopY = cardCenterY - cardH / 2 + layoutAdjust.homeCardOffsetY;
   const cardFrame = useMemo(
     () => ({ width: screenW, height: contentH }),
     [screenW, contentH],
@@ -799,41 +790,8 @@ export const DiscoverScreen: React.FC<Props> = ({
   }, [scrolling, carBusy, cardRotation]);
   // カードを出さないビルドではフロートの消費者が居ないので、フレームコールバックごと止める
   const floatY = useIdleFloat(damp, !DEBUG_BACKDROP_ONLY);
-  // 接地影は床に留めたまま、フロートと逆相で反応させる（lift = floatY/3.0）
-  const lift = useDerivedValue(() => floatY.value / 3.0, [floatY]);
-  // 参照 690行: ground.opacity = 0.78 * slideFade * fore
-  //   fore      = |cos(回転角)| … 裏返り中は接地影を弱める
-  //   slideFade = カード本体と同じ横スワイプのフェード
-  // カードは中央スロットの opacity でフェードするが、接地影はスロットの外側
-  // （全画面レイヤー）にあるので、同じ係数をここで掛けないと影だけ残る。
-  //
-  // ★ 回転が始まったら 0 を返して「固定」する。参照は 3D ビューを開くとき
-  //   接地影を visibility:hidden にして、回転中は一切さわらない（704/1891行）。
-  //   RN Skia は Canvas 単位でしか再描画できないので、値が毎フレーム変わると
-  //   全画面 Canvas が clear + ガウシアン込みで塗り直される。値が変わらなければ
-  //   mapper ごと止まり、再描画がゼロになる。
-  //
-  // ★ 接地影は「いま中央にいちばん近い札」の影として、位置も濃さも UI スレッド
-  //   だけで決める（2026-09-22）。以前は baseShift（React の state）基準で、送った
-  //   札が止まってから React の再描画が済むまで影が消えたまま、済んだ瞬間に
-  //   フェードなしで出ていた。その遅れは JS の混み具合で 1〜22 フレーム
-  //   （実機収録で最大約 0.5 秒）ばらつき、止まったあとに影がポンと出て見えた。
-  //   いまは dragX 自体が「中央からのズレ」なので、そのまま使えば札の受け渡しと
-  //   無関係に、いつでも中央にいちばん近い札の足元に付く。
-  const groundX = useDerivedValue(() => {
-    const d = dragX.value;
-    return d - Math.round(d / carFade) * carFade;
-  }, [dragX, carFade]);
-  const groundFade = useDerivedValue(() => {
-    if (Math.abs(cardRotation.value) > GROUND_HIDE_DEG) return 0;
-    const fore = Math.abs(Math.cos((cardRotation.value * Math.PI) / 180));
-    // 隣の札との中間（step/2）で 0 になり、来る札に付いて戻ってくる
-    const slide = Math.min(
-      Math.max(0, 1 - Math.abs(groundX.value) / (carFade / 2)),
-      landFade.value,
-    );
-    return fore * slide;
-  }, [cardRotation, groundX, landFade, carFade]);
+  // カード下の接地影（CardGround）は 2026-10-18 に撤去した。影の代わりに
+  // カード外周の 1pt の縁取り（CardSurface の (d)）で輪郭を出す（岡さん指定）。
 
   // 回転中（＝表を向いていない）かどうか。true の間は背景の時計を止める。
   // 参照の星と天の川は CSS コンポジタで回るのでメインスレッド負荷が構造的に
@@ -1333,9 +1291,10 @@ export const DiscoverScreen: React.FC<Props> = ({
           scrolling.value = 1;
           // 参照 2993行: card への pointerdown で pressTo=1。ステージ全面ではなく
           // カードの矩形に触れたときだけ沈める（周りの余白を押しても反応しない）。
-          // 右下の角の★（FavBead）を押したときは沈めない。
+          // 右下の角の★（FavBead）と、その左の試聴ボタン（PreviewBead）を押したときは沈めない。
           const onBead =
-            Math.abs(e.x - (screenW / 2 + cardW / 2)) <= BEAD_HIT / 2 &&
+            e.x >= screenW / 2 + cardW / 2 - BEAD_STEP - BEAD_HIT / 2 &&
+            e.x <= screenW / 2 + cardW / 2 + BEAD_HIT / 2 &&
             Math.abs(e.y - (cardCenterY + cardH / 2)) <= BEAD_HIT / 2;
           if (
             !onBead &&
@@ -1765,7 +1724,6 @@ export const DiscoverScreen: React.FC<Props> = ({
                 preloadUris={peekUris}
                 width={cardW}
                 height={cardH}
-                shadow
                 frame={cardFrame}
                 onFlipChange={setFlipped}
                 onFrontShown={handleFrontShown}
@@ -1869,9 +1827,23 @@ export const DiscoverScreen: React.FC<Props> = ({
           >
             <FavBead filled={favFilled} onToggle={onToggleFav} onAdded={handleBeadAdded} />
           </View>
+          {/* 試聴のオン・オフ（★の左に同じ丸で。2026-10-18 岡さん指定）。試聴は未購入の
+              曲だけなので★と同じ層に置き、★と一緒に出し入れする */}
+          <View
+            style={[
+              styles.beadAt,
+              {
+                left: screenW / 2 + cardW / 2 - BEAD_STEP - BEAD_HIT / 2,
+                top: cardCenterY + cardH / 2 - BEAD_HIT / 2,
+              },
+            ]}
+            pointerEvents="box-none"
+          >
+            <PreviewBead on={previewEnabled} onToggle={togglePreview} />
+          </View>
         </Animated.View>
       ) : null,
-    [favId, favOwned, favFilled, favActive, favLayerStyle, screenW, cardW, cardH, cardCenterY, onToggleFav, handleBeadAdded],
+    [favId, favOwned, favFilled, favActive, favLayerStyle, screenW, cardW, cardH, cardCenterY, onToggleFav, handleBeadAdded, previewEnabled, togglePreview],
   );
 
 
@@ -1937,8 +1909,6 @@ export const DiscoverScreen: React.FC<Props> = ({
   useEffect(() => {
     prefetchArt(tracks.map((t) => t.artworkUrl));
   }, [tracks]);
-
-  const isPreviewing = playingId != null && playingId === shown?.id;
 
   return (
     <View ref={rootRef} style={styles.root} onLayout={onRootLayout}>
@@ -2037,25 +2007,6 @@ export const DiscoverScreen: React.FC<Props> = ({
           ]}
           pointerEvents="box-none"
         >
-          {/* 接地影（card-ground）。カードは floatY で浮くが影は床に留め、
-              逆相で「浮くと薄く広く／沈むと濃く狭く」反応させる。
-              横位置は groundX（中央にいちばん近い札）だけで決め、カード層の
-              中には置かない（置くと札の受け渡しの瞬間に影が飛ぶ） */}
-          <View style={StyleSheet.absoluteFill} pointerEvents="none">
-            <CardGround
-              width={screenW}
-              height={slideH}
-              centerX={screenW / 2}
-              centerY={cardCenterY}
-              cardW={cardW}
-              cardH={cardH}
-              fade={groundFade}
-              lift={lift}
-              dragX={groundX}
-              style={styles.sealLayer}
-            />
-          </View>
-
           {/* カード層（B ブロック）。参照 .stage は peekL / card / peekR の
               3 スロット固定で、カード自身が指へ 1:1 追従する（710-718行）。
               FlatList の paging では確定しきい値が画面幅の半分になってしまい、
@@ -2088,32 +2039,27 @@ export const DiscoverScreen: React.FC<Props> = ({
         >
           {/* ※ 通知ベルは撤去済み（ホームの空を邪魔しないため）。通知一覧は
                  メディア画面の「あなた宛」タブへ統合した（screens/MediaScreen.tsx）。
-              ※ 右上の試聴アイコン（スピーカー）は撤去済み。試聴のトグルはカード下部の
-                 acts行（★／試聴／購入する）に一本化した（同じ togglePreview を使う）。
-                 EQメーターだけは残す（タップ不要の演出のため pointerEvents="none"）。
-                 top はタイトルと同じ高さ（topRightY + 5 + TITLE_CHAR_SIZE）に揃える。 */}
-          <Pressable
-            style={[styles.topRight, { top: topRightY + 5 + TITLE_CHAR_SIZE }]}
-            hitSlop={14}
-            onPress={togglePreview}
-            accessibilityRole="button"
-            accessibilityState={{ selected: previewEnabled }}
-            accessibilityLabel={previewEnabled ? t('preview.toggleOff') : t('preview.toggleOn')}
-          >
-            {/* 試聴のオン・オフ（2026-09-24。下の試聴ボタンをここへ移した）。
-                鳴っている間は棒が動き、止めている間は暗く止まる */}
-            <EqBars active={isPreviewing} keepIdle dim={!previewEnabled} />
-          </Pressable>
+              ※ 右上の EQ メーター（試聴のオン・オフを兼ねていた）は 2026-10-18 に撤去。
+                 電波の表示に見えて押せると気づきにくかったため、★の左の丸いボタン
+                 （PreviewBead）へ移した（岡さん指定）。 */}
 
-          {/* タイトル（1行のみ。eyeコピー・情景サブタイトルはモック確定値により非表示）。
-              「1文字分下・1文字分内側へ」の指示により、title のフォントサイズ
-              （TITLE_CHAR_SIZE=20）を1文字分の基準にして、旧位置（topRightY + 5 /
-              left: 22）からそれぞれ+20した。 */}
+          {/* タイトル（eyeコピー・情景サブタイトルはモック確定値により非表示）。
+              2026-10-18: 画面の上端に置いていたのを、カードのすぐ上へ寄せた。上端だと
+              カードとの間が画面の幅の約 1/3 空き、カードの題名ではなく画面の見出しに
+              見えていた（岡さんと相談のうえ）。下端をカードの上端から TITLE_CARD_GAP 上に
+              そろえるので、作家名の有無や文字の大きさの設定が変わってもカードとの間は一定。
+              収まらない曲名は横に流す（ホームは 1 曲だけなので常に流す） */}
           <RNAnimated.View
-            style={[styles.texts, { top: topRightY + 5 + TITLE_CHAR_SIZE - TITLE_BLOCK_LIFT, opacity: titleFade }]}
+            style={[styles.texts, { bottom: slideH - cardTopY + TITLE_CARD_GAP, opacity: titleFade }]}
             pointerEvents="none"
           >
-            <Text style={styles.title} numberOfLines={1} maxFontSizeMultiplier={1.4}>{shown?.title}</Text>
+            <MarqueeText
+              text={shown?.title ?? ''}
+              style={styles.title}
+              running
+              align="center"
+              maxFontSizeMultiplier={1.4}
+            />
             {!!shown?.artistName && (
               <Text style={styles.artistName} numberOfLines={1} maxFontSizeMultiplier={1.4}>{shown.artistName}</Text>
             )}
@@ -2240,12 +2186,12 @@ const styles = StyleSheet.create({
 
   chrome: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
   // 右上のEQメーターのみ（試聴アイコンは撤去済み。カード下部のacts行に一本化）
-  topRight: { position: 'absolute', top: 22, right: 20, alignItems: 'flex-end' },
   // height24・justifyContent:'center' は撤去済みの旧・右上アイコン列と高さを
   // 揃えていた名残り（フォント行送りの誤差を吸収するため維持）。
-  // left は旧位置22pxから TITLE_CHAR_SIZE（1文字分）だけ内側へ寄せた。
-  texts: { position: 'absolute', left: 22 + TITLE_CHAR_SIZE, right: 120 },
-  artistName: { marginTop: 3, color: C.sub, fontSize: 11, lineHeight: 16, letterSpacing: 0.9, fontFamily: JP_SERIF_FONT },
+  // 曲名と作家名は中央揃え（2026-10-18 岡さん指定。ほかの UI がすべて中央揃えのため）。
+  // 左右の余白を同じにして画面の中心に置く。縦位置は JSX 側でカードの上端から決める。
+  texts: { position: 'absolute', left: TITLE_SIDE_INSET, right: TITLE_SIDE_INSET, alignItems: 'center' },
+  artistName: { marginTop: 3, color: C.sub, fontSize: 11, lineHeight: 16, letterSpacing: 0.9, fontFamily: JP_SERIF_FONT, textAlign: 'center' },
   // .title: 18px / 字間.05em / text-shadow 0 1px 10px rgba(0,0,0,.5)
   title: {
     fontSize: 20,
@@ -2253,6 +2199,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.36, // fontSize×0.02
     color: C.text,
     fontFamily: JP_SERIF_FONT, // 和文＝明朝（ゴシックで出ていたのを修正）
+    textAlign: 'center',
     textShadowColor: 'rgba(0,0,0,0.5)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 10,
