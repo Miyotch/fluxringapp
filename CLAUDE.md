@@ -111,7 +111,7 @@
 | `DiscoverScreen.tsx` | P2 | ハブ。横スワイプ曲切替・試聴・購入トランジション。起動後1回だけ intro（暗転→星空→調律陣→カード→文字の順に点灯。定数は `HOME_INTRO`）|
 | `StoryScreen.tsx` | P2.1 | サムネ→Story→調律素材→Artist（フロスト分離・固定位置） |
 | `PlayerScreen.tsx` | — | 再生画面。共有カード＋フロストのトランスポート |
-| `CollectionScreen.tsx` | P3 | 2列グリッド。マイコレ/ウィッシュ切替・空状態 |
+| `CollectionScreen.tsx` | P3 | プレイリスト画面。タブ＝所有カード／プレイリスト▾／すべて。行はタップ＝再生・長押し＝「プレイリストに追加」（所有カード・保存した曲）。**自分のプレイリストの中では長押し＝その曲のメニュー**（このリストから外す／ほかのプレイリストにも追加／曲順を並べ替える、`TrackActionSheet`）。「すべて」の板は曲名（通し番号・作家名も当たる）の検索とシリーズの丸いタブで絞り込める（絞り込み中は空席を出さない）。2026-10-18 |
 | `MediaScreen.tsx` | — | SNS常設＋記事一覧（入れた要素だけ表示） |
 | `NotificationsScreen.tsx` | — | ベルから。時系列降順・未読は赤点のみ |
 | `SettingsScreen.tsx` | P5 | 静かなリスト（確定8項目）・サインアウト・バージョン |
@@ -145,7 +145,13 @@ eas build --platform android --profile production
 
 # EAS Submit（App Store Connect へ提出）
 eas submit --platform ios --latest
+
+# 検証用 APK をこの PC で作る（EAS に送らない。パッケージ名 com.fluxring.tsubasa・表示名「FluxRing 検証」）
+# → apk-builds/FluxRing-verify-<version>-<日時>.apk（arm64-v8a のみ・デバッグ鍵）
+npm run apk:verify
 ```
+
+- `npm run apk:verify` は `scripts/build-apk-verify.mjs`。`app.config.js` が `APP_VARIANT=verify` のときだけパッケージ名を切り替え、`google-services.verify.json` を作る（それ以外のビルドには影響しない）。前提は Android SDK と JDK 17（`JAVA17_HOME` で指定可）。2026-10-18 に `build/tsubasa-card-swap` から main へ取り込んだ
 
 - Expo Go 不可（Skia / reanimated worklet はネイティブ必須）
 - New Architecture 必須（`newArchEnabled: true`）

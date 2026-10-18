@@ -58,6 +58,13 @@ type Props = {
   onViewCard: (trackIds: string[], id: string, source: string, origin?: CardOrigin) => void;
   /** 行を長押し → プレイリストに追加のシート */
   onAddToPlaylist?: (item: PlaylistItem) => void;
+  /**
+   * 行を長押ししたときの動きを差し替える（2026-10-18）。自分のプレイリストを見ているときは
+   * 「追加」ではなく「このリストから外す／ほかのリストに追加／並べ替え」の曲のメニューを出す。
+   * 指定があれば onAddToPlaylist より優先する。label は読み上げ用の説明
+   */
+  onRowLongPress?: (item: PlaylistItem) => void;
+  rowLongPressLabel?: string;
   /** 空のリストで「曲を入れる」を押した（自分のプレイリストのときだけ渡す） */
   onEdit?: () => void;
   /** 所有曲が 0 のとき「作品と出会う」 */
@@ -130,12 +137,17 @@ export const MyPlaylists: React.FC<Props> = ({
   onEdit,
   onDiscover,
   onAddToPlaylist,
+  onRowLongPress,
+  rowLongPressLabel,
   variant = 'list',
   onTitlePress,
 }) => {
   const t = useT();
   const pb = usePlaybackOptional();
   const dl = useDownloads();
+  // 長押しの動き。曲のメニュー（自分のプレイリスト）があればそちら、無ければ「追加」
+  const longPress = onRowLongPress ?? onAddToPlaylist;
+  const longPressLabel = onRowLongPress ? rowLongPressLabel ?? t('playlist.trackMenu') : t('playlist.addTo');
   const ids = tracks.map((x) => x.id);
   const keyOf = (x: PlaylistItem) => x.audioKey || x.id;
   // 曲の長さ（行の右に出す・見出しに合計を出す）。分かりしだい描き直す
@@ -143,7 +155,7 @@ export const MyPlaylists: React.FC<Props> = ({
   const durOf = new Map(tracks.map((x, i) => [x.id, durs[i]]));
   const total = sumDurations(durs);
   // 長押しで「プレイリストに追加」は目に見えないので、曲が並んだ最初の一度だけ一言で知らせる
-  const hasRows = tracks.length > 0 && !!onAddToPlaylist;
+  const hasRows = tracks.length > 0 && !!onAddToPlaylist && !onRowLongPress;
   useEffect(() => {
     if (!hasRows || hintChecked) return;
     hintChecked = true;
@@ -293,15 +305,15 @@ export const MyPlaylists: React.FC<Props> = ({
         return (
           <Pressable
             onPress={() => (on ? pb?.toggle() : onPlayFrom(ids, item.id, source))}
-            onLongPress={onAddToPlaylist ? () => onAddToPlaylist(item) : undefined}
+            onLongPress={longPress ? () => longPress(item) : undefined}
             delayLongPress={380}
             style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
             accessibilityRole="button"
             accessibilityLabel={item.title}
             accessibilityHint={on ? (playing ? t('playback.pause') : t('playback.play')) : t('playback.playThis')}
-            accessibilityActions={onAddToPlaylist ? [{ name: 'longpress', label: t('playlist.addTo') }] : undefined}
+            accessibilityActions={longPress ? [{ name: 'longpress', label: longPressLabel }] : undefined}
             onAccessibilityAction={(e) => {
-              if (e.nativeEvent.actionName === 'longpress') onAddToPlaylist?.(item);
+              if (e.nativeEvent.actionName === 'longpress') longPress?.(item);
             }}
           >
             <View
