@@ -101,11 +101,12 @@ export const fetchArticlesPage = (
 // ── 楽曲一覧をリアルタイム監視（コレクション tracks）───────
 export const subscribeTracks = (
   count: number,
-  callback: (docs: Array<{ id: string } & Record<string, unknown>>) => void,
+  // fromCache: 通信できずに手元（メモリ）の写しから返したもの。オフライン起動では空で届く
+  callback: (docs: Array<{ id: string } & Record<string, unknown>>, fromCache: boolean) => void,
   onError?: (e: Error) => void,
 ): Unsubscribe =>
   onSnapshot(
     query(tracksCol(), orderBy('publishedAt', 'desc'), limit(count)),
-    snap => callback(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+    snap => callback(snap.docs.map(d => ({ id: d.id, ...d.data() })), snap.metadata.fromCache),
     onError,
   )
