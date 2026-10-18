@@ -27,6 +27,8 @@ import {
   StyleSheet,
   StatusBar,
   PanResponder,
+  ScrollView,
+  TextInput,
   useWindowDimensions,
 } from 'react-native';
 import Animated, {
@@ -58,6 +60,8 @@ import { MyPlaylists, ALL_OWNED, type PlaylistItem } from '../components/MyPlayl
 import { PlaylistMenu, WISHLIST_KEY, DOWNLOADS_KEY } from '../components/PlaylistMenu';
 import { useDownloads } from '../lib/downloads';
 import { PlaylistEditor, type EditorTrack } from '../components/PlaylistEditor';
+import { TrackActionSheet, type TrackActionTarget } from '../components/TrackActionSheet';
+import { showToast } from '../lib/toast';
 import { OrbitBuyButton } from '../components/OrbitBuyButton';
 import { FavBead, BEAD_HIT } from '../components/FavBead';
 import { EqBars } from '../components/EqBars';
@@ -316,6 +320,11 @@ export const CollectionScreen: React.FC<Props> = ({
   const [tabsBottom, setTabsBottom] = useState(0);
   // 編集シート。'new' | プレイリストの id | null
   const [editorFor, setEditorFor] = useState<string | null>(null);
+  // 自分のプレイリストの曲を長押ししたときのメニュー（外す／ほかに追加／並べ替え）。2026-10-18
+  const [trackAction, setTrackAction] = useState<TrackActionTarget | null>(null);
+  // 「すべて」の絞り込み（2026-10-18）。曲名の検索語と、選んだシリーズ名（null＝すべて）
+  const [allQuery, setAllQuery] = useState('');
+  const [allSeries, setAllSeries] = useState<string | null>(null);
   const [purchaseTarget, setPurchaseTarget] = useState<CollectionItem | null>(null);
   // 枠タップで立ち上がる作品詳細（参照 .work）。null=閉じている
   const [detailId, setDetailId] = useState<string | null>(null);
@@ -764,6 +773,34 @@ export const CollectionScreen: React.FC<Props> = ({
     }),
   );
 
+  // ── 「すべて」の絞り込み（2026-10-18） ──
+  // シリーズの候補は、板に並ぶ作品の裏面（back.series）から、並び順のまま重複を除いて拾う。
+  const seriesNames = useMemo(() => {
+    const out: string[] = [];
+    for (const w of works) {
+      const s = w.back?.series?.trim();
+      if (s && !out.includes(s)) out.push(s);
+    }
+    return out;
+  }, [works]);
+  const queryNorm = allQuery.trim().toLowerCase();
+  const filtering = !!queryNorm || !!allSeries;
+  // 絞り込み中は空席（Coming Soon）を出さず、該当する作品だけを元の番号のまま並べる
+  const filteredSlots: MineSlot[] = useMemo(() => {
+    if (!filtering) return boardSlots;
+    return boardSlots.filter((s) => {
+      if (!s.item) return false;
+      if (allSeries && (s.item.back?.series?.trim() ?? '') !== allSeries) return false;
+      if (queryNorm) {
+        const hay = `${s.item.title} ${s.item.serialNo ?? ''} ${s.item.back?.artist ?? ''}`.toLowerCase();
+        if (!hay.includes(queryNorm)) return false;
+      }
+      return true;
+    });
+    // boardSlots は毎描画で作り直す配列なので、中身の元（works）と絞り込み条件で覚える
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [works, filtering, allSeries, queryNorm]);
+
   // ── 「すべて」の板の1枠（参照 .slot の3状態） ──
   //   own  … 金属フレーム（マイコレと同じ MetalTile）
   //   wish … 沈んだアート＋シアンの内枠＋★
@@ -1027,7 +1064,7 @@ export const CollectionScreen: React.FC<Props> = ({
       <View style={styles.pagesWrap} {...segSwipe.panHandlers}>
         {seg === 'all' ? (
           <FlatList
-            data={boardSlots}
+            data={filteredSlots}
             key="all"
             keyExtractor={(s) => s.key}
             renderItem={renderBoardSlot}
@@ -1035,6 +1072,77 @@ export const CollectionScreen: React.FC<Props> = ({
             columnWrapperStyle={{ gap: COL_GAP }}
             contentContainerStyle={styles.pages}
             showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            // 2026-10-18 絞り込み: 曲名の検索と、シリーズの選択（横に並ぶ丸いタブ）
+            ListHeaderComponent={
+              <View style={styles.filterWrap}>
+                <View style={styles.searchBox}>
+                  <Text style={styles.searchMark}>⌕</Text>
+                  <TextInput
+                    value={allQuery}
+                    onChangeText={setAllQuery}
+                    placeholder={t('collection.searchTitle')}
+                    placeholderTextColor="rgba(148,152,190,0.6)"
+                    style={styles.searchInput}
+                    returnKeyType="search"
+                    clearButtonMode="while-editing"
+                    autoCorrect={false}
+                    accessibilityLabel={t('collection.searchTitle')}
+                  />
+                  {!!allQuery && (
+                    <Pressable
+                      hitSlop={8}
+                      onPress={() => setAllQuery('')}
+                      accessibilityRole="button"
+                      accessibilityLabel={t('collection.clearFilter')}
+                    >
+                      <Text style={styles.searchClear}>×</Text>
+                    </Pressable>
+                  )}
+                </View>
+                {seriesNames.length > 0 && (
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.chips}
+                    keyboardShouldPersistTaps="handled"
+                  >
+                    {[null, ...seriesNames].map((name) => {
+                      const on = allSeries === name;
+                      return (
+                        <Pressable
+                          key={name ?? '__all'}
+                          onPress={() => setAllSeries(name)}
+                          style={[styles.chip, on && styles.chipOn]}
+                          accessibilityRole="tab"
+                          accessibilityState={{ selected: on }}
+                        >
+                          <Text style={[styles.chipText, on && styles.chipTextOn]} numberOfLines={1}>
+                            {name ?? t('collection.allSeries')}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </ScrollView>
+                )}
+              </View>
+            }
+            ListEmptyComponent={
+              filtering ? (
+                <View style={styles.noMatch}>
+                  <Text style={styles.noMatchText}>{t('collection.noMatch')}</Text>
+                  <Pressable
+                    onPress={() => {
+                      setAllQuery('');
+                      setAllSeries(null);
+                    }}
+                    accessibilityRole="button"
+                  >
+                    <Text style={styles.noMatchClear}>{t('collection.clearFilter')}</Text>
+                  </Pressable>
+                </View>
+              ) : null
+            }
           />
         ) : seg === 'mine' && playlists ? (
           <MyPlaylists
@@ -1070,6 +1178,8 @@ export const CollectionScreen: React.FC<Props> = ({
               onPlayAll={(ids, source) => onPlayList?.(ids, undefined, source)}
               onViewCard={(ids, id, source, origin) => onViewCard?.(ids, id, source, origin)}
               onAddToPlaylist={onAddToPlaylist ? (it) => onAddToPlaylist({ id: it.id, title: it.title }) : undefined}
+              // 自分のプレイリストの中では、長押し＝この曲のメニュー（外す／ほかに追加／並べ替え）
+              onRowLongPress={(it) => setTrackAction({ id: it.id, title: it.title, listName: currentList.name })}
               onEdit={() => setEditorFor(currentList.id)}
               onTitlePress={() => setMenuOpen(true)}
             />
@@ -1173,6 +1283,31 @@ export const CollectionScreen: React.FC<Props> = ({
               ? (ids, id) => onPlayFrom(ids, id, editorFor && editorFor !== 'new' ? editorFor : undefined)
               : undefined
           }
+        />
+      )}
+
+      {/* 自分のプレイリストの曲を長押し → この曲のメニュー（2026-10-18） */}
+      {playlists && (
+        <TrackActionSheet
+          target={trackAction}
+          onClose={() => setTrackAction(null)}
+          onRemove={() => {
+            if (!trackAction || !currentList) return;
+            playlists.setTracks(currentList.id, currentList.trackIds.filter((x) => x !== trackAction.id));
+            showToast(t('playlist.removedFrom', { title: trackAction.title, name: currentList.name }));
+            setTrackAction(null);
+          }}
+          onAddToOther={() => {
+            if (!trackAction) return;
+            const { id, title } = trackAction;
+            setTrackAction(null);
+            onAddToPlaylist?.({ id, title });
+          }}
+          onReorder={() => {
+            if (!currentList) return;
+            setTrackAction(null);
+            setEditorFor(currentList.id);
+          }}
         />
       )}
 
@@ -1380,6 +1515,36 @@ const styles = StyleSheet.create({
     borderRadius: 1,
     backgroundColor: C.cyan,
   },
+
+  // 「すべて」の絞り込み（2026-10-18）。検索欄と、横に並ぶシリーズの丸いタブ
+  filterWrap: { marginBottom: 14, gap: 10 },
+  searchBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(96,206,224,0.22)',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+  },
+  searchMark: { color: C.sub, fontSize: 16 },
+  searchInput: { flex: 1, minWidth: 0, color: C.text, fontSize: 14, paddingVertical: 9, fontFamily: JP_SERIF_FONT },
+  searchClear: { color: C.sub, fontSize: 18, paddingHorizontal: 2 },
+  chips: { gap: 8, paddingRight: 4 },
+  chip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(96,206,224,0.22)',
+  },
+  chipOn: { borderColor: C.cyan, backgroundColor: 'rgba(96,206,224,0.14)' },
+  chipText: { color: C.sub, fontSize: 11.5, letterSpacing: 0.8, fontFamily: JP_SERIF_FONT },
+  chipTextOn: { color: C.text },
+  noMatch: { alignItems: 'center', paddingVertical: 36, gap: 12 },
+  noMatchText: { color: C.sub, fontSize: 13, fontFamily: JP_SERIF_FONT },
+  noMatchClear: { color: C.cyan, fontSize: 13, letterSpacing: 0.6 },
 
   // .deck-pages: padding 24px 22px 78px ＋ 上端フェード22px
   pagesWrap: { flex: 1 },
