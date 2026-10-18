@@ -3,7 +3,7 @@
  * ------------------------------------------------------------------
  * 参照の表面 = 角丸（0.085w）の作品画像そのまま（v93: ガラス効果なし）
  *   ＋ CardSurface（面内減光・金の内枠ヘアライン・下端の内側シャドウ）
- *   ＋ CardAura（黒3層の落影。v99-tsubasa で色付きグローは廃止）
+ *   ※ 落影（CardAura）は 2026-10-18 に撤去。輪郭は CardSurface の 1pt の縁取りで出す
  * ホームの非アクティブ面（スワイプ中の隣接カード）用。GL を使わないので軽い。
  *
  * ── 隣の札が黒く／半透明に見える件（2026-09-15）──
@@ -18,7 +18,6 @@
 
 import React, { useMemo } from 'react';
 import { View, Image } from 'react-native';
-import { CardAura } from './CardAura';
 import { CardSurface } from './CardSurface';
 
 /** 絵が届くまでのカードの地の色（夜空より一段明るい紺。落影の黒と見分けられる） */
@@ -41,7 +40,6 @@ const CardFaceImpl: React.FC<Props> = ({ uri, width, height, layerUris }) => {
 
   return (
     <View style={{ width, height }}>
-      <CardAura width={width} height={height} />
       <View style={{ width, height }}>
         {/* 絵が届くまでの下地。無いと落影だけが見えて真っ黒な板になる（2026-09-26）。
             絵は不透明なので、届いたあとは見えない */}

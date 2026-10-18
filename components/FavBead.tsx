@@ -10,6 +10,8 @@
  *     飛ばすのは親の仕事）。試作にあった角の下の「ウィッシュリストに追加」の文字は
  *     出さない（2026-09-24 代表指示）
  *
+ * 同じ丸で、試聴のオン・オフ（PreviewBead）を★の左に並べる。
+ *
  * 位置（カードの角）と、カードと一緒に動くこと・裏返し中に消えることは親
  * （DiscoverScreen の★の層）が持つ。この部品は見た目と押したときの動きだけ。
  */
@@ -25,6 +27,7 @@ import Animated, {
   Easing,
 } from 'react-native-reanimated';
 import { useT } from '../lib/i18n';
+import { PreviewIcon } from './icons';
 
 /** 当たり判定の一辺。中心をカードの角に合わせるので、親は角から BEAD_HIT/2 引いて置く */
 export const BEAD_HIT = 44;
@@ -88,6 +91,35 @@ export const FavBead: React.FC<Props> = React.memo(({ filled, onToggle, onAdded 
                 />
               </Svg>
             </Animated.View>
+          </View>
+        )}
+      </Pressable>
+    </View>
+  );
+});
+
+/** ★の左に並べる試聴ボタンの、★の中心からの距離（丸 28 ＋ 間 8） */
+export const BEAD_STEP = DISC + 8;
+
+/**
+ * 試聴のオン・オフ（2026-10-18 岡さん指定）。★の左に、★と同じ丸で置く。
+ * 以前は右上の EQ メーターが兼ねていたが、電波の表示に見えて押せると気づきにくかった。
+ * オン＝シアンのスピーカー、オフ＝灰色のスピーカー。押したときの動きは★と同じ沈み込み。
+ */
+export const PreviewBead: React.FC<{ on: boolean; onToggle: () => void }> = React.memo(({ on, onToggle }) => {
+  const t = useT();
+  return (
+    <View style={styles.root} pointerEvents="box-none">
+      <Pressable
+        onPress={onToggle}
+        style={styles.hit}
+        accessibilityRole="button"
+        accessibilityState={{ selected: on }}
+        accessibilityLabel={on ? t('preview.toggleOff') : t('preview.toggleOn')}
+      >
+        {({ pressed }) => (
+          <View style={[styles.disc, pressed && { transform: [{ scale: 0.9 }] }]}>
+            <PreviewIcon size={15} on={on} />
           </View>
         )}
       </Pressable>

@@ -32,6 +32,7 @@ import { usePlaybackOptional } from '../lib/playback';
 import { formatBytes, useDownloads } from '../lib/downloads';
 import { formatDuration, sumDurations, useDurations } from '../lib/durations';
 import { showToast } from '../lib/toast';
+import { MarqueeText } from './MarqueeText';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export type PlaylistItem = {
@@ -325,15 +326,22 @@ export const MyPlaylists: React.FC<Props> = ({
             >
               <Image source={{ uri: item.artworkUrl }} style={styles.art} />
             </View>
-            {/* 2026-10-15 岡さんデザイン（行レイアウト）: 左に No. ／ 曲名、右に 作家名・↓・時間を
-                横一列で。↓ は端末に保存済みの曲だけ（無い曲も幅は取って時間の位置をそろえる） */}
+            {/* 2026-10-15 岡さんデザイン（行レイアウト）: 左に No. ／ 曲名、右に ↓・時間。
+                2026-10-18: 作家名を右から No. の行へ移し（「No. 018 · TSUBASA」）、曲名の幅を広げた。
+                曲名は「火の粉 -SPARKS-」のまま 1 行（副題も作品名の一部なので分けない）。
+                収まらない曲名は、再生中の行だけ横に流す。ほかの行は止めて右端を薄く消す
+                （一覧がいっせいに動くと落ち着かないため。components/MarqueeText.tsx）。
+                ↓ は端末に保存済みの曲だけ（無い曲も幅は取って時間の位置をそろえる） */}
             <View style={styles.meta}>
-              {!!item.serialNo && <Text style={styles.serial} numberOfLines={1}>{item.serialNo}</Text>}
-              <Text style={[styles.title, on && styles.titleOn]} numberOfLines={1}>{item.title}</Text>
+              {(!!item.serialNo || !!item.artist) && (
+                <Text style={styles.serial} numberOfLines={1}>
+                  {[item.serialNo, item.artist].filter(Boolean).join(' · ')}
+                </Text>
+              )}
+              <MarqueeText text={item.title} style={[styles.title, on && styles.titleOn]} running={on} />
             </View>
             {on && <EqBars active={playing} keepIdle />}
             <View style={styles.side}>
-              {!!item.artist && <Text style={styles.artist} numberOfLines={1}>{item.artist}</Text>}
               {dl.stateOf(keyOf(item)).status === 'done' ? (
                 <View accessibilityLabel={t('download.badge')} style={styles.savedMark}>
                   <SavedArrow />
@@ -404,7 +412,8 @@ const styles = StyleSheet.create({
     gap: 14,
     paddingLeft: 22,
     paddingRight: 10,
-    paddingVertical: 7,
+    // 曲と曲の境目を分かりやすくするため 7 → 10（2026-10-18）
+    paddingVertical: 10,
   },
   rowPressed: { backgroundColor: 'rgba(255,255,255,0.05)', transform: [{ scale: 0.985 }] },
   art: { width: ART_W, height: ART_H, borderRadius: 5, backgroundColor: 'rgba(255,255,255,0.05)' },
@@ -413,7 +422,6 @@ const styles = StyleSheet.create({
   title: { color: C.text, fontSize: 17, letterSpacing: 0.3, marginTop: 2, fontFamily: JP_SERIF_FONT },
   titleOn: { color: C.cyan },
   side: { flexDirection: 'row', alignItems: 'center', gap: 8, maxWidth: '46%' },
-  artist: { flexShrink: 1, color: '#8D93B5', fontSize: 11, fontWeight: '300', letterSpacing: 0.7 },
   savedMark: { width: 10, alignItems: 'center', justifyContent: 'center' },
   time: { color: '#6E759A', fontSize: 12, fontWeight: '300', fontVariant: ['tabular-nums'], minWidth: 32, textAlign: 'right' },
   removeAll: {

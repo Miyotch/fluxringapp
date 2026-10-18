@@ -2,12 +2,14 @@
  * PlaylistEditor.tsx — マイプレイリスト（スロット 2 以降）を作る・直すシート
  * ------------------------------------------------------------------
  *   ・名前
- *   ・入っている曲（上へ・下へで並べ替え、外す）
+ *   ・入っている曲（長押しで並べ替え、外す）
  *   ・所有している曲から入れる
  *   ・削除（2 度押しで確定。確認ダイアログは出さない）
  *
  * 手元の下書きを直して、「完了」で一度に保存する（途中で閉じれば何も変わらない）。
- * 並べ替えは、行を長押しして上下に動かす（2026-09-25 岡さん指示）か、↑↓ ボタン。
+ * 並べ替えは、行を長押しして上下に動かす（2026-09-25 岡さん指示）。
+ * ↑↓ ボタンは長押しで足りるため 2026-10-18 に外した（岡さん指定）。読み上げ（VoiceOver /
+ * TalkBack）では長押しのドラッグができないので、行に「上へ」「下へ」の操作だけ残す。
  * 入っている曲の行を軽く押すと、いまの並び（下書き）のままその曲から流す（2026-09-26）。
  * 流れている曲の行は曲名がシアンになり、番号の代わりに「再生中」と出る。
  *
@@ -160,8 +162,11 @@ const DragRow: React.FC<{
   dragDy: SharedValue<number>;
   onLift: () => void;
   onDrop: (from: number, to: number) => void;
+  /** 読み上げ用の「上へ」「下へ」。見た目のボタンは出さない */
+  onMove: (d: -1 | 1) => void;
+  moveLabels: { up: string; down: string };
   children: React.ReactNode;
-}> = ({ index, count, dragIndex, dragDy, onLift, onDrop, children }) => {
+}> = ({ index, count, dragIndex, dragDy, onLift, onDrop, onMove, moveLabels, children }) => {
   const gesture = useMemo(
     () =>
       Gesture.Pan()
@@ -212,7 +217,16 @@ const DragRow: React.FC<{
 
   return (
     <GestureDetector gesture={gesture}>
-      <Animated.View style={[styles.dragRow, style]}>{children}</Animated.View>
+      <Animated.View
+        style={[styles.dragRow, style]}
+        accessibilityActions={[
+          ...(index > 0 ? [{ name: 'moveUp', label: moveLabels.up }] : []),
+          ...(index < count - 1 ? [{ name: 'moveDown', label: moveLabels.down }] : []),
+        ]}
+        onAccessibilityAction={(e) => onMove(e.nativeEvent.actionName === 'moveUp' ? -1 : 1)}
+      >
+        {children}
+      </Animated.View>
     </GestureDetector>
   );
 };
@@ -266,6 +280,7 @@ export const PlaylistEditor: React.FC<Props> = ({
   const inList = ids.map((id) => byId.get(id)).filter((x): x is EditorTrack => !!x);
   const addable = owned.filter((o) => !ids.includes(o.id));
 
+  const moveLabels = useMemo(() => ({ up: t('playlist.moveUp'), down: t('playlist.moveDown') }), [t]);
   const move = (i: number, d: -1 | 1) => {
     const j = i + d;
     if (j < 0 || j >= inList.length) return;
@@ -359,6 +374,8 @@ export const PlaylistEditor: React.FC<Props> = ({
                 dragDy={dragDy}
                 onLift={onLift}
                 onDrop={onDrop}
+                onMove={(d) => move(i, d)}
+                moveLabels={moveLabels}
               >
                 <Row
                   item={item}
@@ -366,13 +383,6 @@ export const PlaylistEditor: React.FC<Props> = ({
                   playing={item.id === playingId}
                   playingLabel={pb?.playing ? t('playback.playing') : t('playback.paused')}
                 >
-                  <Act label="↑" a11y={t('playlist.moveUp')} onPress={() => move(i, -1)} disabled={i === 0} />
-                  <Act
-                    label="↓"
-                    a11y={t('playlist.moveDown')}
-                    onPress={() => move(i, 1)}
-                    disabled={i === inList.length - 1}
-                  />
                   <Act
                     label={t('playlist.remove')}
                     a11y={t('playlist.remove')}
