@@ -83,6 +83,15 @@ module.exports = ({ config }) => {
       ...config.android,
       package: VERIFY_PACKAGE,
       googleServicesFile: VERIFY_GOOGLE_SERVICES,
+      versionCode: verifyVersionCode(),
     },
   });
 };
+
+// 検証版の versionCode。prebuild --clean のたびに android/ が作り直され、app.json に
+// versionCode が無い（EAS の remote 管理）ので 1 に戻ってしまう。端末に入っている前の
+// 検証版より小さいと「アプリはインストールされていません」で上書きを拒まれる（2026-10-18）。
+// 2020-01-01 からの経過分数にして、作るたびに必ず大きくする（2026 年で約 360 万。上限は 21 億）。
+function verifyVersionCode() {
+  return Math.floor((Date.now() - Date.UTC(2020, 0, 1)) / 60000);
+}
