@@ -5,7 +5,9 @@
  * 画面の下から出るシートへ改めた。開くのは見出しのプレイリスト名（▾）から。
  *   ・自分のプレイリスト … 名前と「4 TRACKS · 18:42」（合計時間）。選択中は左にシアンの点
  *   ・区切り線の下に ウィッシュリスト／端末に保存した曲（アプリが管理する一覧。編集なし）
- *   ・右上の「編集」 → 自分のプレイリストの行に「⋯」が出て、編集／削除ができる
+ *   ・自分のプレイリストの行の右端に、いつも「⋮」（縦3点）。押すと編集／削除が出る。
+ *     ふだんは薄く、押したとき・開いているときだけ明るくする（行が並んでもうるさく見せない）
+ *     2026-10-19 岡さん指摘: 見出しは「プレイリスト」に、右上の「編集」はやめた。行も詰めた
  *   ・＋ 新しいプレイリスト → 編集シートを新規で開く
  *   ・流しているリストには EQ を出す（どのリストが鳴っているか分かるように）
  * 文字はゴシック（OS 既定）。曲名の明朝はリストの行だけに残す。
@@ -81,14 +83,10 @@ export const PlaylistMenu: React.FC<Props> = ({
   const pb = usePlaybackOptional();
   const bottom = useBottomInset(24, 16);
   const liveSource = pb?.current ? pb.source : null;
-  const [editing, setEditing] = useState(false);
   const [edit, setEdit] = useState<Edit>(null);
-  // 閉じたら編集の状態も畳む
+  // 閉じたら開いていた⋮のメニューも畳む
   useEffect(() => {
-    if (!visible) {
-      setEdit(null);
-      setEditing(false);
-    }
+    if (!visible) setEdit(null);
   }, [visible]);
   // 開く動き。Android のモーダルの中で Reanimated の entering（SlideInDown）を使うと、
   // 動き終わってもタッチの当たり判定がずれて、行も「編集」も押せなかった（2026-10-15 実機）。
@@ -121,13 +119,13 @@ export const PlaylistMenu: React.FC<Props> = ({
     const on = selected === key;
     const live = liveSource === key;
     const open = edit?.id === key;
-    const canEdit = kind === 'list' && editing;
+    const canEdit = kind === 'list';
     return (
       <View key={key} style={[styles.rowWrap, open && styles.rowWrapOpen]}>
         <View style={styles.line}>
           <Pressable
             style={({ pressed }) => [kind === 'list' ? styles.item : styles.itemSys, pressed && styles.pressed]}
-            onPress={() => (canEdit ? setEdit(open ? null : { id: key, mode: 'acts' }) : onSelect(key))}
+            onPress={() => onSelect(key)}
             accessibilityRole="button"
             accessibilityState={{ selected: on }}
             accessibilityLabel={`${name}、${meta}`}
@@ -147,13 +145,13 @@ export const PlaylistMenu: React.FC<Props> = ({
           </Pressable>
           {canEdit && (
             <Pressable
-              style={({ pressed }) => [styles.more, pressed && styles.pressed]}
+              style={styles.more}
               onPress={() => setEdit(open ? null : { id: key, mode: 'acts' })}
-              hitSlop={4}
+              hitSlop={{ top: 4, bottom: 4, left: 6, right: 6 }}
               accessibilityRole="button"
               accessibilityLabel={t('playlist.menuFor', { name })}
             >
-              <Text style={[styles.moreText, open && { color: C.text }]}>⋯</Text>
+              {({ pressed }) => <MoreDots lit={open || pressed} />}
             </Pressable>
           )}
         </View>
@@ -218,20 +216,6 @@ export const PlaylistMenu: React.FC<Props> = ({
             <View style={styles.handle} />
             <View style={styles.head}>
               <Text style={styles.headTitle}>{t('playlist.choose')}</Text>
-              {lists.length > 0 && (
-                <Pressable
-                  onPress={() => {
-                    setEdit(null);
-                    setEditing((v) => !v);
-                  }}
-                  hitSlop={10}
-                  accessibilityRole="button"
-                >
-                  <Text style={[styles.headEdit, editing && { color: C.cyan }]}>
-                    {editing ? t('playlist.done') : t('playlist.edit')}
-                  </Text>
-                </Pressable>
-              )}
             </View>
 
             <ScrollView style={{ maxHeight: 420 }} keyboardShouldPersistTaps="handled" bounces={false}>
@@ -257,6 +241,18 @@ export const PlaylistMenu: React.FC<Props> = ({
     </Modal>
   );
 };
+
+/** 行の右端の「⋮」。文字の ⋮ はフォントで太さ・位置がぶれるので点を 3 つ並べて描く */
+function MoreDots({ lit }: { lit: boolean }) {
+  const color = lit ? C.text : C.faint;
+  return (
+    <View style={styles.dots}>
+      <View style={[styles.moreDot, { backgroundColor: color }]} />
+      <View style={[styles.moreDot, { backgroundColor: color }]} />
+      <View style={[styles.moreDot, { backgroundColor: color }]} />
+    </View>
+  );
+}
 
 const styles = StyleSheet.create({
   scrim: { flex: 1, backgroundColor: 'rgba(7,9,26,0.62)' },
@@ -293,24 +289,24 @@ const styles = StyleSheet.create({
     paddingBottom: 14,
   },
   headTitle: { color: C.text, fontSize: 17, fontWeight: '500', letterSpacing: 1 },
-  headEdit: { color: C.dim, fontSize: 12, letterSpacing: 1 },
   rowWrap: { marginHorizontal: 14, borderRadius: 12 },
   rowWrapOpen: { backgroundColor: 'rgba(255,255,255,0.04)' },
   line: { flexDirection: 'row', alignItems: 'center' },
   item: {
     flex: 1,
     minWidth: 0,
-    minHeight: 58,
+    minHeight: 46, // 2026-10-19 58 → 46（行を詰める。押せる高さ 44 は下回らない）
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
-    paddingHorizontal: 14,
+    paddingLeft: 14,
+    paddingRight: 4, // 右隣の⋮との間
     borderRadius: 12,
   },
   itemSys: {
     flex: 1,
     minWidth: 0,
-    minHeight: 54,
+    minHeight: 44, // 2026-10-19 54 → 44
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
@@ -335,8 +331,9 @@ const styles = StyleSheet.create({
   nameOn: { color: C.text, fontWeight: '400' },
   meta: { color: C.dim, fontSize: 11, letterSpacing: 0.7, fontVariant: ['tabular-nums'] },
   metaOff: { color: C.faint },
-  more: { width: 40, height: 44, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
-  moreText: { color: C.dim, fontSize: 18, letterSpacing: 1 },
+  more: { width: 32, height: 44, alignItems: 'center', justifyContent: 'center' },
+  dots: { gap: 3, alignItems: 'center' },
+  moreDot: { width: 3, height: 3, borderRadius: 1.5 },
   divider: { height: 1, marginHorizontal: 28, marginTop: 8, marginBottom: 10, backgroundColor: C.line },
   sub: { flexDirection: 'row', gap: 8, paddingLeft: 42, paddingRight: 10, paddingBottom: 12 },
   subBtn: {
