@@ -29,12 +29,70 @@ import {
 } from '../lib/layoutAdjust';
 import { SubHeader } from './SettingsDetailScreens';
 import { useWindowDimensions } from 'react-native';
+import { CARD_ASPECT } from '../components/CardGL';
+import { homeCardWidth } from '../constants/design-tokens';
 
 const CARD_RANGE = 100;  // px。ホームのカード本体の可動範囲
 const ACTS_RANGE = 70;   // px。ホームの下部ボタン行の可動範囲
 const WISH_RANGE = 70;   // px。ウィッシュリスト作品詳細の★／試聴／購入するの行の可動範囲
 
 const pxLabel = (v: number) => `${v >= 0 ? '+' : ''}${Math.round(v)}px`;
+
+// ホーム（DiscoverScreen）の購入ボタンの高さ。位置の式もホームと同じ（カード下端 + 76pt）
+const BUY_H = 40;
+const PREVIEW_SCALE = 0.4;
+
+/**
+ * ホーム画面のミニプレビュー。スライダーの未保存値（draft）をその場で反映する。
+ * 実画面と同じ式で位置を出し、全体を PREVIEW_SCALE 倍して描く（GL は使わない軽い模型）。
+ *   カード本体 … 画面中央 + homeCardOffsetY
+ *   ★／試聴 … カードの右下の角（カードに付いて動く）
+ *   購入する … カード下端 + 76pt + homeCardOffsetY + homeActsOffsetY
+ */
+const HomePreview: React.FC<{ cfg: LayoutAdjustConfig; screenW: number; screenH: number }> = ({
+  cfg,
+  screenW,
+  screenH,
+}) => {
+  const k = PREVIEW_SCALE;
+  const cardW = homeCardWidth(screenH);
+  const cardH = Math.round(cardW * CARD_ASPECT);
+  const cardTop = screenH / 2 - cardH / 2 + cfg.homeCardOffsetY;
+  const buyCenter = screenH / 2 + cardH / 2 + 76 * (screenH / 844) + cfg.homeCardOffsetY + cfg.homeActsOffsetY;
+  const bead = 30;
+  return (
+    <View style={[styles.previewFrame, { width: screenW * k, height: screenH * k }]} pointerEvents="none">
+      <View
+        style={[
+          styles.pvCard,
+          { left: ((screenW - cardW) / 2) * k, top: cardTop * k, width: cardW * k, height: cardH * k },
+        ]}
+      />
+      {[1, 0].map((i) => (
+        <View
+          key={i}
+          style={[
+            styles.pvBead,
+            {
+              width: bead * k,
+              height: bead * k,
+              left: ((screenW + cardW) / 2 - 8 - bead - i * (bead + 8)) * k,
+              top: (cardTop + cardH - 8 - bead) * k,
+            },
+          ]}
+        />
+      ))}
+      <View
+        style={[
+          styles.pvBuy,
+          { left: (screenW / 2 - 70) * k, top: (buyCenter - BUY_H / 2) * k, width: 140 * k, height: BUY_H * k },
+        ]}
+      >
+        <Text style={styles.pvBuyText}>購入する</Text>
+      </View>
+    </View>
+  );
+};
 
 type Props = { onBack: () => void };
 
@@ -81,12 +139,22 @@ export const LayoutAdjustScreen: React.FC<Props> = ({ onBack }) => {
       <StatusBar barStyle="light-content" backgroundColor={CR.deepest} />
       <CreditsBackdrop w={screenW} h={screenH} />
       <SubHeader title="ボタン位置調整" onBack={onBack} />
-      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.body}
+        showsVerticalScrollIndicator={false}
+        stickyHeaderIndices={[1]}
+      >
         <Text style={styles.lead}>
           ホーム画面のカード・下部ボタン行と、ウィッシュリストの作品詳細
           （カードをタップした後の画面）にある★／試聴／購入するの行の縦位置を
           調整します。スライダーの位置は現在の位置を基準（中央）にしています。
         </Text>
+
+        {/* ミニプレビュー（スクロールしても上に残る。ホームの位置をスライダーに合わせて動かす） */}
+        <View style={styles.previewWrap}>
+          <HomePreview cfg={draft} screenW={screenW} screenH={screenH} />
+          <Text style={styles.previewNote}>ホーム画面のプレビュー（未保存の値を反映）</Text>
+        </View>
 
         {/* ホーム画面 */}
         <Text style={styles.sectionTitle}>ホーム画面</Text>
@@ -151,6 +219,45 @@ const styles = StyleSheet.create({
     lineHeight: 21,
     letterSpacing: 0.26,
     marginTop: 8,
+    fontFamily: JP_SERIF_FONT,
+  },
+  previewWrap: { alignItems: 'center', backgroundColor: COLOR.bg, paddingVertical: SPACE.sm },
+  previewFrame: {
+    overflow: 'hidden',
+    borderRadius: RADIUS.lg,
+    borderWidth: 1,
+    borderColor: COLOR.border,
+    backgroundColor: '#05040c',
+  },
+  pvCard: {
+    position: 'absolute',
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: COLOR.auraCyan,
+    backgroundColor: 'rgba(96,206,224,0.10)',
+  },
+  pvBead: {
+    position: 'absolute',
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.45)',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  pvBuy: {
+    position: 'absolute',
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: COLOR.auraCyan,
+    backgroundColor: 'rgba(96,206,224,0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pvBuyText: { color: COLOR.textPrimary, fontSize: 8, letterSpacing: 0.5, fontFamily: JP_SERIF_FONT },
+  previewNote: {
+    color: COLOR.textSecondary,
+    fontSize: 11,
+    marginTop: 4,
+    letterSpacing: 0.2,
     fontFamily: JP_SERIF_FONT,
   },
   sectionTitle: {
