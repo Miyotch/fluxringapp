@@ -25,7 +25,7 @@ import { CardDetailIcon, PauseMark, PlayMark } from './icons';
 import { EqBars } from './EqBars';
 import { DownloadButton } from './DownloadButton';
 import type { CardOrigin } from './CardAfterimage';
-import { JP_SERIF_FONT } from '../constants/fonts';
+import { JP_SERIF_FONT, NUM_FONT } from '../constants/fonts';
 import Svg, { Path } from 'react-native-svg';
 import { useT } from '../lib/i18n';
 import { usePlaybackOptional } from '../lib/playback';
@@ -332,13 +332,14 @@ export const MyPlaylists: React.FC<Props> = ({
                 収まらない曲名は、再生中の行だけ横に流す。ほかの行は止めて右端を薄く消す
                 （一覧がいっせいに動くと落ち着かないため。components/MarqueeText.tsx）。
                 ↓ は端末に保存済みの曲だけ（無い曲も幅は取って時間の位置をそろえる） */}
+            {/* 2026-10-20 岡さん指定: 新規・編集のプレイリスト画面と同じく 上＝曲名／下＝No. · 作家名 */}
             <View style={styles.meta}>
+              <MarqueeText text={item.title} style={[styles.title, on && styles.titleOn]} running={on} />
               {(!!item.serialNo || !!item.artist) && (
                 <Text style={styles.serial} numberOfLines={1}>
                   {[item.serialNo, item.artist].filter(Boolean).join(' · ')}
                 </Text>
               )}
-              <MarqueeText text={item.title} style={[styles.title, on && styles.titleOn]} running={on} />
             </View>
             {on && <EqBars active={playing} keepIdle />}
             <View style={styles.side}>
@@ -418,8 +419,8 @@ const styles = StyleSheet.create({
   rowPressed: { backgroundColor: 'rgba(255,255,255,0.05)', transform: [{ scale: 0.985 }] },
   art: { width: ART_W, height: ART_H, borderRadius: 5, backgroundColor: 'rgba(255,255,255,0.05)' },
   meta: { flex: 1, minWidth: 0 },
-  serial: { color: '#6E759A', fontSize: 10, letterSpacing: 1.4, fontVariant: ['tabular-nums'] },
-  title: { color: C.text, fontSize: 17, letterSpacing: 0.3, marginTop: 2, fontFamily: JP_SERIF_FONT },
+  serial: { color: 'rgba(236,238,247,0.56)', fontSize: 11, letterSpacing: 1.4, marginTop: 4, fontFamily: NUM_FONT },
+  title: { color: C.text, fontSize: 17, letterSpacing: 0.3, fontFamily: JP_SERIF_FONT },
   titleOn: { color: C.cyan },
   side: { flexDirection: 'row', alignItems: 'center', gap: 8, maxWidth: '46%' },
   savedMark: { width: 10, alignItems: 'center', justifyContent: 'center' },
