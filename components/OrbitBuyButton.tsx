@@ -77,6 +77,8 @@ export type OrbitButtonState = 'idle' | 'pending' | 'unavailable';
 
 type Props = {
   owned?: boolean;
+  /** 所有済みのとき ▶ の代わりに出す文字（ホームの「マイリスト」。2026-10-19 岡さん指定） */
+  ownedLabel?: string;
   priceJpy?: number;
   /** ストア取得のローカライズ表示価格。読み上げにだけ使う（ボタンには出さない） */
   priceLabel?: string;
@@ -107,6 +109,7 @@ const PlayGlyph: React.FC = () => (
 
 export const OrbitBuyButton: React.FC<Props> = ({
   owned = false,
+  ownedLabel,
   priceJpy = TRACK_PRICE_JPY,
   priceLabel,
   state = 'idle',
@@ -223,7 +226,7 @@ export const OrbitBuyButton: React.FC<Props> = ({
       hitSlop={{ top: 2, bottom: 2 }}
       accessibilityRole="button"
       accessibilityState={{ disabled, busy: state === 'pending' }}
-      accessibilityLabel={owned ? t('buy.play') : t('buy.a11yPrice', { price })}
+      accessibilityLabel={owned ? ownedLabel ?? t('buy.play') : t('buy.a11yPrice', { price })}
     >
       <Animated.View
         style={[styles.pill, disabled && styles.dim, { transform: [{ scale: press }] }]}
@@ -235,7 +238,13 @@ export const OrbitBuyButton: React.FC<Props> = ({
           </Text>
         </Animated.View>
         <Animated.View style={[styles.center, { opacity: swap }]} pointerEvents="none">
-          <PlayGlyph />
+          {ownedLabel ? (
+            <Text style={styles.label} numberOfLines={1}>
+              {ownedLabel}
+            </Text>
+          ) : (
+            <PlayGlyph />
+          )}
         </Animated.View>
       </Animated.View>
     </Pressable>

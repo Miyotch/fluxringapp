@@ -18,7 +18,6 @@ import React, { useRef, useState, useCallback, useEffect, useMemo } from 'react'
 import {
   View,
   Text,
-  Pressable,
   StyleSheet,
   StatusBar,
   LayoutChangeEvent,
@@ -318,11 +317,12 @@ type Props = {
   /** 購入フロー。未指定なら購入ボタンは押しても何も起きない（ギャラリー表示用） */
   purchase?: PurchaseController;
   /**
-   * 所有済みカードの「マイリストで聴けます」を押したとき → マイリストのタブへ。
-   * HOME では再生しない（2026-09-25 岡さん指示。期間限定のカードは時期が過ぎると
-   * HOME から消えるので、聴く場所はマイリストにまとめる）
+   * 所有済みカードの「マイリスト」ボタン → マイリスト（所有カード）の、そのカードの
+   * 詳細（カードを眺める画面）へ。HOME では再生しない（2026-09-25 岡さん指示。期間限定の
+   * カードは時期が過ぎると HOME から消えるので、聴く場所はマイリストにまとめる）。
+   * 2026-10-19 静かな一行から、購入ボタンと同じ形・大きさのボタンへ
    */
-  onOpenMyList?: () => void;
+  onOpenMyList?: (trackId: string) => void;
   /**
    * カードの★でウィッシュリストに入れ、光の粒がフッターのプレイリストタブに
    * 着いたとき。App.tsx がタブを一度脈打たせる。
@@ -2089,23 +2089,20 @@ export const DiscoverScreen: React.FC<Props> = ({
               出さない）。所有済みは HOME では再生せず、マイリストへの一行だけ
               （2026-09-25 岡さん指示）。裏返し中も位置は動かさない。 */}
           <View style={[styles.bottom, { top: BUY_TOP, height: BUY_H }]} pointerEvents="box-none">
-            {isOwned(shown) ? (
-              <Pressable
-                onPress={onOpenMyList}
-                hitSlop={12}
-                accessibilityRole="button"
-                style={({ pressed }) => [styles.ownedLink, pressed && { opacity: 0.6 }]}
-              >
-                <Text style={styles.ownedLinkText}>{t('home.ownedGoMyList')}</Text>
-              </Pressable>
-            ) : (
-              <OrbitBuyButton
-                priceLabel={shown ? purchase?.displayPriceOf(shown.id) : undefined}
-                state={purchase?.state === 'busy' ? 'pending' : 'idle'}
-                active={orbitActive}
-                onPress={handleBuy}
-              />
-            )}
+            {/* 購入ボタンと所有済みの「マイリスト」は同じ部品（形・大きさ・周回する光）。
+                買った瞬間は「購入する」が「マイリスト」へフェードで替わる */}
+            <OrbitBuyButton
+              owned={isOwned(shown)}
+              ownedLabel={t('home.myList')}
+              priceLabel={shown ? purchase?.displayPriceOf(shown.id) : undefined}
+              state={!isOwned(shown) && purchase?.state === 'busy' ? 'pending' : 'idle'}
+              active={orbitActive}
+              onPress={() => {
+                if (!shown) return;
+                if (isOwned(shown)) onOpenMyList?.(shown.id);
+                else handleBuy();
+              }}
+            />
           </View>
         </RNAnimated.View>
       </View>
@@ -2217,9 +2214,6 @@ const styles = StyleSheet.create({
     position: 'absolute', left: 0, right: 0,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
   },
-  // 所有済みカードの「マイリストで聴けます」。ボタンではなく静かな一行
-  ownedLink: { paddingVertical: 10, paddingHorizontal: 16 },
-  ownedLinkText: { color: C.sub, fontSize: 12, letterSpacing: 1.2 },
 
   transport: {
     paddingVertical: 16, paddingHorizontal: 20, borderRadius: 16,

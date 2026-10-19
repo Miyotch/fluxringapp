@@ -24,6 +24,8 @@ import {
   Image,
   Pressable,
   FlatList,
+  Modal,
+  SectionList,
   StyleSheet,
   StatusBar,
   PanResponder,
@@ -223,6 +225,12 @@ const C = {
 //        読めてしまうので、実体のある作品数より先は Coming Soon に置き換える。
 type MineSlot = { key: string; item: CollectionItem | null; no: string };
 
+// 「すべて」のシリーズの塊（2026-10-19）。行は 3 枚ずつ
+type AllRow = { key: string; cells: CollectionItem[] };
+type AllSection = { key: string; name: string; owned: number; total: number; open: boolean; data: AllRow[] };
+/** シリーズの無い曲をまとめる塊の鍵 */
+const NO_SERIES = '__none';
+
 // 背景は設定配下（CREDITS等）と同じ CreditsBackdrop を使う（components/CreditsBackdrop.tsx）。
 
 // 上端フェード（原本の mask-image:linear-gradient(transparent 0, #000 22px) 相当）
@@ -322,9 +330,12 @@ export const CollectionScreen: React.FC<Props> = ({
   const [editorFor, setEditorFor] = useState<string | null>(null);
   // 自分のプレイリストの曲を長押ししたときのメニュー（外す／ほかに追加／並べ替え）。2026-10-18
   const [trackAction, setTrackAction] = useState<TrackActionTarget | null>(null);
-  // 「すべて」の絞り込み（2026-10-18）。曲名の検索語と、選んだシリーズ名（null＝すべて）
+  // 「すべて」の絞り込み（2026-10-18）。曲名の検索語と、選んだシリーズ（null＝すべて）
   const [allQuery, setAllQuery] = useState('');
   const [allSeries, setAllSeries] = useState<string | null>(null);
+  // 「すべて」のシリーズを選ぶシートと、閉じているシリーズ（2026-10-19 岡さん案）
+  const [seriesSheet, setSeriesSheet] = useState(false);
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   const [purchaseTarget, setPurchaseTarget] = useState<CollectionItem | null>(null);
   // 枠タップで立ち上がる作品詳細（参照 .work）。null=閉じている
   const [detailId, setDetailId] = useState<string | null>(null);
@@ -762,44 +773,80 @@ export const CollectionScreen: React.FC<Props> = ({
       String(index + 1).padStart(2, '0');
   };
 
-  // 板は最低 21 枠（マイコレと同じ盤面）。作品が足りないぶんは番号だけの空席で埋める。
-  // 連作は「どこが空いているか」が見える場なので、作品数ぶんだけ縮めると盤に見えない。
-  const boardSlots: MineSlot[] = Array.from(
-    { length: Math.max(TOTAL_SLOTS, works.length) },
-    (_, i) => ({
-      key: works[i]?.id ?? `board-empty-${i}`,
-      item: works[i] ?? null,
-      no: works[i] ? slotNo(works[i], i) : String(i + 1).padStart(2, '0'),
-    }),
-  );
-
-  // ── 「すべて」の絞り込み（2026-10-18） ──
-  // シリーズの候補は、板に並ぶ作品の裏面（back.series）から、並び順のまま重複を除いて拾う。
-  const seriesNames = useMemo(() => {
-    const out: string[] = [];
+  // ── 「すべて」はシリーズごとの区切り（2026-10-19 岡さん案「FR シリーズ選択」） ──
+  // 最初の 1 曲からシリーズに入れる運用になったので、板を 21 枠の盤ではなくシリーズの
+  // 塊で並べる（シリーズが増えても 1 本の板が延びるだけにならないように）。
+  //   ・新しいシリーズが上（シリーズの中でいちばん大きい通し番号で比べる）
+  //   ・シリーズの中は通し番号の大きい順（新しい曲が先）
+  //   ・見出しは上に留まり、押すとそのシリーズを閉じる／開く。右に「所有 / 全曲」
+  //   ・シリーズの無い曲は最後に「シリーズ未設定」としてまとめる
+  //   ・空席（Coming Soon）はもう出さない（シリーズの全曲＝出ている作品の数）
+  const seriesGroups = useMemo(() => {
+    const map = new Map<string, CollectionItem[]>();
     for (const w of works) {
-      const s = w.back?.series?.trim();
-      if (s && !out.includes(s)) out.push(s);
+      const k = w.back?.series?.trim() || NO_SERIES;
+      const list = map.get(k);
+      if (list) list.push(w);
+      else map.set(k, [w]);
     }
-    return out;
-  }, [works]);
+    const groups = Array.from(map.entries()).map(([key, items]) => {
+      const sorted = [...items].sort((a, b) => serialDigits(b) - serialDigits(a));
+      const top = sorted.reduce((m, x) => {
+        const n = serialDigits(x);
+        return Number.isFinite(n) ? Math.max(m, n) : m;
+      }, -1);
+      return {
+        key,
+        name: key === NO_SERIES ? t('collection.seriesNone') : key,
+        items: sorted,
+        owned: sorted.filter((x) => ownedIds.has(x.id)).length,
+        total: sorted.length,
+        top,
+      };
+    });
+    return groups.sort((a, b) => {
+      if (a.key === NO_SERIES) return 1;
+      if (b.key === NO_SERIES) return -1;
+      return b.top - a.top;
+    });
+  }, [works, ownedIds, t]);
+  const namedSeriesCount = seriesGroups.filter((g) => g.key !== NO_SERIES).length;
   const queryNorm = allQuery.trim().toLowerCase();
   const filtering = !!queryNorm || !!allSeries;
-  // 絞り込み中は空席（Coming Soon）を出さず、該当する作品だけを元の番号のまま並べる
-  const filteredSlots: MineSlot[] = useMemo(() => {
-    if (!filtering) return boardSlots;
-    return boardSlots.filter((s) => {
-      if (!s.item) return false;
-      if (allSeries && (s.item.back?.series?.trim() ?? '') !== allSeries) return false;
-      if (queryNorm) {
-        const hay = `${s.item.title} ${s.item.serialNo ?? ''} ${s.item.back?.artist ?? ''}`.toLowerCase();
-        if (!hay.includes(queryNorm)) return false;
+  // 選んだシリーズが消えたら「すべて」へ戻す
+  useEffect(() => {
+    if (allSeries && !seriesGroups.some((g) => g.key === allSeries)) setAllSeries(null);
+  }, [allSeries, seriesGroups]);
+  const allSections = useMemo(() => {
+    const out: AllSection[] = [];
+    for (const g of seriesGroups) {
+      if (allSeries && g.key !== allSeries) continue;
+      const hit = queryNorm
+        ? g.items.filter((x) =>
+            `${x.title} ${x.serialNo ?? ''} ${x.back?.artist ?? ''}`.toLowerCase().includes(queryNorm),
+          )
+        : g.items;
+      if (hit.length === 0) continue;
+      // 検索中は閉じたシリーズも開いて見せる（当たった曲が隠れないように）
+      const open = !!queryNorm || !collapsed.has(g.key);
+      const rows: AllRow[] = [];
+      if (open) {
+        for (let i = 0; i < hit.length; i += COLS) {
+          rows.push({ key: `${g.key}-${i}`, cells: hit.slice(i, i + COLS) });
+        }
       }
-      return true;
+      out.push({ key: g.key, name: g.name, owned: g.owned, total: g.total, open, data: rows });
+    }
+    return out;
+  }, [seriesGroups, allSeries, queryNorm, collapsed]);
+  const toggleSeries = (key: string) =>
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
     });
-    // boardSlots は毎描画で作り直す配列なので、中身の元（works）と絞り込み条件で覚える
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [works, filtering, allSeries, queryNorm]);
+  const pickedGroup = allSeries ? seriesGroups.find((g) => g.key === allSeries) ?? null : null;
 
   // ── 「すべて」の板の1枠（参照 .slot の3状態） ──
   //   own  … 金属フレーム（マイコレと同じ MetalTile）
@@ -810,27 +857,11 @@ export const CollectionScreen: React.FC<Props> = ({
   //   CSS フィルタは無いので、黒地の上に opacity .52 で重ねて brightness だけ
   //   合わせている（彩度は落としていない）。グリッド全枠に ColorMatrix を敷くと
   //   スクロールが重くなるため、ここは明度合わせに留める。
-  const renderBoardSlot = ({ item: slot, index }: { item: MineSlot; index: number }) => {
-    const item = slot.item;
-    const no = slot.no;
-    // まだ作品が入っていない席。参照の「決めが要る」枠は A（番号のみ）で確定
-    if (!item) {
-      return (
-        <Animated.View
-          key={`all-${slot.key}`}
-          entering={FadeInUp.duration(420).delay((index % 8) * 55)}
-          style={{ width: colW, marginBottom: ROW_GAP }}
-        >
-          <View style={[styles.emptySlot, { width: colW, height: colH }]}>
-            <Text style={styles.slotSoon} numberOfLines={2}>{t('collection.comingSoon')}</Text>
-          </View>
-        </Animated.View>
-      );
-    }
+  const renderBoardSlot = (item: CollectionItem, no: string, index: number) => {
     const state = slotState(item.id);
     return (
       <Animated.View
-        key={`all-${slot.key}`}
+        key={`all-${item.id}`}
         entering={FadeInUp.duration(420).delay((index % 8) * 55)}
         style={{ width: colW, marginBottom: ROW_GAP }}
       >
@@ -1063,19 +1094,43 @@ export const CollectionScreen: React.FC<Props> = ({
       {/* グリッド（上端フェード付き）。横スワイプでマイコレ↔ウィッシュを切替 */}
       <View style={styles.pagesWrap} {...segSwipe.panHandlers}>
         {seg === 'all' ? (
-          <FlatList
-            data={filteredSlots}
+          <SectionList<AllRow, AllSection>
+            sections={allSections}
             key="all"
-            keyExtractor={(s) => s.key}
-            renderItem={renderBoardSlot}
-            numColumns={COLS}
-            columnWrapperStyle={{ gap: COL_GAP }}
-            contentContainerStyle={styles.pages}
+            keyExtractor={(row) => row.key}
+            stickySectionHeadersEnabled
+            contentContainerStyle={styles.allPages}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
-            // 2026-10-18 絞り込み: 曲名の検索と、シリーズの選択（横に並ぶ丸いタブ）
+            renderItem={({ item: row, index }) => (
+              <View style={styles.allRow}>
+                {row.cells.map((c, j) => renderBoardSlot(c, slotNo(c, 0), index * COLS + j))}
+              </View>
+            )}
+            renderSectionHeader={({ section }) => {
+              const full = section.total > 0 && section.owned === section.total;
+              return (
+                <Pressable
+                  onPress={() => toggleSeries(section.key)}
+                  style={({ pressed }) => [styles.secHead, pressed && { opacity: 0.75 }]}
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: section.open }}
+                  accessibilityLabel={t('collection.seriesToggle', { name: section.name })}
+                >
+                  <View style={styles.secHeadName}>
+                    <Text style={[styles.secChevron, !section.open && styles.secChevronClosed]}>▾</Text>
+                    <Text style={styles.secName} numberOfLines={1}>{section.name}</Text>
+                  </View>
+                  <Text style={[styles.secCount, full && styles.secCountFull]}>
+                    {`${section.owned} / ${section.total}`}
+                  </Text>
+                </Pressable>
+              );
+            }}
+            // 2026-10-18 曲名の検索。2026-10-19 シリーズは丸いタブの横並びから、1 行の
+            // 「すべてのシリーズ ▾」＋選ぶシートへ（シリーズが増えても 1 行で済むように）
             ListHeaderComponent={
-              <View style={styles.filterWrap}>
+              <View style={[styles.filterWrap, styles.allFilter]}>
                 <View style={styles.searchBox}>
                   <Text style={styles.searchMark}>⌕</Text>
                   <TextInput
@@ -1100,30 +1155,25 @@ export const CollectionScreen: React.FC<Props> = ({
                     </Pressable>
                   )}
                 </View>
-                {seriesNames.length > 0 && (
-                  <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={styles.chips}
-                    keyboardShouldPersistTaps="handled"
+                {namedSeriesCount > 0 && (
+                  <Pressable
+                    onPress={() => setSeriesSheet(true)}
+                    style={({ pressed }) => [styles.seriesPick, pressed && { opacity: 0.7 }]}
+                    accessibilityRole="button"
+                    accessibilityHint={t('collection.seriesTitle')}
                   >
-                    {[null, ...seriesNames].map((name) => {
-                      const on = allSeries === name;
-                      return (
-                        <Pressable
-                          key={name ?? '__all'}
-                          onPress={() => setAllSeries(name)}
-                          style={[styles.chip, on && styles.chipOn]}
-                          accessibilityRole="tab"
-                          accessibilityState={{ selected: on }}
-                        >
-                          <Text style={[styles.chipText, on && styles.chipTextOn]} numberOfLines={1}>
-                            {name ?? t('collection.allSeries')}
-                          </Text>
-                        </Pressable>
-                      );
-                    })}
-                  </ScrollView>
+                    <View style={styles.seriesPickName}>
+                      <Text style={styles.seriesPickText} numberOfLines={1}>
+                        {pickedGroup ? pickedGroup.name : t('collection.allSeries')}
+                      </Text>
+                      <Text style={styles.seriesPickChevron}>▾</Text>
+                    </View>
+                    <Text style={styles.seriesPickCount}>
+                      {pickedGroup
+                        ? `${pickedGroup.owned} / ${pickedGroup.total}`
+                        : t('collection.seriesCount', { n: namedSeriesCount })}
+                    </Text>
+                  </Pressable>
                 )}
               </View>
             }
@@ -1237,6 +1287,52 @@ export const CollectionScreen: React.FC<Props> = ({
         <TopFade w={screenW} />
       </View>
 
+      {/* 「すべて」のシリーズを選ぶシート（2026-10-19） */}
+      <Modal
+        visible={seriesSheet}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setSeriesSheet(false)}
+      >
+        <Pressable style={styles.sheetDim} onPress={() => setSeriesSheet(false)} />
+        <View style={[styles.seriesSheet, { maxHeight: screenH * 0.72 }]}>
+          <View style={styles.sheetGrab} />
+          <View style={styles.sheetHead}>
+            <Text style={styles.sheetTitle}>{t('collection.seriesTitle')}</Text>
+            <Text style={styles.sheetCount}>{t('collection.seriesCount', { n: namedSeriesCount })}</Text>
+          </View>
+          <ScrollView contentContainerStyle={styles.sheetList}>
+            {[null, ...seriesGroups].map((g, i) => {
+              const key = g?.key ?? null;
+              const on = allSeries === key;
+              const full = !!g && g.owned === g.total;
+              return (
+                <React.Fragment key={key ?? '__all'}>
+                  <Pressable
+                    onPress={() => {
+                      setAllSeries(key);
+                      setSeriesSheet(false);
+                    }}
+                    style={({ pressed }) => [styles.sheetRow, pressed && styles.sheetRowPressed]}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: on }}
+                  >
+                    <View style={[styles.sheetDot, on && styles.sheetDotOn]} />
+                    <Text style={[styles.sheetName, on && styles.sheetNameOn]} numberOfLines={1}>
+                      {g ? g.name : t('collection.allSeries')}
+                    </Text>
+                    <Text style={[styles.sheetRowCount, full && styles.secCountFull]}>
+                      {g ? `${g.owned} / ${g.total}` : t('collection.cardsCount', { n: works.length })}
+                    </Text>
+                  </Pressable>
+                  {i === 0 && <View style={styles.sheetSep} />}
+                </React.Fragment>
+              );
+            })}
+          </ScrollView>
+        </View>
+      </Modal>
+
       {/* 「プレイリスト ▾」のプルダウン（タブの下に重ねる） */}
       {playlists && (
         <PlaylistMenu
@@ -1266,7 +1362,7 @@ export const CollectionScreen: React.FC<Props> = ({
           visible={editorFor != null}
           initial={editorInitial}
           defaultName={t('playlist.defaultName', { n: lists.length + 1 })}
-          owned={ownedSorted as EditorTrack[]}
+          owned={ownedRows as EditorTrack[]}
           onDone={onEditorDone}
           onCancel={() => setEditorFor(null)}
           onDelete={
@@ -1530,17 +1626,82 @@ const styles = StyleSheet.create({
   searchMark: { color: C.sub, fontSize: 16 },
   searchInput: { flex: 1, minWidth: 0, color: C.text, fontSize: 14, paddingVertical: 9, fontFamily: JP_SERIF_FONT },
   searchClear: { color: C.sub, fontSize: 18, paddingHorizontal: 2 },
-  chips: { gap: 8, paddingRight: 4 },
-  chip: {
-    paddingHorizontal: 12,
+  // シリーズを選ぶ 1 行（「すべてのシリーズ ▾」　n シリーズ）
+  seriesPick: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
     paddingVertical: 6,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(96,206,224,0.22)',
+    paddingHorizontal: 2,
   },
-  chipOn: { borderColor: C.cyan, backgroundColor: 'rgba(96,206,224,0.14)' },
-  chipText: { color: C.sub, fontSize: 11.5, letterSpacing: 0.8, fontFamily: JP_SERIF_FONT },
-  chipTextOn: { color: C.text },
+  seriesPickName: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 1 },
+  seriesPickText: { color: C.text, fontSize: 15, letterSpacing: 0.9, fontFamily: JP_SERIF_FONT, flexShrink: 1 },
+  seriesPickChevron: { color: C.sub, fontSize: 11 },
+  seriesPickCount: { color: 'rgba(236,238,247,0.36)', fontSize: 12, letterSpacing: 0.7, fontFamily: NUM_FONT },
+  // 「すべて」の中身。見出しを横いっぱいに敷くため、左右の余白は行と見出しの側で持つ
+  allPages: { paddingTop: PAD_TOP, paddingBottom: PAD_BOTTOM },
+  allFilter: { paddingHorizontal: PAD_X },
+  allRow: { flexDirection: 'row', gap: COL_GAP, paddingHorizontal: PAD_X },
+  // シリーズの見出し（上に留まる）。押すと閉じる／開く
+  secHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    paddingHorizontal: PAD_X,
+    paddingTop: 12,
+    paddingBottom: 10,
+    marginBottom: 6,
+    backgroundColor: 'rgba(21,19,46,0.94)',
+  },
+  secHeadName: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 1 },
+  secChevron: { color: C.sub, fontSize: 11 },
+  secChevronClosed: { transform: [{ rotate: '-90deg' }] },
+  secName: { color: C.text, fontSize: 14, letterSpacing: 1.4, fontFamily: JP_SERIF_FONT, flexShrink: 1 },
+  secCount: { color: 'rgba(236,238,247,0.36)', fontSize: 12, letterSpacing: 0.7, fontFamily: NUM_FONT },
+  secCountFull: { color: C.cyan },
+  // シリーズを選ぶシート
+  sheetDim: { flex: 1, backgroundColor: 'rgba(4,4,14,0.55)' },
+  seriesSheet: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#0E0E24',
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+    borderTopWidth: 1,
+    borderColor: 'rgba(160,176,230,0.16)',
+    paddingBottom: 28,
+  },
+  sheetGrab: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(236,238,247,0.2)',
+    alignSelf: 'center',
+    marginTop: 8,
+  },
+  sheetHead: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    paddingHorizontal: 24,
+    paddingTop: 14,
+    paddingBottom: 10,
+  },
+  sheetTitle: { color: C.text, fontSize: 15, letterSpacing: 1.8 },
+  sheetCount: { color: 'rgba(236,238,247,0.36)', fontSize: 11, letterSpacing: 0.9 },
+  sheetList: { paddingBottom: 12 },
+  sheetRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 13, paddingHorizontal: 24 },
+  sheetRowPressed: { backgroundColor: 'rgba(96,206,224,0.06)' },
+  sheetDot: { width: 6, height: 6, borderRadius: 3, marginRight: 4 },
+  sheetDotOn: { backgroundColor: C.cyan },
+  sheetName: { flex: 1, color: C.sub, fontSize: 15, letterSpacing: 0.9, fontFamily: JP_SERIF_FONT },
+  sheetNameOn: { color: C.text },
+  sheetRowCount: { color: 'rgba(236,238,247,0.36)', fontSize: 12, fontFamily: NUM_FONT },
+  sheetSep: { height: 1, backgroundColor: 'rgba(160,176,230,0.16)', marginVertical: 4, marginHorizontal: 24 },
   noMatch: { alignItems: 'center', paddingVertical: 36, gap: 12 },
   noMatchText: { color: C.sub, fontSize: 13, fontFamily: JP_SERIF_FONT },
   noMatchClear: { color: C.cyan, fontSize: 13, letterSpacing: 0.6 },
@@ -1566,18 +1727,6 @@ const styles = StyleSheet.create({
   },
   // .slot-num（空スロット: 中央）
   slotNum: { fontSize: 11, letterSpacing: 2.2, color: C.slotNum, fontFamily: NUM_FONT }, // 通し番号＝数字表記
-  // 未発表席の Coming Soon。番号と同じ字面・同じ色で、文字数ぶんだけ小さく組む
-  // （枠は colW＝約100px なので 11px のままでは入らない）
-  slotSoon: {
-    fontSize: 9,
-    lineHeight: 12,
-    letterSpacing: 0.8,
-    textAlign: 'center',
-    paddingHorizontal: 4,
-    color: C.slotNum,
-    fontFamily: NUM_FONT,
-    opacity: 0.85,
-  },
   // .deck-slot.filled .slot-num（所有: 上6px・opacity.65）
   filledNum: {
     position: 'absolute',

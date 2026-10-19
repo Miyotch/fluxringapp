@@ -9,6 +9,8 @@
  *   ・左右に払うと、札と曲名が指について動き、離すと画面の外へ抜けて次（前）の曲が
  *     反対側から入ってくる（以前は 6 割だけ動いて元の位置へ戻っていた）
  *   ・何も流していない（キューが空）ときは描かない。一時停止中は出たまま
+ *   ・2026-10-19 下に払うとバナーを隠せる（岡さん指定）。音は止めない。次に何かを
+ *     流し始めたとき（キューが替わったとき）にまた出る。隠す・出すは App が持つ（hidden）
  *   ・2026-10-15 払う動きを PanResponder＋RN Animated から RNGH の Pan＋Reanimated へ移した。
  *     以前は指の位置を JS で受けてから札へ書いていたので、再生の状態更新・カードの描画で
  *     JS が詰まると指から遅れ、離したあとの寄せも途中で書き戻されて小刻みに揺れた。
@@ -47,6 +49,10 @@ import { JP_SERIF_FONT, NUM_FONT } from '../constants/fonts';
 
 type Props = {
   onOpen: () => void;
+  /** 下に払って隠したあと。true の間は描かない */
+  hidden?: boolean;
+  /** 下に払った（隠す） */
+  onHide?: () => void;
   /** 高さが変わったとき（HOME で購入ボタンを逃がす量に使う） */
   onLayout?: (e: LayoutChangeEvent) => void;
 };
@@ -116,7 +122,11 @@ const SeekLine: React.FC = () => {
   );
 };
 
-export const NowPlayingBar: React.FC<Props> = ({ onOpen, onLayout }) => {
+/** 下に払って隠すと決める移動量・速さ */
+const HIDE_DY = 28;
+const HIDE_VY = 600;
+
+export const NowPlayingBar: React.FC<Props> = ({ onOpen, onLayout, hidden = false, onHide }) => {
   const t = useT();
   const pb = usePlayback();
   const pbRef = useRef(pb);
@@ -181,15 +191,51 @@ export const NowPlayingBar: React.FC<Props> = ({ onOpen, onLayout }) => {
   );
   const slideStyle = useAnimatedStyle(() => ({ transform: [{ translateX: tx.value }] }));
 
+  // 下に払うと隠す。上へは動かさない。横の払い（曲送り）とは向きで分ける
+  const ty = useSharedValue(0);
+  const onHideRef = useRef(onHide);
+  onHideRef.current = onHide;
+  const hideNow = () => onHideRef.current?.();
+  useEffect(() => {
+    if (!hidden) ty.value = 0;
+  }, [hidden, ty]);
+  const down = useMemo(
+    () =>
+      Gesture.Pan()
+        .activeOffsetY(12)
+        .failOffsetX([-14, 14])
+        .onUpdate((e) => {
+          'worklet';
+          ty.value = Math.max(0, e.translationY);
+        })
+        .onEnd((e) => {
+          'worklet';
+          if (e.translationY > HIDE_DY || e.velocityY > HIDE_VY) {
+            ty.value = withTiming(BAR_H + 24, { duration: 180, easing: Easing.in(Easing.quad) }, (finished) => {
+              if (finished) runOnJS(hideNow)();
+            });
+          } else {
+            ty.value = withSpring(0, { ...SWIPE_SPRING, velocity: e.velocityY });
+          }
+        }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+  const downStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: ty.value }],
+    opacity: 1 - Math.min(1, ty.value / (BAR_H + 24)) * 0.8,
+  }));
+
   const cur = pb.current;
-  if (!cur) return null;
+  if (!cur || hidden) return null;
   const many = pb.queue.length >= 2;
   const artist = cur.artistName || cur.artist;
   const sub = pb.loading ? t('playback.loading') : cur.preview ? t('playback.previewing') : artist ?? '';
 
   return (
     <View style={styles.wrap} onLayout={onLayout}>
-      <View style={styles.bar}>
+      <GestureDetector gesture={down}>
+      <Animated.View style={[styles.bar, downStyle]}>
         <GestureDetector gesture={swipe}>
         <View style={styles.row} collapsable={false}>
           {/* 札と曲名。押すと再生画面、払うと曲送り（ここだけが指について動く） */}
@@ -222,7 +268,8 @@ export const NowPlayingBar: React.FC<Props> = ({ onOpen, onLayout }) => {
         </View>
         </GestureDetector>
         <SeekLine />
-      </View>
+      </Animated.View>
+      </GestureDetector>
     </View>
   );
 };
