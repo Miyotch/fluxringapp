@@ -53,11 +53,14 @@ import { useBottomInset, useTopInset } from '../lib/safeArea';
 import { JP_SERIF_FONT, NUM_FONT } from '../constants/fonts';
 import { usePlaybackOptional } from '../lib/playback';
 import { formatDuration, sumDurations, useDurations } from '../lib/durations';
+import Svg, { Defs, LinearGradient as SvgLinear, Rect, Stop } from 'react-native-svg';
 import { CreditsBackdrop } from './CreditsBackdrop';
 import { PauseMark, PlayMark } from './icons';
 
 /** 1 行の高さ（サムネ 66 ＋ 上下 8） */
 const ROW_H = 82;
+/** 一覧の上端で行を薄れさせる高さ */
+const LIST_FADE_H = 22;
 /** 持ち上げるまでの長押し(ms) */
 const LIFT_MS = 260;
 
@@ -90,7 +93,8 @@ type Props = {
 const C = {
   text: '#ECEEF7',
   sub: 'rgba(236,238,247,0.62)',
-  faint: 'rgba(236,238,247,0.36)',
+  // 小さい字（番号・作家名・時間）。0.36 では暗い背景で読みにくかったので上げた（2026-10-20）
+  faint: 'rgba(236,238,247,0.56)',
   line: 'rgba(160,176,230,0.16)',
   cyan: '#60CEE0',
   cyanSoft: '#9FE3EE',
@@ -307,6 +311,7 @@ export const PlaylistEditor: React.FC<Props> = ({
   const [ids, setIds] = useState<string[]>([]);
   const [deleteArmed, setDeleteArmed] = useState(false);
   const [focused, setFocused] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
   const isEdit = initial != null;
 
   // 開くたびに下書きを作り直す
@@ -436,7 +441,7 @@ export const PlaylistEditor: React.FC<Props> = ({
               value={name}
               onChangeText={setName}
               placeholder={t('playlist.newNamePlaceholder')}
-              placeholderTextColor="rgba(236,238,247,0.22)"
+              placeholderTextColor="rgba(236,238,247,0.38)"
               style={styles.name}
               maxLength={30}
               returnKeyType="done"
@@ -449,12 +454,18 @@ export const PlaylistEditor: React.FC<Props> = ({
             <Text style={[styles.meta, inList.length > 0 && styles.metaOn]}>{metaText}</Text>
           </View>
 
+          <View style={styles.list}>
           <ScrollView
-            style={styles.list}
-            contentContainerStyle={{ paddingBottom: padBottom + 24 }}
+            style={styles.listScroll}
+            contentContainerStyle={{ paddingTop: 6, paddingBottom: padBottom + 24 }}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="on-drag"
             scrollEnabled={!dragging}
+            scrollEventThrottle={32}
+            onScroll={(e) => {
+              const on = e.nativeEvent.contentOffset.y > 2;
+              if (on !== scrolled) setScrolled(on);
+            }}
           >
             {isEdit ? (
               <>
@@ -507,6 +518,21 @@ export const PlaylistEditor: React.FC<Props> = ({
               </Pressable>
             )}
           </ScrollView>
+          {/* 一覧の上端。流したら細い線を引き、行は線の下で薄れて消える（2026-10-20。
+              行が見出しの真下で途中から切れて見えていた） */}
+          <View style={[styles.listEdge, scrolled && styles.listEdgeOn]} pointerEvents="none" />
+          {scrolled && (
+            <Svg style={styles.listFade} width={screenW} height={LIST_FADE_H} pointerEvents="none">
+              <Defs>
+                <SvgLinear id="edfade" x1="0" y1="0" x2="0" y2="1">
+                  <Stop offset="0" stopColor="#12102a" stopOpacity={1} />
+                  <Stop offset="1" stopColor="#12102a" stopOpacity={0} />
+                </SvgLinear>
+              </Defs>
+              <Rect x="0" y="0" width={screenW} height={LIST_FADE_H} fill="url(#edfade)" />
+            </Svg>
+          )}
+          </View>
         </Animated.View>
       </GestureHandlerRootView>
     </Modal>
@@ -540,8 +566,12 @@ const styles = StyleSheet.create({
   rule: { height: 1, backgroundColor: C.line },
   ruleOn: { backgroundColor: 'rgba(96,206,224,0.7)' },
   meta: { color: C.faint, fontSize: 12, letterSpacing: 0.7, lineHeight: 30, fontVariant: ['tabular-nums'] },
-  metaOn: { color: C.sub },
+  metaOn: { color: 'rgba(236,238,247,0.8)' },
   list: { flex: 1, marginTop: 4 },
+  listScroll: { flex: 1 },
+  listEdge: { position: 'absolute', left: 0, right: 0, top: 0, height: 1, backgroundColor: 'transparent' },
+  listEdgeOn: { backgroundColor: C.line },
+  listFade: { position: 'absolute', left: 0, top: 1 },
   label: { color: C.faint, fontSize: 11, letterSpacing: 1.6, marginTop: 14, marginBottom: 2, paddingHorizontal: 22 },
   plainRow: { height: ROW_H, justifyContent: 'center' },
   // 並べ替えられる行。高さを固定して、指の移動量から落とす位置を決める
