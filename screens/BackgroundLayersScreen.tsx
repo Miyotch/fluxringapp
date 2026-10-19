@@ -23,6 +23,8 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { BackdropSky } from '../components/BackdropSky';
+import { BackdropImage } from '../components/BackdropImage';
+import { setBackdropMode, useBackdropMode } from '../lib/backdropMode';
 import { StarSeal } from '../components/StarSeal';
 import { LayerSlider } from '../components/LayerSlider';
 import { COLOR, SPACE, RADIUS, homeCardWidth } from '../constants/design-tokens';
@@ -61,6 +63,7 @@ export const BackgroundLayersScreen: React.FC<Props> = ({ onBack }) => {
     setDraft(serverCfg);
   }
 
+  const backdropMode = useBackdropMode();
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
 
@@ -107,9 +110,33 @@ export const BackgroundLayersScreen: React.FC<Props> = ({ onBack }) => {
           スライダーの位置は現在の位置・大きさを基準（中央）にしています。
         </Text>
 
+        {/* 背景の見比べ（この端末だけ。保存ボタンは不要でその場で切り替わる） */}
+        <View style={styles.modeRow}>
+          {(['sky', 'image'] as const).map((m) => (
+            <Pressable
+              key={m}
+              onPress={() => setBackdropMode(m)}
+              style={[styles.modeBtn, backdropMode === m && styles.modeBtnOn]}
+              accessibilityRole="button"
+              accessibilityState={{ selected: backdropMode === m }}
+            >
+              <Text style={[styles.modeLabel, backdropMode === m && styles.modeLabelOn]}>
+                {m === 'sky' ? '星空（現行）' : '青雲の画像'}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+        {backdropMode === 'image' && (
+          <Text style={styles.modeNote}>
+            画像のあいだ、星雲のスライダーは効きません（星の明滅と調律陣はそのままです）。この切り替えはこの端末だけです。
+          </Text>
+        )}
+
         {/* ミニプレビュー */}
         <View style={[styles.previewFrame, { width: previewW, height: previewH }]}>
+          {backdropMode === 'image' && <BackdropImage width={previewW} height={previewH} />}
           <BackdropSky
+            imageBackdrop={backdropMode === 'image'}
             width={previewW}
             height={previewH}
             paused={false}
@@ -212,6 +239,25 @@ const styles = StyleSheet.create({
     lineHeight: 21,
     letterSpacing: 0.26,
     marginTop: 8,
+    fontFamily: JP_SERIF_FONT,
+  },
+  modeRow: { flexDirection: 'row', gap: SPACE.sm, marginTop: SPACE.sm },
+  modeBtn: {
+    flex: 1,
+    paddingVertical: 11,
+    borderRadius: RADIUS.lg,
+    borderWidth: 1,
+    borderColor: COLOR.border,
+    alignItems: 'center',
+  },
+  modeBtnOn: { borderColor: COLOR.auraCyan, backgroundColor: 'rgba(96,206,224,0.10)' },
+  modeLabel: { color: COLOR.textSecondary, fontSize: 13, letterSpacing: 0.26, fontFamily: JP_SERIF_FONT },
+  modeLabelOn: { color: COLOR.textPrimary },
+  modeNote: {
+    color: COLOR.textSecondary,
+    fontSize: 11.5,
+    lineHeight: 18,
+    letterSpacing: 0.2,
     fontFamily: JP_SERIF_FONT,
   },
   previewFrame: {

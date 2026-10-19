@@ -55,6 +55,8 @@ import { useAudioPlayer } from 'expo-audio';
 import { previewUrl } from '../lib/r2';
 import { CardFace } from '../components/CardFace';
 import { BackdropSky } from '../components/BackdropSky';
+import { BackdropImage } from '../components/BackdropImage';
+import { useBackdropMode } from '../lib/backdropMode';
 import { BackdropVeil } from '../components/BackdropVeil';
 import { CardVeil } from '../components/CardVeil';
 import { StarSeal, type SealInkImage } from '../components/StarSeal';
@@ -638,6 +640,8 @@ export const DiscoverScreen: React.FC<Props> = ({
   // 星雲・魔法陣（調律陣）レイヤーの運営調整（設定→背景レイヤー調整のスライダー）。
   // 既定値(offsetX/Y=0・scale=1)では今の位置・大きさのまま変わらない。
   const layerAdjust = useBackgroundLayersConfig();
+  // 背景の見比べ（設定→背景レイヤー調整のスイッチ。端末ごと）
+  const backdropMode = useBackdropMode();
   // カード本体／下部ボタン行の縦位置の運営調整（設定→ボタン位置調整のスライダー）。
   // 既定値(0)では今の位置のまま変わらない。
   const layoutAdjust = useLayoutAdjustConfig();
@@ -1924,9 +1928,11 @@ export const DiscoverScreen: React.FC<Props> = ({
           style={[StyleSheet.absoluteFill, { opacity: intro.sky }]}
           pointerEvents="none"
         >
+          {backdropMode === 'image' && <BackdropImage width={screenW} height={slideH} />}
           <BackdropSky
             width={screenW}
             height={slideH}
+            imageBackdrop={backdropMode === 'image'}
             pausedSV={skyPaused}
             parallaxX={starDrift}
             occluder={sealInk}

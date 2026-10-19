@@ -320,6 +320,11 @@ export type BackdropSkyProps = {
   nebulaOffsetX?: number;
   nebulaOffsetY?: number;
   nebulaScale?: number;
+  /**
+   * 画像背景（components/BackdropImage.tsx）を下に敷くときに true。
+   * 地色（.bgbase）と天の川（雲＋星520）を描かない。星の平面・調律陣の抜きは変わらない。
+   */
+  imageBackdrop?: boolean;
 };
 
 /** 星 1 層ぶんの横ずらし。溜まった移動量 × 層の速度比を W の余りへ畳む */
@@ -346,6 +351,7 @@ const BackdropSkyImpl: React.FC<BackdropSkyProps> = ({
   nebulaOffsetX = 0,
   nebulaOffsetY = 0,
   nebulaScale = 1,
+  imageBackdrop = false,
 }) => {
   const scale = W / REF_W;
 
@@ -438,7 +444,7 @@ const BackdropSkyImpl: React.FC<BackdropSkyProps> = ({
     <Canvas style={[StyleSheet.absoluteFill, { width: W, height: H }]} pointerEvents="none">
       {/* ── .bgbase: radial(125% 95% at 50% 28%) #15132e → #0c0a1f → #07060f ──
           横 rx=1.25W の正円を縦に 0.95H/1.25W へ圧縮して楕円化（静的） */}
-      {DEBUG_SKY.showBase && (
+      {DEBUG_SKY.showBase && !imageBackdrop && (
         <Group
           transform={[
             { translateX: W / 2 },
@@ -463,7 +469,7 @@ const BackdropSkyImpl: React.FC<BackdropSkyProps> = ({
           参照は canvas 内が globalCompositeOperation='lighter'、canvas 自体が
           mix-blend-mode:screen。雲のぼかしはスプライトへ焼き込み済みなので
           ここでの ImageFilter は不要（saveLayer は合成のためだけ） */}
-      {DEBUG_SKY.showNebula && (
+      {DEBUG_SKY.showNebula && !imageBackdrop && (
         // 運営調整（星雲の位置・大きさ）。既定値(0,0,1)では何もしないのと同じ。
         // W/2, H*0.28 を中心にスケールしてから offsetX/Y だけ平行移動する
         // （.bgbase の中心と同じ基準点。雲・星の分布そのものは不変）。
@@ -478,7 +484,7 @@ const BackdropSkyImpl: React.FC<BackdropSkyProps> = ({
       )}
     </Canvas>
     ),
-    [W, H, scale, clouds, nebStarGroups, clock, stop, nebAdjust],
+    [W, H, scale, clouds, nebStarGroups, clock, stop, nebAdjust, imageBackdrop],
   );
 
   // ── 星の平面の横ずらし ──────────────────────────────────────
