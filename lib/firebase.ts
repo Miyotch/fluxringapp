@@ -18,6 +18,21 @@ const firebaseConfig = {
   appId:             '1:496626750767:web:fb627d42fc98e95ca57dda',
 }
 
+// Firestore が通信を閉じるときの合図（WebChannel の terminate）は、navigator.sendBeacon が
+// 無いと `new Image().src = <Uri>` で送られる。expo-three が入れる @expo/browser-polyfill の
+// Image は src に文字列以外が来ると Image.getSize が例外を出し、Firestore の内部チェック
+// （INTERNAL ASSERTION FAILED）でアプリごと落ちていた（2026-10-19 実機。プレイリストを
+// 編集した少しあと、通信が閉じたとき）。sendBeacon を用意して Image の経路へ行かせない
+const nav = (globalThis as { navigator?: { sendBeacon?: unknown } }).navigator
+if (nav && typeof nav.sendBeacon !== 'function') {
+  nav.sendBeacon = (url: unknown, data?: BodyInit | null) => {
+    try {
+      fetch(String(url), { method: 'POST', body: data ?? '' }).catch(() => {})
+    } catch {}
+    return true
+  }
+}
+
 // 二重初期化を防ぐ（Hot reload 対策）
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp()
 
