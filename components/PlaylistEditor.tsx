@@ -160,12 +160,17 @@ const Row: React.FC<{
     <View style={styles.row}>
       <GestureDetector gesture={playTap}>
         <View
-          style={[styles.thumbWrap, current && styles.thumbOn]}
+          style={styles.thumbWrap}
+          // GestureDetector の子は畳まれないようにする。流れている印で縁を付け外ししたら、
+          // Android でこの View が親へ畳まれてサムネごと消えた（2026-10-20 実機）
+          collapsable={false}
           accessible
           accessibilityRole="button"
           accessibilityLabel={t(playing ? 'playlist.pauseThis' : 'playlist.playThis', { title: item.title })}
         >
           <Image source={{ uri: item.artworkUrl }} style={styles.thumb} />
+          {/* 流れている曲の縁は上に重ねる（サムネの入れ物の形は変えない） */}
+          <View style={[styles.thumbRing, current && styles.thumbRingOn]} pointerEvents="none" />
           {onPlay && (
             <View style={styles.thumbPlay} pointerEvents="none">
               {playing ? <PauseMark size={10} color={C.text} /> : <PlayMark size={10} color={C.text} />}
@@ -176,6 +181,7 @@ const Row: React.FC<{
       <GestureDetector gesture={pickTap}>
         <View
           style={[styles.pick, pressed && { opacity: 0.7 }]}
+          collapsable={false}
           accessible
           accessibilityRole="button"
           accessibilityState={{ selected: picked }}
@@ -542,8 +548,9 @@ const styles = StyleSheet.create({
   dragRow: { height: ROW_H, justifyContent: 'center' },
   row: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 22 },
   thumbWrap: { width: 44, height: 66, borderRadius: 5, overflow: 'hidden' },
-  thumbOn: { borderWidth: 1, borderColor: 'rgba(96,206,224,0.85)' },
-  thumb: { width: '100%', height: '100%', backgroundColor: 'rgba(255,255,255,0.05)' },
+  thumb: { width: 44, height: 66, backgroundColor: 'rgba(255,255,255,0.05)' },
+  thumbRing: { position: 'absolute', left: 0, top: 0, right: 0, bottom: 0, borderRadius: 5, borderWidth: 1, borderColor: 'rgba(255,255,255,0.18)' },
+  thumbRingOn: { borderColor: 'rgba(96,206,224,0.85)' },
   // サムネの上の再生ボタン（押すと流す）
   thumbPlay: {
     position: 'absolute',

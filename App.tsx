@@ -657,7 +657,14 @@ function AppInner() {
           onBackHome={close}
           // 詳細は「今の曲を味わう画面」なので、再生の操作を大きく出す（2026-10-13。
           // 以前は小さい再生バナーのままだった）
-          footer={<NowPlayingFull onAddToPlaylist={setAddTarget} />}
+          // 何も流していないとき（起動直後にホームの「マイリスト」から開いた等）も、
+          // 見ているカードの待ち受けでパネルを出す。出さないとカードが下へずれる（2026-10-20）
+          footer={(shown) => (
+            <NowPlayingFull
+              onAddToPlaylist={setAddTarget}
+              idle={{ track: shown, onPlay: () => playback.playQueue(viewerTracks, shown.id, viewer.source) }}
+            />
+          )}
           // 見ているカードが流れている曲でないときの「この曲を再生」。眺めている並びを
           // その曲から流す（2026-09-26 岡さん相談②）
           onPlayHere={(id) => playback.playQueue(viewerTracks, id, viewer.source)}

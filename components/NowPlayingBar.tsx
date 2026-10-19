@@ -46,6 +46,8 @@ import { PlayMark, PauseMark, SkipIcon, SkipPrevIcon, LoopIcon, AddToListIcon } 
 import { DownloadButton } from './DownloadButton';
 import { useT } from '../lib/i18n';
 import { JP_SERIF_FONT, NUM_FONT } from '../constants/fonts';
+import { durationOf } from '../lib/durations';
+import type { PlayerTrack } from '../screens/PlayerScreen';
 
 type Props = {
   onOpen: () => void;
@@ -333,14 +335,77 @@ const FullSeek: React.FC = () => {
   );
 };
 
+/** 何も流していないときの線（動かない） */
+const IdleSeek: React.FC<{ duration?: number }> = ({ duration }) => (
+  <View>
+    <View style={full.rail}>
+      <View style={full.line} />
+      <View style={[full.knob, { left: 0 }]} />
+    </View>
+    <View style={full.times}>
+      <Text style={full.time}>0:00</Text>
+      <Text style={full.time}>{duration ? `-${fmt(duration)}` : ''}</Text>
+    </View>
+  </View>
+);
+
 export const NowPlayingFull: React.FC<{
   /** プレイリストに追加のシートを開く */
   onAddToPlaylist?: (track: { id: string; title: string }) => void;
-}> = ({ onAddToPlaylist }) => {
+  /**
+   * 何も流していないときに出す待ち受け（見ているカード）。▶ でその曲から流す。
+   * 無ければ何も描かない（2026-10-20。起動直後にカード詳細を開くと、パネルが無くて
+   * カードが下へずれていた）
+   */
+  idle?: { track: PlayerTrack; onPlay: () => void };
+}> = ({ onAddToPlaylist, idle }) => {
   const t = useT();
   const pb = usePlayback();
   const cur = pb.current;
-  if (!cur) return null;
+  if (!cur) {
+    if (!idle) return null;
+    const it = idle.track;
+    return (
+      <View style={full.wrap}>
+        <View style={full.head}>
+          <Image source={{ uri: it.artworkUrl }} style={full.art} />
+          <View style={full.texts}>
+            <Text style={full.title} numberOfLines={1}>{it.title}</Text>
+            <Text style={full.sub} numberOfLines={1}>{it.artistName || it.artist || ''}</Text>
+          </View>
+          {onAddToPlaylist && (
+            <Pressable
+              onPress={() => onAddToPlaylist({ id: it.id, title: it.title })}
+              hitSlop={6}
+              style={({ pressed }) => [full.icon, pressed && full.iconPressed]}
+              accessibilityRole="button"
+              accessibilityLabel={t('playlist.addTo')}
+            >
+              <AddToListIcon size={24} />
+            </Pressable>
+          )}
+          <DownloadButton keys={[it.audioKey]} label={it.title} size={24} />
+        </View>
+        <IdleSeek duration={durationOf(it.audioKey || it.id) ?? it.durationSec} />
+        <View style={full.ctrls}>
+          <View style={[full.side, styles.off]}>
+            <LoopIcon size={20} on={pb.repeat === 'one'} />
+          </View>
+          <View style={[full.skip, styles.off]}><SkipPrevIcon size={24} /></View>
+          <Pressable
+            onPress={idle.onPlay}
+            style={({ pressed }) => [full.play, pressed && { transform: [{ scale: 0.94 }] }]}
+            accessibilityRole="button"
+            accessibilityLabel={t('playback.play')}
+          >
+            <PlayMark size={30} color="#0B0B1D" />
+          </Pressable>
+          <View style={[full.skip, styles.off]}><SkipIcon size={24} /></View>
+          <View style={full.side} />
+        </View>
+      </View>
+    );
+  }
   const many = pb.queue.length >= 2;
   const artist = cur.artistName || cur.artist;
   return (
