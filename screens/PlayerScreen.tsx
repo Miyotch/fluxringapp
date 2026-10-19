@@ -111,12 +111,14 @@ const FLIP_HIDE_DEG = 6;
  */
 const stepOf = (cardW: number) => (190 + 188.59 / 2 + 188.59 * 0.2) * (cardW / 188.59);
 /**
- * カードの下に並ぶ番号・曲名・状態の一行の高さ。styles の info〜sub の内訳と揃える
- *   カードとの間 20 ＋ 番号 16 ＋ 6 ＋ 曲名 28 ＋ 10 ＋ 状態か「この曲を再生」34
+ * カードの下に並ぶ番号・曲名・作家名と「この曲を再生」の行の高さ。styles の info〜subRow の内訳と揃える
+ *   カードとの間 20 ＋ 番号 16 ＋ 6 ＋ 曲名 28 ＋ 作家名 20 ＋ 10 ＋ 「この曲を再生」34
  * コレクションの作品詳細と同じ並び（カードの真下に番号と曲名）。
  */
 const INFO_GAP = 20;
 const INFO_H = INFO_GAP + 16 + 6 + 28 + 20 + 10 + 34; // 20 = 作家名の行（marginTop 4 ＋ 16）
+/** 塊（カード＋番号・曲名・作家名）の下端と下の再生パネルの間。実機で見て調整する（2026-10-19） */
+const INFO_BOTTOM_GAP = 8;
 
 /** 輪の札 1 枚（平らな絵）。絵柄が変わらないかぎり描き直さない */
 const RingSlot = React.memo(function RingSlot({
@@ -177,12 +179,12 @@ export const PlayerScreen: React.FC<Props> = ({
   // 回したときの見かけの半分の高さ（表・裏）
   const frontHalfP = (cardH * PERSP) / 2;
   const backHalfP = (cardH * backScale * PERSP) / 2;
-  // 表の塊（カード＋番号・曲名・作家名）は、余った縦幅を上 6：下 4 に分けて置く。
-  // 領域は「戻る」と下の再生パネルの間なので、ちょうど真ん中だと画面全体では上に
-  // 寄って見える（2026-10-14）。
+  // 表の塊（カード＋番号・曲名・作家名）は、下の再生パネルのすぐ上（INFO_BOTTOM_GAP）まで
+  // 寄せ、余った縦幅は上に回す。2026-10-19 岡さん指摘: 以前の上 6：下 4 だと、塊と再生パネルの
+  // 間に何もない帯が残り、カードが浮いて見えた。
   // 上の空きは、回したときのふくらみより狭くしない
   const topSpace = Math.max(0, cardArea.h - cardH - INFO_H);
-  const topGap = Math.min(topSpace, Math.max(topSpace * 0.6, frontHalfP - cardH / 2 + 8));
+  const topGap = Math.min(topSpace, Math.max(topSpace - INFO_BOTTOM_GAP, frontHalfP - cardH / 2 + 8));
   // 塊の中でのカードの中心（領域の上端から）。番号・曲名はこの下に置く
   const cardCenterY = topGap + cardH / 2;
   // 裏返したときのカードの中心。表の文字は消えるので、裏面を領域の真ん中へ寄せる
@@ -543,9 +545,9 @@ export const PlayerScreen: React.FC<Props> = ({
     Share.share({ message: `FluxRing — ${shown.title}` }).catch(() => {});
   }, [shown.title]);
 
-  // 見ているカードが流れている曲なら、その状態を一行で
+  // 見ているカードが流れている曲かどうか。流れていなければ「この曲を再生」を出す。
+  // 「再生中／一時停止」の文字は 2026-10-19 にやめた（下の再生パネルで分かるため。岡さん指摘）
   const isPlayingCard = !!pb?.current && pb.current.id === shown.id;
-  const sub = isPlayingCard ? (pb?.playing ? t('playback.playing') : t('playback.paused')) : ' ';
   const canPlayHere = !isPlayingCard && !!onPlayHere;
 
   return (
@@ -589,7 +591,7 @@ export const PlayerScreen: React.FC<Props> = ({
               <Text style={styles.title} numberOfLines={1}>{shown.title}</Text>
               {!!shown.artistName && <Text style={styles.artistName} numberOfLines={1}>{shown.artistName}</Text>}
               <View style={styles.subRow} pointerEvents="box-none">
-                {canPlayHere ? (
+                {canPlayHere && (
                   <Pressable
                     onPress={() => onPlayHere?.(shown.id)}
                     hitSlop={8}
@@ -600,8 +602,6 @@ export const PlayerScreen: React.FC<Props> = ({
                     <PlayMark size={13} color={COLOR.auraCyan} />
                     <Text style={styles.playHereText}>{t('playback.playThis')}</Text>
                   </Pressable>
-                ) : (
-                  <Text style={[styles.sub, isPlayingCard && styles.subOn]} numberOfLines={1}>{sub}</Text>
                 )}
               </View>
             </Animated.View>
@@ -649,16 +649,9 @@ const styles = StyleSheet.create({
     letterSpacing: 1.26,
     fontFamily: JP_SERIF_FONT,
   },
-  // 状態の一行か「この曲を再生」。どちらでも高さは同じ（切り替わっても上が動かない）
+  // 「この曲を再生」の行。ボタンが無いときも高さは残す（カードを送っても上の文字が動かない）
   subRow: { marginTop: 10, height: 34, alignItems: 'center', justifyContent: 'center' },
   artistName: { marginTop: 4, color: COLOR.textSecondary, fontSize: 12, letterSpacing: 1, fontFamily: JP_SERIF_FONT },
-  sub: {
-    height: 18,
-    lineHeight: 18,
-    color: COLOR.textSecondary,
-    fontSize: 11,
-    letterSpacing: 0.9,
-  },
   // 控えめな副ボタン（主役はカード）。枠と字はシアン、地は透かし
   playHere: {
     height: 34,
@@ -673,7 +666,6 @@ const styles = StyleSheet.create({
   },
   playHerePressed: { opacity: 0.75, transform: [{ scale: 0.97 }] },
   playHereText: { color: COLOR.textPrimary, fontSize: 12, letterSpacing: 1.6 },
-  subOn: { color: COLOR.auraCyan },
   // 3D カードの描画面が上の見出しへはみ出してタップを奪わないよう、ここで切る
   cardArea: { flex: 1, overflow: 'hidden' },
   stage: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 },

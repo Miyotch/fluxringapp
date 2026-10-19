@@ -99,7 +99,7 @@ const JA: Dict = {
   // 選択シートの曲数（2026-10-15 岡さんデザイン: 英字の TRACKS 表記で統一）
   'playlist.tracks': '{n} TRACKS',
   'playlist.track1': '1 TRACK',
-  'playlist.choose': 'プレイリストを選ぶ',
+  'playlist.choose': 'プレイリスト',
   'playlist.switch': 'プレイリストを切り替える',
   'playlist.play': 'このプレイリストを再生',
   'playlist.playingNow': 'このプレイリストを再生中',
@@ -338,7 +338,7 @@ const EN: Dict = {
   'playlist.count': '{n} tracks',
   'playlist.tracks': '{n} TRACKS',
   'playlist.track1': '1 TRACK',
-  'playlist.choose': 'Choose a playlist',
+  'playlist.choose': 'Playlists',
   'playlist.switch': 'Switch playlist',
   'playlist.play': 'Play this playlist',
   'playlist.playingNow': 'Playing this playlist',
