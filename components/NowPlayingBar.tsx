@@ -11,6 +11,8 @@
  *   ・何も流していない（キューが空）ときは描かない。一時停止中は出たまま
  *   ・2026-10-19 下に払うとバナーを隠せる（岡さん指定）。音は止めない。次に何かを
  *     流し始めたとき（キューが替わったとき）にまた出る。隠す・出すは App が持つ（hidden）
+ *   ・2026-10-20 隠している間は、フッターのすぐ上に小さなつまみ（流れていれば EQ の棒）を
+ *     残す。押すか上に払うとバナーが戻る（戻す手がかりが無かった。岡さん指摘）
  *   ・2026-10-15 払う動きを PanResponder＋RN Animated から RNGH の Pan＋Reanimated へ移した。
  *     以前は指の位置を JS で受けてから札へ書いていたので、再生の状態更新・カードの描画で
  *     JS が詰まると指から遅れ、離したあとの寄せも途中で書き戻されて小刻みに揺れた。
@@ -44,6 +46,7 @@ import { homeCardWidth } from '../constants/design-tokens';
 import { usePlayback, usePlaybackProgress } from '../lib/playback';
 import { PlayMark, PauseMark, SkipIcon, SkipPrevIcon, LoopIcon, AddToListIcon } from './icons';
 import { DownloadButton } from './DownloadButton';
+import { EqBars } from './EqBars';
 import { useT } from '../lib/i18n';
 import { JP_SERIF_FONT, NUM_FONT } from '../constants/fonts';
 import { durationOf } from '../lib/durations';
@@ -55,6 +58,8 @@ type Props = {
   hidden?: boolean;
   /** 下に払った（隠す） */
   onHide?: () => void;
+  /** 隠したあとのつまみを押した／上に払った（戻す） */
+  onShow?: () => void;
   /** 高さが変わったとき（HOME で購入ボタンを逃がす量に使う） */
   onLayout?: (e: LayoutChangeEvent) => void;
 };
@@ -128,7 +133,7 @@ const SeekLine: React.FC = () => {
 const HIDE_DY = 28;
 const HIDE_VY = 600;
 
-export const NowPlayingBar: React.FC<Props> = ({ onOpen, onLayout, hidden = false, onHide }) => {
+export const NowPlayingBar: React.FC<Props> = ({ onOpen, onLayout, hidden = false, onHide, onShow }) => {
   const t = useT();
   const pb = usePlayback();
   const pbRef = useRef(pb);
@@ -228,8 +233,42 @@ export const NowPlayingBar: React.FC<Props> = ({ onOpen, onLayout, hidden = fals
     opacity: 1 - Math.min(1, ty.value / (BAR_H + 24)) * 0.8,
   }));
 
+  // 隠したあとのつまみ。上に払っても戻す
+  const onShowRef = useRef(onShow);
+  onShowRef.current = onShow;
+  const showNow = () => onShowRef.current?.();
+  const up = useMemo(
+    () =>
+      Gesture.Pan()
+        .activeOffsetY(-8)
+        .onEnd((e) => {
+          'worklet';
+          if (e.translationY < -12 || e.velocityY < -300) runOnJS(showNow)();
+        }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
   const cur = pb.current;
-  if (!cur || hidden) return null;
+  if (!cur) return null;
+  if (hidden) {
+    return (
+      <View style={styles.handleWrap} pointerEvents="box-none">
+        <GestureDetector gesture={up}>
+          <Pressable
+            onPress={showNow}
+            hitSlop={{ top: 12, bottom: 4, left: 16, right: 16 }}
+            style={({ pressed }) => [styles.handle, pressed && { opacity: 0.7 }]}
+            accessibilityRole="button"
+            accessibilityLabel={t('playback.showBar')}
+          >
+            <View style={styles.handleChevron} />
+            <EqBars active={pb.playing} keepIdle />
+          </Pressable>
+        </GestureDetector>
+      </View>
+    );
+  }
   const many = pb.queue.length >= 2;
   const artist = cur.artistName || cur.artist;
   const sub = pb.loading ? t('playback.loading') : cur.preview ? t('playback.previewing') : artist ?? '';
@@ -491,6 +530,29 @@ const full = StyleSheet.create({
 
 const styles = StyleSheet.create({
   wrap: { paddingHorizontal: 10, paddingBottom: 8 },
+  // 隠したあとのつまみ（フッターのすぐ上・中央）
+  handleWrap: { alignItems: 'center', paddingBottom: 6 },
+  handle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    height: 26,
+    paddingHorizontal: 14,
+    borderRadius: 13,
+    backgroundColor: 'rgba(20,22,52,0.92)',
+    borderWidth: 1,
+    borderColor: 'rgba(96,206,224,0.32)',
+  },
+  // 上向きの山（つまみの印）
+  handleChevron: {
+    width: 7,
+    height: 7,
+    marginTop: 3,
+    borderLeftWidth: 1.5,
+    borderTopWidth: 1.5,
+    borderColor: '#ECEEF7',
+    transform: [{ rotate: '45deg' }],
+  },
   bar: {
     height: BAR_H,
     borderRadius: 12,

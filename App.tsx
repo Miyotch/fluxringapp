@@ -780,12 +780,13 @@ function AppInner() {
               onOpenArtist={openArtistFromCard}
               onWishAdded={bumpWishPulse}
               // 所有済みカードは HOME では再生しない。「マイリスト」ボタンで、マイリスト
-              // （所有カード）のそのカードの詳細＝カードを眺める画面へ。戻るとマイリストに
-              // いる（2026-09-25・10-19 岡さん指示）。音は変えない
+              // （所有カード）のそのカードの詳細＝カードを眺める画面へ。音は変えない。
+              // 「戻る」は来た HOME へ戻す（2026-09-25・10-19・10-20 岡さん指示）
               onOpenMyList={(id) => {
-                changeTab('collection');
                 if (ownedQueue.some((x) => x.id === id)) {
-                  openViewer(ownedQueue.map((x) => x.id), id, 'collection', ALL_OWNED);
+                  openViewer(ownedQueue.map((x) => x.id), id, 'home', ALL_OWNED);
+                } else {
+                  changeTab('collection');
                 }
               }}
             />
@@ -896,6 +897,7 @@ function AppInner() {
             onOpen={openPlayerFromBanner}
             hidden={bannerHidden}
             onHide={() => setBannerHidden(true)}
+            onShow={() => setBannerHidden(false)}
             onLayout={(e) => {
               const h = e.nativeEvent.layout.height;
               setBannerH((prev) => (Math.abs(prev - h) < 0.5 ? prev : h));
