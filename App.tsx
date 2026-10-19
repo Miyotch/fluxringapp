@@ -180,6 +180,11 @@ function AppInner() {
   const [addTarget, setAddTarget] = useState<AddTarget | null>(null);
   // 再生バナーの高さ（HOME で購入ボタンを逃がす量）
   const [bannerH, setBannerH] = useState(0);
+  // 再生バナーを下に払って隠した（2026-10-19）。音は止めない。次に何かを流し始めて
+  // キューが替わったらまた出す（曲送り・自動で次の曲へは出さない）
+  const [bannerHidden, setBannerHidden] = useState(false);
+  useEffect(() => setBannerHidden(false), [playback.queue]);
+  const bannerShown = !!playback.current && !bannerHidden;
   // カードを眺める画面をどのタブから開いたか（「戻る」の戻り先）
   const [playerReturnTab, setPlayerReturnTab] = useState<'home' | 'collection'>('collection');
   // ホーム（ディスカバー）で最初に表示するカード id（ウィッシュから飛んできたとき用）
@@ -652,7 +657,14 @@ function AppInner() {
           onBackHome={close}
           // 詳細は「今の曲を味わう画面」なので、再生の操作を大きく出す（2026-10-13。
           // 以前は小さい再生バナーのままだった）
-          footer={<NowPlayingFull onAddToPlaylist={setAddTarget} />}
+          // 何も流していないとき（起動直後にホームの「マイリスト」から開いた等）も、
+          // 見ているカードの待ち受けでパネルを出す。出さないとカードが下へずれる（2026-10-20）
+          footer={(shown) => (
+            <NowPlayingFull
+              onAddToPlaylist={setAddTarget}
+              idle={{ track: shown, onPlay: () => playback.playQueue(viewerTracks, shown.id, viewer.source) }}
+            />
+          )}
           // 見ているカードが流れている曲でないときの「この曲を再生」。眺めている並びを
           // その曲から流す（2026-09-26 岡さん相談②）
           onPlayHere={(id) => playback.playQueue(viewerTracks, id, viewer.source)}
@@ -764,12 +776,19 @@ function AppInner() {
               introOnMount={homeIntroPending}
               onIntroDone={() => setHomeIntroPending(false)}
               bottomInset={footerH}
-              bannerInset={playback.current ? bannerH : 0}
+              bannerInset={bannerShown ? bannerH : 0}
               onOpenArtist={openArtistFromCard}
               onWishAdded={bumpWishPulse}
-              // 所有済みカードは HOME では再生しない。「マイリストで聴けます」で
-              // マイリストのタブへ（2026-09-25 岡さん指示）
-              onOpenMyList={() => changeTab('collection')}
+              // 所有済みカードは HOME では再生しない。「マイリスト」ボタンで、マイリスト
+              // （所有カード）のそのカードの詳細＝カードを眺める画面へ。音は変えない。
+              // 「戻る」は来た HOME へ戻す（2026-09-25・10-19・10-20 岡さん指示）
+              onOpenMyList={(id) => {
+                if (ownedQueue.some((x) => x.id === id)) {
+                  openViewer(ownedQueue.map((x) => x.id), id, 'home', ALL_OWNED);
+                } else {
+                  changeTab('collection');
+                }
+              }}
             />
           )}
 
@@ -876,6 +895,9 @@ function AppInner() {
               フッターのすぐ上に出る。高さは HOME の購入ボタンを逃がす量に使う */}
           <NowPlayingBar
             onOpen={openPlayerFromBanner}
+            hidden={bannerHidden}
+            onHide={() => setBannerHidden(true)}
+            onShow={() => setBannerHidden(false)}
             onLayout={(e) => {
               const h = e.nativeEvent.layout.height;
               setBannerH((prev) => (Math.abs(prev - h) < 0.5 ? prev : h));
@@ -923,7 +945,7 @@ function AppInner() {
         }}
         onClose={() => setAddTarget(null)}
       />
-      <ToastHost bottom={(playerOpen ? 220 : footerH + (playback.current ? bannerH : 0)) + 12} />
+      <ToastHost bottom={(playerOpen ? 220 : footerH + (bannerShown ? bannerH : 0)) + 12} />
     </View>
   );
 }

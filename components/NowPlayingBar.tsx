@@ -9,6 +9,10 @@
  *   ・左右に払うと、札と曲名が指について動き、離すと画面の外へ抜けて次（前）の曲が
  *     反対側から入ってくる（以前は 6 割だけ動いて元の位置へ戻っていた）
  *   ・何も流していない（キューが空）ときは描かない。一時停止中は出たまま
+ *   ・2026-10-19 下に払うとバナーを隠せる（岡さん指定）。音は止めない。次に何かを
+ *     流し始めたとき（キューが替わったとき）にまた出る。隠す・出すは App が持つ（hidden）
+ *   ・2026-10-20 隠している間は、フッターのすぐ上に小さなつまみ（流れていれば EQ の棒）を
+ *     残す。押すか上に払うとバナーが戻る（戻す手がかりが無かった。岡さん指摘）
  *   ・2026-10-15 払う動きを PanResponder＋RN Animated から RNGH の Pan＋Reanimated へ移した。
  *     以前は指の位置を JS で受けてから札へ書いていたので、再生の状態更新・カードの描画で
  *     JS が詰まると指から遅れ、離したあとの寄せも途中で書き戻されて小刻みに揺れた。
@@ -42,11 +46,20 @@ import { homeCardWidth } from '../constants/design-tokens';
 import { usePlayback, usePlaybackProgress } from '../lib/playback';
 import { PlayMark, PauseMark, SkipIcon, SkipPrevIcon, LoopIcon, AddToListIcon } from './icons';
 import { DownloadButton } from './DownloadButton';
+import { EqBars } from './EqBars';
 import { useT } from '../lib/i18n';
 import { JP_SERIF_FONT, NUM_FONT } from '../constants/fonts';
+import { durationOf } from '../lib/durations';
+import type { PlayerTrack } from '../screens/PlayerScreen';
 
 type Props = {
   onOpen: () => void;
+  /** 下に払って隠したあと。true の間は描かない */
+  hidden?: boolean;
+  /** 下に払った（隠す） */
+  onHide?: () => void;
+  /** 隠したあとのつまみを押した／上に払った（戻す） */
+  onShow?: () => void;
   /** 高さが変わったとき（HOME で購入ボタンを逃がす量に使う） */
   onLayout?: (e: LayoutChangeEvent) => void;
 };
@@ -116,7 +129,11 @@ const SeekLine: React.FC = () => {
   );
 };
 
-export const NowPlayingBar: React.FC<Props> = ({ onOpen, onLayout }) => {
+/** 下に払って隠すと決める移動量・速さ */
+const HIDE_DY = 28;
+const HIDE_VY = 600;
+
+export const NowPlayingBar: React.FC<Props> = ({ onOpen, onLayout, hidden = false, onHide, onShow }) => {
   const t = useT();
   const pb = usePlayback();
   const pbRef = useRef(pb);
@@ -181,15 +198,85 @@ export const NowPlayingBar: React.FC<Props> = ({ onOpen, onLayout }) => {
   );
   const slideStyle = useAnimatedStyle(() => ({ transform: [{ translateX: tx.value }] }));
 
+  // 下に払うと隠す。上へは動かさない。横の払い（曲送り）とは向きで分ける
+  const ty = useSharedValue(0);
+  const onHideRef = useRef(onHide);
+  onHideRef.current = onHide;
+  const hideNow = () => onHideRef.current?.();
+  useEffect(() => {
+    if (!hidden) ty.value = 0;
+  }, [hidden, ty]);
+  const down = useMemo(
+    () =>
+      Gesture.Pan()
+        .activeOffsetY(12)
+        .failOffsetX([-14, 14])
+        .onUpdate((e) => {
+          'worklet';
+          ty.value = Math.max(0, e.translationY);
+        })
+        .onEnd((e) => {
+          'worklet';
+          if (e.translationY > HIDE_DY || e.velocityY > HIDE_VY) {
+            ty.value = withTiming(BAR_H + 24, { duration: 180, easing: Easing.in(Easing.quad) }, (finished) => {
+              if (finished) runOnJS(hideNow)();
+            });
+          } else {
+            ty.value = withSpring(0, { ...SWIPE_SPRING, velocity: e.velocityY });
+          }
+        }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+  const downStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: ty.value }],
+    opacity: 1 - Math.min(1, ty.value / (BAR_H + 24)) * 0.8,
+  }));
+
+  // 隠したあとのつまみ。上に払っても戻す
+  const onShowRef = useRef(onShow);
+  onShowRef.current = onShow;
+  const showNow = () => onShowRef.current?.();
+  const up = useMemo(
+    () =>
+      Gesture.Pan()
+        .activeOffsetY(-8)
+        .onEnd((e) => {
+          'worklet';
+          if (e.translationY < -12 || e.velocityY < -300) runOnJS(showNow)();
+        }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
   const cur = pb.current;
   if (!cur) return null;
+  if (hidden) {
+    return (
+      <View style={styles.handleWrap} pointerEvents="box-none">
+        <GestureDetector gesture={up}>
+          <Pressable
+            onPress={showNow}
+            hitSlop={{ top: 12, bottom: 4, left: 16, right: 16 }}
+            style={({ pressed }) => [styles.handle, pressed && { opacity: 0.7 }]}
+            accessibilityRole="button"
+            accessibilityLabel={t('playback.showBar')}
+          >
+            <View style={styles.handleChevron} />
+            <EqBars active={pb.playing} keepIdle />
+          </Pressable>
+        </GestureDetector>
+      </View>
+    );
+  }
   const many = pb.queue.length >= 2;
   const artist = cur.artistName || cur.artist;
   const sub = pb.loading ? t('playback.loading') : cur.preview ? t('playback.previewing') : artist ?? '';
 
   return (
     <View style={styles.wrap} onLayout={onLayout}>
-      <View style={styles.bar}>
+      <GestureDetector gesture={down}>
+      <Animated.View style={[styles.bar, downStyle]}>
         <GestureDetector gesture={swipe}>
         <View style={styles.row} collapsable={false}>
           {/* 札と曲名。押すと再生画面、払うと曲送り（ここだけが指について動く） */}
@@ -222,7 +309,8 @@ export const NowPlayingBar: React.FC<Props> = ({ onOpen, onLayout }) => {
         </View>
         </GestureDetector>
         <SeekLine />
-      </View>
+      </Animated.View>
+      </GestureDetector>
     </View>
   );
 };
@@ -286,14 +374,77 @@ const FullSeek: React.FC = () => {
   );
 };
 
+/** 何も流していないときの線（動かない） */
+const IdleSeek: React.FC<{ duration?: number }> = ({ duration }) => (
+  <View>
+    <View style={full.rail}>
+      <View style={full.line} />
+      <View style={[full.knob, { left: 0 }]} />
+    </View>
+    <View style={full.times}>
+      <Text style={full.time}>0:00</Text>
+      <Text style={full.time}>{duration ? `-${fmt(duration)}` : ''}</Text>
+    </View>
+  </View>
+);
+
 export const NowPlayingFull: React.FC<{
   /** プレイリストに追加のシートを開く */
   onAddToPlaylist?: (track: { id: string; title: string }) => void;
-}> = ({ onAddToPlaylist }) => {
+  /**
+   * 何も流していないときに出す待ち受け（見ているカード）。▶ でその曲から流す。
+   * 無ければ何も描かない（2026-10-20。起動直後にカード詳細を開くと、パネルが無くて
+   * カードが下へずれていた）
+   */
+  idle?: { track: PlayerTrack; onPlay: () => void };
+}> = ({ onAddToPlaylist, idle }) => {
   const t = useT();
   const pb = usePlayback();
   const cur = pb.current;
-  if (!cur) return null;
+  if (!cur) {
+    if (!idle) return null;
+    const it = idle.track;
+    return (
+      <View style={full.wrap}>
+        <View style={full.head}>
+          <Image source={{ uri: it.artworkUrl }} style={full.art} />
+          <View style={full.texts}>
+            <Text style={full.title} numberOfLines={1}>{it.title}</Text>
+            <Text style={full.sub} numberOfLines={1}>{it.artistName || it.artist || ''}</Text>
+          </View>
+          {onAddToPlaylist && (
+            <Pressable
+              onPress={() => onAddToPlaylist({ id: it.id, title: it.title })}
+              hitSlop={6}
+              style={({ pressed }) => [full.icon, pressed && full.iconPressed]}
+              accessibilityRole="button"
+              accessibilityLabel={t('playlist.addTo')}
+            >
+              <AddToListIcon size={24} />
+            </Pressable>
+          )}
+          <DownloadButton keys={[it.audioKey]} label={it.title} size={24} />
+        </View>
+        <IdleSeek duration={durationOf(it.audioKey || it.id) ?? it.durationSec} />
+        <View style={full.ctrls}>
+          <View style={[full.side, styles.off]}>
+            <LoopIcon size={20} on={pb.repeat === 'one'} />
+          </View>
+          <View style={[full.skip, styles.off]}><SkipPrevIcon size={24} /></View>
+          <Pressable
+            onPress={idle.onPlay}
+            style={({ pressed }) => [full.play, pressed && { transform: [{ scale: 0.94 }] }]}
+            accessibilityRole="button"
+            accessibilityLabel={t('playback.play')}
+          >
+            <PlayMark size={30} color="#0B0B1D" />
+          </Pressable>
+          <View style={[full.skip, styles.off]}><SkipIcon size={24} /></View>
+          <View style={full.side} />
+        </View>
+      </View>
+    );
+  }
   const many = pb.queue.length >= 2;
   const artist = cur.artistName || cur.artist;
   return (
@@ -379,6 +530,29 @@ const full = StyleSheet.create({
 
 const styles = StyleSheet.create({
   wrap: { paddingHorizontal: 10, paddingBottom: 8 },
+  // 隠したあとのつまみ（フッターのすぐ上・中央）
+  handleWrap: { alignItems: 'center', paddingBottom: 6 },
+  handle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    height: 26,
+    paddingHorizontal: 14,
+    borderRadius: 13,
+    backgroundColor: 'rgba(20,22,52,0.92)',
+    borderWidth: 1,
+    borderColor: 'rgba(96,206,224,0.32)',
+  },
+  // 上向きの山（つまみの印）
+  handleChevron: {
+    width: 7,
+    height: 7,
+    marginTop: 3,
+    borderLeftWidth: 1.5,
+    borderTopWidth: 1.5,
+    borderColor: '#ECEEF7',
+    transform: [{ rotate: '45deg' }],
+  },
   bar: {
     height: BAR_H,
     borderRadius: 12,

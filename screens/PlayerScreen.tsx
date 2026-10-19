@@ -91,8 +91,11 @@ type Props = {
   /** 左上の戻る導線の文言 */
   backLabel?: string;
   onBackHome: () => void;
-  /** 画面の下に置くもの（再生バナー） */
-  footer?: React.ReactNode;
+  /**
+   * 画面の下に置くもの（再生パネル）。関数なら、いま見ているカードを渡して描く
+   * （何も流していないときに、見ているカードの待ち受けを出すため。2026-10-20）
+   */
+  footer?: React.ReactNode | ((shown: PlayerTrack) => React.ReactNode);
   /** 「この曲を再生」。この並びをその曲から流す（親が再生の中枢へ渡す） */
   onPlayHere?: (trackId: string) => void;
 };
@@ -609,7 +612,9 @@ export const PlayerScreen: React.FC<Props> = ({
         )}
       </View>
 
-      <View style={{ paddingBottom: bottomPad }}>{footer}</View>
+      <View style={{ paddingBottom: bottomPad }}>
+        {typeof footer === 'function' ? footer(shown) : footer}
+      </View>
     </View>
   );
 };

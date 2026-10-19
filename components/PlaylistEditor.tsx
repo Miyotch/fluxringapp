@@ -1,22 +1,26 @@
 /**
- * PlaylistEditor.tsx — マイプレイリスト（スロット 2 以降）を作る・直すシート
+ * PlaylistEditor.tsx — マイプレイリスト（スロット 2 以降）を作る・直す画面
  * ------------------------------------------------------------------
- *   ・名前
- *   ・入っている曲（長押しで並べ替え、外す）
- *   ・所有している曲から入れる
- *   ・削除（2 度押しで確定。確認ダイアログは出さない）
+ * 2026-10-19 岡さん案（FR 新規プレイリスト シミュレーション）で組み直した。
+ *   ・シートではなく一枚の画面（下のプレイリスト画面の見出しが透けて見えないように）。
+ *     上は「キャンセル」「完了」だけ（真ん中の「新しいプレイリスト」は撤去）
+ *   ・名前は下線だけの大きな入力欄。空のときは「新規プレイリスト名」と薄く出す
+ *   ・その下に「合計：n曲　m分s秒」
+ *   ・行は「入れる／外す」の文字ボタンではなく、右端の丸い「＋」。入れると丸の中がシアンの点に
+ *     変わる。行のどこを押しても入れる・外すが切り替わる
+ *   ・カードのサムネに再生ボタン（入れていない曲にも）。入れるのとは別の操作で、
+ *     聴きながら選べる。流れている曲は ⏸ に変わり、曲名がシアン
+ *   ・曲名の書き方は 上＝曲名／下＝シリアル · 作家名（新規・編集とも同じ）
+ *
+ * 新規: 所有している曲を通し番号順に一列で並べ、押した順にリストへ入る（並びは動かさない）。
+ * 編集: 入っている曲を上（長押しで並べ替え）、ほかの所有曲を下に分けて出す。
  *
  * 手元の下書きを直して、「完了」で一度に保存する（途中で閉じれば何も変わらない）。
- * 並べ替えは、行を長押しして上下に動かす（2026-09-25 岡さん指示）。
- * ↑↓ ボタンは長押しで足りるため 2026-10-18 に外した（岡さん指定）。読み上げ（VoiceOver /
+ * 並べ替えは、行を長押しして上下に動かす（2026-09-25 岡さん指示）。読み上げ（VoiceOver /
  * TalkBack）では長押しのドラッグができないので、行に「上へ」「下へ」の操作だけ残す。
- * 入っている曲の行を軽く押すと、いまの並び（下書き）のままその曲から流す（2026-09-26）。
- * 流れている曲の行は曲名がシアンになり、番号の代わりに「再生中」と出る。
- *
- * 長押しで持ち上げた行は指について動き、ほかの行はよけるように 1 行ぶん滑る。
- * 指を離した位置で並びを確定する。行の高さは固定（ROW_H）なので、指の移動量を
- * 行の高さで割れば落とす位置が決まる。Modal の中は Android で手の動きが届かない
- * ことがあるので、中身を GestureHandlerRootView で包む。
+ * 行の押し分けは RNGH の Tap にしている。RN の Pressable は長押しの間タッチを握って
+ * しまい、並べ替えの Pan が始まらなくなるため（2026-09-26 に踏んだ）。
+ * Modal の中は Android で手の動きが届かないことがあるので、中身を GestureHandlerRootView で包む。
  */
 
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
@@ -28,6 +32,7 @@ import {
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from 'react-native';
 import {
   Gesture,
@@ -36,25 +41,38 @@ import {
   ScrollView,
 } from 'react-native-gesture-handler';
 import Animated, {
+  FadeIn,
   runOnJS,
-  SlideInDown,
   useAnimatedStyle,
   useSharedValue,
   withTiming,
   type SharedValue,
 } from 'react-native-reanimated';
-import { useT } from '../lib/i18n';
-import { useBottomInset } from '../lib/safeArea';
+import { useI18n, useT } from '../lib/i18n';
+import { useBottomInset, useTopInset } from '../lib/safeArea';
 import { JP_SERIF_FONT, NUM_FONT } from '../constants/fonts';
 import { usePlaybackOptional } from '../lib/playback';
-import { PlayMark } from './icons';
+import { formatDuration, sumDurations, useDurations } from '../lib/durations';
+import Svg, { Defs, LinearGradient as SvgLinear, Rect, Stop } from 'react-native-svg';
+import { CreditsBackdrop } from './CreditsBackdrop';
+import { PauseMark, PlayMark } from './icons';
 
-/** 入っている曲の 1 行の高さ（サムネ 54 ＋ 上下 7） */
-const ROW_H = 68;
+/** 1 行の高さ（サムネ 66 ＋ 上下 8） */
+const ROW_H = 82;
+/** 一覧の上端で行を薄れさせる高さ */
+const LIST_FADE_H = 22;
 /** 持ち上げるまでの長押し(ms) */
 const LIFT_MS = 260;
 
-export type EditorTrack = { id: string; title: string; artworkUrl: string; serialNo?: string };
+export type EditorTrack = {
+  id: string;
+  title: string;
+  artworkUrl: string;
+  serialNo?: string;
+  artist?: string;
+  /** 長さを引くキー（無ければ id） */
+  audioKey?: string;
+};
 
 type Props = {
   visible: boolean;
@@ -68,30 +86,58 @@ type Props = {
   onCancel: () => void;
   /** 既存のプレイリストだけ。未指定なら削除ボタンを出さない */
   onDelete?: () => void;
-  /** 入っている曲の行を押した → 下書きの並びのまま、その曲から流す */
+  /** サムネの再生ボタン → その並びのまま、その曲から流す */
   onPlayTrack?: (trackIds: string[], startId: string) => void;
 };
 
 const C = {
   text: '#ECEEF7',
-  sub: '#9498BE',
+  sub: 'rgba(236,238,247,0.62)',
+  // 小さい字（番号・作家名・時間）。0.36 では暗い背景で読みにくかったので上げた（2026-10-20）
+  faint: 'rgba(236,238,247,0.56)',
+  line: 'rgba(160,176,230,0.16)',
   cyan: '#60CEE0',
-  line: 'rgba(96,206,224,0.15)',
-  sheet: '#0E0D26',
+  cyanSoft: '#9FE3EE',
   danger: '#E5484D',
 };
 
+/** 合計時間。日本語は「1時間2分5秒」、英語は「1:02:05」 */
+const totalLabel = (sec: number, lang: string) => {
+  if (lang !== 'ja') return formatDuration(sec);
+  const s = Math.max(0, Math.round(sec));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  return `${h ? `${h}時間` : ''}${m}分${s % 60}秒`;
+};
+
+/** 右端の丸。入っていなければ「＋」、入っていればシアンの点 */
+const PickMark: React.FC<{ on: boolean }> = ({ on }) => (
+  <View style={[styles.mark, on && styles.markOn]}>
+    {on ? (
+      <View style={styles.markDot} />
+    ) : (
+      <>
+        <View style={styles.plusH} />
+        <View style={styles.plusV} />
+      </>
+    )}
+  </View>
+);
+
 const Row: React.FC<{
   item: EditorTrack;
-  children: React.ReactNode;
-  /** 渡したときだけ、サムネと曲名を押すと流せる（▶ の印も出す） */
+  picked: boolean;
+  duration?: number;
+  /** この行の曲が流れている（一時停止中を含む） */
+  current: boolean;
+  playing: boolean;
+  onToggle: () => void;
   onPlay?: () => void;
-  /** この行の曲が流れている */
-  playing?: boolean;
-  playingLabel?: string;
-}> = ({ item, children, onPlay, playing, playingLabel }) => {
+}> = ({ item, picked, duration, current, playing, onToggle, onPlay }) => {
+  const t = useT();
   const [pressed, setPressed] = useState(false);
-  const tap = useMemo(
+  // 長押しの時間より前に離したときだけ成立する（それ以降は並べ替えの Pan が先に取る）
+  const pickTap = useMemo(
     () =>
       Gesture.Tap()
         .runOnJS(true)
@@ -99,54 +145,66 @@ const Row: React.FC<{
         .onBegin(() => setPressed(true))
         .onFinalize(() => setPressed(false))
         .onEnd((_e, ok) => {
+          if (ok) onToggle();
+        }),
+    [onToggle],
+  );
+  const playTap = useMemo(
+    () =>
+      Gesture.Tap()
+        .runOnJS(true)
+        .maxDuration(LIFT_MS - 20)
+        .onEnd((_e, ok) => {
           if (ok) onPlay?.();
         }),
     [onPlay],
   );
-  const body = (
-    <>
-      <View>
-        <Image source={{ uri: item.artworkUrl }} style={styles.thumb} />
-        {onPlay && !playing && (
-          <View style={styles.thumbPlay} pointerEvents="none">
-            <PlayMark size={12} color="#ECEEF7" />
-          </View>
-        )}
-      </View>
-      <View style={styles.rowText}>
-        <Text style={[styles.rowTitle, playing && styles.rowTitleOn]} numberOfLines={1}>
-          {item.title}
-        </Text>
-        {playing ? (
-          <Text style={styles.rowPlaying}>{playingLabel}</Text>
-        ) : (
-          !!item.serialNo && <Text style={styles.rowSerial}>{item.serialNo}</Text>
-        )}
-      </View>
-    </>
-  );
+  const sub = [item.serialNo, item.artist].filter(Boolean).join(' · ');
   return (
     <View style={styles.row}>
-      {onPlay ? (
-        // 長押しは並べ替え（DragRow の Pan）に渡すので、ここでは軽く押したときだけ流す。
-        // RN の Pressable ではなく同じジェスチャー系（RNGH）の Tap にしている。Pressable は
-        // 長押しの間タッチを握ってしまい、並べ替えの Pan が始まらなくなっていた
-        // （2026-09-26 に行を押して流せるようにして以来）。長押しの時間より前に
-        // 離したときだけ成立する（それ以降は Pan が先に取る）
-        <GestureDetector gesture={tap}>
-          <View
-            style={[styles.rowMain, pressed && { opacity: 0.7 }]}
-            accessible
-            accessibilityRole="button"
-            accessibilityLabel={item.title}
-          >
-            {body}
+      <GestureDetector gesture={playTap}>
+        <View
+          style={styles.thumbWrap}
+          // GestureDetector の子は畳まれないようにする。流れている印で縁を付け外ししたら、
+          // Android でこの View が親へ畳まれてサムネごと消えた（2026-10-20 実機）
+          collapsable={false}
+          accessible
+          accessibilityRole="button"
+          accessibilityLabel={t(playing ? 'playlist.pauseThis' : 'playlist.playThis', { title: item.title })}
+        >
+          <Image source={{ uri: item.artworkUrl }} style={styles.thumb} />
+          {/* 流れている曲の縁は上に重ねる（サムネの入れ物の形は変えない） */}
+          <View style={[styles.thumbRing, current && styles.thumbRingOn]} pointerEvents="none" />
+          {onPlay && (
+            <View style={styles.thumbPlay} pointerEvents="none">
+              {playing ? <PauseMark size={10} color={C.text} /> : <PlayMark size={10} color={C.text} />}
+            </View>
+          )}
+        </View>
+      </GestureDetector>
+      <GestureDetector gesture={pickTap}>
+        <View
+          style={[styles.pick, pressed && { opacity: 0.7 }]}
+          collapsable={false}
+          accessible
+          accessibilityRole="button"
+          accessibilityState={{ selected: picked }}
+          accessibilityLabel={t(picked ? 'playlist.unpick' : 'playlist.pick', { title: item.title })}
+        >
+          <View style={styles.rowText}>
+            <Text style={[styles.rowTitle, current && styles.rowTitleOn]} numberOfLines={1}>
+              {item.title}
+            </Text>
+            {!!sub && (
+              <Text style={styles.rowSub} numberOfLines={1}>
+                {sub}
+              </Text>
+            )}
           </View>
-        </GestureDetector>
-      ) : (
-        <View style={styles.rowMain}>{body}</View>
-      )}
-      <View style={styles.rowActs}>{children}</View>
+          {duration != null && <Text style={styles.dur}>{formatDuration(duration)}</Text>}
+          <PickMark on={picked} />
+        </View>
+      </GestureDetector>
     </View>
   );
 };
@@ -231,24 +289,6 @@ const DragRow: React.FC<{
   );
 };
 
-const Act: React.FC<{ label: string; a11y: string; onPress: () => void; disabled?: boolean }> = ({
-  label,
-  a11y,
-  onPress,
-  disabled,
-}) => (
-  <Pressable
-    onPress={onPress}
-    disabled={disabled}
-    hitSlop={6}
-    accessibilityRole="button"
-    accessibilityLabel={a11y}
-    style={({ pressed }) => [styles.act, disabled && { opacity: 0.25 }, pressed && { opacity: 0.6 }]}
-  >
-    <Text style={styles.actText}>{label}</Text>
-  </Pressable>
-);
-
 export const PlaylistEditor: React.FC<Props> = ({
   visible,
   initial,
@@ -260,12 +300,19 @@ export const PlaylistEditor: React.FC<Props> = ({
   onPlayTrack,
 }) => {
   const t = useT();
+  const { lang } = useI18n();
+  const { width: screenW, height: screenH } = useWindowDimensions();
+  const padTop = useTopInset(4);
   const padBottom = useBottomInset(16);
   const pb = usePlaybackOptional();
-  const playingId = pb?.current?.id ?? null;
+  const currentId = pb?.current?.id ?? null;
+  const isPlaying = !!pb?.playing;
   const [name, setName] = useState('');
   const [ids, setIds] = useState<string[]>([]);
   const [deleteArmed, setDeleteArmed] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
+  const isEdit = initial != null;
 
   // 開くたびに下書きを作り直す
   useEffect(() => {
@@ -278,7 +325,30 @@ export const PlaylistEditor: React.FC<Props> = ({
   const byId = useMemo(() => new Map(owned.map((o) => [o.id, o])), [owned]);
   // 所有でなくなった曲は下書きの時点で外して見せる
   const inList = ids.map((id) => byId.get(id)).filter((x): x is EditorTrack => !!x);
-  const addable = owned.filter((o) => !ids.includes(o.id));
+  const pickedSet = new Set(inList.map((x) => x.id));
+  const rest = owned.filter((o) => !pickedSet.has(o.id));
+
+  // 曲の長さ（行の右・合計）。分かりしだい描き直す
+  const keyOf = (x: EditorTrack) => x.audioKey || x.id;
+  const durs = useDurations(owned.map(keyOf));
+  const durById = new Map(owned.map((o, i) => [o.id, durs[i]]));
+  const total = sumDurations(inList.map((x) => durById.get(x.id)));
+
+  const toggle = (id: string) =>
+    setIds((prev) => {
+      const cur = prev.filter((x) => byId.has(x));
+      return cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id];
+    });
+
+  // サムネの再生ボタン。流れている曲なら一時停止／再開、ほかの曲ならその並びで流す
+  const play = (id: string, order: string[]) => {
+    if (id === currentId && pb) {
+      if (isPlaying) pb.pause();
+      else pb.toggle();
+      return;
+    }
+    onPlayTrack?.(order, id);
+  };
 
   const moveLabels = useMemo(() => ({ up: t('playlist.moveUp'), down: t('playlist.moveDown') }), [t]);
   const move = (i: number, d: -1 | 1) => {
@@ -289,7 +359,7 @@ export const PlaylistEditor: React.FC<Props> = ({
     setIds(next);
   };
 
-  // ── 長押しでの並べ替え ──
+  // ── 長押しでの並べ替え（編集のときだけ） ──
   const dragIndex = useSharedValue(-1);
   const dragDy = useSharedValue(0);
   const [dragging, setDragging] = useState(false);
@@ -320,88 +390,121 @@ export const PlaylistEditor: React.FC<Props> = ({
     [byId, dragDy, dragIndex],
   );
 
+  const canDone = isEdit || !!name.trim() || inList.length > 0;
   const done = () => {
+    if (!canDone) return;
     onDone(name.trim() || defaultName, inList.map((x) => x.id));
   };
 
+  const ownedOrder = owned.map((x) => x.id);
+  const draftOrder = inList.map((x) => x.id);
+  const rowFor = (item: EditorTrack, order: string[]) => (
+    <Row
+      item={item}
+      picked={pickedSet.has(item.id)}
+      duration={durById.get(item.id)}
+      current={item.id === currentId}
+      playing={item.id === currentId && isPlaying}
+      onToggle={() => toggle(item.id)}
+      onPlay={onPlayTrack ? () => play(item.id, order) : undefined}
+    />
+  );
+
+  const countText = t('playlist.total', { n: inList.length });
+  const metaText =
+    inList.length > 0 && total != null && total > 0 ? `${countText}　${totalLabel(total, lang)}` : countText;
+
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
-      <GestureHandlerRootView style={styles.backdrop}>
-        <Animated.View
-          entering={SlideInDown.duration(300)}
-          style={[styles.sheet, { paddingBottom: padBottom }]}
-        >
+    <Modal visible={visible} animationType="fade" onRequestClose={onCancel} statusBarTranslucent>
+      <GestureHandlerRootView style={styles.root}>
+        <CreditsBackdrop w={screenW} h={screenH} />
+        <Animated.View entering={FadeIn.duration(260)} style={[styles.page, { paddingTop: padTop }]}>
           <View style={styles.head}>
-            {/* 何のシートかを真ん中に（以前は「キャンセル」「完了」だけだった） */}
-            <Text style={styles.headTitle} numberOfLines={1} pointerEvents="none">
-              {initial ? t('playlist.editTitle') : t('playlist.new')}
-            </Text>
             <Pressable onPress={onCancel} hitSlop={10} accessibilityRole="button">
               <Text style={styles.headBtn}>{t('playlist.cancel')}</Text>
             </Pressable>
-            <Pressable onPress={done} hitSlop={10} accessibilityRole="button">
-              <Text style={[styles.headBtn, styles.headDone]}>{t('playlist.done')}</Text>
+            <Pressable
+              onPress={done}
+              disabled={!canDone}
+              hitSlop={10}
+              accessibilityRole="button"
+              accessibilityState={{ disabled: !canDone }}
+            >
+              <Text style={[styles.headBtn, styles.headDone, !canDone && styles.headDoneOff]}>
+                {t('playlist.done')}
+              </Text>
             </Pressable>
           </View>
 
-          <ScrollView
-            contentContainerStyle={styles.body}
-            keyboardShouldPersistTaps="handled"
-            scrollEnabled={!dragging}
-          >
-            <Text style={styles.label}>{t('playlist.name')}</Text>
+          <View style={styles.top}>
             <TextInput
               value={name}
               onChangeText={setName}
-              placeholder={t('playlist.namePlaceholder')}
-              placeholderTextColor="rgba(148,152,190,0.5)"
-              style={styles.input}
+              placeholder={t('playlist.newNamePlaceholder')}
+              placeholderTextColor="rgba(236,238,247,0.38)"
+              style={styles.name}
               maxLength={30}
               returnKeyType="done"
+              selectionColor={C.cyan}
+              onFocus={() => setFocused(true)}
+              onBlur={() => setFocused(false)}
+              accessibilityLabel={t('playlist.name')}
             />
+            <View style={[styles.rule, focused && styles.ruleOn]} />
+            <Text style={[styles.meta, inList.length > 0 && styles.metaOn]}>{metaText}</Text>
+          </View>
 
-            <Text style={styles.label}>
-              {t('playlist.inList')}　{t('playlist.count', { n: inList.length })}
-            </Text>
-            {inList.length === 0 && <Text style={styles.hint}>{t('playlist.emptyBody')}</Text>}
-            {inList.length > 1 && <Text style={styles.hint}>{t('playlist.dragHint')}</Text>}
-            {inList.map((item, i) => (
-              <DragRow
-                key={item.id}
-                index={i}
-                count={inList.length}
-                dragIndex={dragIndex}
-                dragDy={dragDy}
-                onLift={onLift}
-                onDrop={onDrop}
-                onMove={(d) => move(i, d)}
-                moveLabels={moveLabels}
-              >
-                <Row
-                  item={item}
-                  onPlay={onPlayTrack ? () => onPlayTrack(inList.map((x) => x.id), item.id) : undefined}
-                  playing={item.id === playingId}
-                  playingLabel={pb?.playing ? t('playback.playing') : t('playback.paused')}
-                >
-                  <Act
-                    label={t('playlist.remove')}
-                    a11y={t('playlist.remove')}
-                    onPress={() => setIds(inList.filter((x) => x.id !== item.id).map((x) => x.id))}
-                  />
-                </Row>
-              </DragRow>
-            ))}
-
-            {addable.length > 0 && <Text style={styles.label}>{t('playlist.addable')}</Text>}
-            {addable.map((item) => (
-              <Row key={item.id} item={item}>
-                <Act
-                  label={`＋ ${t('playlist.add')}`}
-                  a11y={t('playlist.add')}
-                  onPress={() => setIds([...inList.map((x) => x.id), item.id])}
-                />
-              </Row>
-            ))}
+          <View style={styles.list}>
+          <ScrollView
+            style={styles.listScroll}
+            contentContainerStyle={{ paddingTop: 6, paddingBottom: padBottom + 24 }}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            scrollEnabled={!dragging}
+            scrollEventThrottle={32}
+            onScroll={(e) => {
+              const on = e.nativeEvent.contentOffset.y > 2;
+              if (on !== scrolled) setScrolled(on);
+            }}
+          >
+            {isEdit ? (
+              <>
+                {inList.length > 0 && (
+                  <Text style={styles.label}>
+                    {t('playlist.inList')}
+                    {inList.length > 1 ? `　${t('playlist.dragHint')}` : ''}
+                  </Text>
+                )}
+                {inList.map((item, i) => (
+                  <DragRow
+                    key={item.id}
+                    index={i}
+                    count={inList.length}
+                    dragIndex={dragIndex}
+                    dragDy={dragDy}
+                    onLift={onLift}
+                    onDrop={onDrop}
+                    onMove={(d) => move(i, d)}
+                    moveLabels={moveLabels}
+                  >
+                    {rowFor(item, draftOrder)}
+                  </DragRow>
+                ))}
+                {rest.length > 0 && <Text style={styles.label}>{t('playlist.addable')}</Text>}
+                {rest.map((item) => (
+                  <View key={item.id} style={styles.plainRow}>
+                    {rowFor(item, ownedOrder)}
+                  </View>
+                ))}
+              </>
+            ) : (
+              // 新規は一列のまま。押した順にリストへ入り、行は動かない
+              owned.map((item) => (
+                <View key={item.id} style={styles.plainRow}>
+                  {rowFor(item, ownedOrder)}
+                </View>
+              ))
+            )}
 
             {onDelete && (
               <Pressable
@@ -415,6 +518,21 @@ export const PlaylistEditor: React.FC<Props> = ({
               </Pressable>
             )}
           </ScrollView>
+          {/* 一覧の上端。流したら細い線を引き、行は線の下で薄れて消える（2026-10-20。
+              行が見出しの真下で途中から切れて見えていた） */}
+          <View style={[styles.listEdge, scrolled && styles.listEdgeOn]} pointerEvents="none" />
+          {scrolled && (
+            <Svg style={styles.listFade} width={screenW} height={LIST_FADE_H} pointerEvents="none">
+              <Defs>
+                <SvgLinear id="edfade" x1="0" y1="0" x2="0" y2="1">
+                  <Stop offset="0" stopColor="#12102a" stopOpacity={1} />
+                  <Stop offset="1" stopColor="#12102a" stopOpacity={0} />
+                </SvgLinear>
+              </Defs>
+              <Rect x="0" y="0" width={screenW} height={LIST_FADE_H} fill="url(#edfade)" />
+            </Svg>
+          )}
+          </View>
         </Animated.View>
       </GestureHandlerRootView>
     </Modal>
@@ -422,85 +540,88 @@ export const PlaylistEditor: React.FC<Props> = ({
 };
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: 'rgba(3,3,12,0.6)', justifyContent: 'flex-end' },
-  sheet: {
-    maxHeight: '88%',
-    backgroundColor: C.sheet,
-    borderTopLeftRadius: 22,
-    borderTopRightRadius: 22,
-    borderTopWidth: 1,
-    borderColor: C.line,
-  },
+  root: { flex: 1, backgroundColor: '#0E0C20' },
+  page: { flex: 1 },
   head: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 22,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderColor: C.line,
+    paddingTop: 10,
   },
-  headTitle: {
-    position: 'absolute',
-    left: 96,
-    right: 96,
-    textAlign: 'center',
-    color: C.text,
-    fontSize: 15,
-    letterSpacing: 0.9,
-    fontFamily: JP_SERIF_FONT,
-  },
-  headBtn: { color: C.sub, fontSize: 14, letterSpacing: 0.5 },
+  headBtn: { color: C.sub, fontSize: 15, letterSpacing: 0.9, paddingVertical: 8 },
   headDone: { color: C.cyan },
-  body: { paddingHorizontal: 22, paddingBottom: 24 },
-  label: { color: C.sub, fontSize: 11, letterSpacing: 1.6, marginTop: 20, marginBottom: 8 },
-  hint: { color: C.sub, fontSize: 12, lineHeight: 18, marginBottom: 6 },
-  input: {
+  headDoneOff: { opacity: 0.3 },
+  top: { paddingHorizontal: 22, paddingTop: 18 },
+  // 名前: 下線だけの大きな入力欄（ゴシック・細字）
+  name: {
     color: C.text,
-    fontSize: 15,
-    borderWidth: 1,
-    borderColor: C.line,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 11,
+    fontSize: 26,
+    fontWeight: '300',
+    letterSpacing: 1.5,
+    paddingTop: 6,
+    paddingBottom: 10,
+    paddingHorizontal: 0,
   },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 7 },
-  // サムネと曲名（押すと流せる行ではここが押せる）
-  rowMain: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 12 },
-  // サムネの上の ▶（押すと流せることの印）
+  rule: { height: 1, backgroundColor: C.line },
+  ruleOn: { backgroundColor: 'rgba(96,206,224,0.7)' },
+  meta: { color: C.faint, fontSize: 12, letterSpacing: 0.7, lineHeight: 30, fontVariant: ['tabular-nums'] },
+  metaOn: { color: 'rgba(236,238,247,0.8)' },
+  list: { flex: 1, marginTop: 4 },
+  listScroll: { flex: 1 },
+  listEdge: { position: 'absolute', left: 0, right: 0, top: 0, height: 1, backgroundColor: 'transparent' },
+  listEdgeOn: { backgroundColor: C.line },
+  listFade: { position: 'absolute', left: 0, top: 1 },
+  label: { color: C.faint, fontSize: 11, letterSpacing: 1.6, marginTop: 14, marginBottom: 2, paddingHorizontal: 22 },
+  plainRow: { height: ROW_H, justifyContent: 'center' },
+  // 並べ替えられる行。高さを固定して、指の移動量から落とす位置を決める
+  dragRow: { height: ROW_H, justifyContent: 'center' },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 22 },
+  thumbWrap: { width: 44, height: 66, borderRadius: 5, overflow: 'hidden' },
+  thumb: { width: 44, height: 66, backgroundColor: 'rgba(255,255,255,0.05)' },
+  thumbRing: { position: 'absolute', left: 0, top: 0, right: 0, bottom: 0, borderRadius: 5, borderWidth: 1, borderColor: 'rgba(255,255,255,0.18)' },
+  thumbRingOn: { borderColor: 'rgba(96,206,224,0.85)' },
+  // サムネの上の再生ボタン（押すと流す）
   thumbPlay: {
     position: 'absolute',
-    left: 7,
-    top: 16,
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: 'rgba(5,4,12,0.55)',
+    left: 10,
+    top: 21,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(10,10,28,0.55)',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingLeft: 2,
   },
-  // 並べ替えられる行。高さを固定して、指の移動量から落とす位置を決める
-  dragRow: { height: ROW_H, justifyContent: 'center', borderRadius: 10 },
-  thumb: { width: 36, height: 54, borderRadius: 5, backgroundColor: 'rgba(255,255,255,0.05)' },
-  rowText: { flex: 1, minWidth: 0 },
-  // 曲名は明朝・番号は数字の書体（ほかの画面と同じ）
-  rowTitle: { color: C.text, fontSize: 14, letterSpacing: 0.6, fontFamily: JP_SERIF_FONT },
-  rowSerial: { color: C.sub, fontSize: 11, letterSpacing: 1.6, marginTop: 3, fontFamily: NUM_FONT },
-  rowTitleOn: { color: C.cyan },
-  rowPlaying: { color: C.cyan, fontSize: 11, letterSpacing: 0.9, marginTop: 3 },
-  rowActs: { flexDirection: 'row', gap: 6 },
-  act: {
-    minWidth: 36,
-    height: 32,
-    paddingHorizontal: 10,
-    borderRadius: 9,
+  pick: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 14, alignSelf: 'stretch' },
+  rowText: { flex: 1, minWidth: 0, justifyContent: 'center' },
+  // 上＝曲名（明朝）／下＝シリアル · 作家名（新規・編集とも同じ。2026-10-19 岡さん指定）
+  rowTitle: { color: C.text, fontSize: 17, letterSpacing: 0.7, fontFamily: JP_SERIF_FONT },
+  rowTitleOn: { color: C.cyanSoft },
+  rowSub: { color: C.faint, fontSize: 11, letterSpacing: 1.4, marginTop: 4, fontFamily: NUM_FONT },
+  dur: { color: C.faint, fontSize: 12, letterSpacing: 0.5, fontFamily: NUM_FONT },
+  mark: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
     borderWidth: 1,
-    borderColor: C.line,
+    borderColor: 'rgba(236,238,247,0.26)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  actText: { color: C.cyan, fontSize: 12 },
+  markOn: { borderColor: 'rgba(96,206,224,0.6)' },
+  markDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: C.cyan,
+    shadowColor: C.cyan,
+    shadowOpacity: 0.6,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 0 },
+  },
+  plusH: { position: 'absolute', width: 9, height: 1, backgroundColor: C.sub },
+  plusV: { position: 'absolute', width: 1, height: 9, backgroundColor: C.sub },
   delete: { marginTop: 28, alignSelf: 'center', paddingVertical: 10, paddingHorizontal: 18 },
   deleteText: { color: C.danger, fontSize: 13, letterSpacing: 0.5 },
 });
