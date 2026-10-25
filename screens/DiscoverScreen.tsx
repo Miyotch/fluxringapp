@@ -34,24 +34,19 @@ import Animated, {
   withTiming,
   Easing,
 } from 'react-native-reanimated';
+import { HomeCosmos } from '../components/HomeCosmos';
 import { useIdleFloat } from '../lib/useIdleFloat';
 import { useAudioPlayer } from 'expo-audio';
 import { previewUrl } from '../lib/r2';
-import { BackdropDim } from '../components/BackdropDim';
 import { CardFace } from '../components/CardFace';
-import { NebulaBand } from '../components/NebulaBand';
-import { StarField } from '../components/StarField';
-import { FilmGrain } from '../components/FilmGrain';
-import { CardGround } from '../components/CardGround';
-import { StarSeal } from '../components/StarSeal';
-import { CardGL, CARD_BACK_SCALE, PURCHASE_RISE_MS, PURCHASE_FALL_MS } from '../components/CardGL';
+import { CardGL, PURCHASE_RISE_MS, PURCHASE_FALL_MS } from '../components/CardGL';
 import { BuyButton } from '../components/BuyButton';
 import { WishlistStar } from '../components/WishlistStar';
 import { BellIcon, PreviewIcon } from '../components/icons';
 import { RisingBubbles } from '../components/RisingBubbles';
 
 const C = {
-  page: '#0E0C20',
+  page: '#030711',
   text: '#ECEEF7',
   sub: '#9498BE',
   cyan: '#60CEE0',
@@ -156,8 +151,8 @@ export const DiscoverScreen: React.FC<Props> = ({
 
   const { width: screenW } = useWindowDimensions();
   const active = tracks[activeIndex] ?? tracks[0];
-  // v98 カルーセル確定値 BASE_W = 164 × 1.15 = 188.6（調律陣のスケールも参照と1:1になる）
-  const cardW = 189;
+  // 作品を主役にしつつ、小さい画面では上下の操作領域を確保する。
+  const cardW = Math.min(224, screenW * 0.58, Math.max(160, slideH * 0.36));
   const cardH = Math.round(cardW * 1.5);
 
   // ── アイドルフロート（v99-tsubasa）──────────────────────────
@@ -168,20 +163,8 @@ export const DiscoverScreen: React.FC<Props> = ({
     const aProg = Math.abs(cardRotation.value) / 180;
     return scrolling.value > 0.5 || aProg > 0.02 ? 0 : 1;
   }, [scrolling, cardRotation]);
-  const floatY = useIdleFloat(damp);
-  // 接地影は床に留めたまま、フロートと逆相で反応させる（lift = floatY/3.0）
-  const lift = useDerivedValue(() => floatY.value / 3.0, [floatY]);
-  // 表面度 fore = |cos(回転角)|。裏返り中は接地影を弱める
-  const groundFade = useDerivedValue(
-    () => Math.abs(Math.cos((cardRotation.value * Math.PI) / 180)),
-    [cardRotation],
-  );
-  // 3D（裏返し）でカードが一回り縮むぶん、接地影も同じ倍率へ追従させる
+  const floatY = useIdleFloat(damp, 7);
   const flipProgress = useSharedValue(0);
-  const groundScale = useDerivedValue(
-    () => 1 + (CARD_BACK_SCALE - 1) * flipProgress.value,
-    [flipProgress],
-  );
   const floatStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: floatY.value }],
   }));
@@ -262,50 +245,7 @@ export const DiscoverScreen: React.FC<Props> = ({
     <View style={styles.root} onLayout={onRootLayout}>
       <StatusBar barStyle="light-content" backgroundColor={C.page} />
 
-      {/* 背景層（参照 v99 の z 順: bgbase → nebBand → bgstars → 調律陣 → カード → クローム）
-          ・NebulaBand = bgbase(radial) ＋ 天の川帯（雲36・星520）
-          ・StarField  = bgstars（遠近3層・星479） */}
-      {slideH > 0 && <NebulaBand width={screenW} height={slideH} />}
-      {slideH > 0 && <StarField width={screenW} height={slideH} />}
-
-      {/* 調律陣の背景（プレイヤーと同一・カード中心に配置） */}
-      {slideH > 0 && (
-        <StarSeal
-          width={screenW}
-          height={slideH}
-          centerX={screenW / 2}
-          centerY={slideH / 2}
-          cardWidth={cardW}
-          style={styles.sealLayer}
-        />
-      )}
-
-      {/* 暗化2層（bgvig 常時ビネット + focus-dim フリップ連動）。
-          参照の z 順どおり調律陣より上・カードより下 */}
-      {slideH > 0 && (
-        <BackdropDim width={screenW} height={slideH} rotationDeg={cardRotation} />
-      )}
-
-      {/* 空気の粒（#bggrain）。参照の z 順は bgvig の上・カードより下。
-          極暗部のバンディングを消す層で、無いと実機 OLED で階調が縞になる */}
-      {slideH > 0 && <FilmGrain width={screenW} height={slideH} />}
-
-      {/* 接地影（card-ground）。カードは floatY で浮くが影は床に留め、
-          逆相で「浮くと薄く広く／沈むと濃く狭く」反応させる */}
-      {slideH > 0 && (
-        <CardGround
-          width={screenW}
-          height={slideH}
-          centerX={screenW / 2}
-          centerY={slideH / 2}
-          cardW={cardW}
-          cardH={cardH}
-          fade={groundFade}
-          lift={lift}
-          scale={groundScale}
-          style={styles.sealLayer}
-        />
-      )}
+      {slideH > 0 && <HomeCosmos width={screenW} height={slideH} drift={floatY} />}
 
       {/* カードページャ。表面=横スワイプで曲切替＋タップで裏返し、
           裏面=全方向360°回転（横スワイプは無効） */}
@@ -342,6 +282,7 @@ export const DiscoverScreen: React.FC<Props> = ({
                 // アルミ刻印面（再生画面と同一デザイン）＋全方向360°回転。
                 // タップ→フリップは内部完結（FlatList のセル再レンダーに依存しない）。
                 <CardGL
+                  homeFinish
                   mode="flip"
                   backStyle="aluminum"
                   frontUri={item.artworkUrl}
@@ -364,6 +305,7 @@ export const DiscoverScreen: React.FC<Props> = ({
               ) : (
                 // 非アクティブは軽量な静止カード（角丸＋オーラ・v98の表面と同一デザイン）
                 <CardFace
+                  homeFinish
                   uri={item.artworkUrl}
                   width={cardW}
                   height={cardH}

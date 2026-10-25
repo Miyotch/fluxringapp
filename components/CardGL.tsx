@@ -55,6 +55,7 @@ import {
   BackPixels,
 } from '../lib/cardBackTexture';
 import { CARD_VERTEX_SHADER, ART_FRAGMENT_SHADER, ALUMINUM_FRAGMENT_SHADER } from '../lib/cardShaders';
+import { HOME_ART_FRAGMENT_SHADER, HOME_ALUMINUM_FRAGMENT_SHADER } from '../lib/homeCardShaders';
 import { CardAura } from './CardAura';
 import { CardSurface } from './CardSurface';
 import { PurchaseGlow } from './PurchaseGlow';
@@ -182,10 +183,15 @@ function hash(x: number): number {
  * 1×N の DataTexture（行0 = v0 = カード下端）。上下 1px 相当のヘアラインを
  * 焼き込むため N=256（カード高 283px ≒ 1.1px/texel）。
  */
-function makeEdgeGradientTexture(): THREE.DataTexture {
+function makeEdgeGradientTexture(homeFinish = false): THREE.DataTexture {
   const N = 256;
   // [位置, RGB] — CSS 180deg（0=上端 → 1=下端）
-  const stops: [number, number[]][] = [
+  const stops: [number, number[]][] = homeFinish ? [
+    [0.0, [0xef, 0xf4, 0xfa]],
+    [0.34, [0x9a, 0xaa, 0xbb]],
+    [0.62, [0x44, 0x51, 0x63]],
+    [1.0, [0xc1, 0xce, 0xdb]],
+  ] : [
     [0.0, [0x7c, 0x88, 0x9e]],
     [0.34, [0x4a, 0x52, 0x66]],
     [0.62, [0x2c, 0x32, 0x44]],
@@ -283,6 +289,7 @@ function pixelsToTexture(res: BackPixels): THREE.DataTexture {
 }
 
 const CardMesh: React.FC<{
+  homeFinish: boolean;
   spin: React.MutableRefObject<SpinState>;
   frontUri: string;
   backData?: CardBackData;
@@ -298,7 +305,7 @@ const CardMesh: React.FC<{
   onFrontLoaded?: () => void;
   /** flip モードで「表へ戻り切った」瞬間（closing のスナップ成立時）に一度だけ呼ぶ */
   onClosed?: () => void;
-}> = ({ spin, frontUri, backData, backStyle, depthRatio, rotationEnabled, cardPx, flipDrive, rotationOut, flipProgressOut, onFrontLoaded, onClosed }) => {
+}> = ({ homeFinish, spin, frontUri, backData, backStyle, depthRatio, rotationEnabled, cardPx, flipDrive, rotationOut, flipProgressOut, onFrontLoaded, onClosed }) => {
   const groupRef = useRef<THREE.Group>(null);
   // useFrame の中から最新のコールバックを呼ぶ（依存で useFrame を張り直さない）
   const onClosedRef = useRef(onClosed);
@@ -315,7 +322,7 @@ const CardMesh: React.FC<{
     () =>
       new THREE.ShaderMaterial({
         vertexShader: CARD_VERTEX_SHADER,
-        fragmentShader: ART_FRAGMENT_SHADER,
+        fragmentShader: homeFinish ? HOME_ART_FRAGMENT_SHADER : ART_FRAGMENT_SHADER,
         uniforms: {
           map: { value: null },
           uHasMap: { value: 0 },
@@ -324,7 +331,7 @@ const CardMesh: React.FC<{
           uCardPx: { value: new THREE.Vector2(cardPx.width, cardPx.height) },
         },
       }),
-    [uLightVec, cardPx.width, cardPx.height],
+    [homeFinish, uLightVec, cardPx.width, cardPx.height],
   );
   useEffect(() => {
     frontMaterial.uniforms.map.value = frontTex;
@@ -340,10 +347,10 @@ const CardMesh: React.FC<{
     () =>
       new THREE.ShaderMaterial({
         vertexShader: CARD_VERTEX_SHADER,
-        fragmentShader: ALUMINUM_FRAGMENT_SHADER,
+        fragmentShader: homeFinish ? HOME_ALUMINUM_FRAGMENT_SHADER : ALUMINUM_FRAGMENT_SHADER,
         uniforms: { inkMap: { value: null }, uHasInk: { value: 0 }, uLight: { value: uLightVec } },
       }),
-    [uLightVec],
+    [homeFinish, uLightVec],
   );
   useEffect(() => {
     aluminumMaterial.uniforms.inkMap.value = inkTex;
@@ -389,9 +396,9 @@ const CardMesh: React.FC<{
 
   // 側面: edgeLayer の縦グラデーション（#D8E2F1→55% #BCC9DC→#9AA8BE・非ライティング=CSSと同じ）
   const sideMats = useMemo(() => {
-    const m = new THREE.MeshBasicMaterial({ map: makeEdgeGradientTexture() });
+    const m = new THREE.MeshBasicMaterial({ map: makeEdgeGradientTexture(homeFinish) });
     return [m, m]; // [キャップ, 側面] — キャップは面プレートの背後で見えない
-  }, []);
+  }, [homeFinish]);
 
   // 裏面テクスチャ:
   //   aluminum = 刻印のみ（透明背景・金属地はシェーダー側）を同期生成
@@ -571,6 +578,8 @@ export type CardGLProps = {
    * 'flip' = ホーム用（表面=タップで裏返し／裏面=360°回転・再タップで表面へ）
    */
   mode?: 'spin' | 'flip';
+  /** HOMEだけで使う銀色の切削仕上げ。他画面は従来の素材を維持する。 */
+  homeFinish?: boolean;
   /** 裏面デザイン。aluminum=アルミ刻印（既定・ホーム / プレイヤー） / story=フロストのストーリー面（v98） */
   backStyle?: 'aluminum' | 'story';
   /**
@@ -602,6 +611,7 @@ export const CardGL: React.FC<CardGLProps> = ({
   height,
   backData,
   mode = 'spin',
+  homeFinish = false,
   backStyle = 'aluminum',
   shadow = false,
   depthRatio = DEPTH_RATIO,
@@ -864,6 +874,7 @@ export const CardGL: React.FC<CardGLProps> = ({
         <directionalLight position={[2.5, 3, 4]} intensity={1.25} />
         <pointLight position={[-3, 1.5, 3]} intensity={0.8} color="#7fdcf0" />
         <CardMesh
+          homeFinish={homeFinish}
           spin={spin}
           frontUri={frontUri}
           backData={backData}
@@ -892,7 +903,7 @@ export const CardGL: React.FC<CardGLProps> = ({
               resizeMode="cover"
             />
             {/* v99-tsubasa の表面オーバーレイ（面内減光・金の内枠・下端の内側シャドウ） */}
-            <CardSurface width={width} height={height} />
+            <CardSurface width={width} height={height} homeFinish={homeFinish} />
           </Pressable>
         </Animated.View>
       )}
@@ -918,7 +929,7 @@ export const CardGL: React.FC<CardGLProps> = ({
             }}
             resizeMode="cover"
           />
-          <CardSurface width={width} height={height} />
+          <CardSurface width={width} height={height} homeFinish={homeFinish} />
         </>
       )}
     </View>

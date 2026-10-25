@@ -13,12 +13,13 @@ import { CardAura } from './CardAura';
 import { CardSurface } from './CardSurface';
 
 type Props = {
+  homeFinish?: boolean;
   uri: string;
   width: number;
   height: number;
 };
 
-export const CardFace: React.FC<Props> = ({ uri, width, height }) => (
+export const CardFace: React.FC<Props> = ({ uri, width, height, homeFinish = false }) => (
   <View style={{ width, height }}>
     <CardAura width={width} height={height} />
     <Image
@@ -26,7 +27,7 @@ export const CardFace: React.FC<Props> = ({ uri, width, height }) => (
       style={{ width, height, borderRadius: 0.085 * width }}
       resizeMode="cover"
     />
-    <CardSurface width={width} height={height} />
+    <CardSurface width={width} height={height} homeFinish={homeFinish} />
   </View>
 );
 

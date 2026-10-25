@@ -67,6 +67,7 @@ const INNER_BLUR = 30; // box-shadow 記法 = 2σ
 const INNER_COLOR = 'rgba(3,5,14,0.22)';
 
 export type CardSurfaceProps = {
+  homeFinish?: boolean;
   width: number;
   height: number;
   /** 全体の不透明度（フリップ中のフェード等に使う） */
@@ -78,8 +79,11 @@ export const CardSurface: React.FC<CardSurfaceProps> = ({
   width,
   height,
   opacity = 1,
+  homeFinish = false,
   style,
 }) => {
+  const lineColor = homeFinish ? 'rgba(210,227,244,0.85)' : GOLD_LINE;
+  const lineWidth = homeFinish ? 1.5 : GOLD_W;
   const s = width / REF_W;
   const r = CORNER_RATIO * width;
   const card = rrect(rect(0, 0, width, height), r, r);
@@ -131,13 +135,13 @@ export const CardSurface: React.FC<CardSurfaceProps> = ({
       />
       <RoundedRect
         rect={rrect(
-          rect((GOLD_W * s) / 2, (GOLD_W * s) / 2, width - GOLD_W * s, height - GOLD_W * s),
-          r - (GOLD_W * s) / 2,
-          r - (GOLD_W * s) / 2,
+          rect((lineWidth * s) / 2, (lineWidth * s) / 2, width - lineWidth * s, height - lineWidth * s),
+          r - (lineWidth * s) / 2,
+          r - (lineWidth * s) / 2,
         )}
-        color={GOLD_LINE}
+        color={lineColor}
         style="stroke"
-        strokeWidth={GOLD_W * s}
+        strokeWidth={lineWidth * s}
       />
     </Canvas>
   );

@@ -34,7 +34,7 @@ const DT_MAX = 0.05;
  * @param damp 0..1 の減衰。0 でフロート停止（0 へ収束）
  * @returns floatY（px・正が下）。カードの translateY にそのまま渡す
  */
-export function useIdleFloat(damp: SharedValue<number>): SharedValue<number> {
+export function useIdleFloat(damp: SharedValue<number>, amplitude = AMP): SharedValue<number> {
   const floatY = useSharedValue(0);
   const reduced = useSharedValue(false);
 
@@ -59,7 +59,7 @@ export function useIdleFloat(damp: SharedValue<number>): SharedValue<number> {
   useFrameCallback((info) => {
     'worklet';
     const dt = Math.min((info.timeSincePreviousFrame ?? 1000 / 60) / 1000, DT_MAX);
-    const target = reduced.value ? 0 : Math.sin(info.timestamp * OMEGA) * AMP * damp.value;
+    const target = reduced.value ? 0 : Math.sin(info.timestamp * OMEGA) * amplitude * damp.value;
     const k = 1 - Math.pow(1 - LERP, dt * 60);
     floatY.value += (target - floatY.value) * k;
   });
