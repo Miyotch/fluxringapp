@@ -72,6 +72,7 @@ import {
   BackPixels,
   CardBackData,
   ARTIST_HIT_ZONE,
+  artistChevronHitX,
 } from '../lib/cardBackTexture';
 import { CARD_VERTEX_SHADER, ART_FRAGMENT_SHADER, ALUMINUM_FRAGMENT_SHADER } from '../lib/cardShaders';
 import { CardSurface } from './CardSurface';
@@ -333,14 +334,18 @@ function isArtistNameHit(
   height: number,
   backScale: number,
   liftPx: number,
+  artist?: string,
 ): boolean {
   if (width <= 0 || height <= 0) return false;
   const centerX = width / 2;
   const centerY = height / 2 - liftPx;
-  const halfW = width * backScale * ARTIST_HIT_ZONE.xHalfWidth;
+  // 作家名のところは反応させず、直後の "›" だけを当たりにする（2026-10-25 指示）
+  const chev = artistChevronHitX(artist);
+  const chevX = centerX + (chev.xCenter - 0.5) * width * backScale;
+  const halfW = width * backScale * chev.halfWidth;
   const top = centerY + (ARTIST_HIT_ZONE.yTop - 0.5) * height * backScale;
   const bottom = centerY + (ARTIST_HIT_ZONE.yBottom - 0.5) * height * backScale;
-  return localX >= centerX - halfW && localX <= centerX + halfW && localY >= top && localY <= bottom;
+  return localX >= chevX - halfW && localX <= chevX + halfW && localY >= top && localY <= bottom;
 }
 
 // 決定論ハッシュ（0..1）
@@ -1102,6 +1107,7 @@ export const CardGL: React.FC<CardGLProps> = ({
     backScale: 1,
     liftPx: 0,
     onArtistPress,
+    artist: backData?.artist as string | undefined,
   });
   // 表面 Pressable の押し始め（page 座標）。離した位置との距離でタップか決める
   const pressStart = useRef({ x: 0, y: 0 });
@@ -1458,7 +1464,7 @@ export const CardGL: React.FC<CardGLProps> = ({
             // 参照 up(): tapDist<10 かつ mode==='open' のときだけ反応する。
             // closing 中とカルーセル整定中は無視（＝再オープンに化けない）。
             if (s.mode === 'open') {
-              // 作家名（＋"›"）だけは表へ戻さず、作家画面へ遷移させる
+              // 作家名の直後の "›" だけは表へ戻さず、作家画面へ遷移させる（名前は対象外）
               // （2026-09-19 指示で復活。以前は「裏面はどこを突いても表へ戻す
               // だけ」だった）。ヒットテストは平面近似なので、カードが
               // Q_BACK からある程度以上傾いているとき（ARTIST_HIT_TILT_MAX
@@ -1467,7 +1473,7 @@ export const CardGL: React.FC<CardGLProps> = ({
               const artistHit =
                 !!ht.onArtistPress &&
                 angleToQBack(s.q) <= ARTIST_HIT_TILT_MAX &&
-                isArtistNameHit(tapPos.current.x, tapPos.current.y, ht.width, ht.height, ht.backScale, ht.liftPx);
+                isArtistNameHit(tapPos.current.x, tapPos.current.y, ht.width, ht.height, ht.backScale, ht.liftPx, ht.artist);
               if (artistHit) {
                 ht.onArtistPress!();
               } else {
@@ -1541,7 +1547,7 @@ export const CardGL: React.FC<CardGLProps> = ({
   const liftPx = height * backLiftRatio;
   // hitTestRef（作家名タップの判定に使う最新値）は pan より前で宣言している
   // （下記）。ここで最新値を書き込む。
-  hitTestRef.current = { width, height, backScale, liftPx, onArtistPress };
+  hitTestRef.current = { width, height, backScale, liftPx, onArtistPress, artist: backData?.artist };
   // backScale<1 でも回転時の対角線は縮まないので 1 を下回らせない
   const D = Math.ceil(Math.hypot(width, height) * Math.max(1, backScale) + liftPx * 2) + 8;
   // 対角線の正方形が要るのは spin モード（トラックボール自由回転）だけ。
