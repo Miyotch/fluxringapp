@@ -53,6 +53,7 @@ import { useT } from '../lib/i18n';
 import { useTopInset } from '../lib/safeArea';
 import { formatPrice, TRACK_PRICE_JPY } from '../constants/pricing';
 import { useAudioPlayer } from 'expo-audio';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { previewUrl as r2PreviewUrl } from '../lib/r2';
 import { useLayoutAdjustConfig } from '../lib/layoutAdjust';
 import { NUM_FONT, JP_SERIF_FONT } from '../constants/fonts';
@@ -230,6 +231,10 @@ type AllRow = { key: string; cells: CollectionItem[] };
 type AllSection = { key: string; name: string; owned: number; total: number; open: boolean; data: AllRow[] };
 /** シリーズの無い曲をまとめる塊の鍵 */
 const NO_SERIES = '__none';
+/** 「すべて」のシリーズの並び（新しい順／名前順／所有が多い順）。選んだ並びは端末に覚える */
+type SeriesSort = 'new' | 'name' | 'owned';
+const SERIES_SORTS: SeriesSort[] = ['new', 'name', 'owned'];
+const SERIES_SORT_KEY = 'fr.collection.seriesSort.v1';
 
 // 背景は設定配下（CREDITS等）と同じ CreditsBackdrop を使う（components/CreditsBackdrop.tsx）。
 
