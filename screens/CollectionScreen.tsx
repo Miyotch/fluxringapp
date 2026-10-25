@@ -336,6 +336,19 @@ export const CollectionScreen: React.FC<Props> = ({
   // 「すべて」のシリーズを選ぶシートと、閉じているシリーズ（2026-10-19 岡さん案）
   const [seriesSheet, setSeriesSheet] = useState(false);
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+  // シリーズの並び（新しい順／名前順／所有が多い順）。選んだ並びは端末に覚える
+  const [seriesSort, setSeriesSortState] = useState<SeriesSort>('new');
+  useEffect(() => {
+    AsyncStorage.getItem(SERIES_SORT_KEY)
+      .then((v) => {
+        if (v === 'new' || v === 'name' || v === 'owned') setSeriesSortState(v);
+      })
+      .catch(() => {});
+  }, []);
+  const setSeriesSort = (m: SeriesSort) => {
+    setSeriesSortState(m);
+    AsyncStorage.setItem(SERIES_SORT_KEY, m).catch(() => {});
+  };
   const [purchaseTarget, setPurchaseTarget] = useState<CollectionItem | null>(null);
   // 枠タップで立ち上がる作品詳細（参照 .work）。null=閉じている
   const [detailId, setDetailId] = useState<string | null>(null);
@@ -807,9 +820,11 @@ export const CollectionScreen: React.FC<Props> = ({
     return groups.sort((a, b) => {
       if (a.key === NO_SERIES) return 1;
       if (b.key === NO_SERIES) return -1;
+      if (seriesSort === 'name') return a.name.localeCompare(b.name, 'ja');
+      if (seriesSort === 'owned') return b.owned - a.owned || b.top - a.top;
       return b.top - a.top;
     });
-  }, [works, ownedIds, t]);
+  }, [works, ownedIds, t, seriesSort]);
   const namedSeriesCount = seriesGroups.filter((g) => g.key !== NO_SERIES).length;
   const queryNorm = allQuery.trim().toLowerCase();
   const filtering = !!queryNorm || !!allSeries;
@@ -1301,6 +1316,21 @@ export const CollectionScreen: React.FC<Props> = ({
             <Text style={styles.sheetTitle}>{t('collection.seriesTitle')}</Text>
             <Text style={styles.sheetCount}>{t('collection.seriesCount', { n: namedSeriesCount })}</Text>
           </View>
+          <View style={styles.sortRow}>
+            {SERIES_SORTS.map((m) => (
+              <Pressable
+                key={m}
+                onPress={() => setSeriesSort(m)}
+                style={[styles.sortChip, seriesSort === m && styles.sortChipOn]}
+                accessibilityRole="button"
+                accessibilityState={{ selected: seriesSort === m }}
+              >
+                <Text style={[styles.sortChipText, seriesSort === m && styles.sortChipTextOn]}>
+                  {t(`collection.sort.${m}`)}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
           <ScrollView contentContainerStyle={styles.sheetList}>
             {[null, ...seriesGroups].map((g, i) => {
               const key = g?.key ?? null;
@@ -1693,6 +1723,17 @@ const styles = StyleSheet.create({
   },
   sheetTitle: { color: C.text, fontSize: 15, letterSpacing: 1.8 },
   sheetCount: { color: 'rgba(236,238,247,0.56)', fontSize: 11, letterSpacing: 0.9 },
+  sortRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 24, paddingBottom: 10 },
+  sortChip: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: 'rgba(236,238,247,0.18)',
+  },
+  sortChipOn: { borderColor: C.cyan, backgroundColor: 'rgba(96,206,224,0.10)' },
+  sortChipText: { color: C.sub, fontSize: 12, letterSpacing: 0.6 },
+  sortChipTextOn: { color: C.text },
   sheetList: { paddingBottom: 12 },
   sheetRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 13, paddingHorizontal: 24 },
   sheetRowPressed: { backgroundColor: 'rgba(96,206,224,0.06)' },

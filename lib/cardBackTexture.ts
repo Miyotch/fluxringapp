@@ -551,6 +551,28 @@ export const ARTIST_HIT_ZONE = {
   xHalfWidth: 0.34,
 } as const;
 
+/**
+ * 作家名の直後の "›" だけのタップ領域（横方向）。UV座標。
+ * 作家名の幅は名前の長さで変わるので、描画（renderAluminumInkPixels）と同じ式で
+ * "›" の中心を出す。指で押せるよう、見た目より広い半幅（CHEVRON_HIT_HALF_PX）を取る。
+ * 縦は ARTIST_HIT_ZONE（yTop / yBottom）をそのまま使う。
+ */
+const CHEVRON_HIT_HALF_PX = 90;
+export function artistChevronHitX(artist?: string): { xCenter: number; halfWidth: number } {
+  const signature = (artist ?? 'NAOKI OKA').toUpperCase();
+  const nameFont = makeFont(40, '400', INK_FONT);
+  const chars = [...signature];
+  const nw =
+    chars.map((ch) => estWidth(ch, 40, nameFont)).reduce((a, b) => a + b, 0) +
+    10 * Math.max(0, chars.length - 1);
+  const chevronGap = 26;
+  const chevronW = estWidth('›', 42, makeFont(42, '400', INK_FONT));
+  const groupW = nw + chevronGap + chevronW;
+  const nameX = INK_LW / 2 - groupW / 2 + nw / 2;
+  const chevronCenter = nameX + nw / 2 + chevronGap + chevronW / 2;
+  return { xCenter: chevronCenter / INK_LW, halfWidth: CHEVRON_HIT_HALF_PX / INK_LW };
+}
+
 /* ════════════════════════════════════════════════════════════════
    ストーリー面（card_parts_standalone2 v98 準拠・ホーム用）
    ・下地 #0d1330 → 作品画像を左右反転＋blur(15px)で敷く（bk-gem）
