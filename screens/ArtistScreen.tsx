@@ -236,9 +236,6 @@ export const ArtistScreen: React.FC<Props> = ({
         {groups.map(({ series: s, tracks: list }) => (
           <View key={s.id} style={styles.seriesBlock}>
             <View style={styles.seriesHead}>
-              <View style={styles.seriesJacket}>
-                {s.jacketUrl && <Image source={{ uri: s.jacketUrl }} style={styles.seriesJacketImg} />}
-              </View>
               <View style={styles.seriesText}>
                 <Text style={styles.seriesLabel}>SERIES</Text>
                 <Text style={styles.seriesName} numberOfLines={2}>{s.name}</Text>
@@ -364,19 +361,9 @@ const styles = StyleSheet.create({
   gridCell: { marginBottom: SPACE.md },
   gridTitle: { color: COLOR.textPrimary, fontSize: 13, marginTop: SPACE.sm, letterSpacing: 0.26, fontFamily: JP_SERIF_FONT },
 
-  // シリーズ（アルバム）の見出し：正方形のジャケット＋名称＋曲数、その下に説明
+  // シリーズ（アルバム）の見出し：名称＋曲数、その下に説明（アイコン／ジャケットは廃止）
   seriesBlock: { marginBottom: SPACE.xl },
   seriesHead: { flexDirection: 'row', alignItems: 'center', gap: SPACE.md, marginBottom: SPACE.md },
-  seriesJacket: {
-    width: 84,
-    height: 84,
-    borderRadius: RADIUS.md,
-    backgroundColor: 'rgba(124,98,214,0.30)',
-    borderWidth: 1,
-    borderColor: COLOR.border,
-    overflow: 'hidden',
-  },
-  seriesJacketImg: { width: '100%', height: '100%' },
   seriesText: { flex: 1, gap: 4 },
   seriesLabel: { color: COLOR.textSecondary, fontSize: 10, letterSpacing: 2, fontFamily: NUM_FONT },
   seriesName: { color: COLOR.textPrimary, fontSize: 17, letterSpacing: 0.34, fontFamily: JP_SERIF_FONT },
