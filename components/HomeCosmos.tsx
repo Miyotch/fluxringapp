@@ -27,7 +27,7 @@ function DepthLayer({ layer, width, height, drift }: { layer: number; width: num
   </Group>;
 }
 
-/** A static nebula canvas is separate from the animated stars so it needs no frame redraws. */
+/** A static distant-star canvas is separate from the animated foreground stars. */
 export function HomeCosmos({ width, height, drift }: { width: number; height: number; drift: SharedValue<number> }) {
   const uniforms = useMemo(() => ({ resolution: [width, height] }), [width, height]);
   return <View pointerEvents="none" style={[StyleSheet.absoluteFill, { width, height }]}>
