@@ -51,20 +51,23 @@ void main() {
   // Fine horizontal brushing, continuous rather than a tiled/noisy surface.
   float grain = hash12(vec2(floor(vUv.y * 1800.0), 1.0));
   float grainFine = hash12(floor(vUv * vec2(240.0, 1800.0)));
-  vec3 base = vec3(0.48, 0.52, 0.58) + (grain - 0.5) * 0.055 + (grainFine - 0.5) * 0.012;
-  // Two broad reflected softboxes, separated by a dark studio band.
+  vec3 base = vec3(0.60, 0.63, 0.68) + (grain - 0.5) * 0.055 + (grainFine - 0.5) * 0.012;
+  // Broad, low-contrast reflections keep the engraved text readable.
   float sweep = R.x * .7 + R.y * .35 + (vUv.x - .5) * .65;
   float strip = exp(-pow((sweep - .22) / .20, 2.0));
   float broad = exp(-pow((sweep + .45) / .38, 2.0));
   float dark = exp(-pow((sweep + .04) / .12, 2.0));
-  vec3 col = base * (.54 + diff * .18) + envC * .09;
-  col += vec3(.22, .24, .28) * strip + vec3(.10, .11, .14) * broad;
-  col *= 1.0 - dark * .22;
+  vec3 col = base * (.72 + diff * .10) + envC * .09;
+  col += vec3(.12, .13, .15) * strip + vec3(.06, .07, .08) * broad;
+  col *= 1.0 - dark * .05;
   // Machined perimeter catches light independently of the satin face.
   float edge = min(min(vUv.x, 1.0-vUv.x), min(vUv.y, 1.0-vUv.y));
   float bevel = 1.0 - smoothstep(.003, .016, edge);
   col = mix(col, vec3(.63, .70, .78) * (.55 + .45 * strip), bevel * .5);
   col += fres * vec3(.07, .08, .11);
+
+  // Correct the metal first; the ink texture already contains display-space colors.
+  col = pow(clamp(col, 0.0, 1.0), vec3(1.0 / 2.2));
 
   // 刻印（3層彫り込み・lib/cardBackTexture.ts の carve）を金属の上に合成
   if (uHasInk > 0.5) {
@@ -72,7 +75,6 @@ void main() {
     col = mix(col, ink.rgb, ink.a);
   }
 
-  col = pow(clamp(col, 0.0, 1.0), vec3(1.0 / 2.2)); // 簡易ガンマ補正
   gl_FragColor = vec4(col, 1.0);
 }
 `;
