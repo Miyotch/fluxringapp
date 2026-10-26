@@ -71,7 +71,7 @@ export type PlayerTrack = {
   story?: string;            // 裏面の本文（未指定なら subtitle を使う）
   tuning?: string;           // 調律名（例: '純正律'）
   frequencies?: string[];    // 周波数のみ（例: ['432 Hz', '7.83 Hz']）
-  artist?: string;           // 'NAOKI OKA'
+  artist?: string;           // 作家名（artists.name）
   artistName?: string;       // 作家名（表記どおり。タイトルの下に出す）
   series?: string;           // 所属シリーズ名（裏面の「ー series ー」。無ければ出さない）
   useCases?: string[];       // 用途タグ（例: ['睡眠', '勉強', '集中力']）
@@ -473,7 +473,7 @@ export const PlayerScreen: React.FC<Props> = ({
       story: active.story ?? active.subtitle,
       tuning: active.tuning,
       frequencies: active.frequencies,
-      artist: active.artist ?? 'NAOKI OKA',
+      artist: active.artist,
       useCases: active.useCases,
       series: active.series,
     }),
