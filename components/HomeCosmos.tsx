@@ -1,16 +1,11 @@
 import React, { useMemo } from 'react';
 import { StyleSheet } from 'react-native';
-import { Canvas, Fill, Circle, Group, Path, RadialGradient, Skia, vec } from '@shopify/react-native-skia';
+import { Canvas, Fill, Circle, Group, RadialGradient, vec } from '@shopify/react-native-skia';
 import { SharedValue, useDerivedValue } from 'react-native-reanimated';
 import { homeStars } from '../lib/homeStars';
 
 function DepthLayer({ layer, width, height, drift }: { layer: number; width: number; height: number; drift: SharedValue<number> }) {
   const stars = useMemo(() => homeStars(layer), [layer]);
-  const paths = useMemo(() => [false, true].map(warm => {
-    const p = Skia.Path.Make();
-    stars.filter(s => s.warm === warm).forEach(s => p.addCircle(s.x * width, s.y * height, s.r));
-    return p;
-  }), [stars, width, height]);
   const transform = useDerivedValue(() => [
     { translateX: drift.value * (layer + 1) * -.35 },
     { translateY: drift.value * (layer + 1) * -.5 },
@@ -19,11 +14,11 @@ function DepthLayer({ layer, width, height, drift }: { layer: number; width: num
     {layer === 2 && stars.map((s, i) => <Circle key={i} cx={s.x * width} cy={s.y * height} r={s.r * 5.5}>
       <RadialGradient c={vec(s.x * width, s.y * height)} r={s.r * 5.5} colors={['#b9b2e630', '#b9b2e600']} />
     </Circle>)}
-    <Path path={paths[0]} color="#d4e5ff" /><Path path={paths[1]} color="#e6d6b6" />
+    {stars.map((s, i) => <Circle key={`star-${i}`} cx={s.x * width} cy={s.y * height} r={s.r} opacity={s.opacity} color={s.warm ? "#e6d6b6" : "#d4e5ff"} />)}
   </Group>;
 }
 
-/** No blurred offscreen layers: three batched star planes and soft radial light. */
+/** No blurred offscreen layers: three sparse star planes with individual brightness and soft radial light. */
 export function HomeCosmos({ width, height, drift }: { width: number; height: number; drift: SharedValue<number> }) {
   return <Canvas pointerEvents="none" style={[StyleSheet.absoluteFill, { width, height }]}>
     <Fill color="#050712" />

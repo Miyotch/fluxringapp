@@ -77,6 +77,8 @@ export type OrbitButtonState = 'idle' | 'pending' | 'unavailable';
 
 type Props = {
   accent?: 'cyan' | 'violet';
+  width?: number;
+  height?: number;
   owned?: boolean;
   /** 所有済みのとき ▶ の代わりに出す文字（ホームの「マイリスト」。2026-10-19 岡さん指定） */
   ownedLabel?: string;
@@ -89,17 +91,6 @@ type Props = {
   active?: SharedValue<number> | DerivedValue<number>;
   onPress: () => void;
 };
-
-// 縁のリング（外側の角丸から 1pt 内側を抜いた形）。形は固定なので一度だけ作る
-const OUTER = rrect(rect(0, 0, W, H), R, R);
-const INNER = rrect(rect(1, 1, W - 2, H - 2), R - 1, R - 1);
-const RING = (() => {
-  const p = Skia.Path.Make();
-  p.addRRect(OUTER);
-  p.addRRect(INNER);
-  p.setFillType(FillType.EvenOdd);
-  return p;
-})();
 
 /** ✓（所有済みの印・12pt 角） */
 const CheckGlyph: React.FC = () => (
@@ -117,6 +108,8 @@ const PlayGlyph: React.FC = () => (
 
 export const OrbitBuyButton: React.FC<Props> = ({
   accent = 'cyan',
+  width = W,
+  height = H,
   owned = false,
   ownedLabel,
   priceJpy = TRACK_PRICE_JPY,
@@ -126,6 +119,16 @@ export const OrbitBuyButton: React.FC<Props> = ({
   onPress,
 }) => {
   const violet = accent === 'violet';
+  const W = width, H = height, R = height / 2;
+  const SQ = Math.ceil(Math.hypot(W, H)) + 8;
+  const { outer: OUTER, ring: RING } = useMemo(() => {
+    const outer = rrect(rect(0, 0, W, H), R, R);
+    const ring = Skia.Path.Make();
+    ring.addRRect(outer);
+    ring.addRRect(rrect(rect(1, 1, W - 2, H - 2), R - 1, R - 1));
+    ring.setFillType(FillType.EvenOdd);
+    return { outer, ring };
+  }, [W, H, R]);
   const t = useT();
   const price = priceLabel ?? formatPrice(priceJpy);
   const disabled = state !== 'idle';
@@ -191,7 +194,7 @@ export const OrbitBuyButton: React.FC<Props> = ({
 
   const canvas = useMemo(
     () => (
-      <Canvas style={styles.canvas} pointerEvents="none">
+      <Canvas style={[styles.canvas, { width: W, height: H }]} pointerEvents="none">
         {/* ガラスの色味と光沢（上から下へ白を薄く） */}
         <RoundedRect rect={OUTER} color={violet ? "rgba(30,23,49,0.70)" : "rgba(14,14,40,0.55)"} />
         <RoundedRect rect={OUTER}>
@@ -228,7 +231,7 @@ export const OrbitBuyButton: React.FC<Props> = ({
         </Group>
       </Canvas>
     ),
-    [orbitTransform, violet],
+    [orbitTransform, violet, OUTER, RING, W, H, SQ],
   );
 
   return (
@@ -245,7 +248,7 @@ export const OrbitBuyButton: React.FC<Props> = ({
       }
     >
       <Animated.View
-        style={[styles.pill, disabled && styles.dim, { transform: [{ scale: press }] }]}
+        style={[styles.pill, { width: W, height: H, borderRadius: R }, disabled && styles.dim, { transform: [{ scale: press }] }]}
       >
         {canvas}
         <Animated.View style={[styles.center, { opacity: labelOpacity }]} pointerEvents="none">

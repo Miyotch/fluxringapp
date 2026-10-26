@@ -665,12 +665,11 @@ export const DiscoverScreen: React.FC<Props> = ({
   // 再生バナーが出ているとき、購入ボタンの下端がバナーに掛かる分だけ上げる
   // （今の寸法では 100px の余白で足りており、ふだんは動かない）
   const BOTTOM_BASE = Math.max(BOTTOM_BASE_RAW, bottomInset + bannerInset + 12);
-  // 購入ボタンの中心は、カードの下端から 76pt 下（390×844 基準・画面の高さで伸縮。
-  // 仕様 v2 §5）。運営調整でカードを上下に動かしたときも、カードとの間は変えない。
-  // 再生バナーが出ているときは、ボタンの下端がバナーに掛からないところまで上げる。
-  const BUY_H = 40;
+  // カード下端から28pt空け、カードとボタンをひとつのまとまりにする。
+  // 再生バナーがある場合は、その上に収まるよう位置を制限する。
+  const BUY_H = 44;
   const buyCenterIdeal =
-    cardCenterY + cardH / 2 + 76 * (screenH / 844) + layoutAdjust.homeCardOffsetY;
+    cardCenterY + cardH / 2 + 28 + BUY_H / 2 + layoutAdjust.homeCardOffsetY;
   const buyCenterMax = contentH - (bannerInset > 0 ? bannerInset + 12 : 12) - BUY_H / 2;
   const BUY_TOP = Math.min(buyCenterIdeal, buyCenterMax) - BUY_H / 2;
 
@@ -2104,6 +2103,8 @@ export const DiscoverScreen: React.FC<Props> = ({
                 買った瞬間は「購入する」が「マイリスト」へフェードで替わる */}
             <OrbitBuyButton
               accent="violet"
+              width={Math.round(cardW * 0.68)}
+              height={BUY_H}
               owned={isOwned(shown)}
               ownedLabel={t('home.myList')}
               priceLabel={shown ? purchase?.displayPriceOf(shown.id) : undefined}

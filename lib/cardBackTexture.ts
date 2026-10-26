@@ -11,6 +11,7 @@
  */
 
 import { Platform } from 'react-native';
+import { japaneseFont } from './skiaFonts';
 import {
   Skia,
   matchFont,
@@ -116,6 +117,8 @@ function wrap(text: string, fs: number, maxW: number, font: SkFont | null, maxLi
 const JP_FONT = Platform.select({ ios: 'Hiragino Mincho ProN', default: 'serif' });
 
 function makeFont(size: number, weight: string = '400', family: string = JP_FONT ?? 'serif'): SkFont | null {
+  const bundled = japaneseFont(size);
+  if (bundled) return bundled;
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return matchFont({ fontFamily: family, fontSize: size, fontStyle: 'normal', fontWeight: weight as any });

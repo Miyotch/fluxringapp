@@ -1,13 +1,15 @@
-/** Shared deterministic sky layout for native HOME and its browser design study. */
+/** Stable random sky: no grid or diagonal band, and no flicker on rerender. */
 export function homeStars(layer: number) {
-  const hash = (n: number) => { const v = Math.sin(n * 127.1 + 311.7) * 43758.5453; return v - Math.floor(v); };
-  return Array.from({ length: [560, 170, 32][layer] }, (_, i) => {
-    const seed = i * 7.13 + layer * 971;
-    const y = hash(seed + 2);
-    // Half of the distant stars gather in a diagonal, irregular Milky Way.
-    const band = .12 + y * .72 + (hash(seed + 3) - .5) * .27;
-    return { x: layer === 0 && i % 2 === 0 ? band : hash(seed + 1), y,
-      r: [.35, .65, 1.05][layer] * (.6 + hash(seed + 4)),
-      warm: hash(seed + 5) > .83 };
-  });
+  let seed = 83771 + layer * 971;
+  const random = () => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    return seed / 4294967296;
+  };
+  return Array.from({ length: [54, 22, 7][layer] }, () => ({
+    x: .03 + random() * .94,
+    y: .02 + random() * .96,
+    r: [.4, .65, 1.05][layer] * (.55 + random() ** 2 * 1.2),
+    opacity: .3 + random() ** 2 * .7,
+    warm: random() > .82,
+  }));
 }
