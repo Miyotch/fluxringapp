@@ -98,8 +98,8 @@ export const CardSurface: React.FC<CardSurfaceProps> = ({
     p.setFillType(FillType.EvenOdd);
     return p;
   }, [width, height, r, dy, pad]);
-  const edgeWidth = homeFinish ? 0.9 : EDGE_WIDTH;
-  const edgeColor = homeFinish ? 'rgba(199,196,218,0.62)' : EDGE_COLOR;
+  const edgeWidth = homeFinish ? 0.65 : EDGE_WIDTH;
+  const edgeColor = homeFinish ? 'rgba(232,225,213,0.48)' : EDGE_COLOR;
   const h = edgeWidth / 2;
   const edge = rrect(rect(h, h, width - edgeWidth, height - edgeWidth), r - h, r - h);
 
@@ -114,13 +114,13 @@ export const CardSurface: React.FC<CardSurfaceProps> = ({
           <LinearGradient
             start={vec(0, 0)}
             end={vec(0, height)}
-            colors={FACE_COLORS}
+            colors={homeFinish ? ['rgba(255,250,240,0.025)', 'rgba(0,0,0,0)', 'rgba(3,5,14,0.025)', 'rgba(3,5,14,0.07)'] : FACE_COLORS}
             positions={FACE_STOPS}
           />
         </Rect>
 
         {/* (c) 下端の内側シャドウ（σ = blur/2） */}
-        <Path path={innerShadowPath} color={INNER_COLOR}>
+        <Path path={innerShadowPath} color={homeFinish ? 'rgba(3,5,14,0.06)' : INNER_COLOR}>
           <Blur blur={(INNER_BLUR / 2) * s} />
         </Path>
       </Group>

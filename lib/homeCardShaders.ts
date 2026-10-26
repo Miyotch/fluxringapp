@@ -12,7 +12,7 @@ export const HOME_ART_FRAGMENT_SHADER = ART_FRAGMENT_SHADER
   `vec2 pPx = (vUv - .5) * uCardPx;
   float rimDistance = -sdRoundRect(pPx, uCardPx * .5, .085 * uCardPx.x);
   float silverRim = 1.0 - smoothstep(.4, 1.0, rimDistance);
-  col = mix(col, vec3(.78, .77, .86), silverRim * .58);
+  col = mix(col, vec3(.91, .88, .83), silverRim * .38);
   gl_FragColor = vec4(col, artSample.a);`,
 );
 

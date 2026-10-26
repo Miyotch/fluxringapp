@@ -54,6 +54,7 @@ import { useAudioPlayer } from 'expo-audio';
 import { previewUrl } from '../lib/r2';
 import { CardFace } from '../components/CardFace';
 import { HomeCosmos } from '../components/HomeCosmos';
+import { HomeStarfield } from '../components/HomeStarfield';
 import { BackdropSky } from '../components/BackdropSky';
 import { BackdropImage } from '../components/BackdropImage';
 import { useBackdropMode } from '../lib/backdropMode';
@@ -626,12 +627,7 @@ export const DiscoverScreen: React.FC<Props> = ({
   // 縦を優先する（そのぶん幅は画面の 49.6% → 55% と参照より広くなる）。
   // フッターは設計枠 380x760 の内側にあるので、割る相手は表示領域ではなく
   // 画面の高さ。
-  // Give the artwork more presence while reserving room for its title and controls.
-  const cardW = Math.round(Math.min(
-    320, screenW * 0.70, homeCardWidth(screenH) * 1.22,
-    Math.max(140, (slideH - bottomInset - 210) / CARD_ASPECT),
-  ));
-  // 比率は CardGL の CARD_ASPECT が唯一の正（GL メッシュと必ず揃える）
+  const cardW = homeCardWidth(screenH);
   const cardH = Math.round(cardW * CARD_ASPECT);
   // 参照のデバイス枠に相当する矩形。裏面の拡大率 S と持ち上げ量はここ基準で決まる
   // （参照 _dv3d.layout: S = min(1.28, 枠幅*0.86/カード幅, 枠高*0.82/カード高)）。
@@ -797,7 +793,7 @@ export const DiscoverScreen: React.FC<Props> = ({
     return scrolling.value > 0.5 || carBusy.value > 0.5 || aProg > 0.02 ? 0 : 1;
   }, [scrolling, carBusy, cardRotation]);
   // カードを出さないビルドではフロートの消費者が居ないので、フレームコールバックごと止める
-  const floatY = useIdleFloat(damp, !DEBUG_BACKDROP_ONLY, 4.5);
+  const floatY = useIdleFloat(damp, !DEBUG_BACKDROP_ONLY && backdropMode !== 'nebula', 3);
   // カード下の接地影（CardGround）は 2026-10-18 に撤去した。影の代わりに
   // カード外周の 1pt の縁取り（CardSurface の (d)）で輪郭を出す（岡さん指定）。
 
@@ -1404,6 +1400,7 @@ export const DiscoverScreen: React.FC<Props> = ({
       cardW,
       cardH,
       cardCenterY,
+      backdropMode,
     ],
   );
 
@@ -1935,7 +1932,9 @@ export const DiscoverScreen: React.FC<Props> = ({
           pointerEvents="none"
         >
           {backdropMode === 'image' && <BackdropImage width={screenW} height={slideH} />}
-          {backdropMode === 'image' ? (
+          {backdropMode === 'nebula' ? (
+            <HomeStarfield width={screenW} height={slideH} />
+          ) : backdropMode === 'image' ? (
           <BackdropSky
             width={screenW}
             height={slideH}
@@ -1948,7 +1947,7 @@ export const DiscoverScreen: React.FC<Props> = ({
             nebulaScale={layerAdjust.nebula.scale}
           />
           ) : (
-            <HomeCosmos width={screenW} height={slideH} drift={floatY} />
+            <HomeCosmos width={screenW} height={slideH} drift={floatY} plain={backdropMode === 'orbit'} />
           )}
         </RNAnimated.View>
       )}
@@ -1988,9 +1987,11 @@ export const DiscoverScreen: React.FC<Props> = ({
           style={[StyleSheet.absoluteFill, { opacity: intro.sky }]}
           pointerEvents="none"
         >
-          <BackdropVeil width={screenW} height={slideH} />
+          <BackdropVeil width={screenW} height={slideH} vignetteOpacity={backdropMode === 'nebula' ? 0 : undefined} />
         </RNAnimated.View>
       )}
+
+
 
       {/* 参照 .ca-veil。カードを開くと背景だけが沈む（カードより下に置く）。
           幕そのものは静的な Canvas で、濃さはこのラッパの opacity が持つ。 */}
@@ -1999,6 +2000,7 @@ export const DiscoverScreen: React.FC<Props> = ({
           style={[StyleSheet.absoluteFill, { opacity: detail }]}
           pointerEvents="none"
         >
+          {backdropMode === 'nebula' && <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(3,4,13,0.22)' }]} />}
           <CardVeil width={screenW} height={slideH} />
         </RNAnimated.View>
       )}

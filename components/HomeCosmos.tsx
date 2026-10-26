@@ -28,12 +28,12 @@ function DepthLayer({ layer, width, height, drift }: { layer: number; width: num
 }
 
 /** A static distant-star canvas is separate from the animated foreground stars. */
-export function HomeCosmos({ width, height, drift }: { width: number; height: number; drift: SharedValue<number> }) {
+export function HomeCosmos({ width, height, drift, plain = false }: { width: number; height: number; drift: SharedValue<number>; plain?: boolean }) {
   const uniforms = useMemo(() => ({ resolution: [width, height] }), [width, height]);
   return <View pointerEvents="none" style={[StyleSheet.absoluteFill, { width, height }]}>
     <Canvas style={StyleSheet.absoluteFill}>
-      <Fill color="#030509" />
-      {nebulaEffect && <Fill><Shader source={nebulaEffect} uniforms={uniforms} /></Fill>}
+      <Fill color={plain ? '#000000' : '#030509'} />
+      {!plain && nebulaEffect && <Fill><Shader source={nebulaEffect} uniforms={uniforms} /></Fill>}
     </Canvas>
     <Canvas style={StyleSheet.absoluteFill}>
       {[0, 1, 2].map(layer => <DepthLayer key={layer} layer={layer} width={width} height={height} drift={drift} />)}

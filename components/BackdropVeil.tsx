@@ -61,12 +61,15 @@ export type BackdropVeilProps = {
   height: number;
   /** 粒の濃さ。既定 0.05（参照値）。実機の暗部の出方で 0.04〜0.07 が調整幅 */
   grainOpacity?: number;
+  /** v100 nebula images already include their specified 55% vignette. */
+  vignetteOpacity?: number;
 };
 
 const BackdropVeilImpl: React.FC<BackdropVeilProps> = ({
   width: W,
   height: H,
   grainOpacity = GRAIN_OPACITY,
+  vignetteOpacity = VIG_OPACITY,
 }) => {
   // CSS の radial-gradient circle は終了半径が farthest-corner。
   // 中心が縦にずれているぶん、下側コーナーが最遠になる。
@@ -92,7 +95,7 @@ const BackdropVeilImpl: React.FC<BackdropVeilProps> = ({
   return (
     <Canvas style={[StyleSheet.absoluteFill, { width: W, height: H }]} pointerEvents="none">
       {/* ① .bgvig — 常時ビネット（静的） */}
-      <Group opacity={VIG_OPACITY}>
+      <Group opacity={vignetteOpacity}>
         <Circle c={vigC} r={vigR}>
           <RadialGradient
             c={vigC}

@@ -25,6 +25,7 @@ import {
 import { BackdropSky } from '../components/BackdropSky';
 import { BackdropImage } from '../components/BackdropImage';
 import { setBackdropMode, useBackdropMode } from '../lib/backdropMode';
+import { setOrbitPreview, useOrbitPreview } from '../lib/homeOrbitPreview';
 import { StarSeal } from '../components/StarSeal';
 import { LayerSlider } from '../components/LayerSlider';
 import { COLOR, SPACE, RADIUS, homeCardWidth } from '../constants/design-tokens';
@@ -64,6 +65,7 @@ export const BackgroundLayersScreen: React.FC<Props> = ({ onBack }) => {
   }
 
   const backdropMode = useBackdropMode();
+  const orbit = useOrbitPreview();
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
 
@@ -106,13 +108,12 @@ export const BackgroundLayersScreen: React.FC<Props> = ({ onBack }) => {
       <SubHeader title="背景レイヤー調整" onBack={onBack} />
       <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
         <Text style={styles.lead}>
-          ホーム画面の「星雲（天の川）」と「魔法陣（調律陣）」の位置・大きさを調整します。
-          スライダーの位置は現在の位置・大きさを基準（中央）にしています。
+          ホームの背景を見比べられます。星雲のゆらぎの設定は、この端末だけに保存されます。
         </Text>
 
         {/* 背景の見比べ（この端末だけ。保存ボタンは不要でその場で切り替わる） */}
         <View style={styles.modeRow}>
-          {(['sky', 'image'] as const).map((m) => (
+          {(['nebula', 'sky'] as const).map((m) => (
             <Pressable
               key={m}
               onPress={() => setBackdropMode(m)}
@@ -121,7 +122,7 @@ export const BackgroundLayersScreen: React.FC<Props> = ({ onBack }) => {
               accessibilityState={{ selected: backdropMode === m }}
             >
               <Text style={[styles.modeLabel, backdropMode === m && styles.modeLabelOn]}>
-                {m === 'sky' ? '星空（現行）' : '青雲の画像'}
+                {m === 'nebula' ? '穏やかな星雲' : '以前の星空'}
               </Text>
             </Pressable>
           ))}
@@ -132,6 +133,27 @@ export const BackgroundLayersScreen: React.FC<Props> = ({ onBack }) => {
           </Text>
         )}
 
+        {(backdropMode === 'orbit' || backdropMode === 'nebula') && <>
+          <Text style={styles.sectionTitle}>星雲のゆらぎの深さ</Text>
+          <View style={styles.modeRow}>
+            {[{ value: .6, label: '控えめ' }, { value: 1, label: '標準' }, { value: 1.4, label: 'はっきり' }].map(option => (
+              <Pressable key={option.value} accessibilityRole="button"
+                accessibilityState={{ selected: orbit.strength === option.value }}
+                onPress={() => setOrbitPreview({ strength: option.value })}
+                style={[styles.modeBtn, orbit.strength === option.value && styles.modeBtnOn]}>
+                <Text style={styles.modeLabel}>{option.label}</Text>
+              </Pressable>
+            ))}
+          </View>
+          <Pressable style={styles.primaryBtn} accessibilityRole="switch"
+            accessibilityState={{ checked: orbit.moving }}
+            onPress={() => setOrbitPreview({ moving: !orbit.moving })}>
+            <Text style={styles.primaryLabel}>{orbit.moving ? 'ゆらぎ：ON' : 'ゆらぎ：停止'}</Text>
+          </Pressable>
+          <Text style={styles.modeNote}>戻るとHOMEで確認できます。ゆらぎを停止すると星雲の濃淡変化・星の流れが止まります。OSの「アニメーションを無効化」でも静止します。</Text>
+        </>}
+
+        {backdropMode !== 'orbit' && backdropMode !== 'nebula' && <>
         {/* ミニプレビュー */}
         <View style={[styles.previewFrame, { width: previewW, height: previewH }]}>
           {backdropMode === 'image' && <BackdropImage width={previewW} height={previewH} />}
@@ -225,6 +247,7 @@ export const BackgroundLayersScreen: React.FC<Props> = ({ onBack }) => {
         <Pressable style={({ pressed }) => [styles.resetBtn, pressed && { opacity: 0.7 }]} onPress={handleResetToBaseline}>
           <Text style={styles.resetLabel}>基準の位置・大きさに戻す</Text>
         </Pressable>
+        </>}
       </ScrollView>
     </View>
   );
@@ -241,7 +264,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
     fontFamily: JP_SERIF_FONT,
   },
-  modeRow: { flexDirection: 'row', gap: SPACE.sm, marginTop: SPACE.sm },
+  modeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.sm, marginTop: SPACE.sm },
   modeBtn: {
     flex: 1,
     paddingVertical: 11,
