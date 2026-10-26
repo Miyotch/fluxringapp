@@ -76,6 +76,7 @@ const INK = '#ECEEF7';
 export type OrbitButtonState = 'idle' | 'pending' | 'unavailable';
 
 type Props = {
+  accent?: 'cyan' | 'violet';
   owned?: boolean;
   /** 所有済みのとき ▶ の代わりに出す文字（ホームの「マイリスト」。2026-10-19 岡さん指定） */
   ownedLabel?: string;
@@ -115,6 +116,7 @@ const PlayGlyph: React.FC = () => (
 );
 
 export const OrbitBuyButton: React.FC<Props> = ({
+  accent = 'cyan',
   owned = false,
   ownedLabel,
   priceJpy = TRACK_PRICE_JPY,
@@ -123,6 +125,7 @@ export const OrbitBuyButton: React.FC<Props> = ({
   active,
   onPress,
 }) => {
+  const violet = accent === 'violet';
   const t = useT();
   const price = priceLabel ?? formatPrice(priceJpy);
   const disabled = state !== 'idle';
@@ -190,7 +193,7 @@ export const OrbitBuyButton: React.FC<Props> = ({
     () => (
       <Canvas style={styles.canvas} pointerEvents="none">
         {/* ガラスの色味と光沢（上から下へ白を薄く） */}
-        <RoundedRect rect={OUTER} color="rgba(14,14,40,0.55)" />
+        <RoundedRect rect={OUTER} color={violet ? "rgba(30,23,49,0.70)" : "rgba(14,14,40,0.55)"} />
         <RoundedRect rect={OUTER}>
           <LinearGradient
             start={vec(0, 0)}
@@ -199,14 +202,18 @@ export const OrbitBuyButton: React.FC<Props> = ({
           />
         </RoundedRect>
         {/* 縁の下地（購入・再生とも同じ） */}
-        <Path path={RING} color="rgba(96,206,224,0.18)" />
+        <Path path={RING} color={violet ? "rgba(174,150,218,0.38)" : "rgba(96,206,224,0.18)"} />
         {/* 縁の上だけを走る光 */}
         <Group clip={RING}>
           <Group transform={orbitTransform} origin={vec(W / 2, H / 2)}>
             <Rect x={W / 2 - SQ / 2} y={H / 2 - SQ / 2} width={SQ} height={SQ}>
               <SweepGradient
                 c={vec(W / 2, H / 2)}
-                colors={[
+                colors={violet ? [
+                  'rgba(182,157,224,0)', 'rgba(182,157,224,0)',
+                  'rgba(182,157,224,0.12)', '#C6B6E4',
+                  'rgba(182,157,224,0)', 'rgba(182,157,224,0)',
+                ] : [
                   'rgba(96,206,224,0)',
                   'rgba(96,206,224,0)',
                   'rgba(96,206,224,0.2)',
@@ -221,13 +228,13 @@ export const OrbitBuyButton: React.FC<Props> = ({
         </Group>
       </Canvas>
     ),
-    [orbitTransform],
+    [orbitTransform, violet],
   );
 
   return (
     <Pressable
       onPress={onPress}
-      onPressIn={() => pressTo(0.97)}
+      onPressIn={() => pressTo(violet ? 0.985 : 0.97)}
       onPressOut={() => pressTo(1)}
       disabled={disabled}
       hitSlop={{ top: 2, bottom: 2 }}

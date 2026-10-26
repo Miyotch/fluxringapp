@@ -1,12 +1,18 @@
 /** HOME-only aluminum finish. Existing screens retain their original materials. */
 import { ART_FRAGMENT_SHADER } from './cardShaders';
 
-export const HOME_ART_FRAGMENT_SHADER = ART_FRAGMENT_SHADER.replace(
+export const HOME_ART_FRAGMENT_SHADER = ART_FRAGMENT_SHADER
+  .replace('vec3(spec) * 0.29', 'vec3(spec) * 0.10')
+  .replace('vec3(env) * 0.065', 'vec3(env) * 0.025')
+  .replace('vec3(band) * 0.17', 'vec3(band) * 0.045')
+  .replace('float rimAmount = 0.40;', 'float rimAmount = 0.16;')
+  .replace('mix(flatOut, litOut, uMotion)', 'mix(flatOut, litOut, uMotion * .38)')
+  .replace(
   'gl_FragColor = vec4(col, artSample.a);',
   `vec2 pPx = (vUv - .5) * uCardPx;
   float rimDistance = -sdRoundRect(pPx, uCardPx * .5, .085 * uCardPx.x);
-  float silverRim = 1.0 - smoothstep(.65, 1.45, rimDistance);
-  col = mix(col, vec3(.82, .89, .96), silverRim * .85);
+  float silverRim = 1.0 - smoothstep(.4, 1.0, rimDistance);
+  col = mix(col, vec3(.78, .77, .86), silverRim * .58);
   gl_FragColor = vec4(col, artSample.a);`,
 );
 
@@ -48,17 +54,17 @@ void main() {
   vec3 base = vec3(0.48, 0.52, 0.58) + (grain - 0.5) * 0.055 + (grainFine - 0.5) * 0.012;
   // Two broad reflected softboxes, separated by a dark studio band.
   float sweep = R.x * .7 + R.y * .35 + (vUv.x - .5) * .65;
-  float strip = exp(-pow((sweep - .22) / .13, 2.0));
+  float strip = exp(-pow((sweep - .22) / .20, 2.0));
   float broad = exp(-pow((sweep + .45) / .38, 2.0));
   float dark = exp(-pow((sweep + .04) / .12, 2.0));
-  vec3 col = base * (.54 + diff * .18) + envC * .13;
-  col += vec3(.54, .58, .63) * strip + vec3(.19, .21, .25) * broad;
-  col *= 1.0 - dark * .37;
+  vec3 col = base * (.54 + diff * .18) + envC * .09;
+  col += vec3(.22, .24, .28) * strip + vec3(.10, .11, .14) * broad;
+  col *= 1.0 - dark * .22;
   // Machined perimeter catches light independently of the satin face.
   float edge = min(min(vUv.x, 1.0-vUv.x), min(vUv.y, 1.0-vUv.y));
   float bevel = 1.0 - smoothstep(.003, .016, edge);
-  col = mix(col, vec3(.63, .70, .78) * (.55 + .45 * strip), bevel * .8);
-  col += fres * vec3(.18, .22, .29);
+  col = mix(col, vec3(.63, .70, .78) * (.55 + .45 * strip), bevel * .5);
+  col += fres * vec3(.07, .08, .11);
 
   // 刻印（3層彫り込み・lib/cardBackTexture.ts の carve）を金属の上に合成
   if (uHasInk > 0.5) {

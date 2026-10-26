@@ -45,19 +45,19 @@
  },
  {
   "file": "tab_home.svg",
-  "usage": "フッター:ホーム"
+  "usage": "ホーム：細線のハウス／選択時ラベンダー"
  },
  {
   "file": "tab_collection.svg",
-  "usage": "フッター:コレクション"
+  "usage": "プレイリスト：重ねたカード／線幅1.45"
  },
  {
   "file": "tab_media.svg",
-  "usage": "フッター:メディア"
+  "usage": "メディア：音の波形／線幅1.45"
  },
  {
   "file": "tab_settings.svg",
-  "usage": "フッター:設定"
+  "usage": "設定：3本のスライダー／線幅1.45"
  },
  {
   "file": "_bg_texture_datauri.svg",

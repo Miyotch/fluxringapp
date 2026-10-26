@@ -98,8 +98,8 @@ export const CardSurface: React.FC<CardSurfaceProps> = ({
     p.setFillType(FillType.EvenOdd);
     return p;
   }, [width, height, r, dy, pad]);
-  const edgeWidth = homeFinish ? 1.3 : EDGE_WIDTH;
-  const edgeColor = homeFinish ? 'rgba(210,227,244,0.85)' : EDGE_COLOR;
+  const edgeWidth = homeFinish ? 0.9 : EDGE_WIDTH;
+  const edgeColor = homeFinish ? 'rgba(199,196,218,0.62)' : EDGE_COLOR;
   const h = edgeWidth / 2;
   const edge = rrect(rect(h, h, width - edgeWidth, height - edgeWidth), r - h, r - h);
 

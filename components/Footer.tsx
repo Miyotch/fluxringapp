@@ -23,7 +23,6 @@ import {
   TabSettingsIcon,
   LockIcon,
 } from './icons';
-import { TabTopIndicator } from './TabGlow';
 
 export type TabKey = 'home' | 'collection' | 'vip' | 'media' | 'settings';
 
@@ -54,7 +53,7 @@ type FooterProps = {
   /** VIP が未成約のときロックマークを重ねる */
   vipLocked?: boolean;
   /**
-   * 下地と境界線を外して、背後の画面をそのまま透かす。
+   * 薄い下地と境界線にして、背後の星空を透かす。
    * ホームでだけ true にして、星空がフッターの裏まで続いて見えるようにする
    * （呼び出し側はこのときフッターを絶対配置で画面へかぶせること）。
    */
@@ -84,7 +83,7 @@ export const Footer: React.FC<FooterProps> = ({
     if (!pulseKey) return;
     pulse.setValue(1);
     Animated.sequence([
-      Animated.timing(pulse, { toValue: 1.25, duration: 240, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+      Animated.timing(pulse, { toValue: 1.10, duration: 240, easing: Easing.out(Easing.quad), useNativeDriver: true }),
       Animated.timing(pulse, { toValue: 1, duration: 360, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
     ]).start();
   }, [pulseKey, pulse]);
@@ -92,23 +91,11 @@ export const Footer: React.FC<FooterProps> = ({
   const padBottom = useBottomInset(Platform.OS === 'ios' ? 20 : 12);
   return (
     <View style={[styles.bar, transparent && styles.barTransparent, { paddingBottom: padBottom }]}>
-      {/* タブ上端の金インジケータ（v99 fr_v99_tsubasa .tb.on::before 相当）。
-          各タブ Pressable は bar 内で縦中央寄せ（高さがコンテンツ依存）のため、
-          インジケータはタブの内側ではなく bar 直下の専用オーバーレイ行に、
-          タブと同じ 5 分割（flex:1 ×5・paddingHorizontal 8）で重ねる。
-          こうすることで、タブの内容量に関係なく必ず bar の最上端に揃う。 */}
-      <View style={styles.indicatorRow} pointerEvents="none">
-        {TABS.map((tab) => (
-          <View key={tab.key} style={styles.indicatorSlot}>
-            <TabTopIndicator active={tab.key === active} />
-          </View>
-        ))}
-      </View>
       {TABS.map((tab) => {
         const isActive = tab.key === active;
         const isVip = tab.key === 'vip';
-        // .tb: OFF #9498BE / ON・VIP #60CEE0（星雲の縁取りと同じシアン、常時）。
-        const tint = isActive || isVip ? COLOR.auraCyan : COLOR.textSecondary;
+        // A restrained lavender selection; the artwork remains the brightest element.
+        const tint = isActive || isVip ? '#DACFEC' : '#85849B';
 
         // アイコンの発光（.tb.on svg drop-shadow 相当）。RN の View shadow は
         // アルファ形状に沿う影を落とすため、SVG の細線にも馴染む。
@@ -116,9 +103,9 @@ export const Footer: React.FC<FooterProps> = ({
         const iconGlowStyle =
           isActive && !isVip && Platform.OS === 'ios'
             ? {
-                shadowColor: COLOR.auraCyan,
-                shadowOpacity: 0.45,
-                shadowRadius: 6,
+                shadowColor: tint,
+                shadowOpacity: 0.18,
+                shadowRadius: 3,
                 shadowOffset: { width: 0, height: 0 },
               }
             : null;
@@ -136,6 +123,7 @@ export const Footer: React.FC<FooterProps> = ({
             <Animated.View
               style={[
                 styles.glyphWrap,
+                isActive && styles.glyphActive,
                 iconGlowStyle,
                 tab.key === 'collection' && { transform: [{ scale: pulse }] },
               ]}
@@ -177,37 +165,30 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: COLOR.border,
-    backgroundColor: 'rgba(23,20,48,0.92)',
+    backgroundColor: 'rgba(11,10,23,0.96)',
   },
-  // 透明フッター（ホーム）。下地も境界線も消して、背後の空をそのまま出す
+  // HOMEの星空を残しながら、ナビゲーションの輪郭を薄く整える
   barTransparent: {
-    backgroundColor: 'transparent',
-    borderTopWidth: 0,
-  },
-  // bar の最上端（paddingTop の外側）に重ねる、タブと同じ5分割のオーバーレイ行。
-  indicatorRow: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    flexDirection: 'row',
-    paddingHorizontal: 16,
-  },
-  indicatorSlot: {
-    flex: 1,
-    alignItems: 'center',
+    backgroundColor: 'rgba(7,8,18,0.62)',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(173,151,217,0.14)',
   },
   tab: {
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 4,
+    gap: 5,
+    minHeight: 50,
     flex: 1,
   },
   glyphWrap: {
+    width: 40,
+    height: 32,
+    borderRadius: 11,
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
   },
+  glyphActive: { backgroundColor: 'rgba(159,134,207,0.11)' },
   glyph: {
     fontSize: 18,
     lineHeight: 20,
@@ -225,9 +206,9 @@ const styles = StyleSheet.create({
   },
   // .tb: 4 タブになって幅に余裕ができたので 9px → 10px（2026-10-14）。字間 .12em はそのまま
   label: {
-    fontSize: 10,
-    fontWeight: '500',
-    letterSpacing: 1.2,
+    fontSize: 9.5,
+    fontWeight: '400',
+    letterSpacing: 0.6,
   },
 });
 

@@ -181,33 +181,32 @@ export const GoogleIcon: React.FC<IconProps> = ({ size = 15 }) => (
 // ── フッタータブ（assets/icons/tab_*.svg）──
 // 原本は stroke="currentColor"。RN は currentColor を継承しないため色は props 必須。
 
-export const TabHomeIcon: React.FC<IconProps> = ({ size = 20, color = COLOR.textSecondary }) => (
+export const TabHomeIcon: React.FC<IconProps> = ({ size = 22, color = COLOR.textSecondary }) => (
   <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-    <Path d="M3 11l9-8 9 8" stroke={color} strokeWidth={1.5} {...STROKE} />
-    <Path d="M5 10v10h14V10" stroke={color} strokeWidth={1.5} {...STROKE} />
+    <Path d="M4.5 10.25 12 4.25l7.5 6V19a1 1 0 0 1-1 1H5.5a1 1 0 0 1-1-1z" stroke={color} strokeWidth={1.45} {...STROKE} />
+    <Path d="M9.5 20v-6.25h5V20" stroke={color} strokeWidth={1.45} {...STROKE} />
   </Svg>
 );
 
-export const TabCollectionIcon: React.FC<IconProps> = ({ size = 20, color = COLOR.textSecondary }) => (
+export const TabCollectionIcon: React.FC<IconProps> = ({ size = 22, color = COLOR.textSecondary }) => (
   <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-    <Rect x={3} y={3} width={7} height={7} rx={1.5} stroke={color} strokeWidth={1.5} {...STROKE} />
-    <Rect x={14} y={3} width={7} height={7} rx={1.5} stroke={color} strokeWidth={1.5} {...STROKE} />
-    <Rect x={3} y={14} width={7} height={7} rx={1.5} stroke={color} strokeWidth={1.5} {...STROKE} />
-    <Rect x={14} y={14} width={7} height={7} rx={1.5} stroke={color} strokeWidth={1.5} {...STROKE} />
+    <Rect x={7} y={3.75} width={13} height={15.5} rx={2.25} stroke={color} strokeWidth={1.45} />
+    <Path d="M4 7.5v12.75c0 .83.67 1.5 1.5 1.5H16M10.5 9h6M10.5 12.5h4" stroke={color} strokeWidth={1.45} {...STROKE} />
   </Svg>
 );
 
-export const TabMediaIcon: React.FC<IconProps> = ({ size = 20, color = COLOR.textSecondary }) => (
+export const TabMediaIcon: React.FC<IconProps> = ({ size = 22, color = COLOR.textSecondary }) => (
   <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-    <Circle cx={12} cy={12} r={9} stroke={color} strokeWidth={1.5} {...STROKE} />
-    <Path d="M10 9l5 3-5 3z" stroke={color} strokeWidth={1.5} {...STROKE} />
+    <Path d="M4.5 10v4M8.25 6v12M12 3.75v16.5M15.75 7.5v9M19.5 9.75v4.5" stroke={color} strokeWidth={1.45} {...STROKE} />
   </Svg>
 );
 
-export const TabSettingsIcon: React.FC<IconProps> = ({ size = 20, color = COLOR.textSecondary }) => (
+export const TabSettingsIcon: React.FC<IconProps> = ({ size = 22, color = COLOR.textSecondary }) => (
   <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-    <Circle cx={12} cy={12} r={3} stroke={color} strokeWidth={1.5} {...STROKE} />
-    <Path d="M12 3v3M12 18v3M3 12h3M18 12h3" stroke={color} strokeWidth={1.5} {...STROKE} />
+    <Path d="M4 6.25h4.5M12.5 6.25H20M4 12h10.5M18.5 12H20M4 17.75h4.5M12.5 17.75H20" stroke={color} strokeWidth={1.45} {...STROKE} />
+    <Circle cx={10.5} cy={6.25} r={2} stroke={color} strokeWidth={1.45} />
+    <Circle cx={16.5} cy={12} r={2} stroke={color} strokeWidth={1.45} />
+    <Circle cx={10.5} cy={17.75} r={2} stroke={color} strokeWidth={1.45} />
   </Svg>
 );
 

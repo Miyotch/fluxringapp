@@ -195,7 +195,7 @@ const TITLE_CARD_GAP = 26;
 const TITLE_SIDE_INSET = 32;
 
 const C = {
-  page: '#030711',
+  page: '#050712',
   text: '#ECEEF7',
   sub: '#9498BE',
   cyan: '#60CEE0',
@@ -626,7 +626,11 @@ export const DiscoverScreen: React.FC<Props> = ({
   // 縦を優先する（そのぶん幅は画面の 49.6% → 55% と参照より広くなる）。
   // フッターは設計枠 380x760 の内側にあるので、割る相手は表示領域ではなく
   // 画面の高さ。
-  const cardW = homeCardWidth(screenH);
+  // Give the artwork more presence while reserving room for its title and controls.
+  const cardW = Math.round(Math.min(
+    320, screenW * 0.70, homeCardWidth(screenH) * 1.22,
+    Math.max(140, (slideH - bottomInset - 210) / CARD_ASPECT),
+  ));
   // 比率は CardGL の CARD_ASPECT が唯一の正（GL メッシュと必ず揃える）
   const cardH = Math.round(cardW * CARD_ASPECT);
   // 参照のデバイス枠に相当する矩形。裏面の拡大率 S と持ち上げ量はここ基準で決まる
@@ -794,7 +798,7 @@ export const DiscoverScreen: React.FC<Props> = ({
     return scrolling.value > 0.5 || carBusy.value > 0.5 || aProg > 0.02 ? 0 : 1;
   }, [scrolling, carBusy, cardRotation]);
   // カードを出さないビルドではフロートの消費者が居ないので、フレームコールバックごと止める
-  const floatY = useIdleFloat(damp, !DEBUG_BACKDROP_ONLY, 7);
+  const floatY = useIdleFloat(damp, !DEBUG_BACKDROP_ONLY, 4.5);
   // カード下の接地影（CardGround）は 2026-10-18 に撤去した。影の代わりに
   // カード外周の 1pt の縁取り（CardSurface の (d)）で輪郭を出す（岡さん指定）。
 
@@ -1724,6 +1728,7 @@ export const DiscoverScreen: React.FC<Props> = ({
             {active && (
               <CardGL
                 homeFinish
+                backScale={1.08}
                 mode="flip"
                 backStyle="aluminum"
                 frontUri={active.artworkUrl}
@@ -2098,6 +2103,7 @@ export const DiscoverScreen: React.FC<Props> = ({
             {/* 購入ボタンと所有済みの「マイリスト」は同じ部品（形・大きさ・周回する光）。
                 買った瞬間は「購入する」が「マイリスト」へフェードで替わる */}
             <OrbitBuyButton
+              accent="violet"
               owned={isOwned(shown)}
               ownedLabel={t('home.myList')}
               priceLabel={shown ? purchase?.displayPriceOf(shown.id) : undefined}
