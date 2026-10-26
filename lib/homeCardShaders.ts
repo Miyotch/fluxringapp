@@ -48,23 +48,33 @@ void main() {
   vec3 gnd = vec3(0.24, 0.26, 0.32);
   vec3 envC = mix(mix(gnd, hor, clamp(envG * 2.0, 0.0, 1.0)), sky, clamp(envG * 2.0 - 1.0, 0.0, 1.0));
 
-  // Fine horizontal brushing, continuous rather than a tiled/noisy surface.
-  float grain = hash12(vec2(floor(vUv.y * 1800.0), 1.0));
-  float grainFine = hash12(floor(vUv * vec2(240.0, 1800.0)));
-  vec3 base = vec3(0.60, 0.63, 0.68) + (grain - 0.5) * 0.055 + (grainFine - 0.5) * 0.012;
-  // Broad, low-contrast reflections keep the engraved text readable.
-  float sweep = R.x * .7 + R.y * .35 + (vUv.x - .5) * .65;
-  float strip = exp(-pow((sweep - .22) / .20, 2.0));
-  float broad = exp(-pow((sweep + .45) / .38, 2.0));
-  float dark = exp(-pow((sweep + .04) / .12, 2.0));
+  // Brushing at two scales: fine hairlines over a faint, non-repeating satin grain.
+  float grain = hash12(vec2(floor(vUv.y * 1050.0), 1.0));
+  float grainFine = hash12(floor(vUv * vec2(160.0, 1050.0)));
+  float brushed = sin(vUv.y * 1480.0 + hash12(vec2(floor(vUv.y * 230.0), 4.0)) * 2.0);
+  vec3 base = vec3(.60, .63, .67) + (grain - .5) * .075
+    + (grainFine - .5) * .014 + brushed * .009;
+
+  // Wide studio reflections move with the card; keep the reading surface bright.
+  float sweep = R.x * .7 + R.y * .35 + (vUv.x - .5) * .85 + (vUv.y - .5) * .22;
+  float strip = exp(-pow((sweep - .22) / .16, 2.0));
+  float broad = exp(-pow((sweep + .45) / .34, 2.0));
+  float dark = exp(-pow((sweep + .04) / .20, 2.0));
   vec3 col = base * (.72 + diff * .10) + envC * .09;
-  col += vec3(.12, .13, .15) * strip + vec3(.06, .07, .08) * broad;
-  col *= 1.0 - dark * .05;
-  // Machined perimeter catches light independently of the satin face.
-  float edge = min(min(vUv.x, 1.0-vUv.x), min(vUv.y, 1.0-vUv.y));
-  float bevel = 1.0 - smoothstep(.003, .016, edge);
-  col = mix(col, vec3(.63, .70, .78) * (.55 + .45 * strip), bevel * .5);
+  col += vec3(.20, .21, .23) * strip + vec3(.08, .09, .11) * broad;
+  col *= 1.0 - dark * .07;
   col += fres * vec3(.07, .08, .11);
+  col = clamp(col, vec3(.43), vec3(.84));
+
+  // A rounded machined bevel gives the sheet thickness, without darkening the text.
+  vec2 p = (vUv - .5) * vec2(1.0, 1.56);
+  vec2 q = abs(p) - (vec2(.5, .78) - vec2(.085));
+  float edge = -(length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - .085);
+  float bevel = 1.0 - smoothstep(.001, .012, edge);
+  float edgeLight = clamp(.5 + (vUv.y - .5) * .6 - (vUv.x - .5) * .45, .0, 1.0);
+  col = mix(col, mix(vec3(.37, .41, .47), vec3(.87, .90, .94), edgeLight), bevel * .72);
+  float lip = 1.0 - smoothstep(.0005, .0025, edge);
+  col += lip * .065;
 
   // Correct the metal first; the ink texture already contains display-space colors.
   col = pow(clamp(col, 0.0, 1.0), vec3(1.0 / 2.2));
