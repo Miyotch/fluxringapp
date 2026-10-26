@@ -6,14 +6,8 @@ import {
   query,
   orderBy,
   limit,
-  where,
-  startAfter,
-  Timestamp,
   onSnapshot,
   Unsubscribe,
-  type QueryConstraint,
-  type QueryDocumentSnapshot,
-  type DocumentData,
 } from 'firebase/firestore'
 import { db } from './firebase'
 
@@ -80,23 +74,16 @@ export const subscribeArtworks = (
 // ── メディア：記事一覧をページング取得（コレクション article）───
 // 表示条件: published===true（CMS側の公開フラグ）かつ date<=現在時刻
 // （公開日時が未来のものはまだ出さない）。並び順は date の降順（新しいものが上）。
+// 条件と並びは lib/useArticles.ts で適用する。
 // ※ published は公開/非公開フラグ（真偽値）であって公開日時ではない。
 //   公開日時は別フィールドの date（Timestamp）。
 export const articlesCol = () => collection(db, 'article')
 
-export const fetchArticlesPage = (
-  pageSize: number,
-  cursor?: QueryDocumentSnapshot<DocumentData>,
-) => {
-  const constraints: QueryConstraint[] = [
-    where('published', '==', true),
-    where('date', '<=', Timestamp.now()),
-    orderBy('date', 'desc'),
-    limit(pageSize),
-  ]
-  if (cursor) constraints.push(startAfter(cursor))
-  return getDocs(query(articlesCol(), ...constraints))
-}
+// 絞り込み（published / date）と並べ替えは端末側で行う。where＋orderBy の複合クエリは
+// 複合インデックスが未作成だと失敗して記事が1件も出なくなるため、条件なしで取る
+// （記事は数が少ない読み物。上限だけ付ける）。
+export const fetchArticleDocs = (max = 200) =>
+  getDocs(query(articlesCol(), limit(max)))
 
 // ── 楽曲一覧をリアルタイム監視（コレクション tracks）───────
 export const subscribeTracks = (
