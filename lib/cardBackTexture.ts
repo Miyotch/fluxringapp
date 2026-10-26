@@ -36,7 +36,7 @@ export type CardBackData = {
   materials?: string[];    // 原材料（例: ['朝の空気', '低い持続音']）
   tuning?: string;         // 調律名（例: '純正律'）
   frequencies?: string[];  // 周波数のみ（例: ['432 Hz', '7.83 Hz']）
-  artist?: string;         // 'NAOKI OKA'
+  artist?: string;         // 作家名（artists.name）
   /** 用途タグ（例: ['睡眠', '勉強', '集中力']）。Story の真下に「ー case ー」の
    *  見出しとともに並べる。Firestore tracks/{id}.useCases から。 */
   useCases?: string[];
@@ -93,6 +93,21 @@ function wrapFixedChars(text: string, charsPerLine: number, maxLines: number): s
     i = end;
   }
   return lines;
+}
+
+/**
+ * カード裏面（アルミ面）の Story の上限文字数。1行20字×4行。行頭禁則で1行が21字に
+ * なることはあっても、どの行も20字以上入るので、80字以内なら必ず4行に収まる。
+ * 縦方向は case 2行＋調律＋series の最も詰まる構成でも、段の間隔を最小まで
+ * 詰めれば 4 行が収まることを確認済み（2026-10-26）。
+ */
+export const STORY_MAX_CHARS = 80;
+
+/** Story を改行除去のうえ上限に切り詰める（超えたら末尾を「…」にして上限ちょうど） */
+export function clampStory(text: string): string {
+  const chars = [...text.replace(/\s*\n\s*/g, '')];
+  if (chars.length <= STORY_MAX_CHARS) return chars.join('');
+  return chars.slice(0, STORY_MAX_CHARS - 1).join('') + '…';
 }
 
 // 全角/半角の概算幅で折り返し（日本語は文字単位で折る）
@@ -415,7 +430,7 @@ export function renderAluminumInkPixels(
   const STORY_LS = 2;
   const CHARS_PER_LINE = 20;
   const storyFont = makeFont(STORY_FS, '300', INK_FONT);
-  let storyLines = data.story ? wrapFixedChars(data.story, CHARS_PER_LINE, 4) : [];
+  let storyLines = data.story ? wrapFixedChars(clampStory(data.story), CHARS_PER_LINE, 4) : [];
 
   // case: 全角スペース区切りで詰め、はみ出す手前で折り返す（最大2行）
   const CASE_FS = 40;
@@ -507,7 +522,7 @@ export function renderAluminumInkPixels(
   // Artist名 40px / weight400 / 字間10px / 大文字。直後に '›' を添える。
   // 名前＋間隔＋シェブロンの合計幅を先に測ってから cx を中心に配置することで、
   // 名前だけを中心に置いてシェブロン分だけ右へ余分に伸びる非対称を避ける。
-  const signature = (data.artist ?? 'NAOKI OKA').toUpperCase();
+  const signature = (data.artist ?? '').toUpperCase();
   const nameFont = makeFont(40, '400', INK_FONT);
   const nameLetterSpacing = 10;
   const nameChars = [...signature];
@@ -518,8 +533,11 @@ export function renderAluminumInkPixels(
   const chevronW = estWidth('›', 42, makeFont(42, '400', INK_FONT));
   const groupW = nw + chevronGap + chevronW;
   const nameX = cx - groupW / 2 + nw / 2;
-  printAlum(c, signature, nameX, nameY, 40, '400', alum(1), nameLetterSpacing, 'c');
-  printAlum(c, '›', nameX + nw / 2 + chevronGap, H - 192, 42, '400', alum(0.75), 0, 'l');
+  // 作家が未取得（名前が空）のあいだは、名前も「›」も描かない
+  if (signature) {
+    printAlum(c, signature, nameX, nameY, 40, '400', alum(1), nameLetterSpacing, 'c');
+    printAlum(c, '›', nameX + nw / 2 + chevronGap, H - 192, 42, '400', alum(0.75), 0, 'l');
+  }
 
   const img = surface.makeImageSnapshot();
   // GLSL 側で `mix(metalColor, ink.rgb, ink.a)` とストレートアルファ合成する
@@ -559,7 +577,7 @@ export const ARTIST_HIT_ZONE = {
  */
 const CHEVRON_HIT_HALF_PX = 90;
 export function artistChevronHitX(artist?: string): { xCenter: number; halfWidth: number } {
-  const signature = (artist ?? 'NAOKI OKA').toUpperCase();
+  const signature = (artist ?? '').toUpperCase();
   const nameFont = makeFont(40, '400', INK_FONT);
   const chars = [...signature];
   const nw =

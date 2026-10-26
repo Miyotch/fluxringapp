@@ -2,9 +2,9 @@
  * useSeries.ts — Firestore の series コレクション（シリーズ＝アルバム）を購読
  * ------------------------------------------------------------------
  * 管理画面「シリーズを登録／編集」で作る。フィールドは
- *   name（名称）/ trackIds（収録曲の並び）/ description（説明）/
- *   jacketUrl（ジャケット画像）/ jacketThumbUrl（その縮小版）
- * description・jacket* は 2026-09-30 に管理画面へ足した項目で、古いシリーズには無い。
+ *   name（名称）/ trackIds（収録曲の並び）/ description（説明）
+ * description は 2026-09-30 に管理画面へ足した項目で、古いシリーズには無い。
+ * ジャケット画像（jacketUrl / jacketThumbUrl）はシリーズのアイコン廃止に伴い読まない。
  *
  * 曲がどのシリーズに入るかは、series.trackIds と tracks.seriesId の両方を見る
  * （管理画面ではシリーズ側の「収録曲」と、曲側の「シリーズ」の2か所で選べて、
@@ -20,8 +20,6 @@ export type Series = {
   name: string;
   trackIds: string[];
   description?: string;
-  /** 画面に出すジャケット。縮小版があればそちら */
-  jacketUrl?: string;
 };
 
 const str = (v: unknown): string | undefined =>
@@ -42,7 +40,6 @@ export function useSeries(): Series[] {
               ? data.trackIds.filter((x): x is string => typeof x === 'string')
               : [],
             description: str(data.description),
-            jacketUrl: str(data.jacketThumbUrl) ?? str(data.jacketUrl),
           };
         });
         // 名称の無いもの（作りかけ）は出さない。並びは名称順で安定させる
