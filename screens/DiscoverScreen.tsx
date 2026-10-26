@@ -53,6 +53,7 @@ import { useBackdropClock } from '../lib/usePausableClock';
 import { useAudioPlayer } from 'expo-audio';
 import { previewUrl } from '../lib/r2';
 import { CardFace } from '../components/CardFace';
+import { HomeCosmos } from '../components/HomeCosmos';
 import { BackdropSky } from '../components/BackdropSky';
 import { BackdropImage } from '../components/BackdropImage';
 import { useBackdropMode } from '../lib/backdropMode';
@@ -194,7 +195,7 @@ const TITLE_CARD_GAP = 26;
 const TITLE_SIDE_INSET = 32;
 
 const C = {
-  page: '#0E0C20',
+  page: '#030711',
   text: '#ECEEF7',
   sub: '#9498BE',
   cyan: '#60CEE0',
@@ -793,7 +794,7 @@ export const DiscoverScreen: React.FC<Props> = ({
     return scrolling.value > 0.5 || carBusy.value > 0.5 || aProg > 0.02 ? 0 : 1;
   }, [scrolling, carBusy, cardRotation]);
   // カードを出さないビルドではフロートの消費者が居ないので、フレームコールバックごと止める
-  const floatY = useIdleFloat(damp, !DEBUG_BACKDROP_ONLY);
+  const floatY = useIdleFloat(damp, !DEBUG_BACKDROP_ONLY, 7);
   // カード下の接地影（CardGround）は 2026-10-18 に撤去した。影の代わりに
   // カード外周の 1pt の縁取り（CardSurface の (d)）で輪郭を出す（岡さん指定）。
 
@@ -1722,6 +1723,7 @@ export const DiscoverScreen: React.FC<Props> = ({
           <Animated.View style={[styles.slot, centerStyle]} pointerEvents="box-none">
             {active && (
               <CardGL
+                homeFinish
                 mode="flip"
                 backStyle="aluminum"
                 frontUri={active.artworkUrl}
@@ -1929,6 +1931,7 @@ export const DiscoverScreen: React.FC<Props> = ({
           pointerEvents="none"
         >
           {backdropMode === 'image' && <BackdropImage width={screenW} height={slideH} />}
+          {backdropMode === 'image' ? (
           <BackdropSky
             width={screenW}
             height={slideH}
@@ -1940,12 +1943,15 @@ export const DiscoverScreen: React.FC<Props> = ({
             nebulaOffsetY={layerAdjust.nebula.offsetY}
             nebulaScale={layerAdjust.nebula.scale}
           />
+          ) : (
+            <HomeCosmos width={screenW} height={slideH} drift={floatY} />
+          )}
         </RNAnimated.View>
       )}
 
       {/* 調律陣の背景（プレイヤーと同一・カード中心に配置）。
           intro② : わずかに小さい所から等倍へ、空に少し遅れて灯る */}
-      {slideH > 0 && (
+      {slideH > 0 && backdropMode === 'image' && (
         <RNAnimated.View
           style={[
             StyleSheet.absoluteFill,
@@ -2163,7 +2169,7 @@ const RingSlot = React.memo(function RingSlot({
 }) {
   return (
     <Animated.View style={[styles.slot, style]} pointerEvents="none">
-      <CardFace uri={uri} width={width} height={height} />
+      <CardFace homeFinish uri={uri} width={width} height={height} />
     </Animated.View>
   );
 });

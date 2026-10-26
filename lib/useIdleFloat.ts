@@ -56,6 +56,7 @@ const STEP_MS = 33;
 export function useIdleFloat(
   damp: SharedValue<number>,
   enabled = true,
+  amplitude = AMP,
 ): SharedValue<number> {
   const floatY = useSharedValue(0);
   const reduced = useSharedValue(false);
@@ -94,7 +95,7 @@ export function useIdleFloat(
     lastBucket.value = bucket;
     acc.value = 0;
     const dt = a;
-    const target = reduced.value ? 0 : Math.sin(info.timestamp * OMEGA) * AMP * damp.value;
+    const target = reduced.value ? 0 : Math.sin(info.timestamp * OMEGA) * amplitude * damp.value;
     const k = 1 - Math.pow(1 - LERP, dt * 60);
     const next = floatY.value + (target - floatY.value) * k;
     // 目標が 0（＝ドラッグ中・送り中・裏返し中）のとき、指数収束では厳密な 0 に

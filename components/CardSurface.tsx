@@ -68,6 +68,7 @@ const EDGE_WIDTH = 1;
 const EDGE_COLOR = 'rgba(255,255,255,0.18)';
 
 export type CardSurfaceProps = {
+  homeFinish?: boolean;
   width: number;
   height: number;
   /** 全体の不透明度（フリップ中のフェード等に使う） */
@@ -79,6 +80,7 @@ export const CardSurface: React.FC<CardSurfaceProps> = ({
   width,
   height,
   opacity = 1,
+  homeFinish = false,
   style,
 }) => {
   const s = width / REF_W;
@@ -96,8 +98,10 @@ export const CardSurface: React.FC<CardSurfaceProps> = ({
     p.setFillType(FillType.EvenOdd);
     return p;
   }, [width, height, r, dy, pad]);
-  const h = EDGE_WIDTH / 2;
-  const edge = rrect(rect(h, h, width - EDGE_WIDTH, height - EDGE_WIDTH), r - h, r - h);
+  const edgeWidth = homeFinish ? 1.3 : EDGE_WIDTH;
+  const edgeColor = homeFinish ? 'rgba(210,227,244,0.85)' : EDGE_COLOR;
+  const h = edgeWidth / 2;
+  const edge = rrect(rect(h, h, width - edgeWidth, height - edgeWidth), r - h, r - h);
 
   return (
     <Canvas
@@ -122,7 +126,7 @@ export const CardSurface: React.FC<CardSurfaceProps> = ({
       </Group>
 
       {/* (d) 外周の縁取り */}
-      <RoundedRect rect={edge} style="stroke" strokeWidth={EDGE_WIDTH} color={EDGE_COLOR} />
+      <RoundedRect rect={edge} style="stroke" strokeWidth={edgeWidth} color={edgeColor} />
 
     </Canvas>
   );
