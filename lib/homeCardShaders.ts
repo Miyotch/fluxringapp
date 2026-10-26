@@ -56,15 +56,19 @@ void main() {
     + (grainFine - .5) * .014 + brushed * .009;
 
   // Wide studio reflections move with the card; keep the reading surface bright.
-  float sweep = R.x * .7 + R.y * .35 + (vUv.x - .5) * .85 + (vUv.y - .5) * .22;
+  float sweep = R.x * 1.35 + R.y * .65 + (vUv.x - .5) * .95 + (vUv.y - .5) * .28;
   float strip = exp(-pow((sweep - .22) / .16, 2.0));
   float broad = exp(-pow((sweep + .45) / .34, 2.0));
   float dark = exp(-pow((sweep + .04) / .20, 2.0));
   vec3 col = base * (.72 + diff * .10) + envC * .09;
   col += vec3(.20, .21, .23) * strip + vec3(.08, .09, .11) * broad;
+  // A narrow core inside a broad sheen travels across the brushed metal as it tilts.
+  float flowing = exp(-pow((sweep - .06) / .085, 2.0));
+  float shoulder = exp(-pow((sweep - .06) / .25, 2.0));
+  col += vec3(.19, .20, .22) * flowing + vec3(.055, .06, .075) * shoulder;
   col *= 1.0 - dark * .07;
   col += fres * vec3(.07, .08, .11);
-  col = clamp(col, vec3(.43), vec3(.84));
+  col = clamp(col, vec3(.43), vec3(.90));
 
   // A rounded machined bevel gives the sheet thickness, without darkening the text.
   vec2 p = (vUv - .5) * vec2(1.0, 1.56);
