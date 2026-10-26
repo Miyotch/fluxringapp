@@ -1,50 +1,42 @@
 import React, { useMemo } from 'react';
-import { StyleSheet } from 'react-native';
-import { Canvas, Fill, Circle, Group, RadialGradient, vec } from '@shopify/react-native-skia';
+import { StyleSheet, View } from 'react-native';
+import { Canvas, Fill, Circle, Group, Path, Shader, RadialGradient, Skia, vec } from '@shopify/react-native-skia';
 import { SharedValue, useDerivedValue } from 'react-native-reanimated';
 import { homeStars } from '../lib/homeStars';
+import { HOME_NEBULA_SHADER } from '../lib/homeNebula';
 
+const nebulaEffect = Skia.RuntimeEffect.Make(HOME_NEBULA_SHADER);
 function DepthLayer({ layer, width, height, drift }: { layer: number; width: number; height: number; drift: SharedValue<number> }) {
   const stars = useMemo(() => homeStars(layer), [layer]);
+  // Batch the larger star field by color and brightness: 18 paths, not 1400 nodes.
+  const paths = useMemo(() => Array.from({ length: 6 }, (_, bucket) => {
+    const path = Skia.Path.Make();
+    stars.filter(s => (s.warm ? 3 : 0) + Math.min(2, Math.floor(s.opacity * 3)) === bucket)
+      .forEach(s => path.addCircle(s.x * width, s.y * height, s.r));
+    return path;
+  }), [stars, width, height]);
   const transform = useDerivedValue(() => [
     { translateX: drift.value * (layer + 1) * -.35 },
     { translateY: drift.value * (layer + 1) * -.5 },
   ]);
-  return <Group transform={transform} opacity={[.44, .60, .74][layer]}>
-    {layer === 2 && stars.map((s, i) => <Circle key={i} cx={s.x * width} cy={s.y * height} r={s.r * 5.5}>
-      <RadialGradient c={vec(s.x * width, s.y * height)} r={s.r * 5.5} colors={['#b9b2e630', '#b9b2e600']} />
+  return <Group transform={transform} opacity={[.58, .73, .86][layer]}>
+    {layer === 2 && stars.filter(s => s.opacity > .6).map((s, i) => <Circle key={i} cx={s.x * width} cy={s.y * height} r={s.r * 5}>
+      <RadialGradient c={vec(s.x * width, s.y * height)} r={s.r * 5} colors={['#d5e6ff28', '#d5e6ff00']} />
     </Circle>)}
-    {stars.map((s, i) => <Circle key={`star-${i}`} cx={s.x * width} cy={s.y * height} r={s.r} opacity={s.opacity} color={s.warm ? "#e6d6b6" : "#d4e5ff"} />)}
+    {paths.map((path, i) => <Path key={i} path={path} color={i < 3 ? '#d3e0ee' : '#e1cba7'} opacity={[.24, .53, .86][i % 3]} />)}
   </Group>;
 }
 
-// Overlapping elongated clouds and a dark pocket make an irregular nebula, not a flat wash.
-const NEBULA = [
-  { x: .93, y: .24, r: .84, squash: .62, color: '#6838a77a' },
-  { x: .76, y: .34, r: .64, squash: .48, color: '#8a51ba55' },
-  { x: 1.02, y: .45, r: .73, squash: .70, color: '#42399980' },
-  { x: .12, y: .69, r: .78, squash: .65, color: '#274e8965' },
-  { x: .24, y: .79, r: .69, squash: .45, color: '#68409b70' },
-  { x: -.08, y: .90, r: .67, squash: .65, color: '#34328c65' },
-  { x: .83, y: .38, r: .45, squash: .48, color: '#050712a0' },
-];
-/** Three star depths over layered nebulae; gradients need no offscreen blur. */
+/** A static nebula canvas is separate from the animated stars so it needs no frame redraws. */
 export function HomeCosmos({ width, height, drift }: { width: number; height: number; drift: SharedValue<number> }) {
-  return <Canvas pointerEvents="none" style={[StyleSheet.absoluteFill, { width, height }]}>
-    <Fill color="#050712" />
-    {[{ x: .18, y: .20, r: .85, c: '#19284650' }, { x: .86, y: .38, r: .90, c: '#41265f7a' },
-      { x: .24, y: .82, r: .80, c: '#34204c55' }].map((n, i) => <Circle key={i} cx={width*n.x} cy={height*n.y} r={width*n.r}>
-      <RadialGradient c={vec(width*n.x, height*n.y)} r={width*n.r} colors={[n.c, '#05071200']} />
-    </Circle>)}
-    {NEBULA.map((n, i) => {
-      const center = vec(width * n.x, height * n.y);
-      const radius = width * n.r;
-      return <Group key={`nebula-${i}`} origin={center} transform={[{ rotate: -.35 }, { scaleY: n.squash }]}>
-        <Circle cx={center.x} cy={center.y} r={radius}>
-          <RadialGradient c={center} r={radius} colors={[n.color, '#05071200']} />
-        </Circle>
-      </Group>;
-    })}
-    {[0, 1, 2].map(layer => <DepthLayer key={layer} layer={layer} width={width} height={height} drift={drift} />)}
-  </Canvas>;
+  const uniforms = useMemo(() => ({ resolution: [width, height] }), [width, height]);
+  return <View pointerEvents="none" style={[StyleSheet.absoluteFill, { width, height }]}>
+    <Canvas style={StyleSheet.absoluteFill}>
+      <Fill color="#030509" />
+      {nebulaEffect && <Fill><Shader source={nebulaEffect} uniforms={uniforms} /></Fill>}
+    </Canvas>
+    <Canvas style={StyleSheet.absoluteFill}>
+      {[0, 1, 2].map(layer => <DepthLayer key={layer} layer={layer} width={width} height={height} drift={drift} />)}
+    </Canvas>
+  </View>;
 }

@@ -95,7 +95,7 @@ export const Footer: React.FC<FooterProps> = ({
         const isActive = tab.key === active;
         const isVip = tab.key === 'vip';
         // A restrained lavender selection; the artwork remains the brightest element.
-        const tint = isActive || isVip ? '#BF94FF' : '#85849B';
+        const tint = isActive || isVip ? '#B8B1CE' : '#85849B';
 
         // アイコンの発光（.tb.on svg drop-shadow 相当）。RN の View shadow は
         // アルファ形状に沿う影を落とすため、SVG の細線にも馴染む。
@@ -171,7 +171,7 @@ const styles = StyleSheet.create({
   barTransparent: {
     backgroundColor: 'rgba(7,8,18,0.62)',
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: 'rgba(168,114,247,0.28)',
+    borderTopColor: 'rgba(154,149,175,0.16)',
   },
   tab: {
     alignItems: 'center',
@@ -188,7 +188,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     position: 'relative',
   },
-  glyphActive: { backgroundColor: 'rgba(155,94,246,0.22)' },
+  glyphActive: { backgroundColor: 'rgba(149,136,177,0.14)' },
   glyph: {
     fontSize: 18,
     lineHeight: 20,
