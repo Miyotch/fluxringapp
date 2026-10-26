@@ -95,6 +95,21 @@ function wrapFixedChars(text: string, charsPerLine: number, maxLines: number): s
   return lines;
 }
 
+/**
+ * カード裏面（アルミ面）の Story の上限文字数。1行20字×4行。行頭禁則で1行が21字に
+ * なることはあっても、どの行も20字以上入るので、80字以内なら必ず4行に収まる。
+ * 縦方向は case 2行＋調律＋series の最も詰まる構成でも、段の間隔を最小まで
+ * 詰めれば 4 行が収まることを確認済み（2026-10-26）。
+ */
+export const STORY_MAX_CHARS = 80;
+
+/** Story を改行除去のうえ上限に切り詰める（超えたら末尾を「…」にして上限ちょうど） */
+export function clampStory(text: string): string {
+  const chars = [...text.replace(/\s*\n\s*/g, '')];
+  if (chars.length <= STORY_MAX_CHARS) return chars.join('');
+  return chars.slice(0, STORY_MAX_CHARS - 1).join('') + '…';
+}
+
 // 全角/半角の概算幅で折り返し（日本語は文字単位で折る）
 function wrap(text: string, fs: number, maxW: number, font: SkFont | null, maxLines: number): string[] {
   const lines: string[] = [];
@@ -415,7 +430,7 @@ export function renderAluminumInkPixels(
   const STORY_LS = 2;
   const CHARS_PER_LINE = 20;
   const storyFont = makeFont(STORY_FS, '300', INK_FONT);
-  let storyLines = data.story ? wrapFixedChars(data.story, CHARS_PER_LINE, 4) : [];
+  let storyLines = data.story ? wrapFixedChars(clampStory(data.story), CHARS_PER_LINE, 4) : [];
 
   // case: 全角スペース区切りで詰め、はみ出す手前で折り返す（最大2行）
   const CASE_FS = 40;
