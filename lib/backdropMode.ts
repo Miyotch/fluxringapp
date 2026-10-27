@@ -11,11 +11,11 @@
 import { useEffect, useState } from 'react'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 
-export type BackdropMode = 'sky' | 'image'
+export type BackdropMode = 'sky' | 'image' | 'orbit' | 'nebula'
 
-const STORAGE_KEY = 'fr.backdropMode.v1'
+const STORAGE_KEY = 'fr.backdropMode.starfieldPreview.v4'
 
-let current: BackdropMode = 'sky'
+let current: BackdropMode = 'nebula'
 let loaded = false
 const listeners = new Set<(m: BackdropMode) => void>()
 
@@ -24,7 +24,7 @@ const load = () => {
   loaded = true
   AsyncStorage.getItem(STORAGE_KEY)
     .then((v) => {
-      if (v === 'image' || v === 'sky') {
+      if (v === 'image' || v === 'sky' || v === 'orbit' || v === 'nebula') {
         current = v
         listeners.forEach((l) => l(current))
       }

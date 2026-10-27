@@ -66,3 +66,24 @@ export function isLatinOnly(text: string): boolean {
   for (const ch of text) if (ch.charCodeAt(0) > 0x7f) return false;
   return true;
 }
+
+// Bundle Japanese glyphs: Skia drawText does not use Android's text fallback.
+let japaneseTypeface: SkTypeface | null = null;
+let japanesePending: Promise<SkTypeface | null> | null = null;
+const japaneseFonts = new Map<number, SkFont>();
+export function loadJapaneseTypeface(): Promise<SkTypeface | null> {
+  if (!japanesePending) japanesePending = loadData(
+    require('../assets/fonts/NotoSansCJKjp-Regular.otf'),
+    d => Skia.Typeface.MakeFreeTypeFaceFromData(d),
+  ).then(face => { japaneseTypeface = face; return face; });
+  return japanesePending;
+}
+export function japaneseFont(size: number): SkFont | null {
+  if (!japaneseTypeface) return null;
+  let font = japaneseFonts.get(size);
+  if (!font) {
+    font = Skia.Font(japaneseTypeface, size);
+    japaneseFonts.set(size, font);
+  }
+  return font;
+}

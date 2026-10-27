@@ -24,6 +24,7 @@ import { CardSurface } from './CardSurface';
 export const CARD_PLACEHOLDER = '#1E1C40';
 
 type Props = {
+  homeFinish?: boolean;
   uri: string;
   width: number;
   height: number;
@@ -31,7 +32,7 @@ type Props = {
   layerUris?: string[];
 };
 
-const CardFaceImpl: React.FC<Props> = ({ uri, width, height, layerUris }) => {
+const CardFaceImpl: React.FC<Props> = ({ uri, width, height, layerUris, homeFinish = false }) => {
   // 並びは uri の出入りで変わるが、key が uri なのでビューは作り直されない
   const layers = useMemo(() => {
     const list = [uri, ...(layerUris ?? [])];
@@ -72,7 +73,7 @@ const CardFaceImpl: React.FC<Props> = ({ uri, width, height, layerUris }) => {
           />
         ))}
       </View>
-      <CardSurface width={width} height={height} />
+      <CardSurface width={width} height={height} homeFinish={homeFinish} />
     </View>
   );
 };

@@ -76,6 +76,9 @@ const INK = '#ECEEF7';
 export type OrbitButtonState = 'idle' | 'pending' | 'unavailable';
 
 type Props = {
+  accent?: 'cyan' | 'violet';
+  width?: number;
+  height?: number;
   owned?: boolean;
   /** 所有済みのとき ▶ の代わりに出す文字（ホームの「マイリスト」。2026-10-19 岡さん指定） */
   ownedLabel?: string;
@@ -88,17 +91,6 @@ type Props = {
   active?: SharedValue<number> | DerivedValue<number>;
   onPress: () => void;
 };
-
-// 縁のリング（外側の角丸から 1pt 内側を抜いた形）。形は固定なので一度だけ作る
-const OUTER = rrect(rect(0, 0, W, H), R, R);
-const INNER = rrect(rect(1, 1, W - 2, H - 2), R - 1, R - 1);
-const RING = (() => {
-  const p = Skia.Path.Make();
-  p.addRRect(OUTER);
-  p.addRRect(INNER);
-  p.setFillType(FillType.EvenOdd);
-  return p;
-})();
 
 /** ✓（所有済みの印・12pt 角） */
 const CheckGlyph: React.FC = () => (
@@ -115,6 +107,9 @@ const PlayGlyph: React.FC = () => (
 );
 
 export const OrbitBuyButton: React.FC<Props> = ({
+  accent = 'cyan',
+  width = W,
+  height = H,
   owned = false,
   ownedLabel,
   priceJpy = TRACK_PRICE_JPY,
@@ -123,6 +118,17 @@ export const OrbitBuyButton: React.FC<Props> = ({
   active,
   onPress,
 }) => {
+  const violet = accent === 'violet';
+  const W = width, H = height, R = height / 2;
+  const SQ = Math.ceil(Math.hypot(W, H)) + 8;
+  const { outer: OUTER, ring: RING } = useMemo(() => {
+    const outer = rrect(rect(0, 0, W, H), R, R);
+    const ring = Skia.Path.Make();
+    ring.addRRect(outer);
+    ring.addRRect(rrect(rect(1, 1, W - 2, H - 2), R - 1, R - 1));
+    ring.setFillType(FillType.EvenOdd);
+    return { outer, ring };
+  }, [W, H, R]);
   const t = useT();
   const price = priceLabel ?? formatPrice(priceJpy);
   const disabled = state !== 'idle';
@@ -188,9 +194,9 @@ export const OrbitBuyButton: React.FC<Props> = ({
 
   const canvas = useMemo(
     () => (
-      <Canvas style={styles.canvas} pointerEvents="none">
+      <Canvas style={[styles.canvas, { width: W, height: H }]} pointerEvents="none">
         {/* ガラスの色味と光沢（上から下へ白を薄く） */}
-        <RoundedRect rect={OUTER} color="rgba(14,14,40,0.55)" />
+        <RoundedRect rect={OUTER} color={violet ? "rgba(30,23,49,0.70)" : "rgba(14,14,40,0.55)"} />
         <RoundedRect rect={OUTER}>
           <LinearGradient
             start={vec(0, 0)}
@@ -199,14 +205,18 @@ export const OrbitBuyButton: React.FC<Props> = ({
           />
         </RoundedRect>
         {/* 縁の下地（購入・再生とも同じ） */}
-        <Path path={RING} color="rgba(96,206,224,0.18)" />
+        <Path path={RING} color={violet ? "rgba(174,150,218,0.38)" : "rgba(96,206,224,0.18)"} />
         {/* 縁の上だけを走る光 */}
         <Group clip={RING}>
           <Group transform={orbitTransform} origin={vec(W / 2, H / 2)}>
             <Rect x={W / 2 - SQ / 2} y={H / 2 - SQ / 2} width={SQ} height={SQ}>
               <SweepGradient
                 c={vec(W / 2, H / 2)}
-                colors={[
+                colors={violet ? [
+                  'rgba(182,157,224,0)', 'rgba(182,157,224,0)',
+                  'rgba(182,157,224,0.12)', '#C6B6E4',
+                  'rgba(182,157,224,0)', 'rgba(182,157,224,0)',
+                ] : [
                   'rgba(96,206,224,0)',
                   'rgba(96,206,224,0)',
                   'rgba(96,206,224,0.2)',
@@ -221,13 +231,13 @@ export const OrbitBuyButton: React.FC<Props> = ({
         </Group>
       </Canvas>
     ),
-    [orbitTransform],
+    [orbitTransform, violet, OUTER, RING, W, H, SQ],
   );
 
   return (
     <Pressable
       onPress={onPress}
-      onPressIn={() => pressTo(0.97)}
+      onPressIn={() => pressTo(violet ? 0.985 : 0.97)}
       onPressOut={() => pressTo(1)}
       disabled={disabled}
       hitSlop={{ top: 2, bottom: 2 }}
@@ -238,7 +248,7 @@ export const OrbitBuyButton: React.FC<Props> = ({
       }
     >
       <Animated.View
-        style={[styles.pill, disabled && styles.dim, { transform: [{ scale: press }] }]}
+        style={[styles.pill, { width: W, height: H, borderRadius: R }, disabled && styles.dim, { transform: [{ scale: press }] }]}
       >
         {canvas}
         <Animated.View style={[styles.center, { opacity: labelOpacity }]} pointerEvents="none">

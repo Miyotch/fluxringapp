@@ -53,6 +53,8 @@ import { useBackdropClock } from '../lib/usePausableClock';
 import { useAudioPlayer } from 'expo-audio';
 import { previewUrl } from '../lib/r2';
 import { CardFace } from '../components/CardFace';
+import { HomeCosmos } from '../components/HomeCosmos';
+import { HomeStarfield } from '../components/HomeStarfield';
 import { BackdropSky } from '../components/BackdropSky';
 import { BackdropImage } from '../components/BackdropImage';
 import { useBackdropMode } from '../lib/backdropMode';
@@ -194,7 +196,7 @@ const TITLE_CARD_GAP = 26;
 const TITLE_SIDE_INSET = 32;
 
 const C = {
-  page: '#0E0C20',
+  page: '#050712',
   text: '#ECEEF7',
   sub: '#9498BE',
   cyan: '#60CEE0',
@@ -626,7 +628,6 @@ export const DiscoverScreen: React.FC<Props> = ({
   // フッターは設計枠 380x760 の内側にあるので、割る相手は表示領域ではなく
   // 画面の高さ。
   const cardW = homeCardWidth(screenH);
-  // 比率は CardGL の CARD_ASPECT が唯一の正（GL メッシュと必ず揃える）
   const cardH = Math.round(cardW * CARD_ASPECT);
   // 参照のデバイス枠に相当する矩形。裏面の拡大率 S と持ち上げ量はここ基準で決まる
   // （参照 _dv3d.layout: S = min(1.28, 枠幅*0.86/カード幅, 枠高*0.82/カード高)）。
@@ -660,12 +661,11 @@ export const DiscoverScreen: React.FC<Props> = ({
   // 再生バナーが出ているとき、購入ボタンの下端がバナーに掛かる分だけ上げる
   // （今の寸法では 100px の余白で足りており、ふだんは動かない）
   const BOTTOM_BASE = Math.max(BOTTOM_BASE_RAW, bottomInset + bannerInset + 12);
-  // 購入ボタンの中心は、カードの下端から 76pt 下（390×844 基準・画面の高さで伸縮。
-  // 仕様 v2 §5）。運営調整でカードを上下に動かしたときも、カードとの間は変えない。
-  // 再生バナーが出ているときは、ボタンの下端がバナーに掛からないところまで上げる。
-  const BUY_H = 40;
+  // カード下端から28pt空け、カードとボタンをひとつのまとまりにする。
+  // 再生バナーがある場合は、その上に収まるよう位置を制限する。
+  const BUY_H = 44;
   const buyCenterIdeal =
-    cardCenterY + cardH / 2 + 76 * (screenH / 844) + layoutAdjust.homeCardOffsetY;
+    cardCenterY + cardH / 2 + 28 + BUY_H / 2 + layoutAdjust.homeCardOffsetY;
   const buyCenterMax = contentH - (bannerInset > 0 ? bannerInset + 12 : 12) - BUY_H / 2;
   const BUY_TOP = Math.min(buyCenterIdeal, buyCenterMax) - BUY_H / 2;
 
@@ -793,7 +793,7 @@ export const DiscoverScreen: React.FC<Props> = ({
     return scrolling.value > 0.5 || carBusy.value > 0.5 || aProg > 0.02 ? 0 : 1;
   }, [scrolling, carBusy, cardRotation]);
   // カードを出さないビルドではフロートの消費者が居ないので、フレームコールバックごと止める
-  const floatY = useIdleFloat(damp, !DEBUG_BACKDROP_ONLY);
+  const floatY = useIdleFloat(damp, !DEBUG_BACKDROP_ONLY && backdropMode !== 'nebula', 3);
   // カード下の接地影（CardGround）は 2026-10-18 に撤去した。影の代わりに
   // カード外周の 1pt の縁取り（CardSurface の (d)）で輪郭を出す（岡さん指定）。
 
@@ -1400,6 +1400,7 @@ export const DiscoverScreen: React.FC<Props> = ({
       cardW,
       cardH,
       cardCenterY,
+      backdropMode,
     ],
   );
 
@@ -1575,6 +1576,7 @@ export const DiscoverScreen: React.FC<Props> = ({
             tuning: active.back?.tuning,
             frequencies: active.back?.frequencies,
             artist: active.back?.artist,
+              artistLink: false,
             useCases: active.back?.useCases,
             series: active.back?.series,
           }
@@ -1722,6 +1724,8 @@ export const DiscoverScreen: React.FC<Props> = ({
           <Animated.View style={[styles.slot, centerStyle]} pointerEvents="box-none">
             {active && (
               <CardGL
+                homeFinish
+                backScale={1.08}
                 mode="flip"
                 backStyle="aluminum"
                 frontUri={active.artworkUrl}
@@ -1735,11 +1739,6 @@ export const DiscoverScreen: React.FC<Props> = ({
                 hintRef={hintRef}
                 purchaseGlow={showPurchaseFx ? cardGlow : undefined}
                 backData={backData}
-                onArtistPress={
-                  active.artistId && onOpenArtist
-                    ? () => onOpenArtist(active.artistId!)
-                    : undefined
-                }
               />
             )}
           </Animated.View>
@@ -1929,6 +1928,9 @@ export const DiscoverScreen: React.FC<Props> = ({
           pointerEvents="none"
         >
           {backdropMode === 'image' && <BackdropImage width={screenW} height={slideH} />}
+          {backdropMode === 'nebula' ? (
+            <HomeStarfield width={screenW} height={slideH} />
+          ) : backdropMode === 'image' ? (
           <BackdropSky
             width={screenW}
             height={slideH}
@@ -1940,12 +1942,15 @@ export const DiscoverScreen: React.FC<Props> = ({
             nebulaOffsetY={layerAdjust.nebula.offsetY}
             nebulaScale={layerAdjust.nebula.scale}
           />
+          ) : (
+            <HomeCosmos width={screenW} height={slideH} drift={floatY} plain={backdropMode === 'orbit'} />
+          )}
         </RNAnimated.View>
       )}
 
       {/* 調律陣の背景（プレイヤーと同一・カード中心に配置）。
           intro② : わずかに小さい所から等倍へ、空に少し遅れて灯る */}
-      {slideH > 0 && (
+      {slideH > 0 && backdropMode === 'image' && (
         <RNAnimated.View
           style={[
             StyleSheet.absoluteFill,
@@ -1978,9 +1983,11 @@ export const DiscoverScreen: React.FC<Props> = ({
           style={[StyleSheet.absoluteFill, { opacity: intro.sky }]}
           pointerEvents="none"
         >
-          <BackdropVeil width={screenW} height={slideH} />
+          <BackdropVeil width={screenW} height={slideH} vignetteOpacity={backdropMode === 'nebula' ? 0 : undefined} />
         </RNAnimated.View>
       )}
+
+
 
       {/* 参照 .ca-veil。カードを開くと背景だけが沈む（カードより下に置く）。
           幕そのものは静的な Canvas で、濃さはこのラッパの opacity が持つ。 */}
@@ -1989,6 +1996,7 @@ export const DiscoverScreen: React.FC<Props> = ({
           style={[StyleSheet.absoluteFill, { opacity: detail }]}
           pointerEvents="none"
         >
+          {backdropMode === 'nebula' && <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(3,4,13,0.22)' }]} />}
           <CardVeil width={screenW} height={slideH} />
         </RNAnimated.View>
       )}
@@ -2092,6 +2100,9 @@ export const DiscoverScreen: React.FC<Props> = ({
             {/* 購入ボタンと所有済みの「マイリスト」は同じ部品（形・大きさ・周回する光）。
                 買った瞬間は「購入する」が「マイリスト」へフェードで替わる */}
             <OrbitBuyButton
+              accent="violet"
+              width={Math.round(cardW * 0.68)}
+              height={BUY_H}
               owned={isOwned(shown)}
               ownedLabel={t('home.myList')}
               priceLabel={shown ? purchase?.displayPriceOf(shown.id) : undefined}
@@ -2163,7 +2174,7 @@ const RingSlot = React.memo(function RingSlot({
 }) {
   return (
     <Animated.View style={[styles.slot, style]} pointerEvents="none">
-      <CardFace uri={uri} width={width} height={height} />
+      <CardFace homeFinish uri={uri} width={width} height={height} />
     </Animated.View>
   );
 });

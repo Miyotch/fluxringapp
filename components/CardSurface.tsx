@@ -24,7 +24,9 @@
  * 寸法は参照のカード幅 188.6px 基準。実カード幅へ等倍スケールする。
  */
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { Image, PixelRatio, View } from 'react-native';
+import { sharedCardSurfaceImage } from '../lib/cardSurfaceImage';
 import {
   Canvas,
   Group,
@@ -68,6 +70,7 @@ const EDGE_WIDTH = 1;
 const EDGE_COLOR = 'rgba(255,255,255,0.18)';
 
 export type CardSurfaceProps = {
+  homeFinish?: boolean;
   width: number;
   height: number;
   /** 全体の不透明度（フリップ中のフェード等に使う） */
@@ -75,10 +78,11 @@ export type CardSurfaceProps = {
   style?: StyleProp<ViewStyle>;
 };
 
-export const CardSurface: React.FC<CardSurfaceProps> = ({
+export const CardSurfaceArtwork: React.FC<CardSurfaceProps> = ({
   width,
   height,
   opacity = 1,
+  homeFinish = false,
   style,
 }) => {
   const s = width / REF_W;
@@ -96,36 +100,65 @@ export const CardSurface: React.FC<CardSurfaceProps> = ({
     p.setFillType(FillType.EvenOdd);
     return p;
   }, [width, height, r, dy, pad]);
-  const h = EDGE_WIDTH / 2;
-  const edge = rrect(rect(h, h, width - EDGE_WIDTH, height - EDGE_WIDTH), r - h, r - h);
+  const edgeWidth = homeFinish ? 0.65 : EDGE_WIDTH;
+  const edgeColor = homeFinish ? 'rgba(232,225,213,0.48)' : EDGE_COLOR;
+  const h = edgeWidth / 2;
+  const edge = rrect(rect(h, h, width - edgeWidth, height - edgeWidth), r - h, r - h);
 
   return (
-    <Canvas
-      style={[{ position: 'absolute', left: 0, top: 0, width, height, opacity }, style]}
-      pointerEvents="none"
-    >
+    <>
       <Group clip={card}>
         {/* (a) 面内減光 */}
         <Rect x={0} y={0} width={width} height={height}>
           <LinearGradient
             start={vec(0, 0)}
             end={vec(0, height)}
-            colors={FACE_COLORS}
+            colors={homeFinish ? ['rgba(255,250,240,0.025)', 'rgba(0,0,0,0)', 'rgba(3,5,14,0.025)', 'rgba(3,5,14,0.07)'] : FACE_COLORS}
             positions={FACE_STOPS}
           />
         </Rect>
 
         {/* (c) 下端の内側シャドウ（σ = blur/2） */}
-        <Path path={innerShadowPath} color={INNER_COLOR}>
+        <Path path={innerShadowPath} color={homeFinish ? 'rgba(3,5,14,0.06)' : INNER_COLOR}>
           <Blur blur={(INNER_BLUR / 2) * s} />
         </Path>
       </Group>
 
       {/* (d) 外周の縁取り */}
-      <RoundedRect rect={edge} style="stroke" strokeWidth={EDGE_WIDTH} color={EDGE_COLOR} />
+      <RoundedRect rect={edge} style="stroke" strokeWidth={edgeWidth} color={edgeColor} />
 
-    </Canvas>
+    </>
   );
+};
+
+/** All equal-size cards share one full-density raster instead of eight native canvases. */
+export const CardSurface: React.FC<CardSurfaceProps> = ({ width, height, opacity = 1, homeFinish = false, style }) => {
+  const density = PixelRatio.get();
+  const key = `${width}:${height}:${density}:${homeFinish}`;
+  const [result, setResult] = useState<{ key: string; uri: string | null } | null>(null);
+  const [failedImage, setFailedImage] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void sharedCardSurfaceImage(key, width, height, density,
+      <CardSurfaceArtwork width={width} height={height} homeFinish={homeFinish} />)
+      .then(uri => { if (alive) setResult({ key, uri }); })
+      .catch(error => {
+        console.warn('[CardSurface] Shared raster failed; using canvas', error);
+        if (alive) setResult({ key, uri: null });
+      });
+    return () => { alive = false; };
+  }, [key, width, height, density, homeFinish]);
+  const layout = [{ position: 'absolute' as const, left: 0, top: 0, width, height, opacity }, style];
+  if (result?.key === key && (result.uri === null || failedImage === result.uri)) {
+    return <Canvas style={layout} pointerEvents="none">
+      <CardSurfaceArtwork width={width} height={height} homeFinish={homeFinish} />
+    </Canvas>;
+  }
+  if (result?.key !== key || !result.uri) return <View style={layout} pointerEvents="none" />;
+  return <View style={layout} pointerEvents="none">
+    <Image source={{ uri: result.uri }} style={{ width, height }} resizeMode="stretch" fadeDuration={0}
+      onError={() => setFailedImage(result.uri)} />
+  </View>;
 };
 
 export default CardSurface;

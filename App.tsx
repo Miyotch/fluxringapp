@@ -24,7 +24,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFonts } from 'expo-font';
 import { configureAudioMode } from './lib/audio';
 import { APP_FONTS } from './constants/fonts';
-import { loadNumTypeface } from './lib/skiaFonts';
+import { loadNumTypeface, loadJapaneseTypeface } from './lib/skiaFonts';
 import { LanguageProvider, useT } from './lib/i18n';
 import { onUserChanged, deleteAccount, signOut, restoreSession } from './lib/firebaseAuth';
 import { usePurchaseFlow } from './lib/usePurchaseFlow';
@@ -546,7 +546,7 @@ function AppInner() {
 
   // 起動時に一度だけ音声モードを設定（サイレント時再生・バックグラウンド再生）
   useEffect(() => { configureAudioMode(); }, []);
-  useEffect(() => { loadNumTypeface().finally(() => setSkiaFontReady(true)); }, []);
+  useEffect(() => { Promise.all([loadNumTypeface(), loadJapaneseTypeface()]).then(() => setSkiaFontReady(true)).catch(error => console.error("Card font loading failed", error)); }, []);
 
   // decideLaunch（下）から restartLaunch を呼ぶための橋。restartLaunch は decideLaunch を
   // 呼ぶので、依存を循環させないよう ref 経由にする。
