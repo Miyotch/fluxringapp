@@ -4,13 +4,13 @@
  * 2026-10-13 カードの横スワイプから、Spotify と同じ縦のリストへ改めた。
  *   ・行を押す → その曲からこの並びで流す（画面は移らない。下の再生バナーが替わる）
  *     流れている曲の行をもう一度押すと一時停止／再開
- *   ・行の右端のカードのアイコン → その曲のカードを眺める画面（再生は変えない）
+ *   ・右端のアイコン → 追加・削除メニュー。プレイリスト内は長押しで曲順変更。
  *   ・見出しの右の丸い再生ボタン → 先頭から流す。流しているリストなら一時停止／再開
  *
  * どのリストを出すか・プルダウン・編集シートは CollectionScreen が持つ。ここは並べるだけ。
  */
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Alert, FlatList, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, {
   Easing,
@@ -20,11 +20,12 @@ import Animated, {
   withRepeat,
   withTiming,
 } from 'react-native-reanimated';
+import { ScrollView } from 'react-native-gesture-handler';
+import { PlaylistTrackRow } from './PlaylistTrackRow';
 import { CARD_ASPECT } from './CardGL';
-import { CardDetailIcon, PauseMark, PlayMark } from './icons';
+import { AddToListIcon, PauseMark, PlayMark } from './icons';
 import { EqBars } from './EqBars';
 import { DownloadButton } from './DownloadButton';
-import type { CardOrigin } from './CardAfterimage';
 import { JP_SERIF_FONT, NUM_FONT } from '../constants/fonts';
 import Svg, { Path } from 'react-native-svg';
 import { useT } from '../lib/i18n';
@@ -33,7 +34,6 @@ import { formatBytes, useDownloads } from '../lib/downloads';
 import { formatDuration, sumDurations, useDurations } from '../lib/durations';
 import { showToast } from '../lib/toast';
 import { MarqueeText } from './MarqueeText';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export type PlaylistItem = {
   id: string;
@@ -55,17 +55,10 @@ type Props = {
   onPlayFrom: (trackIds: string[], startId: string, source: string) => void;
   /** 先頭から流す（画面は移らない） */
   onPlayAll: (trackIds: string[], source: string) => void;
-  /** カードを眺める画面を開く（再生は変えない）。origin は押した行の札の画面上の位置（開く動きの起点） */
-  onViewCard: (trackIds: string[], id: string, source: string, origin?: CardOrigin) => void;
-  /** 行を長押し → プレイリストに追加のシート */
+  /** 右端のアイコン → プレイリストに追加のシート */
   onAddToPlaylist?: (item: PlaylistItem) => void;
-  /**
-   * 行を長押ししたときの動きを差し替える（2026-10-18）。自分のプレイリストを見ているときは
-   * 「追加」ではなく「このリストから外す／ほかのリストに追加／並べ替え」の曲のメニューを出す。
-   * 指定があれば onAddToPlaylist より優先する。label は読み上げ用の説明
-   */
-  onRowLongPress?: (item: PlaylistItem) => void;
-  rowLongPressLabel?: string;
+  onRowAction?: (item: PlaylistItem) => void;
+  onReorder?: (from: number, to: number) => void;
   /** 空のリストで「曲を入れる」を押した（自分のプレイリストのときだけ渡す） */
   onEdit?: () => void;
   /** 所有曲が 0 のとき「作品と出会う」 */
@@ -93,9 +86,6 @@ const SavedArrow: React.FC = () => (
   </Svg>
 );
 
-/** 長押しで追加できることを、最初に一度だけ知らせたか */
-const HINT_KEY = 'fr.playlist.longPressHint.v1';
-let hintChecked = false;
 
 /** スロット 1（所有曲すべて）の目印。再生の中枢の source にもこの値を渡す */
 export const ALL_OWNED = '__all__';
@@ -134,52 +124,30 @@ export const MyPlaylists: React.FC<Props> = ({
   source,
   onPlayFrom,
   onPlayAll,
-  onViewCard,
   onEdit,
   onDiscover,
   onAddToPlaylist,
-  onRowLongPress,
-  rowLongPressLabel,
+  onRowAction,
+  onReorder,
   variant = 'list',
   onTitlePress,
 }) => {
   const t = useT();
+  const dragIndex = useSharedValue(-1), dragDy = useSharedValue(0);
+  const [dragging, setDragging] = useState(false);
+  const cancelDrag = () => { dragIndex.value = -1; dragDy.value = 0; setDragging(false); };
+  const drop = (from: number, to: number) => {
+    if (from !== to && from >= 0 && to >= 0 && from < tracks.length && to < tracks.length) onReorder?.(from, to);
+    cancelDrag();
+  };
   const pb = usePlaybackOptional();
   const dl = useDownloads();
-  // 長押しの動き。曲のメニュー（自分のプレイリスト）があればそちら、無ければ「追加」
-  const longPress = onRowLongPress ?? onAddToPlaylist;
-  const longPressLabel = onRowLongPress ? rowLongPressLabel ?? t('playlist.trackMenu') : t('playlist.addTo');
   const ids = tracks.map((x) => x.id);
   const keyOf = (x: PlaylistItem) => x.audioKey || x.id;
   // 曲の長さ（行の右に出す・見出しに合計を出す）。分かりしだい描き直す
   const durs = useDurations(tracks.map(keyOf));
   const durOf = new Map(tracks.map((x, i) => [x.id, durs[i]]));
   const total = sumDurations(durs);
-  // 長押しで「プレイリストに追加」は目に見えないので、曲が並んだ最初の一度だけ一言で知らせる
-  const hasRows = tracks.length > 0 && !!onAddToPlaylist && !onRowLongPress;
-  useEffect(() => {
-    if (!hasRows || hintChecked) return;
-    hintChecked = true;
-    AsyncStorage.getItem(HINT_KEY)
-      .then((v) => {
-        if (v) return;
-        showToast(t('playlist.longPress'));
-        AsyncStorage.setItem(HINT_KEY, '1').catch(() => {});
-      })
-      .catch(() => {});
-  }, [hasRows, t]);
-  // 行の札。カードを開くとき、押した札の位置から大きくなるように測る
-  const artRefs = useRef(new Map<string, View>());
-  const openCard = (id: string) => {
-    const node = artRefs.current.get(id);
-    if (!node) {
-      onViewCard(ids, id, source);
-      return;
-    }
-    node.measureInWindow((x, y, width, height) =>
-      onViewCard(ids, id, source, width > 0 ? { x, y, width, height } : undefined),
-    );
-  };
   // このリストを流しているか（流している曲が、このリストから流したものか）
   const live = !!pb?.current && pb.source === source;
   const playing = live && !!pb?.playing;
@@ -293,37 +261,19 @@ export const MyPlaylists: React.FC<Props> = ({
     );
   }
 
-  return (
-    <FlatList
-      style={styles.root}
-      data={tracks}
-      keyExtractor={(i) => i.id}
-      ListHeaderComponent={header}
-      contentContainerStyle={styles.list}
-      showsVerticalScrollIndicator={false}
-      renderItem={({ item }) => {
+  const renderRow = (item: PlaylistItem, index: number) => {
         const on = live && pb?.current?.id === item.id;
-        return (
-          <Pressable
+        const Row = onReorder ? View : Pressable;
+        const Action = onReorder ? View : Pressable;
+        const content = (
+          <Row
             onPress={() => (on ? pb?.toggle() : onPlayFrom(ids, item.id, source))}
-            onLongPress={longPress ? () => longPress(item) : undefined}
-            delayLongPress={380}
-            style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+            style={styles.row}
             accessibilityRole="button"
             accessibilityLabel={item.title}
             accessibilityHint={on ? (playing ? t('playback.pause') : t('playback.play')) : t('playback.playThis')}
-            accessibilityActions={longPress ? [{ name: 'longpress', label: longPressLabel }] : undefined}
-            onAccessibilityAction={(e) => {
-              if (e.nativeEvent.actionName === 'longpress') longPress?.(item);
-            }}
           >
-            <View
-              ref={(el) => {
-                if (el) artRefs.current.set(item.id, el);
-                else artRefs.current.delete(item.id);
-              }}
-              collapsable={false}
-            >
+            <View>
               <Image source={{ uri: item.artworkUrl }} style={styles.art} />
             </View>
             {/* 2026-10-15 岡さんデザイン（行レイアウト）: 左に No. ／ 曲名、右に ↓・時間。
@@ -354,20 +304,29 @@ export const MyPlaylists: React.FC<Props> = ({
             </View>
             {/* 保存した曲の一覧では、右端は保存の印（押すとその曲だけ消す） */}
             {isDl && <DownloadButton keys={[keyOf(item)]} label={item.title} size={20} />}
-            <Pressable
-              onPress={() => openCard(item.id)}
+            <Action
+              onPress={() => (onRowAction ?? onAddToPlaylist)?.(item)}
               hitSlop={6}
-              style={({ pressed }) => [styles.cardBtn, pressed && styles.cardBtnPressed]}
+              style={styles.cardBtn}
               accessibilityRole="button"
-              accessibilityLabel={t('playlist.cardDetail', { title: item.title })}
+              accessibilityLabel={t('playlist.trackMenu') + ' ' + item.title}
             >
-              <CardDetailIcon size={20} color={on ? C.cyan : C.sub} />
-            </Pressable>
-          </Pressable>
+              <AddToListIcon size={20} color={on ? C.cyan : C.sub} />
+            </Action>
+          </Row>
         );
-      }}
-    />
-  );
+        return onReorder ? <PlaylistTrackRow key={item.id} index={index} count={tracks.length} height={ART_H + 20}
+          dragIndex={dragIndex} dragDy={dragDy} onLift={() => setDragging(true)} onDrop={drop} onCancel={cancelDrag}
+          onPlay={() => (on ? pb?.toggle() : onPlayFrom(ids, item.id, source))}
+          onMenu={() => (onRowAction ?? onAddToPlaylist)?.(item)} label={item.title}
+          up={t('playlist.moveUp')} down={t('playlist.moveDown')}>{content}</PlaylistTrackRow> : content;
+  };
+  if (onReorder) return <ScrollView style={styles.root} contentContainerStyle={styles.list} scrollEnabled={!dragging}>
+    {header}<Text style={{ color: C.sub, fontSize: 11, paddingHorizontal: 22, paddingBottom: 10 }}>{t('playlist.dragHint')}</Text>
+    {tracks.map(renderRow)}
+  </ScrollView>;
+  return <FlatList style={styles.root} data={tracks} keyExtractor={item => item.id} ListHeaderComponent={header}
+    contentContainerStyle={styles.list} showsVerticalScrollIndicator={false} renderItem={({ item, index }) => renderRow(item, index)} />;
 };
 
 const styles = StyleSheet.create({

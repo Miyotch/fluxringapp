@@ -7,7 +7,7 @@
  *
  *   ・このプレイリストから外す
  *   ・ほかのプレイリストにも追加（従来の追加シートへ）
- *   ・曲順を並べ替える（編集シートへ）
+ *   ・曲順は一覧で長押しして変更する
  *
  * 見た目は AddToPlaylistSheet と同じ下からのシート。
  * 書体: 曲名（《》）だけ明朝、メニューなどの UI の文字はゴシック（OS 既定）。2026-10-18 岡さん指定。
@@ -27,7 +27,6 @@ type Props = {
   target: TrackActionTarget | null;
   onRemove: () => void;
   onAddToOther: () => void;
-  onReorder: () => void;
   onClose: () => void;
 };
 
@@ -46,20 +45,12 @@ const RemoveIcon: React.FC = () => (
   </Svg>
 );
 
-/** 並べ替え（上下の矢印） */
-const ReorderIcon: React.FC = () => (
-  <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
-    <Path d="M8 5v14M5 8l3-3 3 3M16 19V5M13 16l3 3 3-3" stroke={C.sub} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
-  </Svg>
-);
-
-export const TrackActionSheet: React.FC<Props> = ({ target, onRemove, onAddToOther, onReorder, onClose }) => {
+export const TrackActionSheet: React.FC<Props> = ({ target, onRemove, onAddToOther, onClose }) => {
   const t = useT();
   const bottom = useBottomInset(16);
   const rows: { key: string; label: string; icon: React.ReactNode; onPress: () => void; danger?: boolean }[] = [
     { key: 'remove', label: t('playlist.removeFromThis'), icon: <RemoveIcon />, onPress: onRemove, danger: true },
     { key: 'other', label: t('playlist.addToOther'), icon: <AddToListIcon />, onPress: onAddToOther },
-    { key: 'reorder', label: t('playlist.reorder'), icon: <ReorderIcon />, onPress: onReorder },
   ];
   return (
     <Modal visible={!!target} transparent animationType="slide" onRequestClose={onClose}>

@@ -37,6 +37,7 @@ export type CardBackData = {
   materials?: string[];    // 原材料（例: ['朝の空気', '低い持続音']）
   tuning?: string;         // 調律名（例: '純正律'）
   frequencies?: string[];  // 周波数のみ（例: ['432 Hz', '7.83 Hz']）
+  artistLink?: boolean;
   artist?: string;         // 作家名（artists.name）
   /** 用途タグ（例: ['睡眠', '勉強', '集中力']）。Story の真下に「ー case ー」の
    *  見出しとともに並べる。Firestore tracks/{id}.useCases から。 */
@@ -96,15 +97,8 @@ function wrapFixedChars(text: string, charsPerLine: number, maxLines: number): s
   return lines;
 }
 
-/**
- * カード裏面（アルミ面）の Story の上限文字数。1行20字×4行。行頭禁則で1行が21字に
- * なることはあっても、どの行も20字以上入るので、80字以内なら必ず4行に収まる。
- * 縦方向は case 2行＋調律＋series の最も詰まる構成でも、段の間隔を最小まで
- * 詰めれば 4 行が収まることを確認済み（2026-10-26）。
- */
+/** Story is limited to 20 characters × 4 lines. */
 export const STORY_MAX_CHARS = 80;
-
-/** Story を改行除去のうえ上限に切り詰める（超えたら末尾を「…」にして上限ちょうど） */
 export function clampStory(text: string): string {
   const chars = [...text.replace(/\s*\n\s*/g, '')];
   if (chars.length <= STORY_MAX_CHARS) return chars.join('');
@@ -151,115 +145,122 @@ export type BackPixels = { pixels: Uint8Array; width: number; height: number };
 export function renderCardBackPixels(data: CardBackData, W = 512, H = 768): BackPixels | null {
   const surface = Skia.Surface.Make(W, H);
   if (!surface) return null;
-  const c = surface.getCanvas();
+  let snapshot: SkImage | null = null;
+  try {
+    const c = surface.getCanvas();
 
-  // 設計座標: CardBack は幅~250dp想定 → テクスチャ幅512 に等倍換算
-  const f = W / 250;
-  const pad = 16 * f;
+    // 設計座標: CardBack は幅~250dp想定 → テクスチャ幅512 に等倍換算
+    const f = W / 250;
+    const pad = 16 * f;
 
-  // ── アルミ下地 ──
-  const bg = Skia.Paint();
-  bg.setShader(
-    Skia.Shader.MakeLinearGradient(
-      { x: 0, y: 0 }, { x: W, y: 0 },
-      BAND_COLORS.map((cc) => Skia.Color(cc)), BAND_POS, TileMode.Clamp,
-    ),
-  );
-  c.drawRect(Skia.XYWHRect(0, 0, W, H), bg);
+    // ── アルミ下地 ──
+    const bg = Skia.Paint();
+    bg.setShader(
+      Skia.Shader.MakeLinearGradient(
+        { x: 0, y: 0 }, { x: W, y: 0 },
+        BAND_COLORS.map((cc) => Skia.Color(cc)), BAND_POS, TileMode.Clamp,
+      ),
+    );
+    c.drawRect(Skia.XYWHRect(0, 0, W, H), bg);
 
-  // 縦ヘアライン
-  const lp = Skia.Paint();
-  lp.setStyle(PaintStyle.Stroke);
-  const nLines = Math.round(W * 0.55);
-  for (let i = 0; i < nLines; i++) {
-    const x = hash(i * 3.1) * W;
-    const w = (0.5 + hash(i * 7.7) * 0.9) * f;
-    const a = 0.02 + hash(i * 5.3) * 0.09;
-    const light = hash(i * 9.7) < 0.5;
-    lp.setStrokeWidth(w);
-    lp.setColor(Skia.Color(light ? `rgba(255,255,255,${a.toFixed(3)})` : `rgba(30,34,40,${a.toFixed(3)})`));
-    c.drawLine(x, 0, x, H, lp);
-  }
-
-  // 斜めの光沢一筋
-  const sheen = Skia.Paint();
-  sheen.setShader(
-    Skia.Shader.MakeLinearGradient(
-      { x: W * 0.1, y: 0 }, { x: W * 0.9, y: H },
-      [Skia.Color('rgba(255,255,255,0)'), Skia.Color('rgba(255,255,255,0.10)'), Skia.Color('rgba(255,255,255,0)')],
-      [0.35, 0.5, 0.65], TileMode.Clamp,
-    ),
-  );
-  c.drawRect(Skia.XYWHRect(0, 0, W, H), sheen);
-
-  // 面取り: 上端ハイライト／下端シェード
-  const hl = Skia.Paint();
-  hl.setColor(Skia.Color('rgba(255,255,255,0.5)'));
-  c.drawRect(Skia.XYWHRect(0, 0, W, 2 * f), hl);
-  const sh = Skia.Paint();
-  sh.setColor(Skia.Color('rgba(20,24,30,0.35)'));
-  c.drawRect(Skia.XYWHRect(0, H - 2 * f, W, 2 * f), sh);
-
-  // ── 刻印（テキスト） ──
-  const tp = Skia.Paint();
-  const draw = (text: string, x: number, y: number, fs: number, color: string, align: 'l' | 'c' | 'r' = 'l') => {
-    const font = makeFont(fs);
-    if (!font) return;
-    tp.setColor(Skia.Color(color));
-    const w = estWidth(text, fs, font);
-    const dx = align === 'c' ? -w / 2 : align === 'r' ? -w : 0;
-    c.drawText(text, x + dx, y, tp, font);
-  };
-
-  // 上端: No. / TAP（CardBack と同配置）
-  draw(data.serial ?? 'No. 001', pad, pad + 9 * f, 9 * f, 'rgba(40,46,54,0.75)');
-  draw('TAP', W - pad, pad + 9 * f, 9 * f, 'rgba(40,46,54,0.9)', 'r');
-
-  // 中央スタック（CardBack の body 構成: タイトル→Story→罫→原材料→周波数→作家名）
-  let y = H * 0.26;
-  const cxx = W / 2;
-  const gap = 12 * f;
-
-  draw(data.title, cxx, y, 22 * f, '#22262C', 'c');
-  y += 14 * f + gap;
-
-  if (data.story) {
-    const fs = 12.5 * f;
-    const lh = 21 * f;
-    const lines = wrap(data.story, fs, W - pad * 2 - 8 * f, makeFont(fs), 6);
-    for (const ln of lines) {
-      draw(ln, pad + 4 * f, y, fs, '#33383F');
-      y += lh;
+    // 縦ヘアライン
+    const lp = Skia.Paint();
+    lp.setStyle(PaintStyle.Stroke);
+    const nLines = Math.round(W * 0.55);
+    for (let i = 0; i < nLines; i++) {
+      const x = hash(i * 3.1) * W;
+      const w = (0.5 + hash(i * 7.7) * 0.9) * f;
+      const a = 0.02 + hash(i * 5.3) * 0.09;
+      const light = hash(i * 9.7) < 0.5;
+      lp.setStrokeWidth(w);
+      lp.setColor(Skia.Color(light ? `rgba(255,255,255,${a.toFixed(3)})` : `rgba(30,34,40,${a.toFixed(3)})`));
+      c.drawLine(x, 0, x, H, lp);
     }
-    y += gap * 0.5;
+
+    // 斜めの光沢一筋
+    const sheen = Skia.Paint();
+    sheen.setShader(
+      Skia.Shader.MakeLinearGradient(
+        { x: W * 0.1, y: 0 }, { x: W * 0.9, y: H },
+        [Skia.Color('rgba(255,255,255,0)'), Skia.Color('rgba(255,255,255,0.10)'), Skia.Color('rgba(255,255,255,0)')],
+        [0.35, 0.5, 0.65], TileMode.Clamp,
+      ),
+    );
+    c.drawRect(Skia.XYWHRect(0, 0, W, H), sheen);
+
+    // 面取り: 上端ハイライト／下端シェード
+    const hl = Skia.Paint();
+    hl.setColor(Skia.Color('rgba(255,255,255,0.5)'));
+    c.drawRect(Skia.XYWHRect(0, 0, W, 2 * f), hl);
+    const sh = Skia.Paint();
+    sh.setColor(Skia.Color('rgba(20,24,30,0.35)'));
+    c.drawRect(Skia.XYWHRect(0, H - 2 * f, W, 2 * f), sh);
+
+    // ── 刻印（テキスト） ──
+    const tp = Skia.Paint();
+    const draw = (text: string, x: number, y: number, fs: number, color: string, align: 'l' | 'c' | 'r' = 'l') => {
+      const font = makeFont(fs);
+      if (!font) return;
+      tp.setColor(Skia.Color(color));
+      const w = estWidth(text, fs, font);
+      const dx = align === 'c' ? -w / 2 : align === 'r' ? -w : 0;
+      c.drawText(text, x + dx, y, tp, font);
+    };
+
+    // 上端: No. / TAP（CardBack と同配置）
+    draw(data.serial ?? 'No. 001', pad, pad + 9 * f, 9 * f, 'rgba(40,46,54,0.75)');
+    draw('TAP', W - pad, pad + 9 * f, 9 * f, 'rgba(40,46,54,0.9)', 'r');
+
+    // 中央スタック（CardBack の body 構成: タイトル→Story→罫→原材料→周波数→作家名）
+    let y = H * 0.26;
+    const cxx = W / 2;
+    const gap = 12 * f;
+
+    draw(data.title, cxx, y, 22 * f, '#22262C', 'c');
+    y += 14 * f + gap;
+
+    if (data.story) {
+      const fs = 12.5 * f;
+      const lh = 21 * f;
+      const lines = wrap(data.story, fs, W - pad * 2 - 8 * f, makeFont(fs), 6);
+      for (const ln of lines) {
+        draw(ln, pad + 4 * f, y, fs, '#33383F');
+        y += lh;
+      }
+      y += gap * 0.5;
+    }
+
+    // 罫線（幅24dp相当・中央）
+    const rulePaint = Skia.Paint();
+    rulePaint.setColor(Skia.Color('rgba(40,46,54,0.45)'));
+    c.drawRect(Skia.XYWHRect(cxx - 12 * f, y, 24 * f, 1 * f), rulePaint);
+    y += gap * 1.4;
+
+    if (data.materials && data.materials.length > 0) {
+      draw('原 材 料', cxx, y, 10 * f, '#565C64', 'c');
+      y += 10 * f * 0.5 + gap;
+      draw(data.materials.join('・'), cxx, y, 15 * f, '#22262C', 'c');
+      y += 15 * f * 0.5 + gap;
+    }
+
+    if (data.frequencies && data.frequencies.length > 0) {
+      draw(data.frequencies.join('　'), cxx, y, 12 * f, '#3A5560', 'c');
+      y += 12 * f * 0.5 + gap;
+    }
+
+    if (data.artist) {
+      draw(data.artist.split('').join(' '), cxx, y, 11 * f, '#575E67', 'c');
+    }
+
+    snapshot = surface.makeImageSnapshot();
+    const img = snapshot;
+    const px = img.readPixels(0, 0);
+    if (!px) return null;
+    return { pixels: px instanceof Uint8Array ? px : new Uint8Array(px as ArrayLike<number>), width: W, height: H };
+  } finally {
+    snapshot?.dispose();
+    surface.dispose();
   }
-
-  // 罫線（幅24dp相当・中央）
-  const rulePaint = Skia.Paint();
-  rulePaint.setColor(Skia.Color('rgba(40,46,54,0.45)'));
-  c.drawRect(Skia.XYWHRect(cxx - 12 * f, y, 24 * f, 1 * f), rulePaint);
-  y += gap * 1.4;
-
-  if (data.materials && data.materials.length > 0) {
-    draw('原 材 料', cxx, y, 10 * f, '#565C64', 'c');
-    y += 10 * f * 0.5 + gap;
-    draw(data.materials.join('・'), cxx, y, 15 * f, '#22262C', 'c');
-    y += 15 * f * 0.5 + gap;
-  }
-
-  if (data.frequencies && data.frequencies.length > 0) {
-    draw(data.frequencies.join('　'), cxx, y, 12 * f, '#3A5560', 'c');
-    y += 12 * f * 0.5 + gap;
-  }
-
-  if (data.artist) {
-    draw(data.artist.split('').join(' '), cxx, y, 11 * f, '#575E67', 'c');
-  }
-
-  const img = surface.makeImageSnapshot();
-  const px = img.readPixels(0, 0);
-  if (!px) return null;
-  return { pixels: px instanceof Uint8Array ? px : new Uint8Array(px as ArrayLike<number>), width: W, height: H };
 }
 
 /* ════════════════════════════════════════════════════════════════
@@ -401,158 +402,164 @@ export function renderAluminumInkPixels(
 ): BackPixels | null {
   const surface = Skia.Surface.Make(W, H);
   if (!surface) return null;
-  const c = surface.getCanvas();
-  c.clear(Skia.Color('rgba(0,0,0,0)')); // 透明背景（金属地はシェーダー側）
+  let snapshot: SkImage | null = null;
+  try {
+    const c = surface.getCanvas();
+    c.clear(Skia.Color('rgba(0,0,0,0)')); // 透明背景（金属地はシェーダー側）
 
-  const cx = W / 2;
+    const cx = W / 2;
 
-  // FluxRing（見出しラベル役・彫り込み）。正式な製品名は FluxRing（1語・F と R が大文字）。全大文字の字間を広げた組みから、字間を詰めた表記へ（2026-10-15）
-  carve(c, 'FluxRing', cx, 180, 62, '600', 6, 'c');
-  // No.（彫り込み・字間6px）※通し番号
-  carve(c, data.no ?? data.serial ?? 'No. 001', cx, 266, 38, '500', 6, 'c');
+    // FluxRing（見出しラベル役・彫り込み）。正式な製品名は FluxRing（1語・F と R が大文字）。全大文字の字間を広げた組みから、字間を詰めた表記へ（2026-10-15）
+    carve(c, 'FluxRing', cx, 180, 62, '600', 6, 'c');
+    // No.（彫り込み・字間6px）※通し番号
+    carve(c, data.no ?? data.serial ?? 'No. 001', cx, 266, 38, '500', 6, 'c');
 
-  // タイトル 52px / weight600 / 字間6px（文字が詰まって見えるとの指摘のため
-  // 2px→6pxへ拡大）
-  printAlum(c, data.title, cx, 368, 52, '600', alum(1), 6, 'c');
+    // タイトル 52px / weight600 / 字間6px（文字が詰まって見えるとの指摘のため
+    // 2px→6pxへ拡大）
+    printAlum(c, data.title, cx, 368, 52, '600', alum(1), 6, 'c');
 
-  // ── 中段（Story → case → 調律 → series）は1本の段組みとして組む ──
-  // 以前は Story〜調律を上から積み、series と作家名を下端からの固定座標で
-  // 置いていたため、両者の間に衝突の確認がなく、Story が3〜4行のカードや
-  // case の無いシリーズ曲で「調律」と「series」の行が重なっていた。
-  // いまは全体の高さを先に測り、[STACK_TOP, STACK_BOTTOM] に収まるよう
-  //   1) 段の間隔を MIN まで詰める → 2) それでも溢れたら Story の行を減らす
-  // の順で調整してから、ブロック全体を縦中央に置く。作家名は従来どおり固定。
-  const nameY = H - ARTIST_NAME_Y_OFFSET;
-  const STACK_TOP = 470;                // Story 1行目のベースラインの上限
-  const STACK_BOTTOM = nameY - 110;     // 最後の行のベースラインの下限（作家名との余白）
-  const SECTION_GAP = 128;              // 前の段の最終行 → 次の見出し
-  const SECTION_GAP_MIN = 84;
+    // ── 中段（Story → case → 調律 → series）は1本の段組みとして組む ──
+    // 以前は Story〜調律を上から積み、series と作家名を下端からの固定座標で
+    // 置いていたため、両者の間に衝突の確認がなく、Story が3〜4行のカードや
+    // case の無いシリーズ曲で「調律」と「series」の行が重なっていた。
+    // いまは全体の高さを先に測り、[STACK_TOP, STACK_BOTTOM] に収まるよう
+    //   1) 段の間隔を MIN まで詰める → 2) それでも溢れたら Story の行を減らす
+    // の順で調整してから、ブロック全体を縦中央に置く。作家名は従来どおり固定。
+    const nameY = H - ARTIST_NAME_Y_OFFSET;
+    const STACK_TOP = 470;                // Story 1行目のベースラインの上限
+    const STACK_BOTTOM = nameY - 110;     // 最後の行のベースラインの下限（作家名との余白）
+    const SECTION_GAP = 128;              // 前の段の最終行 → 次の見出し
+    const SECTION_GAP_MIN = 84;
 
-  const STORY_FS = 42;
-  const STORY_LH = 72;
-  const STORY_LS = 2;
-  const CHARS_PER_LINE = 20;
-  const storyFont = makeFont(STORY_FS, '300', INK_FONT);
-  let storyLines = data.story ? wrapFixedChars(clampStory(data.story), CHARS_PER_LINE, 4) : [];
+    const STORY_FS = 42;
+    const STORY_LH = 72;
+    const STORY_LS = 2;
+    const CHARS_PER_LINE = 20;
+    const storyFont = makeFont(STORY_FS, '300', INK_FONT);
+    let storyLines = data.story ? wrapFixedChars(clampStory(data.story), CHARS_PER_LINE, 4) : [];
 
-  // case: 全角スペース区切りで詰め、はみ出す手前で折り返す（最大2行）
-  const CASE_FS = 40;
-  const CASE_LS = 6;
-  const CASE_LH = 58;
-  const useCases = (data.useCases ?? []).map((s) => s.trim()).filter(Boolean);
-  const caseLines: string[] = [];
-  if (useCases.length > 0) {
-    const caseFont = makeFont(CASE_FS, '300', INK_FONT);
-    const maxW = W - 224; // Story ブロックと同程度の左右マージン
-    let cur = '';
-    for (const tag of useCases) {
-      const next = cur ? cur + '　' + tag : tag;
-      if (cur && measureAlumWidth(next, CASE_FS, caseFont, CASE_LS) > maxW) {
-        caseLines.push(cur);
-        if (caseLines.length >= 2) { cur = ''; break; }
-        cur = tag;
-      } else {
-        cur = next;
+    // case: 全角スペース区切りで詰め、はみ出す手前で折り返す（最大2行）
+    const CASE_FS = 40;
+    const CASE_LS = 6;
+    const CASE_LH = 58;
+    const useCases = (data.useCases ?? []).map((s) => s.trim()).filter(Boolean);
+    const caseLines: string[] = [];
+    if (useCases.length > 0) {
+      const caseFont = makeFont(CASE_FS, '300', INK_FONT);
+      const maxW = W - 224; // Story ブロックと同程度の左右マージン
+      let cur = '';
+      for (const tag of useCases) {
+        const next = cur ? cur + '　' + tag : tag;
+        if (cur && measureAlumWidth(next, CASE_FS, caseFont, CASE_LS) > maxW) {
+          caseLines.push(cur);
+          if (caseLines.length >= 2) { cur = ''; break; }
+          cur = tag;
+        } else {
+          cur = next;
+        }
       }
+      if (cur && caseLines.length < 2) caseLines.push(cur);
     }
-    if (cur && caseLines.length < 2) caseLines.push(cur);
-  }
 
-  // 調律名＋全角スペース＋周波数群（周波数は data.freqs、無ければ frequencies）。
-  // 原材料(materials)はこのアルミ面には出さない。
-  const tuning = data.tuning ?? '';
-  const freqs = (data.freqs ?? data.frequencies ?? []).filter(Boolean);
-  const tuneText = tuning || freqs.length > 0 ? [tuning, ...freqs].filter(Boolean).join('　') : '';
-  const seriesName = data.series?.trim() ?? '';
+    // 調律名＋全角スペース＋周波数群（周波数は data.freqs、無ければ frequencies）。
+    // 原材料(materials)はこのアルミ面には出さない。
+    const tuning = data.tuning ?? '';
+    const freqs = (data.freqs ?? data.frequencies ?? []).filter(Boolean);
+    const tuneText = tuning || freqs.length > 0 ? [tuning, ...freqs].filter(Boolean).join('　') : '';
+    const seriesName = data.series?.trim() ?? '';
 
-  // 段の定義。lead は「見出し → 1行目」、lh は2行目以降の行送り。
-  type Section = { heading: string; lines: string[]; lead: number; lh: number };
-  const sections: Section[] = [];
-  if (caseLines.length > 0) sections.push({ heading: 'ー case ー', lines: caseLines, lead: CASE_LH, lh: CASE_LH });
-  // 調律の見出しは内容が空でも従来どおり出す（全カード共通の見出し）
-  sections.push({ heading: 'ー 調律 ー', lines: tuneText ? [tuneText] : [], lead: 70, lh: 70 });
-  if (seriesName) sections.push({ heading: 'ー series ー', lines: [seriesName], lead: 58, lh: 58 });
+    // 段の定義。lead は「見出し → 1行目」、lh は2行目以降の行送り。
+    type Section = { heading: string; lines: string[]; lead: number; lh: number };
+    const sections: Section[] = [];
+    if (caseLines.length > 0) sections.push({ heading: 'ー case ー', lines: caseLines, lead: CASE_LH, lh: CASE_LH });
+    // 調律の見出しは内容が空でも従来どおり出す（全カード共通の見出し）
+    sections.push({ heading: 'ー 調律 ー', lines: tuneText ? [tuneText] : [], lead: 70, lh: 70 });
+    if (seriesName) sections.push({ heading: 'ー series ー', lines: [seriesName], lead: 58, lh: 58 });
 
-  const sectionSpan = (s: Section) => (s.lines.length > 0 ? s.lead + (s.lines.length - 1) * s.lh : 0);
-  const storySpan = () => Math.max(0, storyLines.length - 1) * STORY_LH;
-  const totalSpan = (gap: number) =>
-    storySpan() +
-    sections.reduce((sum, s, i) => sum + (i === 0 && storyLines.length === 0 ? 0 : gap) + sectionSpan(s), 0);
+    const sectionSpan = (s: Section) => (s.lines.length > 0 ? s.lead + (s.lines.length - 1) * s.lh : 0);
+    const storySpan = () => Math.max(0, storyLines.length - 1) * STORY_LH;
+    const totalSpan = (gap: number) =>
+      storySpan() +
+      sections.reduce((sum, s, i) => sum + (i === 0 && storyLines.length === 0 ? 0 : gap) + sectionSpan(s), 0);
 
-  const room = STACK_BOTTOM - STACK_TOP;
-  let gap = SECTION_GAP;
-  if (totalSpan(gap) > room) {
-    const gapsCount = storyLines.length > 0 ? sections.length : sections.length - 1;
-    const over = totalSpan(gap) - room;
-    gap = Math.max(SECTION_GAP_MIN, gap - Math.ceil(over / Math.max(1, gapsCount)));
-  }
-  // それでも溢れたら Story を1行ずつ減らす（最終行の末尾を「…」にする）
-  let storyTruncated = false;
-  while (storyLines.length > 1 && totalSpan(gap) > room) {
-    storyLines = storyLines.slice(0, -1);
-    storyTruncated = true;
-  }
-  if (storyTruncated && storyLines.length > 0) {
-    const last = [...storyLines[storyLines.length - 1]];
-    storyLines[storyLines.length - 1] = last.slice(0, Math.max(0, last.length - 1)).join('') + '…';
-  }
+    const room = STACK_BOTTOM - STACK_TOP;
+    let gap = SECTION_GAP;
+    if (totalSpan(gap) > room) {
+      const gapsCount = storyLines.length > 0 ? sections.length : sections.length - 1;
+      const over = totalSpan(gap) - room;
+      gap = Math.max(SECTION_GAP_MIN, gap - Math.ceil(over / Math.max(1, gapsCount)));
+    }
+    // それでも溢れたら Story を1行ずつ減らす（最終行の末尾を「…」にする）
+    let storyTruncated = false;
+    while (storyLines.length > 1 && totalSpan(gap) > room) {
+      storyLines = storyLines.slice(0, -1);
+      storyTruncated = true;
+    }
+    if (storyTruncated && storyLines.length > 0) {
+      const last = [...storyLines[storyLines.length - 1]];
+      storyLines[storyLines.length - 1] = last.slice(0, Math.max(0, last.length - 1)).join('') + '…';
+    }
 
-  let y = Math.max(STACK_TOP, STACK_TOP + (room - totalSpan(gap)) / 2);
+    let y = Math.max(STACK_TOP, STACK_TOP + (room - totalSpan(gap)) / 2);
 
-  // Story 42px / weight300 / lh72。左右の余白を揃えるため、実測でもっとも幅の
-  // 広い行を基準にブロックをカード中央へ置き、左揃えで描く。
-  if (storyLines.length > 0) {
-    const blockWidth = Math.max(
-      ...storyLines.map((ln) => measureAlumWidth(ln, STORY_FS, storyFont, STORY_LS)),
-    );
-    const blockX = (W - blockWidth) / 2;
-    storyLines.forEach((ln, i) => {
-      if (i > 0) y += STORY_LH;
-      printAlum(c, ln, blockX, y, STORY_FS, '300', alum(1), STORY_LS, 'l');
+    // Story 42px / weight300 / lh72。左右の余白を揃えるため、実測でもっとも幅の
+    // 広い行を基準にブロックをカード中央へ置き、左揃えで描く。
+    if (storyLines.length > 0) {
+      const blockWidth = Math.max(
+        ...storyLines.map((ln) => measureAlumWidth(ln, STORY_FS, storyFont, STORY_LS)),
+      );
+      const blockX = (W - blockWidth) / 2;
+      storyLines.forEach((ln, i) => {
+        if (i > 0) y += STORY_LH;
+        printAlum(c, ln, blockX, y, STORY_FS, '300', alum(1), STORY_LS, 'l');
+      });
+    }
+
+    // 見出し 32px / weight300 / 字間8px / alpha.75、内容 40px / weight300 / 字間6px
+    sections.forEach((s, i) => {
+      if (i > 0 || storyLines.length > 0) y += gap;
+      printAlum(c, s.heading, cx, y, 32, '300', alum(0.75), 8, 'c');
+      s.lines.forEach((ln, j) => {
+        y += j === 0 ? s.lead : s.lh;
+        printAlum(c, ln, cx, y, 40, '300', alum(1), 6, 'c');
+      });
     });
-  }
 
-  // 見出し 32px / weight300 / 字間8px / alpha.75、内容 40px / weight300 / 字間6px
-  sections.forEach((s, i) => {
-    if (i > 0 || storyLines.length > 0) y += gap;
-    printAlum(c, s.heading, cx, y, 32, '300', alum(0.75), 8, 'c');
-    s.lines.forEach((ln, j) => {
-      y += j === 0 ? s.lead : s.lh;
-      printAlum(c, ln, cx, y, 40, '300', alum(1), 6, 'c');
+    // Artist名 40px / weight400 / 字間10px / 大文字。直後に '›' を添える。
+    // 名前＋間隔＋シェブロンの合計幅を先に測ってから cx を中心に配置することで、
+    // 名前だけを中心に置いてシェブロン分だけ右へ余分に伸びる非対称を避ける。
+    const signature = (data.artist ?? '').toUpperCase();
+    const nameFont = makeFont(40, '400', INK_FONT);
+    const nameLetterSpacing = 10;
+    const nameChars = [...signature];
+    const nameWidths = nameChars.map((ch) => estWidth(ch, 40, nameFont));
+    const nw =
+      nameWidths.reduce((a, b) => a + b, 0) + nameLetterSpacing * Math.max(0, nameChars.length - 1);
+    const chevronGap = 26;
+    const chevronW = estWidth('›', 42, makeFont(42, '400', INK_FONT));
+    const groupW = nw + (data.artistLink === false ? 0 : chevronGap + chevronW);
+    const nameX = cx - groupW / 2 + nw / 2;
+    if (signature) {
+      printAlum(c, signature, nameX, nameY, 40, '400', alum(1), nameLetterSpacing, 'c');
+      if (data.artistLink !== false) printAlum(c, '›', nameX + nw / 2 + chevronGap, H - 192, 42, '400', alum(0.75), 0, 'l');
+    }
+
+    snapshot = surface.makeImageSnapshot();
+    const img = snapshot;
+    // GLSL 側で `mix(metalColor, ink.rgb, ink.a)` とストレートアルファ合成する
+    // ため、Unpremul（非乗算アルファ）で明示的に読み出す（既定値に依存しない）。
+    const px = img.readPixels(0, 0, {
+      width: W,
+      height: H,
+      colorType: ColorType.RGBA_8888,
+      alphaType: AlphaType.Unpremul,
     });
-  });
-
-  // Artist名 40px / weight400 / 字間10px / 大文字。直後に '›' を添える。
-  // 名前＋間隔＋シェブロンの合計幅を先に測ってから cx を中心に配置することで、
-  // 名前だけを中心に置いてシェブロン分だけ右へ余分に伸びる非対称を避ける。
-  const signature = (data.artist ?? '').toUpperCase();
-  const nameFont = makeFont(40, '400', INK_FONT);
-  const nameLetterSpacing = 10;
-  const nameChars = [...signature];
-  const nameWidths = nameChars.map((ch) => estWidth(ch, 40, nameFont));
-  const nw =
-    nameWidths.reduce((a, b) => a + b, 0) + nameLetterSpacing * Math.max(0, nameChars.length - 1);
-  const chevronGap = 26;
-  const chevronW = estWidth('›', 42, makeFont(42, '400', INK_FONT));
-  const groupW = nw + chevronGap + chevronW;
-  const nameX = cx - groupW / 2 + nw / 2;
-  // 作家が未取得（名前が空）のあいだは、名前も「›」も描かない
-  if (signature) {
-    printAlum(c, signature, nameX, nameY, 40, '400', alum(1), nameLetterSpacing, 'c');
-    printAlum(c, '›', nameX + nw / 2 + chevronGap, H - 192, 42, '400', alum(0.75), 0, 'l');
+    if (!px) return null;
+    return { pixels: px instanceof Uint8Array ? px : new Uint8Array(px as ArrayLike<number>), width: W, height: H };
+  } finally {
+    snapshot?.dispose();
+    surface.dispose();
   }
-
-  const img = surface.makeImageSnapshot();
-  // GLSL 側で `mix(metalColor, ink.rgb, ink.a)` とストレートアルファ合成する
-  // ため、Unpremul（非乗算アルファ）で明示的に読み出す（既定値に依存しない）。
-  const px = img.readPixels(0, 0, {
-    width: W,
-    height: H,
-    colorType: ColorType.RGBA_8888,
-    alphaType: AlphaType.Unpremul,
-  });
-  if (!px) return null;
-  return { pixels: px instanceof Uint8Array ? px : new Uint8Array(px as ArrayLike<number>), width: W, height: H };
 }
 
 /**
@@ -665,171 +672,178 @@ export async function renderStoryBackPixels(
 ): Promise<BackPixels | null> {
   const surface = Skia.Surface.Make(W, H);
   if (!surface) return null;
-  const c = surface.getCanvas();
-  const f = W / REF_W; // 参照単位 → テクスチャpx
+  let snapshot: SkImage | null = null;
+  try {
+    const c = surface.getCanvas();
+    const f = W / REF_W; // 参照単位 → テクスチャpx
 
-  // ── 下地 ──
-  const base = Skia.Paint();
-  base.setColor(Skia.Color('#0d1330'));
-  c.drawRect(Skia.XYWHRect(0, 0, W, H), base);
+    // ── 下地 ──
+    const base = Skia.Paint();
+    base.setColor(Skia.Color('#0d1330'));
+    c.drawRect(Skia.XYWHRect(0, 0, W, H), base);
 
-  // ── bk-gem: 作品画像（左右反転・blur15・cover） ──
-  if (artworkUrl) {
-    try {
-      const d = await Skia.Data.fromURI(artworkUrl);
-      const img = d ? Skia.Image.MakeImageFromEncoded(d) : null;
-      if (img) drawMirroredCover(c, img, W, H, 15 * f);
-    } catch {}
-  }
-
-  // ── bk-gemtint: フロストの縦ティント ──
-  const tint = Skia.Paint();
-  tint.setShader(
-    Skia.Shader.MakeLinearGradient(
-      { x: 0, y: 0 },
-      { x: 0, y: H },
-      [
-        Skia.Color('rgba(214,228,247,0.60)'),
-        Skia.Color('rgba(230,241,253,0.66)'),
-        Skia.Color('rgba(241,247,255,0.72)'),
-      ],
-      [0, 0.52, 1],
-      TileMode.Clamp,
-    ),
-  );
-  c.drawRect(Skia.XYWHRect(0, 0, W, H), tint);
-
-  // ── 刻印テキスト（座標は参照CSSのpx値 × f） ──
-  drawSpaced(c, data.serial ?? 'No. 001', 26 * f, 29.2 * f, 9 * f, 'rgba(66,80,112,0.62)', 0.24, 'l');
-  drawSpaced(c, 'TAP', (REF_W - 16) * f, 22.2 * f, 9 * f, 'rgba(66,80,112,0.92)', 0.16, 'r');
-
-  // タイトル（fs23 中央 #46527A）
-  drawSpaced(c, data.title, W / 2, 66 * f, 23 * f, '#46527A', 0.08, 'c');
-
-  // Story（fs12.5 lh1.7 字間.03em 最大5行 #3B4A72・左寄せ）
-  if (data.story) {
-    const fs = 12.5 * f;
-    const lh = 21.25 * f;
-    // 字間ぶん（約3%）を差し引いた幅で折り返す
-    const lines = wrap(data.story, fs, (W - 32 * f) * 0.97, makeFont(fs), 5);
-    let y = 103 * f;
-    for (const ln of lines) {
-      drawSpaced(c, ln, 16 * f, y, fs, '#3B4A72', 0.03, 'l');
-      y += lh;
+    // ── bk-gem: 作品画像（左右反転・blur15・cover） ──
+    if (artworkUrl) {
+      try {
+        const d = await Skia.Data.fromURI(artworkUrl);
+        const img = d ? Skia.Image.MakeImageFromEncoded(d) : null;
+        if (img) drawMirroredCover(c, img, W, H, 15 * f);
+      } catch {}
     }
-  }
 
-  // 罫線（幅64%・シアングラデ）
-  {
-    const lw = W * 0.64;
-    const lp = Skia.Paint();
-    lp.setShader(
-      Skia.Shader.MakeLinearGradient(
-        { x: (W - lw) / 2, y: 0 },
-        { x: (W + lw) / 2, y: 0 },
-        [
-          Skia.Color('rgba(96,206,224,0)'),
-          Skia.Color('rgba(96,206,224,0.55)'),
-          Skia.Color('rgba(96,206,224,0)'),
-        ],
-        [0, 0.5, 1],
-        TileMode.Clamp,
-      ),
-    );
-    c.drawRect(Skia.XYWHRect((W - lw) / 2, 165.5 * f, lw, 1 * f), lp);
-  }
-
-  // 原材料 / 周波数 / 作家名（中央揃え・参照の fs/字間/色）
-  if (data.materials && data.materials.length > 0) {
-    drawSpaced(c, '原材料', W / 2, 182.5 * f, 11 * f, '#7C87A4', 0.36, 'c');
-    drawSpaced(c, data.materials.join('・'), W / 2, 201.5 * f, 15 * f, '#2C3856', 0.2, 'c');
-  }
-  if (data.frequencies && data.frequencies.length > 0) {
-    drawSpaced(c, data.frequencies.join(' ・ '), W / 2, 217.5 * f, 12.5 * f, '#3B7C97', 0.12, 'c');
-  }
-  if (data.artist) {
-    drawSpaced(c, data.artist.toUpperCase(), W / 2, 238.9 * f, 12 * f, '#8890A6', 0.3, 'c');
-  }
-
-  // ── bk-frame: 金属フレーム（太さ0.025w・縦5段グラデ） ──
-  {
-    const fr = 0.025 * W;
-    const cr = 0.085 * W;
-    const fp = Skia.Paint();
-    fp.setStyle(PaintStyle.Stroke);
-    fp.setStrokeWidth(fr);
-    fp.setShader(
+    // ── bk-gemtint: フロストの縦ティント ──
+    const tint = Skia.Paint();
+    tint.setShader(
       Skia.Shader.MakeLinearGradient(
         { x: 0, y: 0 },
         { x: 0, y: H },
         [
-          Skia.Color('#E6F2FF'),
-          Skia.Color('#9FB2C8'),
-          Skia.Color('#57697F'),
-          Skia.Color('#4FB5C9'),
-          Skia.Color('#6FCFE0'),
+          Skia.Color('rgba(214,228,247,0.60)'),
+          Skia.Color('rgba(230,241,253,0.66)'),
+          Skia.Color('rgba(241,247,255,0.72)'),
         ],
-        [0, 0.26, 0.52, 0.82, 1],
+        [0, 0.52, 1],
         TileMode.Clamp,
       ),
     );
-    const rr = Skia.RRectXY(
-      Skia.XYWHRect(fr / 2, fr / 2, W - fr, H - fr),
-      Math.max(cr - fr / 2, 2),
-      Math.max(cr - fr / 2, 2),
-    );
-    c.drawRRect(rr, fp);
-  }
+    c.drawRect(Skia.XYWHRect(0, 0, W, H), tint);
 
-  // ── bk-refl: 斜め147°の反射帯（screen合成） ──
-  {
-    const rad = (147 * Math.PI) / 180;
-    const dir = { x: Math.sin(rad), y: -Math.cos(rad) }; // CSSのgradient角は上=0°時計回り
-    const L = Math.abs(dir.x) * W + Math.abs(dir.y) * H;
-    const cxm = W / 2;
-    const cym = H / 2;
-    const start = { x: cxm - (dir.x * L) / 2, y: cym - (dir.y * L) / 2 };
-    const end = { x: cxm + (dir.x * L) / 2, y: cym + (dir.y * L) / 2 };
-    const pos = 0.7;
-    const bw = 0.16;
-    const i0 = 0.3;
-    const rp = Skia.Paint();
-    rp.setBlendMode(BlendMode.Screen);
-    rp.setShader(
-      Skia.Shader.MakeLinearGradient(
-        start,
-        end,
-        [
-          Skia.Color('rgba(245,250,255,0)'),
-          Skia.Color(`rgba(245,250,255,${(i0 * 0.45).toFixed(3)})`),
-          Skia.Color(`rgba(245,250,255,${i0})`),
-          Skia.Color(`rgba(245,250,255,${(i0 * 0.45).toFixed(3)})`),
-          Skia.Color('rgba(245,250,255,0)'),
-        ],
-        [pos - bw, pos - bw * 0.45, pos, pos + bw * 0.45, pos + bw],
-        TileMode.Clamp,
-      ),
-    );
-    c.drawRect(Skia.XYWHRect(0, 0, W, H), rp);
-  }
+    // ── 刻印テキスト（座標は参照CSSのpx値 × f） ──
+    drawSpaced(c, data.serial ?? 'No. 001', 26 * f, 29.2 * f, 9 * f, 'rgba(66,80,112,0.62)', 0.24, 'l');
+    drawSpaced(c, 'TAP', (REF_W - 16) * f, 22.2 * f, 9 * f, 'rgba(66,80,112,0.92)', 0.16, 'r');
 
-  // ── シアンの内側フレネル光（inset 0 0 26px / 8px） ──
-  {
-    const glow = (blurPx: number, alpha: number) => {
-      const gp = Skia.Paint();
-      gp.setStyle(PaintStyle.Stroke);
-      gp.setStrokeWidth(blurPx * f);
-      gp.setColor(Skia.Color(`rgba(117,201,230,${alpha})`));
-      gp.setMaskFilter(Skia.MaskFilter.MakeBlur(BlurStyle.Normal, (blurPx / 2) * f, true));
+    // タイトル（fs23 中央 #46527A）
+    drawSpaced(c, data.title, W / 2, 66 * f, 23 * f, '#46527A', 0.08, 'c');
+
+    // Story（fs12.5 lh1.7 字間.03em 最大5行 #3B4A72・左寄せ）
+    if (data.story) {
+      const fs = 12.5 * f;
+      const lh = 21.25 * f;
+      // 字間ぶん（約3%）を差し引いた幅で折り返す
+      const lines = wrap(data.story, fs, (W - 32 * f) * 0.97, makeFont(fs), 5);
+      let y = 103 * f;
+      for (const ln of lines) {
+        drawSpaced(c, ln, 16 * f, y, fs, '#3B4A72', 0.03, 'l');
+        y += lh;
+      }
+    }
+
+    // 罫線（幅64%・シアングラデ）
+    {
+      const lw = W * 0.64;
+      const lp = Skia.Paint();
+      lp.setShader(
+        Skia.Shader.MakeLinearGradient(
+          { x: (W - lw) / 2, y: 0 },
+          { x: (W + lw) / 2, y: 0 },
+          [
+            Skia.Color('rgba(96,206,224,0)'),
+            Skia.Color('rgba(96,206,224,0.55)'),
+            Skia.Color('rgba(96,206,224,0)'),
+          ],
+          [0, 0.5, 1],
+          TileMode.Clamp,
+        ),
+      );
+      c.drawRect(Skia.XYWHRect((W - lw) / 2, 165.5 * f, lw, 1 * f), lp);
+    }
+
+    // 原材料 / 周波数 / 作家名（中央揃え・参照の fs/字間/色）
+    if (data.materials && data.materials.length > 0) {
+      drawSpaced(c, '原材料', W / 2, 182.5 * f, 11 * f, '#7C87A4', 0.36, 'c');
+      drawSpaced(c, data.materials.join('・'), W / 2, 201.5 * f, 15 * f, '#2C3856', 0.2, 'c');
+    }
+    if (data.frequencies && data.frequencies.length > 0) {
+      drawSpaced(c, data.frequencies.join(' ・ '), W / 2, 217.5 * f, 12.5 * f, '#3B7C97', 0.12, 'c');
+    }
+    if (data.artist) {
+      drawSpaced(c, data.artist.toUpperCase(), W / 2, 238.9 * f, 12 * f, '#8890A6', 0.3, 'c');
+    }
+
+    // ── bk-frame: 金属フレーム（太さ0.025w・縦5段グラデ） ──
+    {
+      const fr = 0.025 * W;
       const cr = 0.085 * W;
-      c.drawRRect(Skia.RRectXY(Skia.XYWHRect(0, 0, W, H), cr, cr), gp);
-    };
-    glow(26, 0.28);
-    glow(8, 0.154);
-  }
+      const fp = Skia.Paint();
+      fp.setStyle(PaintStyle.Stroke);
+      fp.setStrokeWidth(fr);
+      fp.setShader(
+        Skia.Shader.MakeLinearGradient(
+          { x: 0, y: 0 },
+          { x: 0, y: H },
+          [
+            Skia.Color('#E6F2FF'),
+            Skia.Color('#9FB2C8'),
+            Skia.Color('#57697F'),
+            Skia.Color('#4FB5C9'),
+            Skia.Color('#6FCFE0'),
+          ],
+          [0, 0.26, 0.52, 0.82, 1],
+          TileMode.Clamp,
+        ),
+      );
+      const rr = Skia.RRectXY(
+        Skia.XYWHRect(fr / 2, fr / 2, W - fr, H - fr),
+        Math.max(cr - fr / 2, 2),
+        Math.max(cr - fr / 2, 2),
+      );
+      c.drawRRect(rr, fp);
+    }
 
-  const img = surface.makeImageSnapshot();
-  const px = img.readPixels(0, 0);
-  if (!px) return null;
-  return { pixels: px instanceof Uint8Array ? px : new Uint8Array(px as ArrayLike<number>), width: W, height: H };
+    // ── bk-refl: 斜め147°の反射帯（screen合成） ──
+    {
+      const rad = (147 * Math.PI) / 180;
+      const dir = { x: Math.sin(rad), y: -Math.cos(rad) }; // CSSのgradient角は上=0°時計回り
+      const L = Math.abs(dir.x) * W + Math.abs(dir.y) * H;
+      const cxm = W / 2;
+      const cym = H / 2;
+      const start = { x: cxm - (dir.x * L) / 2, y: cym - (dir.y * L) / 2 };
+      const end = { x: cxm + (dir.x * L) / 2, y: cym + (dir.y * L) / 2 };
+      const pos = 0.7;
+      const bw = 0.16;
+      const i0 = 0.3;
+      const rp = Skia.Paint();
+      rp.setBlendMode(BlendMode.Screen);
+      rp.setShader(
+        Skia.Shader.MakeLinearGradient(
+          start,
+          end,
+          [
+            Skia.Color('rgba(245,250,255,0)'),
+            Skia.Color(`rgba(245,250,255,${(i0 * 0.45).toFixed(3)})`),
+            Skia.Color(`rgba(245,250,255,${i0})`),
+            Skia.Color(`rgba(245,250,255,${(i0 * 0.45).toFixed(3)})`),
+            Skia.Color('rgba(245,250,255,0)'),
+          ],
+          [pos - bw, pos - bw * 0.45, pos, pos + bw * 0.45, pos + bw],
+          TileMode.Clamp,
+        ),
+      );
+      c.drawRect(Skia.XYWHRect(0, 0, W, H), rp);
+    }
+
+    // ── シアンの内側フレネル光（inset 0 0 26px / 8px） ──
+    {
+      const glow = (blurPx: number, alpha: number) => {
+        const gp = Skia.Paint();
+        gp.setStyle(PaintStyle.Stroke);
+        gp.setStrokeWidth(blurPx * f);
+        gp.setColor(Skia.Color(`rgba(117,201,230,${alpha})`));
+        gp.setMaskFilter(Skia.MaskFilter.MakeBlur(BlurStyle.Normal, (blurPx / 2) * f, true));
+        const cr = 0.085 * W;
+        c.drawRRect(Skia.RRectXY(Skia.XYWHRect(0, 0, W, H), cr, cr), gp);
+      };
+      glow(26, 0.28);
+      glow(8, 0.154);
+    }
+
+    snapshot = surface.makeImageSnapshot();
+    const img = snapshot;
+    const px = img.readPixels(0, 0);
+    if (!px) return null;
+    return { pixels: px instanceof Uint8Array ? px : new Uint8Array(px as ArrayLike<number>), width: W, height: H };
+  } finally {
+    snapshot?.dispose();
+    surface.dispose();
+  }
 }

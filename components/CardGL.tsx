@@ -526,6 +526,11 @@ const CardMesh: React.FC<{
   const [backTex, setBackTex] = useState<THREE.DataTexture | null>(null); // backStyle='story' 用
   const [inkTex, setInkTex] = useState<THREE.DataTexture | null>(null);  // backStyle='aluminum' の刻印
   const brushed = useMemo(makeBrushedTexture, []); // 'story' のテクスチャ読込待ちフォールバック
+  // Materials do not dispose their textures. Release scene-owned textures after
+  // replacement/unmount; the shared ink texture remains owned by inkTexCache.
+  useEffect(() => () => { frontTex?.dispose(); }, [frontTex]);
+  useEffect(() => () => { backTex?.dispose(); }, [backTex]);
+  useEffect(() => () => { brushed.dispose(); }, [brushed]);
 
   // テクスチャ更新をコミット後に 1 フレーム描いて反映する。
   // 依存配列なしだと毎レンダー発火し、再レンダーのたびに GL を起こしていた。
@@ -634,6 +639,7 @@ const CardMesh: React.FC<{
     const m = new THREE.MeshBasicMaterial({ map: makeEdgeGradientTexture(homeFinish) });
     return [m, m]; // [キャップ, 側面] — キャップは面プレートの背後で見えない
   }, [homeFinish]);
+  useEffect(() => () => { sideMats[0].map?.dispose(); sideMats[0].dispose(); }, [sideMats]);
 
   // 裏面テクスチャ:
   //   aluminum = 刻印のみ（透明背景・金属地はシェーダー側）を同期生成
@@ -684,7 +690,7 @@ const CardMesh: React.FC<{
         // 開いたカードの実表示が最大 ~364pt(=DPR3 で ~1092px) なので 1024x1536
         // で 4 倍以上の余裕がある。2048x4096 は RGBA で 32MB 使うため採らない。
         const res = await renderStoryBackPixels(backData, frontUri, 1024, 1536);
-        if (res && alive) setBackTex((prev) => { prev?.dispose(); return pixelsToTexture(res); });
+        if (res && alive) setBackTex(pixelsToTexture(res));
       } catch {}
     })();
     return () => { alive = false; };
@@ -703,7 +709,7 @@ const CardMesh: React.FC<{
         if (alive) {
           setFrontTex(tex);
           onFrontLoaded?.();
-        }
+        } else tex.dispose();
       } catch {
         // 読み込み失敗時はプレースホルダ色のまま
       }

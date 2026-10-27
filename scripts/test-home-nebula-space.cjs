@@ -7,7 +7,8 @@ function load(name){
     {exports:out,require:p=>load(p.replace('./',''))});
   return out;
 }
-const {nebulaMotion,pinkAt,HOME_NEBULA_SPACE_SHADER}=load('homeNebulaSpace');
+const {nebulaMotion,pinkAt,HOME_NEBULA_SPACE_SHADER,NEBULA_MOTION_SPEED}=load('homeNebulaSpace');
+const loopSeconds=1024/NEBULA_MOTION_SPEED;
 const {NEBULA_LIGHT}=load('homePinkNoise');
 for(const strength of [.6,1,1.4]) for(let layer=0;layer<3;layer++) for(let t=0;t<=1024;t+=.5){
   const m=nebulaMotion(t,strength,layer);
@@ -16,7 +17,7 @@ for(const strength of [.6,1,1.4]) for(let layer=0;layer<3;layer++) for(let t=0;t
   assert.ok(Math.abs(next.density-m.density)<.01,'No sudden density changes');
 }
 for(let i=0;i<=1024;i++)assert.equal(pinkAt(NEBULA_LIGHT,i),NEBULA_LIGHT[i]);
-for(let l=0;l<3;l++)assert.deepEqual(nebulaMotion(0,1,l),nebulaMotion(1024,1,l));
+for(let l=0;l<3;l++)assert.deepEqual(nebulaMotion(0,1,l),nebulaMotion(loopSeconds,1,l));
 (async()=>{
   const CK=await require('canvaskit-wasm')({locateFile:file=>path.join(path.dirname(require.resolve('canvaskit-wasm')),file)});
   let errors='';const effect=CK.RuntimeEffect.Make(HOME_NEBULA_SPACE_SHADER,error=>errors+=error);
@@ -29,7 +30,8 @@ for(let l=0;l<3;l++)assert.deepEqual(nebulaMotion(0,1,l),nebulaMotion(1024,1,l))
   const visibleArea=[];
   for(let y=Math.round(h*.3);y<h*.7;y++)for(let x=Math.round(w*.82);x<w*.96;x++)visibleArea.push(bytes[(y*w+x)*4+3]);
   assert.ok(visibleArea.reduce((a,b)=>a+b,0)/visibleArea.length>65, 'Pigment must occupy visible side space');
-  const image=CK.MakeImage(info,bytes,w*4), child=image.makeShaderOptions(CK.TileMode.Decal,CK.TileMode.Decal,CK.FilterMode.Linear,CK.MipmapMode.None);
+  const image=CK.MakeImage(info,bytes,w*4);
+  let child=image.makeShaderOptions(CK.TileMode.Decal,CK.TileMode.Decal,CK.FilterMode.Linear,CK.MipmapMode.None);
   const surface=CK.MakeSurface(w,h),canvas=surface.getCanvas(),paint=new CK.Paint();
   function render(t,{back=CK.TRANSPARENT,densityOverride}={}){
     const m=nebulaMotion(t,1,1),shader=effect.makeShaderWithChildren([w,h,...m.flow,densityOverride??m.density,m.depth,m.strength],[child]);
@@ -37,7 +39,7 @@ for(let l=0;l<3;l++)assert.deepEqual(nebulaMotion(0,1,l),nebulaMotion(1024,1,l))
     const snapshot=surface.makeImageSnapshot(),pixels=snapshot.readPixels(0,0,info);
     snapshot.delete();shader.delete();return pixels;
   }
-  const a=render(0),b=render(10),c=render(30),end=render(1023.99);
+  const a=render(0),b=render(10),c=render(30),end=render(loopSeconds-.01);
   function alphaDistance(a,b,normalize=false){
     const sumA=a.reduce((s,v,i)=>s+(i%4===3?v:0),0),sumB=b.reduce((s,v,i)=>s+(i%4===3?v:0),0);
     let delta=0;for(let i=3;i<a.length;i+=4)delta+=Math.abs(a[i]-(normalize?b[i]*sumA/sumB:b[i]));
@@ -55,5 +57,14 @@ for(let l=0;l<3;l++)assert.deepEqual(nebulaMotion(0,1,l),nebulaMotion(1024,1,l))
   assert.ok(strongStar[p]-strongCloud[p]<weakStar[p]-weakCloud[p], 'Thicker cloud must obscure the star behind it');
   for(const pixels of [a,b,c])for(let x=0;x<w;x++)assert.equal(pixels[x*4+3],0,'No rectangle at the top edge');
   console.log(`PASS: SkSL compiled; shape change at 10s ${alphaDistance(a,b,true).toFixed(3)}, at 30s ${alphaDistance(a,c,true).toFixed(3)} alpha levels/pixel; star occlusion verified`);
+  // Removing the PNG encode/decode must preserve the rendered cloud, not just its input pixels.
+  const rawChild=child, encodedImage=CK.MakeImageFromEncoded(image.encodeToBytes());
+  child=encodedImage.makeShaderOptions(CK.TileMode.Decal,CK.TileMode.Decal,CK.FilterMode.Linear,CK.MipmapMode.None);
+  const encodedFrame=render(0);
+  let totalDifference=0;
+  for(let i=0;i<a.length;i++)totalDifference+=Math.abs(a[i]-encodedFrame[i]);
+  assert.ok(totalDifference/a.length<.5,'Direct raster must visually match the previous PNG path');
+  console.log(`PASS: raw/PNG mean channel difference ${(totalDifference/a.length).toFixed(4)}/255`);
+  rawChild.delete();encodedImage.delete();
   paint.delete();surface.delete();child.delete();image.delete();effect.delete();
 })().catch(e=>{console.error(e);process.exitCode=1});

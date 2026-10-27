@@ -50,7 +50,14 @@ const starExports = {};
 vm.runInNewContext(ts.transpileModule(fs.readFileSync('lib/homeStarfieldModel.ts','utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText, { exports: starExports });
 for (const [w,h] of [[390,844],[411,890],[844,390]]) {
   const original=starExports.makeHomeStars(w,h), quiet=quietHomeStars(original);
-  assert.ok(quiet.length/original.length>.50 && quiet.length/original.length<.65);
+  assert.ok(quiet.length/original.length>.50 && quiet.length/original.length<.68);
+  if (w < h) {
+    // Original portrait region counts, before either requested star addition.
+    const upperRight=quiet.filter(s=>s.x>.6&&s.y<.35).length;
+    const lower=quiet.filter(s=>s.y>.65).length;
+    assert.ok(Math.abs(upperRight/163-1.20)<.01, 'Upper right is ~20% above the original sky');
+    assert.ok(Math.abs(lower/256-1.25)<.01, 'Lower sky is ~25% above the original sky');
+  }
   assert.equal(quiet.filter(s=>s.bright).length,6);
   const far=quiet.filter(s=>s.core<.42), near=quiet.filter(s=>s.core>=.42);
   assert.equal(far.length+near.length,quiet.length);

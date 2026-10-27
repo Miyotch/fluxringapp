@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Animated, Easing, PixelRatio, StyleSheet, View } from 'react-native';
-import { homeStarfieldImages, type StarfieldImages } from '../lib/homeStarfieldImages';
+import { Animated, AppState, Easing, PixelRatio, StyleSheet, View } from 'react-native';
+import { clearHomeStarfieldCache, homeStarfieldImages, type StarfieldImages } from '../lib/homeStarfieldImages';
+import { createHomeBackgroundLoader } from '../lib/homeBackgroundLoader';
 import { useHomeAmbientMotion } from '../lib/useHomeAmbientMotion';
 import { useOrbitPreview } from '../lib/homeOrbitPreview';
 import { HomeStarlight } from './HomeStarlight';
@@ -19,12 +20,16 @@ export const HomeStarfield = React.memo(function HomeStarfield({ width, height }
   const farDrift = useRef(new Animated.Value(0)).current;
   const farPosition = useRef(0);
   useEffect(() => {
-    let alive = true;
-    setImages(null);
-    void homeStarfieldImages(width, height, Math.min(3, PixelRatio.get())).then(result => {
-      if (alive) setImages(result);
-    }).catch(error => console.warn('[HomeStarfield] Static image preparation failed', error));
-    return () => { alive = false; };
+    // Keep the last valid sky while a resized replacement is prepared or retried.
+    const loader = createHomeBackgroundLoader({
+      load: () => homeStarfieldImages(width, height, Math.min(3, PixelRatio.get())),
+      onReady: setImages,
+      onError: error => console.warn('[HomeStarfield] Background preparation failed', error),
+    });
+    loader.setActive(AppState.currentState === 'active');
+    const state = AppState.addEventListener('change', value => loader.setActive(value === 'active'));
+    const memory = AppState.addEventListener('memoryWarning', clearHomeStarfieldCache);
+    return () => { loader.cancel(); state.remove(); memory.remove(); };
   }, [width, height]);
   useEffect(() => {
     if (!running || !images) return;

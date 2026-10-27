@@ -45,7 +45,9 @@ import Animated, {
 import { CardGL, CARD_ASPECT, CARD_BACK_SCALE_MAX } from '../components/CardGL';
 import { homeCardWidth } from '../constants/design-tokens';
 import Svg, { Defs, LinearGradient as SvgLinear, Stop, Rect } from 'react-native-svg';
-import { CR, CreditsBackdrop } from '../components/CreditsBackdrop';
+import { CR } from '../components/CreditsBackdrop';
+import { PlaylistBackdrop, PLAYLIST_BACKGROUND } from '../components/PlaylistBackdrop';
+import { movePlaylistTrack } from '../lib/playlistOrder';
 import { PurchaseModal } from '../components/PurchaseModal';
 import { StarIcon } from '../components/icons';
 import type { CardOrigin, CardOriginItem } from '../components/CardAfterimage';
@@ -110,7 +112,7 @@ export type CollectionItem = {
 //   ・all  … 連作の板（従来どおり）
 //   ・dl   … 端末に保存した曲（2026-10-14）。これもプルダウンの中の 1 つ
 type Segment = 'all' | 'mine' | 'pl' | 'wish' | 'dl';
-const SEGMENTS: Segment[] = ['mine', 'pl', 'all'];
+const SEGMENTS: Segment[] = ['pl', 'mine', 'all'];
 /** タブの並びの中での位置（ウィッシュリストはプレイリストのタブの中） */
 const tabOf = (s: Segment): Segment => (s === 'wish' || s === 'dl' ? 'pl' : s);
 
@@ -236,7 +238,7 @@ type SeriesSort = 'new' | 'name' | 'owned';
 const SERIES_SORTS: SeriesSort[] = ['new', 'name', 'owned'];
 const SERIES_SORT_KEY = 'fr.collection.seriesSort.v1';
 
-// 背景は設定配下（CREDITS等）と同じ CreditsBackdrop を使う（components/CreditsBackdrop.tsx）。
+// 曲を選ぶ画面には深い紺色と控えめな静止した星だけを使う。
 
 // 上端フェード（原本の mask-image:linear-gradient(transparent 0, #000 22px) 相当）
 // 色はこの高さの背景（CreditsBackdrop の中心 #15132e）に合わせる。以前の #0a0a1c は
@@ -245,8 +247,8 @@ const TopFade: React.FC<{ w: number }> = ({ w }) => (
   <Svg style={styles.topFade} width={w} height={FADE_H} pointerEvents="none">
     <Defs>
       <SvgLinear id="fade" x1="0" y1="0" x2="0" y2="1">
-        <Stop offset="0" stopColor="#15132e" stopOpacity={1} />
-        <Stop offset="1" stopColor="#15132e" stopOpacity={0} />
+        <Stop offset="0" stopColor={PLAYLIST_BACKGROUND} stopOpacity={1} />
+        <Stop offset="1" stopColor={PLAYLIST_BACKGROUND} stopOpacity={0} />
       </SvgLinear>
     </Defs>
     <Rect x="0" y="0" width={w} height={FADE_H} fill="url(#fade)" />
@@ -322,7 +324,7 @@ export const CollectionScreen: React.FC<Props> = ({
   const layoutAdjust = useLayoutAdjustConfig();
   const { width: screenW, height: screenH } = useWindowDimensions();
   // 既定タブはマイプレイリスト（2026-09-24。以前は連作の全体像を先に見せる「すべて」）。
-  const [seg, setSeg] = useState<Segment>('mine');
+  const [seg, setSeg] = useState<Segment>('pl');
   // プレイリストのタブで出しているリストの id（消えていたら先頭のリスト）
   const [plSelected, setPlSelected] = useState<string | null>(null);
   // 「プレイリスト ▾」のプルダウン。開いている間はタブの横払いを止める
@@ -1062,8 +1064,8 @@ export const CollectionScreen: React.FC<Props> = ({
 
   return (
     <View style={styles.root}>
-      <StatusBar barStyle="light-content" backgroundColor={CR.deepest} />
-      <CreditsBackdrop w={screenW} h={screenH} />
+      <StatusBar barStyle="light-content" backgroundColor={PLAYLIST_BACKGROUND} />
+      <PlaylistBackdrop width={screenW} height={screenH} />
 
       {/* タイトル（.skh: 上58px / 18px / 字間.05em）
           作品詳細が開いている間は消す。見出し「コレクション」と詳細の「戻る」は
@@ -1221,7 +1223,6 @@ export const CollectionScreen: React.FC<Props> = ({
             source={ALL_OWNED}
             onPlayFrom={(ids, startId, source) => onPlayFrom?.(ids, startId, source)}
             onPlayAll={(ids, source) => onPlayList?.(ids, undefined, source)}
-            onViewCard={(ids, id, source, origin) => onViewCard?.(ids, id, source, origin)}
             onAddToPlaylist={onAddToPlaylist ? (it) => onAddToPlaylist({ id: it.id, title: it.title }) : undefined}
             onDiscover={onDiscover}
           />
@@ -1234,7 +1235,6 @@ export const CollectionScreen: React.FC<Props> = ({
             onTitlePress={() => setMenuOpen(true)}
             onPlayFrom={(ids, startId, source) => onPlayFrom?.(ids, startId, source)}
             onPlayAll={(ids, source) => onPlayList?.(ids, undefined, source)}
-            onViewCard={(ids, id, source, origin) => onViewCard?.(ids, id, source, origin)}
             onAddToPlaylist={onAddToPlaylist ? (it) => onAddToPlaylist({ id: it.id, title: it.title }) : undefined}
           />
         ) : seg === 'pl' && playlists ? (
@@ -1246,10 +1246,13 @@ export const CollectionScreen: React.FC<Props> = ({
               source={currentList.id}
               onPlayFrom={(ids, startId, source) => onPlayFrom?.(ids, startId, source)}
               onPlayAll={(ids, source) => onPlayList?.(ids, undefined, source)}
-              onViewCard={(ids, id, source, origin) => onViewCard?.(ids, id, source, origin)}
               onAddToPlaylist={onAddToPlaylist ? (it) => onAddToPlaylist({ id: it.id, title: it.title }) : undefined}
-              // 自分のプレイリストの中では、長押し＝この曲のメニュー（外す／ほかに追加／並べ替え）
-              onRowLongPress={(it) => setTrackAction({ id: it.id, title: it.title, listName: currentList.name })}
+              // 右端は曲の操作、長押しは直接並べ替え。
+              onRowAction={(it) => setTrackAction({ id: it.id, title: it.title, listName: currentList.name })}
+              onReorder={(from, to) => {
+                if (!listRows[from] || !listRows[to]) return;
+                playlists.setTracks(currentList.id, movePlaylistTrack(currentList.trackIds, listRows[from].id, listRows[to].id));
+              }}
               onEdit={() => setEditorFor(currentList.id)}
               onTitlePress={() => setMenuOpen(true)}
             />
@@ -1434,11 +1437,6 @@ export const CollectionScreen: React.FC<Props> = ({
             setTrackAction(null);
             onAddToPlaylist?.({ id, title });
           }}
-          onReorder={() => {
-            if (!currentList) return;
-            setTrackAction(null);
-            setEditorFor(currentList.id);
-          }}
         />
       )}
 
@@ -1613,7 +1611,7 @@ const styles = StyleSheet.create({
   listSwitch: { flexDirection: 'row', alignItems: 'center', gap: 8, alignSelf: 'flex-start', paddingTop: 14, paddingBottom: 12 },
   listSwitchText: { color: '#ECEEF7', fontSize: 20, fontWeight: '500', letterSpacing: 0.8 },
   listSwitchChevron: { color: '#60CEE0', fontSize: 11 },
-  root: { flex: 1, backgroundColor: CR.deepest },
+  root: { flex: 1, backgroundColor: PLAYLIST_BACKGROUND },
 
   // .skh: padding 58px 22px 6px / 18px / 字間.05em / #ECEEF7
   skh: {
@@ -1688,7 +1686,7 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 10,
     marginBottom: 6,
-    backgroundColor: 'rgba(21,19,46,0.94)',
+    backgroundColor: 'rgba(8,15,31,0.96)',
   },
   secHeadName: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 1 },
   secChevron: { color: C.sub, fontSize: 11 },

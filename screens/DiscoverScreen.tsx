@@ -1576,6 +1576,7 @@ export const DiscoverScreen: React.FC<Props> = ({
             tuning: active.back?.tuning,
             frequencies: active.back?.frequencies,
             artist: active.back?.artist,
+              artistLink: false,
             useCases: active.back?.useCases,
             series: active.back?.series,
           }
@@ -1738,11 +1739,6 @@ export const DiscoverScreen: React.FC<Props> = ({
                 hintRef={hintRef}
                 purchaseGlow={showPurchaseFx ? cardGlow : undefined}
                 backData={backData}
-                onArtistPress={
-                  active.artistId && onOpenArtist
-                    ? () => onOpenArtist(active.artistId!)
-                    : undefined
-                }
               />
             )}
           </Animated.View>

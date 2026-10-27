@@ -3,11 +3,17 @@ import { makeHomeStars, nebulaSize, type Star } from './homeStarfieldModel';
 import { CLOUD_VOLUMES, quietHomeStars } from './homeAmbientModel';
 import { renderWatercolorRows } from './homeWatercolorTexture';
 
-export type StarfieldImages = { clouds: string[]; starsFar: string; starsNear: string; nearStars: Star[] };
+export type StarfieldImages = { clouds: SkImage[]; starsFar: string; nearStars: Star[] };
 const cache = new Map<string, Promise<StarfieldImages>>();
+// Drop cache ownership only. Mounted canvases retain their images until unmounted.
+export function clearHomeStarfieldCache() { cache.clear(); }
 const yieldStartup = () => new Promise<void>(resolve => setTimeout(resolve, 0));
 function png(image: SkImage) {
-  try { return `data:image/png;base64,${image.encodeToBase64(ImageFormat.PNG, 100)}`; }
+  try {
+    const encoded = image.encodeToBase64(ImageFormat.PNG, 100);
+    if (!encoded) throw new Error('HOME starfield PNG encoding failed');
+    return `data:image/png;base64,${encoded}`;
+  }
   finally { image.dispose(); }
 }
 function pixelImage(width: number, height: number, pixels: Uint8Array) {
@@ -25,7 +31,7 @@ async function makeNebula(width: number, height: number, layer: number) {
     renderWatercolorRows(size.width, size.height, layer, y, y + 12, pixels);
     await yieldStartup();
   }
-  return png(pixelImage(size.width, size.height, new Uint8Array(pixels.buffer)));
+  return pixelImage(size.width, size.height, new Uint8Array(pixels.buffer));
 }
 function gaussianSprite(color: readonly number[]) {
   const size = 64, pixels = new Uint8Array(size * size * 4);
@@ -71,23 +77,28 @@ function makeStars(width: number, height: number, density: number, stars: Star[]
     paint.dispose(); surface.dispose();
   }
 }
-/** Cache survives HOME tab remounts. Bounded to portrait/landscape; no frame-time drawing. */
+/** Cache the current size across HOME remounts; old sizes are not retained. No frame-time drawing. */
 export function homeStarfieldImages(width: number, height: number, density: number) {
   const key = `${width}:${height}:${density}`;
   const existing = cache.get(key);
   if (existing) return existing;
   const pending = (async () => {
-    const clouds: string[] = [];
-    for (let layer = 0; layer < CLOUD_VOLUMES.length; layer++) clouds.push(await makeNebula(width, height, layer));
-    const stars = quietHomeStars(makeHomeStars(width, height));
-    await yieldStartup();
-    return { clouds, nearStars: stars.filter(star => star.core >= .42),
-      starsFar: makeStars(width, height, density, stars.filter(star => star.core < .42)),
-      starsNear: makeStars(width, height, density, stars.filter(star => star.core >= .42)),
-    };
+    const clouds: SkImage[] = [];
+    try {
+      for (let layer = 0; layer < CLOUD_VOLUMES.length; layer++) clouds.push(await makeNebula(width, height, layer));
+      const stars = quietHomeStars(makeHomeStars(width, height));
+      await yieldStartup();
+      return { clouds, nearStars: stars.filter(star => star.core >= .42),
+        starsFar: makeStars(width, height, density, stars.filter(star => star.core < .42)),
+      };
+    } catch (error) {
+      // These images were never published to a canvas, so immediate disposal is safe.
+      clouds.forEach(image => image.dispose());
+      throw error;
+    }
   })();
   cache.set(key, pending);
   void pending.catch(() => { if (cache.get(key) === pending) cache.delete(key); });
-  while (cache.size > 2) cache.delete(cache.keys().next().value!);
+  while (cache.size > 1) cache.delete(cache.keys().next().value!);
   return pending;
 }

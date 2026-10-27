@@ -24,7 +24,9 @@
  * 寸法は参照のカード幅 188.6px 基準。実カード幅へ等倍スケールする。
  */
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { Image, PixelRatio, View } from 'react-native';
+import { sharedCardSurfaceImage } from '../lib/cardSurfaceImage';
 import {
   Canvas,
   Group,
@@ -76,7 +78,7 @@ export type CardSurfaceProps = {
   style?: StyleProp<ViewStyle>;
 };
 
-export const CardSurface: React.FC<CardSurfaceProps> = ({
+export const CardSurfaceArtwork: React.FC<CardSurfaceProps> = ({
   width,
   height,
   opacity = 1,
@@ -104,10 +106,7 @@ export const CardSurface: React.FC<CardSurfaceProps> = ({
   const edge = rrect(rect(h, h, width - edgeWidth, height - edgeWidth), r - h, r - h);
 
   return (
-    <Canvas
-      style={[{ position: 'absolute', left: 0, top: 0, width, height, opacity }, style]}
-      pointerEvents="none"
-    >
+    <>
       <Group clip={card}>
         {/* (a) 面内減光 */}
         <Rect x={0} y={0} width={width} height={height}>
@@ -128,8 +127,38 @@ export const CardSurface: React.FC<CardSurfaceProps> = ({
       {/* (d) 外周の縁取り */}
       <RoundedRect rect={edge} style="stroke" strokeWidth={edgeWidth} color={edgeColor} />
 
-    </Canvas>
+    </>
   );
+};
+
+/** All equal-size cards share one full-density raster instead of eight native canvases. */
+export const CardSurface: React.FC<CardSurfaceProps> = ({ width, height, opacity = 1, homeFinish = false, style }) => {
+  const density = PixelRatio.get();
+  const key = `${width}:${height}:${density}:${homeFinish}`;
+  const [result, setResult] = useState<{ key: string; uri: string | null } | null>(null);
+  const [failedImage, setFailedImage] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void sharedCardSurfaceImage(key, width, height, density,
+      <CardSurfaceArtwork width={width} height={height} homeFinish={homeFinish} />)
+      .then(uri => { if (alive) setResult({ key, uri }); })
+      .catch(error => {
+        console.warn('[CardSurface] Shared raster failed; using canvas', error);
+        if (alive) setResult({ key, uri: null });
+      });
+    return () => { alive = false; };
+  }, [key, width, height, density, homeFinish]);
+  const layout = [{ position: 'absolute' as const, left: 0, top: 0, width, height, opacity }, style];
+  if (result?.key === key && (result.uri === null || failedImage === result.uri)) {
+    return <Canvas style={layout} pointerEvents="none">
+      <CardSurfaceArtwork width={width} height={height} homeFinish={homeFinish} />
+    </Canvas>;
+  }
+  if (result?.key !== key || !result.uri) return <View style={layout} pointerEvents="none" />;
+  return <View style={layout} pointerEvents="none">
+    <Image source={{ uri: result.uri }} style={{ width, height }} resizeMode="stretch" fadeDuration={0}
+      onError={() => setFailedImage(result.uri)} />
+  </View>;
 };
 
 export default CardSurface;
