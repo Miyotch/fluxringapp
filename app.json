@@ -8,7 +8,7 @@
     "userInterfaceStyle": "dark",
     "backgroundColor": "#0E0C20",
     "newArchEnabled": true,
-    "icon": "./assets/icons/fr_icon_1024.png",
+    "icon": "./assets/icons/fr_512.png",
     "splash": {
       "backgroundColor": "#0E0C20",
       "resizeMode": "contain"
@@ -41,7 +41,7 @@
       "googleServicesFile": "./google-services.json",
       "edgeToEdgeEnabled": true,
       "adaptiveIcon": {
-        "foregroundImage": "./assets/icons/fr_icon_1024.png",
+        "foregroundImage": "./assets/icons/fr_512.png",
         "backgroundColor": "#0E0C20"
       }
     },

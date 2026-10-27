@@ -245,7 +245,7 @@ export type Track = {
     materials?: string[];    // 原材料（例: ['朝の空気', '低い持続音']）
     tuning?: string;         // 調律名（例: '純正律'）
     frequencies?: string[];  // 周波数のみ（例: ['432 Hz', '7.83 Hz']）
-    artist?: string;         // 'NAOKI OKA'
+    artist?: string;         // 作家名（artists.name）
     useCases?: string[];     // 用途タグ（例: ['睡眠', '勉強', '集中力']）
     series?: string;         // 所属シリーズ名。無ければ裏面に「ー series ー」を出さない
   };
@@ -368,7 +368,7 @@ const FALLBACK: Track[] = [
       story: '夜明け前、まだ青い部屋に最初の光がにじむ。音は何も足さず、ただ部屋の温度をわずかに上げていく。',
       materials: ['純正律'],
       frequencies: ['432 Hz', '7.83 Hz'],
-      artist: 'NAOKI OKA',
+      artist: '岡ナオキ',
     },
   },
 ];

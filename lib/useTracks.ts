@@ -148,7 +148,8 @@ function toTrack(d: RawTrackDoc, artists: Map<string, ArtistInfo>): Track {
       story: str(data.story),
       tuning: tuningLabel,
       frequencies,
-      artist: artist?.nameRoman?.toUpperCase(),
+      // 作家名は artists.name を表記どおりに出す（欧文の大文字表記 nameRoman は使わない）
+      artist: artist?.name,
       useCases: parseUseCases(data.useCases),
     },
   };

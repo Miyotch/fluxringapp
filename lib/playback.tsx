@@ -176,7 +176,7 @@ export const PlaybackProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const lockMeta = (t: PlayerTrack) => ({
     title: t.title,
-    artist: t.artist ?? 'NAOKI OKA',
+    artist: t.artistName || t.artist || '',
     albumTitle: 'FluxRing',
     artworkUrl: t.artworkUrl,
   });

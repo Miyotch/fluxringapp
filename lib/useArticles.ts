@@ -7,14 +7,13 @@
  * 型はここで再定義せず MediaScreen.tsx の Article と構造的に一致させている
  * （screens → lib の逆依存を避けるため import はしない）。
  *
- * 表示条件・並び順は lib/firebaseFirestore.ts の fetchArticlesPage を参照
- * （published===true かつ date<=現在時刻、date の降順）。1ページ10件で、
- * loadMore() を呼ぶたびに次の10件を末尾へ追加する。
+ * 表示条件・並び順（published===true かつ date<=現在時刻、date の降順）は
+ * 取得後に端末側で適用する（複合インデックスが無くても出るように）。
+ * 1ページ10件で、loadMore() を呼ぶたびに次の10件を見せる。
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
-import type { QueryDocumentSnapshot, DocumentData } from 'firebase/firestore';
-import { fetchArticlesPage } from './firebaseFirestore';
+import { useCallback, useEffect, useState } from 'react';
+import { fetchArticleDocs } from './firebaseFirestore';
 
 export type ArticleDoc = {
   id: string;
@@ -66,43 +65,49 @@ export type ArticlesFeed = {
   loading: boolean;
 };
 
+// date を並べ替え用のミリ秒へ（Timestamp / Date / 文字列）。読めなければ null
+function dateMs(v: unknown): number | null {
+  const d =
+    v instanceof Date
+      ? v
+      : v && typeof v === 'object' && typeof (v as { toDate?: unknown }).toDate === 'function'
+      ? (v as { toDate: () => Date }).toDate()
+      : typeof v === 'string'
+      ? new Date(v)
+      : null;
+  return d && !Number.isNaN(d.getTime()) ? d.getTime() : null;
+}
+
 export function useArticles(): ArticlesFeed {
-  const [articles, setArticles] = useState<ArticleDoc[]>([]);
-  const [hasMore, setHasMore] = useState(true);
-  const [loading, setLoading] = useState(false);
-  const cursorRef = useRef<QueryDocumentSnapshot<DocumentData> | undefined>(undefined);
-  // state だけだと loadMore の中身がクロージャで古い値を掴むため、
-  // ガード判定は ref で持つ（loadMore の参照自体は毎回同じに保つ）
-  const inFlightRef = useRef(false);
-  const hasMoreRef = useRef(true);
+  const [all, setAll] = useState<ArticleDoc[]>([]);
+  const [shown, setShown] = useState(PAGE_SIZE);
+  const [loading, setLoading] = useState(true);
 
-  const loadMore = useCallback(() => {
-    if (inFlightRef.current || !hasMoreRef.current) return;
-    inFlightRef.current = true;
-    setLoading(true);
-    fetchArticlesPage(PAGE_SIZE, cursorRef.current)
-      .then((snap) => {
-        cursorRef.current = snap.docs[snap.docs.length - 1] ?? cursorRef.current;
-        setArticles((prev) => [...prev, ...snap.docs.map((d) => toArticle(d.id, d.data()))]);
-        const more = snap.docs.length === PAGE_SIZE;
-        hasMoreRef.current = more;
-        setHasMore(more);
-      })
-      .catch(() => {
-        hasMoreRef.current = false;
-        setHasMore(false);
-      })
-      .finally(() => {
-        inFlightRef.current = false;
-        setLoading(false);
-      });
-  }, []);
-
-  // 初回マウントで1ページ目を読む
   useEffect(() => {
-    loadMore();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    let alive = true;
+    fetchArticleDocs()
+      .then((snap) => {
+        const now = Date.now();
+        const rows = snap.docs
+          .map((d) => ({ id: d.id, data: d.data() as Record<string, unknown> }))
+          // 公開フラグが立っていて、公開日時（date）が未来でないもの。date が読めないものは出す
+          .filter(({ data }) => {
+            if (data.published !== true) return false;
+            const ms = dateMs(data.date);
+            return ms === null || ms <= now;
+          })
+          .sort((a, b) => (dateMs(b.data.date) ?? 0) - (dateMs(a.data.date) ?? 0));
+        if (alive) setAll(rows.map(({ id, data }) => toArticle(id, data)));
+      })
+      .catch((e) => console.warn('[articles] 取得に失敗', e))
+      .finally(() => alive && setLoading(false));
+    return () => {
+      alive = false;
+    };
   }, []);
 
-  return { articles, loadMore, hasMore, loading };
+  // 「もっと見る」は取得済みの一覧を10件ずつ見せていく
+  const loadMore = useCallback(() => setShown((n) => n + PAGE_SIZE), []);
+
+  return { articles: all.slice(0, shown), loadMore, hasMore: all.length > shown, loading };
 }

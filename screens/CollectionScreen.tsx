@@ -540,7 +540,7 @@ export const CollectionScreen: React.FC<Props> = ({
             materials: detail.back?.materials,
             tuning: detail.back?.tuning,
             frequencies: detail.back?.frequencies,
-            artist: detail.back?.artist ?? 'NAOKI OKA',
+            artist: detail.back?.artist,
             useCases: detail.back?.useCases,
             series: detail.back?.series,
           }
