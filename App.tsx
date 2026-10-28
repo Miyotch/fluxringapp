@@ -690,7 +690,7 @@ function AppInner() {
       <StoryScreen
         data={storyData}
         onBack={() => {
-          setOverlay(null);
+          setOverlay(artistFocusId ? 'artist' : null);
           setStoryTrackId(null);
         }}
         onOpenArtist={(artistId) => {
