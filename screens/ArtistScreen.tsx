@@ -1,15 +1,12 @@
 /**
- * ArtistScreen.tsx — Artist のご紹介（三階層）
+ * ArtistScreen.tsx — 作家一覧と、プロフィール・楽曲をまとめた作家ページ
  * ------------------------------------------------------------------
- * ワイヤーフレーム 05 / Artist 三階層:
- *   設定 →「Artistのご紹介」から入る。三階層を順に辿る:
- *     ① 作家一覧（将来、複数の作家が並ぶ）
- *     ② 作家プロフィール（円ポートレート・来歴・哲学）→ 下部に「楽曲一覧へ」
- *     ③ 楽曲一覧（その作家の作品。所有=明 / 未所有=シルエット）
+ *   設定 →「Artistのご紹介」→ 作家一覧 → 作家ページ。
+ *   作家ページはプロフィールの下に、その作家の楽曲を直接表示する。
  *   楽曲は固有ID（リンクの座標）を持ち、タップでストーリー画面（P2.1）へ。
  *   セクション名は「Creator」。
  *
- * 1ファイル内で stage を切替（list / profile / tracks）。
+ * 1ファイル内で stage を切替（list / profile）。
  */
 
 import React, { useEffect, useState } from 'react';
@@ -62,7 +59,7 @@ export type ArtistTrack = {
 
 export type OpenStoryFn = (trackId: string, artistId: string) => void;
 
-type Stage = 'list' | 'profile' | 'tracks';
+type Stage = 'list' | 'profile';
 
 type Props = {
   artists: Artist[];
@@ -143,57 +140,7 @@ export const ArtistScreen: React.FC<Props> = ({
     );
   }
 
-  // ── ② 作家プロフィール ──
-  if (stage === 'profile' && selected) {
-    return (
-      <View style={styles.root}>
-        <StatusBar barStyle="light-content" backgroundColor={CR.deepest} />
-        <CreditsBackdrop w={screenW} h={screenH} />
-        <SubHeader title="作家" onBack={() => setStage('list')} />
-        <ScrollView contentContainerStyle={styles.profileBody} showsVerticalScrollIndicator={false}>
-          {/* 円ポートレート（人物は円） */}
-          <View style={styles.avatarLg}>
-            {selected.portraitUrl && (
-              <Image source={{ uri: selected.portraitUrl }} style={styles.avatarLgImg} />
-            )}
-          </View>
-          <Text style={styles.profileName}>{selected.name}</Text>
-          <Text style={styles.profileNameEn}>{selected.nameEn.toUpperCase()}</Text>
-
-          {/* SNS（artists.snsLinks を sns_type で解決した画像を横並びで表示。
-              タップで各リンク先を開く） */}
-          {selected.sns && selected.sns.length > 0 && (
-            <View style={styles.snsRow}>
-              {selected.sns.map((link) => (
-                <Pressable
-                  key={link.id}
-                  style={({ pressed }) => [styles.snsBtn, pressed && { opacity: 0.7 }]}
-                  onPress={() => Linking.openURL(link.url).catch(() => {})}
-                  accessibilityRole="link"
-                  accessibilityLabel={link.name}
-                >
-                  <Image source={{ uri: link.iconUrl }} style={styles.snsIcon} resizeMode="contain" />
-                </Pressable>
-              ))}
-            </View>
-          )}
-
-          <Text style={styles.profileBio}>{selected.bio}</Text>
-
-          {/* 楽曲一覧へ */}
-          <Pressable
-            style={({ pressed }) => [styles.tracksBtn, pressed && { opacity: 0.85 }]}
-            onPress={() => setStage('tracks')}
-          >
-            <Text style={styles.tracksBtnLabel}>楽曲一覧へ</Text>
-            <Text style={styles.tracksBtnSub}>この作家の作品 ›</Text>
-          </Pressable>
-        </ScrollView>
-      </View>
-    );
-  }
-
-  // ── ③ 楽曲一覧（所有=明 / 未所有=シルエット） ──
+  // ── ② 作家ページ内の楽曲一覧（所有=明 / 未所有=シルエット） ──
   const tracks = selected ? tracksByArtist[selected.id] ?? [] : [];
   // シリーズごとに分ける（2026-09-30）。シリーズに入っていない曲は最後にまとめる。
   // この作家の曲が1つもシリーズに入っていなければ、従来どおり見出し無しの一覧。
@@ -231,25 +178,58 @@ export const ArtistScreen: React.FC<Props> = ({
     <View style={styles.root}>
       <StatusBar barStyle="light-content" backgroundColor={CR.deepest} />
       <CreditsBackdrop w={screenW} h={screenH} />
-      <SubHeader title="楽曲一覧" onBack={() => setStage('profile')} />
-      <ScrollView contentContainerStyle={styles.tracksGrid} showsVerticalScrollIndicator={false}>
-        {groups.map(({ series: s, tracks: list }) => (
-          <View key={s.id} style={styles.seriesBlock}>
-            <View style={styles.seriesHead}>
-              <View style={styles.seriesText}>
-                <Text style={styles.seriesLabel}>SERIES</Text>
-                <Text style={styles.seriesName} numberOfLines={2}>{s.name}</Text>
-                <Text style={styles.seriesCount}>{list.length} 曲</Text>
-              </View>
+      <SubHeader title="作家" onBack={() => focusArtistId ? onBackToSettings() : setStage('list')} />
+      <ScrollView contentContainerStyle={styles.pageBody} showsVerticalScrollIndicator={false}>
+        {selected && (
+          <View style={styles.profileBody}>
+            <View style={styles.avatarLg}>
+              {selected.portraitUrl && (
+                <Image source={{ uri: selected.portraitUrl }} style={styles.avatarLgImg} />
+              )}
             </View>
-            {s.description && <Text style={styles.seriesDesc}>{s.description}</Text>}
-            <View style={styles.gridRow}>{list.map(renderCard)}</View>
+            <Text style={styles.profileName}>{selected.name}</Text>
+            <Text style={styles.profileNameEn}>{selected.nameEn.toUpperCase()}</Text>
+            {selected.sns && selected.sns.length > 0 && (
+              <View style={styles.snsRow}>
+                {selected.sns.map((link) => (
+                  <Pressable
+                    key={link.id}
+                    style={({ pressed }) => [styles.snsBtn, pressed && { opacity: 0.7 }]}
+                    onPress={() => Linking.openURL(link.url).catch(() => {})}
+                    accessibilityRole="link"
+                    accessibilityLabel={link.name}
+                  >
+                    <Image source={{ uri: link.iconUrl }} style={styles.snsIcon} resizeMode="contain" />
+                  </Pressable>
+                ))}
+              </View>
+            )}
+            <Text style={styles.profileBio}>{selected.bio}</Text>
           </View>
-        ))}
-        {rest.length > 0 && (
-          <View style={groups.length > 0 ? styles.seriesBlock : undefined}>
-            {groups.length > 0 && <Text style={styles.restLabel}>その他の作品</Text>}
-            <View style={styles.gridRow}>{rest.map(renderCard)}</View>
+        )}
+        {selected && (
+          <View style={styles.tracksGrid}>
+            <Text style={styles.tracksHeading} accessibilityRole="header">楽曲一覧</Text>
+            {tracks.length === 0 && <Text style={styles.emptyTracks}>楽曲はまだありません</Text>}
+            {groups.map(({ series: s, tracks: list }) => (
+              <View key={s.id} style={styles.seriesBlock}>
+                <View style={styles.seriesHead}>
+                  <View style={styles.seriesText}>
+                    <Text style={styles.seriesLabel}>SERIES</Text>
+                    <Text style={styles.seriesName} numberOfLines={2}>{s.name}</Text>
+                    <Text style={styles.seriesCount}>{list.length} 曲</Text>
+                  </View>
+                </View>
+                {s.description && <Text style={styles.seriesDesc}>{s.description}</Text>}
+                <View style={styles.gridRow}>{list.map(renderCard)}</View>
+              </View>
+            ))}
+            {rest.length > 0 && (
+              <View style={groups.length > 0 ? styles.seriesBlock : undefined}>
+                {groups.length > 0 && <Text style={styles.restLabel}>その他の作品</Text>}
+                <View style={styles.gridRow}>{rest.map(renderCard)}</View>
+              </View>
+            )}
           </View>
         )}
       </ScrollView>
@@ -339,24 +319,11 @@ const styles = StyleSheet.create({
     textAlign: 'left',
     fontFamily: JP_SERIF_FONT,
   },
-  tracksBtn: {
-    marginTop: SPACE.xl,
-    width: '100%',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 16,
-    paddingHorizontal: SPACE.lg,
-    borderRadius: RADIUS.lg,
-    borderWidth: 1,
-    borderColor: COLOR.border,
-    backgroundColor: 'rgba(34,36,69,0.30)',
-  },
-  tracksBtnLabel: { color: COLOR.textPrimary, fontSize: 15, letterSpacing: 0.3, fontFamily: JP_SERIF_FONT },
-  tracksBtnSub: { color: COLOR.textSecondary, fontSize: 12, letterSpacing: 0.24, fontFamily: JP_SERIF_FONT },
-
   // tracks
-  tracksGrid: { paddingHorizontal: SPACE.lg, paddingBottom: 40 },
+  pageBody: { paddingBottom: 40 },
+  tracksGrid: { paddingHorizontal: SPACE.lg },
+  tracksHeading: { color: COLOR.textPrimary, fontSize: 18, marginBottom: SPACE.lg, fontFamily: JP_SERIF_FONT },
+  emptyTracks: { color: COLOR.textSecondary, fontSize: 14, fontFamily: JP_SERIF_FONT },
   gridRow: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.md },
   gridCell: { marginBottom: SPACE.md },
   gridTitle: { color: COLOR.textPrimary, fontSize: 13, marginTop: SPACE.sm, letterSpacing: 0.26, fontFamily: JP_SERIF_FONT },

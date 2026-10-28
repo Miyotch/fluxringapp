@@ -60,6 +60,8 @@ export type PlaybackController = {
    * source は流したリストの目印（無ければ null）
    */
   playQueue: (tracks: PlayerTrack[], startId?: string, source?: string | null) => void;
+  /** 再生元の編集を反映する。同じ曲が残っていれば音源・再生位置は変えない。 */
+  syncQueue: (tracks: PlayerTrack[], source: string) => void;
   toggle: () => void;
   pause: () => void;
   next: () => void;
@@ -113,6 +115,7 @@ export const PlaybackProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const queueRef = useRef<PlayerTrack[]>([]);
   const indexRef = useRef(0);
   const repeatRef = useRef<Repeat>('ring');
+  const sourceRef = useRef<string | null>(null);
   queueRef.current = queue;
   indexRef.current = index;
   repeatRef.current = repeat;
@@ -227,7 +230,8 @@ export const PlaybackProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         // 未対応環境では何もしない。再生自体は続ける
       }
       // 次の曲の URL を先に取っておく
-      const nxt = q[(i + 1) % q.length];
+      const latest = queueRef.current;
+      const nxt = latest[(indexRef.current + 1) % latest.length];
       if (nxt && nxt.id !== t.id) resolve(nxt).catch(() => {});
     },
     [player, resolve, flushLog, notifyWillPlay],
@@ -238,6 +242,7 @@ export const PlaybackProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       if (tracks.length === 0) return;
       queueRef.current = tracks;
       setQueue(tracks);
+      sourceRef.current = from ?? null;
       setSource(from ?? null);
       const i = Math.max(0, startId ? tracks.findIndex((t) => t.id === startId) : 0);
       load(i, true);
@@ -301,12 +306,48 @@ export const PlaybackProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     } catch {}
     lockActive.current = false;
     queueRef.current = [];
+    indexRef.current = 0;
+    sourceRef.current = null;
     setQueue([]);
     setSource(null);
     setIndex(0);
     setLoading(false);
     setNote(null);
   }, [player, flushLog]);
+
+  const syncQueue = useCallback(
+    (tracks: PlayerTrack[], from: string) => {
+      if (sourceRef.current !== from) return;
+      const oldQueue = queueRef.current;
+      if (oldQueue.length === tracks.length && oldQueue.every((t, i) => t.id === tracks[i].id)) return;
+      if (!tracks.length) {
+        stop();
+        return;
+      }
+      const oldIndex = indexRef.current;
+      const currentId = oldQueue[oldIndex]?.id;
+      let nextIndex = tracks.findIndex((t) => t.id === currentId);
+      queueRef.current = tracks;
+      setQueue(tracks);
+      if (nextIndex >= 0) {
+        // 並べ替え中も、読み込み中も、現在の曲を読み直さない。
+        indexRef.current = nextIndex;
+        setIndex(nextIndex);
+        return;
+      }
+      // 現在の曲が削除されたら、元の並びで次に残っている曲へ進む。
+      const nextIds = new Set(tracks.map((t) => t.id));
+      for (let offset = 1; offset < oldQueue.length; offset++) {
+        const id = oldQueue[(oldIndex + offset) % oldQueue.length].id;
+        if (nextIds.has(id)) {
+          nextIndex = tracks.findIndex((t) => t.id === id);
+          break;
+        }
+      }
+      load(Math.max(0, nextIndex), !!player.playing);
+    },
+    [load, player, stop],
+  );
 
   // 曲の終わり。描画を待たずに、プレイヤーの通知を直接受けて次へ進める
   // （画面が消えている間も確実に送るため）。1 曲リピートは player.loop に任せる
@@ -360,6 +401,7 @@ export const PlaybackProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       repeat,
       source,
       playQueue,
+      syncQueue,
       toggle,
       pause,
       next,
@@ -382,6 +424,7 @@ export const PlaybackProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       repeat,
       source,
       playQueue,
+      syncQueue,
       toggle,
       pause,
       next,

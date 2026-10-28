@@ -387,6 +387,18 @@ function AppInner() {
     };
     return [...playerTracks].sort((a, b) => serialNum(a) - serialNum(b));
   }, [playerTracks]);
+  // 編集対象の表示タブによらず、再生元のプレイリストを最新の曲順に保つ。
+  // 読み込み中の所有データで既存の曲を落とさないよう、再生キューも参照する。
+  const { source: playbackSource, syncQueue } = playback;
+  useEffect(() => {
+    if (!playlists.ready || !playbackSource) return;
+    const list = playlists.lists.find((p) => p.id === playbackSource);
+    if (!list) return;
+    const byId = new Map(playback.queue.map((track) => [track.id, track]));
+    playerTracks.forEach((track) => byId.set(track.id, track));
+    const tracks = list.trackIds.map((id) => byId.get(id)).filter((track): track is PlayerTrack => !!track);
+    syncQueue(tracks, list.id);
+  }, [playlists.ready, playlists.lists, playbackSource, playback.queue, playerTracks, syncQueue]);
   // カードを眺める画面の並び（所有曲と、いま流している並びから引く）
   const viewerTracks = useMemo<PlayerTrack[]>(() => {
     if (!viewer) return [];
@@ -678,7 +690,7 @@ function AppInner() {
       <StoryScreen
         data={storyData}
         onBack={() => {
-          setOverlay(null);
+          setOverlay(artistFocusId ? 'artist' : null);
           setStoryTrackId(null);
         }}
         onOpenArtist={(artistId) => {
