@@ -47,7 +47,7 @@ import { prefetchArt } from './lib/artPrefetch';
 import { ANIM, HOME_INTRO } from './constants/design-tokens';
 
 import { Footer, TabKey } from './components/Footer';
-import { LaunchFlow, LaunchScreen, ConsentJoin } from './screens/LaunchFlow';
+import { IntroPreview, LaunchFlow, LaunchScreen, ConsentJoin } from './screens/LaunchFlow';
 import { DiscoverScreen, isTrackOnSale, orderHomeTracks } from './screens/DiscoverScreen';
 import { CollectionScreen, CollectionItem } from './screens/CollectionScreen';
 import { MediaScreen } from './screens/MediaScreen';
@@ -743,6 +743,8 @@ function AppInner() {
         );
       case 'restore':
         return <RestoreScreen onBack={back} onRestore={restore} />;
+      case 'introduction':
+        return <IntroPreview onClose={back} />;
       case 'language':
         return <LanguageScreen onBack={back} />;
       case 'support':

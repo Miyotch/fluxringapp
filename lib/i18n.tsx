@@ -23,6 +23,7 @@ const STORAGE_KEY = 'fluxring.lang'
 type Dict = Record<string, string>
 
 const JA: Dict = {
+  'settings.introduction': 'はじめての方へ',
   // フッター
   'tab.home': 'ホーム',
   'tab.collection': 'プレイリスト',
@@ -292,6 +293,7 @@ const JA: Dict = {
 }
 
 const EN: Dict = {
+  'settings.introduction': 'Introduction',
   'tab.home': 'Home',
   'tab.collection': 'Playlists',
   'tab.vip': 'VIP',
@@ -557,7 +559,7 @@ const I18nContext = createContext<Ctx>({
 })
 
 export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [lang, setLangState] = useState<Lang>('ja')
+  const [lang, setLangState] = useState<Lang>(() => Intl.DateTimeFormat().resolvedOptions().locale.toLowerCase().startsWith('ja') ? 'ja' : 'en')
 
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEY)

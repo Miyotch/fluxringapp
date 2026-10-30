@@ -1,3 +1,4 @@
+import { SleepTimerButton } from './SleepTimerButton';
 /**
  * NowPlayingBar.tsx — どの画面でもフッターのすぐ上に出る再生バナー
  * ------------------------------------------------------------------
@@ -406,6 +407,7 @@ export const NowPlayingFull: React.FC<{
     const it = idle.track;
     return (
       <View style={full.wrap}>
+      <SleepTimerButton />
         <View style={full.head}>
           <Image source={{ uri: it.artworkUrl }} style={full.art} />
           <View style={full.texts}>
@@ -449,6 +451,7 @@ export const NowPlayingFull: React.FC<{
   const artist = cur.artistName || cur.artist;
   return (
     <View style={full.wrap}>
+      <SleepTimerButton />
       <View style={full.head}>
         <Image source={{ uri: cur.artworkUrl }} style={full.art} />
         <View style={full.texts}>
