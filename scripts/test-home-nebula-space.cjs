@@ -34,7 +34,7 @@ for(let l=0;l<3;l++)assert.deepEqual(nebulaMotion(0,1,l),nebulaMotion(loopSecond
   let child=image.makeShaderOptions(CK.TileMode.Decal,CK.TileMode.Decal,CK.FilterMode.Linear,CK.MipmapMode.None);
   const surface=CK.MakeSurface(w,h),canvas=surface.getCanvas(),paint=new CK.Paint();
   function render(t,{back=CK.TRANSPARENT,densityOverride}={}){
-    const m=nebulaMotion(t,1,1),shader=effect.makeShaderWithChildren([w,h,...m.flow,densityOverride??m.density,m.depth,m.strength],[child]);
+    const m=nebulaMotion(t,1,1),shader=effect.makeShaderWithChildren([w,h,...m.flow,densityOverride??m.density,m.depth,m.strength,m.drift],[child]);
     canvas.clear(back);paint.setShader(shader);canvas.drawRect(CK.XYWHRect(0,0,w,h),paint);surface.flush();
     const snapshot=surface.makeImageSnapshot(),pixels=snapshot.readPixels(0,0,info);
     snapshot.delete();shader.delete();return pixels;
