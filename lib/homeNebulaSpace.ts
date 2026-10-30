@@ -30,6 +30,8 @@ export function nebulaMotion(seconds: number, strength: number, layer: number) {
     density: .62 + .22 * strength * (.7 * pinkAt(NEBULA_LIGHT, seconds - delay) + .3 * pinkAt(local.density, seconds)),
     depth: layer,
     strength,
+    // Each plane travels right across the viewport, then re-enters seamlessly.
+    drift: (((seconds % PINK_SECONDS) + PINK_SECONDS) % PINK_SECONDS) / PINK_SECONDS * (18 + layer * 6),
   };
 }
 
@@ -44,6 +46,7 @@ uniform float2 flow;
 uniform float density;
 uniform float depth;
 uniform float strength;
+uniform float drift;
 
 float fieldHash(float2 p) {
   float3 h = fract(float3(p.x, p.y, p.x) * .1031);
@@ -72,10 +75,14 @@ half4 main(float2 xy) {
   float2 curl = (broad - .5) * 1.5 + (detail - .5) * .65;
   float2 warp = curl * float2(.12, .055) * strength * (1.0 + depth * .14);
   float2 q = uv + warp;
+  q.x = fract(q.x - drift);
   // Two nearby wisps slide through one another; their shared field shapes the opening.
-  half4 first = cloud.eval(q * resolution);
+  float firstEdge = smoothstep(0.0, .12, q.x) * smoothstep(0.0, .12, 1.0 - q.x);
+  half4 first = cloud.eval(q * resolution) * firstEdge;
   float2 offset = (detail - .5) * float2(.09, .045) * strength;
-  half4 second = cloud.eval((q + offset) * resolution);
+  float2 secondQ = float2(fract(q.x + offset.x), q.y + offset.y);
+  float secondEdge = smoothstep(0.0, .12, secondQ.x) * smoothstep(0.0, .12, 1.0 - secondQ.x);
+  half4 second = cloud.eval(secondQ * resolution) * secondEdge;
   float blend = .3 + .4 * broad.y;
   half4 pigment = mix(first, second, blend);
   float edge = smoothstep(0.0, .045, uv.x) * smoothstep(0.0, .045, 1.0 - uv.x)

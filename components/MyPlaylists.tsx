@@ -27,7 +27,7 @@ import { AddToListIcon, PauseMark, PlayMark } from './icons';
 import { EqBars } from './EqBars';
 import { DownloadButton } from './DownloadButton';
 import { JP_SERIF_FONT, NUM_FONT } from '../constants/fonts';
-import Svg, { Path } from 'react-native-svg';
+import Svg, { Circle, Path } from 'react-native-svg';
 import { useT } from '../lib/i18n';
 import { usePlaybackOptional } from '../lib/playback';
 import { formatBytes, useDownloads } from '../lib/downloads';
@@ -134,6 +134,9 @@ export const MyPlaylists: React.FC<Props> = ({
 }) => {
   const t = useT();
   const dragIndex = useSharedValue(-1), dragDy = useSharedValue(0);
+  const rowOrder = useSharedValue(tracks.map(track => track.id));
+  const orderKey = JSON.stringify(tracks.map(track => track.id));
+  useEffect(() => { rowOrder.value = JSON.parse(orderKey); }, [orderKey, rowOrder]);
   const [dragging, setDragging] = useState(false);
   const cancelDrag = () => { dragIndex.value = -1; dragDy.value = 0; setDragging(false); };
   const drop = (from: number, to: number) => {
@@ -311,11 +314,13 @@ export const MyPlaylists: React.FC<Props> = ({
               accessibilityRole="button"
               accessibilityLabel={t('playlist.trackMenu') + ' ' + item.title}
             >
-              <AddToListIcon size={20} color={on ? C.cyan : C.sub} />
+              {onRowAction ? <Svg width={20} height={20} viewBox="0 0 20 20">
+                {[4, 10, 16].map(cx => <Circle key={cx} cx={cx} cy={10} r={1.5} fill={on ? C.cyan : C.sub} />)}
+              </Svg> : <AddToListIcon size={20} color={on ? C.cyan : C.sub} />}
             </Action>
           </Row>
         );
-        return onReorder ? <PlaylistTrackRow key={item.id} index={index} count={tracks.length} height={ART_H + 20}
+        return onReorder ? <PlaylistTrackRow key={item.id} trackId={item.id} rowOrder={rowOrder} index={index} count={tracks.length} height={ART_H + 20}
           dragIndex={dragIndex} dragDy={dragDy} onLift={() => setDragging(true)} onDrop={drop} onCancel={cancelDrag}
           onPlay={() => (on ? pb?.toggle() : onPlayFrom(ids, item.id, source))}
           onMenu={() => (onRowAction ?? onAddToPlaylist)?.(item)} label={item.title}
@@ -323,7 +328,7 @@ export const MyPlaylists: React.FC<Props> = ({
   };
   if (onReorder) return <ScrollView style={styles.root} contentContainerStyle={styles.list} scrollEnabled={!dragging}>
     {header}<Text style={{ color: C.sub, fontSize: 11, paddingHorizontal: 22, paddingBottom: 10 }}>{t('playlist.dragHint')}</Text>
-    {tracks.map(renderRow)}
+    <View style={{ height: tracks.length * (ART_H + 20) }}>{tracks.map(renderRow)}</View>
   </ScrollView>;
   return <FlatList style={styles.root} data={tracks} keyExtractor={item => item.id} ListHeaderComponent={header}
     contentContainerStyle={styles.list} showsVerticalScrollIndicator={false} renderItem={({ item, index }) => renderRow(item, index)} />;
