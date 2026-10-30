@@ -14,6 +14,7 @@
 //     取得に失敗しても既定値で動く（lib/remoteConfig.ts）
 //   ・ストアの課金（expo-iap / 外部決済）は Play Console の com.fluxring.app に
 //     紐づくため、検証版では試せない
+require('./scripts/patch-android-sleep-timer.cjs')();
 const fs = require('fs');
 const path = require('path');
 const { withSettingsGradle } = require('expo/config-plugins');

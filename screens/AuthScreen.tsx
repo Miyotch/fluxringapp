@@ -1,3 +1,4 @@
+import { useLaunchCopy } from '../lib/launchCopy';
 /**
  * AuthScreen.tsx — サインアップ / ログイン
  * ------------------------------------------------------------------
@@ -61,6 +62,7 @@ const GoogleButton: React.FC<{
   onError: (m: string | null) => void;
   onAuthenticated: () => void;
 }> = ({ busy, onBusy, onError, onAuthenticated }) => {
+  const l = useLaunchCopy();
   const [, response, promptAsync] = Google.useIdTokenAuthRequest({
     webClientId: GOOGLE_WEB_CLIENT_ID || undefined,
     iosClientId: GOOGLE_IOS_CLIENT_ID || undefined,
@@ -74,11 +76,11 @@ const GoogleButton: React.FC<{
         onBusy(true);
         signInWithGoogleToken(idToken)
           .then(onAuthenticated)
-          .catch((e) => onError(e?.message ?? 'Google サインインに失敗しました'))
+          .catch((e) => onError(e?.message ?? l("Google サインインに失敗しました")))
           .finally(() => onBusy(false));
       }
     } else if (response?.type === 'error') {
-      onError('Google サインインに失敗しました');
+      onError(l("Google サインインに失敗しました"));
     }
     // response の変化のみで発火させる
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -93,12 +95,13 @@ const GoogleButton: React.FC<{
       }}
       disabled={busy}
     >
-      <Text style={styles.socialLabel}>Google で続ける</Text>
+      <Text style={styles.socialLabel}>{l("Google で続ける")}</Text>
     </Pressable>
   );
 };
 
 export const AuthScreen: React.FC<Props> = ({ mode, onSwitchMode, onAuthenticated }) => {
+  const l = useLaunchCopy();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
@@ -125,7 +128,7 @@ export const AuthScreen: React.FC<Props> = ({ mode, onSwitchMode, onAuthenticate
       else await signIn(email, password);
       onAuthenticated();
     } catch (e: any) {
-      setError(e?.message ?? '認証に失敗しました');
+      setError(e?.message ?? l("認証に失敗しました"));
     } finally {
       setBusy(false);
     }
@@ -142,12 +145,12 @@ export const AuthScreen: React.FC<Props> = ({ mode, onSwitchMode, onAuthenticate
         {/* アプリアイコン（ブランド名の真上・角丸のアプリアイコン風） */}
         <Image source={require('../icon.png')} style={styles.logo} resizeMode="cover" />
         <Text style={styles.brand}>FluxRing</Text>
-        <Text style={styles.title}>{isSignup ? '新規登録' : 'ログイン'}</Text>
+        <Text style={styles.title}>{isSignup ? l("新規登録") : l("ログイン")}</Text>
 
         {/* メール / パスワード */}
         <TextInput
           style={styles.input}
-          placeholder="メールアドレス"
+          placeholder={l("メールアドレス")}
           placeholderTextColor={COLOR.textSecondary}
           keyboardType="email-address"
           autoCapitalize="none"
@@ -157,7 +160,7 @@ export const AuthScreen: React.FC<Props> = ({ mode, onSwitchMode, onAuthenticate
         />
         <TextInput
           style={styles.input}
-          placeholder="パスワード"
+          placeholder={l("パスワード")}
           placeholderTextColor={COLOR.textSecondary}
           secureTextEntry
           value={password}
@@ -172,7 +175,7 @@ export const AuthScreen: React.FC<Props> = ({ mode, onSwitchMode, onAuthenticate
           disabled={busy}
         >
           <Text style={styles.primaryLabel}>
-            {busy ? '処理中…' : isSignup ? '新規登録' : 'ログイン'}
+            {busy ? l("処理中…") : isSignup ? l("新規登録") : l("ログイン")}
           </Text>
         </Pressable>
 
@@ -186,14 +189,14 @@ export const AuthScreen: React.FC<Props> = ({ mode, onSwitchMode, onAuthenticate
           disabled={busy}
         >
           <Text style={styles.secondaryLabel}>
-            {isSignup ? 'ログインはこちら' : '新規登録'}
+            {isSignup ? l("ログインはこちら") : l("新規登録")}
           </Text>
         </Pressable>
 
         {/* ソーシャル */}
         <View style={styles.divider}>
           <View style={styles.line} />
-          <Text style={styles.dividerText}>または</Text>
+          <Text style={styles.dividerText}>{l("または")}</Text>
           <View style={styles.line} />
         </View>
 
@@ -213,7 +216,7 @@ export const AuthScreen: React.FC<Props> = ({ mode, onSwitchMode, onAuthenticate
               setError('Google クライアントIDが未設定です（app.json の extra.googleAuth）')
             }
           >
-            <Text style={styles.socialLabel}>Google で続ける</Text>
+            <Text style={styles.socialLabel}>{l("Google で続ける")}</Text>
           </Pressable>
         )}
 

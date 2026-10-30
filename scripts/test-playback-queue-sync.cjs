@@ -4,9 +4,10 @@ const ts = require('typescript');
 const assert = require('assert/strict');
 
 // Run the real provider with deterministic React hooks and a native-player double.
-function harness() {
+function harness(platform = 'ios') {
   const slots = [], effects = [], events = [], listeners = new Set(), pending = new Map();
-  let cursor = 0, controller;
+  let cursor = 0, controller, now = 100000;
+  const timers = new Set();
   const same = (a, b) => a && b && a.length === b.length && a.every((x, i) => Object.is(x, b[i]));
   const React = {
     createContext: value => ({ Provider: 'Provider', value }),
@@ -35,6 +36,9 @@ function harness() {
   };
   React.useCallback = (fn, deps) => React.useMemo(() => fn, deps);
   const player = {
+    volume: 1,
+    fluxSleepRemaining: -1,
+    setFluxSleepTimer(duration) { player.nativeDuration = duration; player.fluxSleepRemaining = duration > 0 ? duration : -1; },
     playing: false,
     replace: source => { events.push(['replace', source.uri]); player.currentTime = 0; },
     play: () => { player.playing = true; events.push(['play']); },
@@ -46,6 +50,8 @@ function harness() {
   const exports = {};
   const modules = {
     react: React,
+    'react-native': { Platform: { OS: platform }, AppState: { addEventListener: () => ({ remove() {} }) } },
+    './sleepTimer': { sleepGain: (deadline, now) => Math.max(0, Math.min(1, (deadline-now)/30000)) },
     'expo-audio': { createAudioPlayer: () => player, useAudioPlayerStatus: () => ({ playing: player.playing, isLoaded: true, currentTime: player.currentTime, duration: 300 }) },
     './r2': { fullAudioUrl: key => pending.get(key)?.promise ?? Promise.resolve(`audio:${key}`), previewUrl: key => `preview:${key}` },
     './durations': { rememberDuration() {} },
@@ -56,7 +62,7 @@ function harness() {
   };
   vm.runInNewContext(ts.transpileModule(fs.readFileSync('lib/playback.tsx', 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.React, esModuleInterop: true },
-  }).outputText, { exports, require: name => { if (!(name in modules)) throw Error(name); return modules[name]; } });
+  }).outputText, { exports, Date: { now: () => now }, setInterval: fn => { timers.add(fn); return fn; }, clearInterval: fn => timers.delete(fn), require: name => { if (!(name in modules)) throw Error(name); return modules[name]; } });
   function render() {
     cursor = 0;
     controller = exports.PlaybackProvider({ children: null }).props.value;
@@ -66,6 +72,7 @@ function harness() {
   render();
   return {
     get pb() { return controller; }, player, events, render,
+    advance(ms) { now += ms; [...timers].forEach(fn => fn()); render(); },
     async settle() { await new Promise(resolve => setImmediate(resolve)); render(); },
     finish() { [...listeners].forEach(fn => fn({ didJustFinish: true })); },
     defer(key) { let resolve; const promise = new Promise(r => { resolve = r; }); pending.set(key, { promise }); return () => { resolve(`audio:${key}`); pending.delete(key); }; },
@@ -141,5 +148,31 @@ function syncFromApp(h, lists, ready = true) {
   removal.pb.syncQueue([], 'playlist'); removal.render();
   assert.equal(removal.pb.current, null); assert.equal(removal.pb.source, null);
   assert.equal(removal.player.playing, false);
+  const sleep = harness();
+  sleep.pb.playQueue([a,b], 'a', 'playlist'); await sleep.settle();
+  sleep.player.volume = .8;
+  sleep.pb.setSleepTimer(1); sleep.render();
+  sleep.advance(30000); assert.equal(sleep.player.volume, .8);
+  sleep.advance(15000); assert.equal(sleep.player.volume, .4);
+  sleep.pb.setSleepTimer(null); sleep.render(); assert.equal(sleep.player.volume, .8);
+  sleep.advance(60000); assert.equal(sleep.player.playing, true, 'Cancellation must not pause later');
+  sleep.pb.setSleepTimer(1); sleep.render();
+  sleep.advance(45000); assert.equal(sleep.player.volume, .4);
+  sleep.advance(15000); assert.equal(sleep.player.playing, false); assert.equal(sleep.player.volume, .8);
+  assert.equal(sleep.pb.sleepEndsAt, null); assert.equal(sleep.pb.current.id, 'a');
+  sleep.pb.toggle(); sleep.render(); assert.equal(sleep.player.playing, true);
+  sleep.pb.setSleepTimer(1); sleep.render(); sleep.advance(90000);
+  assert.equal(sleep.player.playing, false, 'A delayed tick must still enforce the wall-clock deadline');
+  const android = harness('android');
+  android.pb.setSleepTimer(1); android.render();
+  assert.equal(android.player.nativeDuration, 60000, 'Android delegates the deadline to native audio');
+  android.player.volume = .5; android.advance(45000);
+  assert.equal(android.player.volume, .5, 'JS must never overwrite the native fade');
+  android.player.fluxSleepRemaining = 0; android.advance(100);
+  assert.equal(android.pb.sleepEndsAt, null, 'UI reconciles completed native timer');
+  android.pb.setSleepTimer(1); android.pb.setSleepTimer(null);
+  assert.equal(android.player.nativeDuration, 0, 'Cancellation reaches the native timer');
+  console.log('PASS: Android native scheduling, fade ownership, completion and cancellation');
+  console.log('PASS: timer fade, cancellation, expiry, volume restoration, resume and delayed ticks');
   console.log('PASS: queue edits preserve current audio/position/pause, update next/previous/automatic looping, isolate sources, and handle loading/removal/empty lists');
 })().catch(error => { console.error(error); process.exitCode = 1; });

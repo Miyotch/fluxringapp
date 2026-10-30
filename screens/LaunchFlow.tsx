@@ -63,6 +63,8 @@ import {
   APPLE_SIGNIN_ENABLED,
 } from '../constants/authConfig';
 import { signIn, signInWithGoogleToken } from '../lib/firebaseAuth';
+import { useLaunchCopy } from '../lib/launchCopy';
+import { useI18n } from '../lib/i18n';
 import { useTopInset } from '../lib/safeArea';
 import { AuthScreen } from './AuthScreen';
 import { HOME_INTRO } from '../constants/design-tokens';
@@ -162,6 +164,7 @@ const PlaceholderArt: React.FC<{ w: number }> = ({ w }) => {
 
 // 2枚目の確定カード面（単色＋ロゴ＋調律）
 const FlatArtCard: React.FC<{ w: number }> = ({ w }) => {
+  const l = useLaunchCopy();
   const h = w * 1.5;
   const r = w * 0.085;
   return (
@@ -179,7 +182,7 @@ const FlatArtCard: React.FC<{ w: number }> = ({ w }) => {
     >
       <Wordmark width={w * 0.55} color="#ECEEF7" opacity={0.92} />
       <View style={{ width: 30, height: 1, marginVertical: 17, backgroundColor: 'rgba(96,206,224,0.6)' }} />
-      <Text style={{ fontSize: 9, letterSpacing: 3, color: 'rgba(236,238,247,0.42)', marginBottom: 7 }}>調律</Text>
+      <Text style={{ fontSize: 9, letterSpacing: 3, color: 'rgba(236,238,247,0.42)', marginBottom: 7 }}>{l("調律")}</Text>
       <Text style={{ fontSize: 13.5, letterSpacing: 2, color: '#60CEE0', fontFamily: NUM_FONT }}>432Hz</Text>
     </View>
   );
@@ -201,6 +204,7 @@ const GoogleAuthButton: React.FC<{
   onError: (m: string | null) => void;
   onAuthenticated: () => void;
 }> = ({ label, busy, onBusy, onError, onAuthenticated }) => {
+  const l = useLaunchCopy();
   const [, response, promptAsync] = Google.useIdTokenAuthRequest({
     webClientId: GOOGLE_WEB_CLIENT_ID || undefined,
     iosClientId: GOOGLE_IOS_CLIENT_ID || undefined,
@@ -215,11 +219,11 @@ const GoogleAuthButton: React.FC<{
         // messages.login_provider（確定文言・改変不可）。e?.message はユーザーに見せない。
         signInWithGoogleToken(idToken)
           .then(onAuthenticated)
-          .catch(() => onError('ログインを完了できませんでした。もう一度お試しください。'))
+          .catch(() => onError(l("ログインを完了できませんでした。もう一度お試しください。")))
           .finally(() => onBusy(false));
       }
     } else if (response?.type === 'error') {
-      onError('ログインを完了できませんでした。もう一度お試しください。');
+      onError(l("ログインを完了できませんでした。もう一度お試しください。"));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [response]);
@@ -246,7 +250,7 @@ const SocialButtons: React.FC<{
   setBusy: (b: boolean) => void;
   setError: (m: string | null) => void;
   onAuthenticated: () => void;
-}> = ({ googleLabel, appleLabel = 'Apple でログイン', busy, setBusy, setError, onAuthenticated }) => (
+}> = ({ googleLabel, appleLabel, busy, setBusy, setError, onAuthenticated }) => { const l = useLaunchCopy(); return (
   <>
     {isGoogleConfigured ? (
       <GoogleAuthButton
@@ -267,7 +271,7 @@ const SocialButtons: React.FC<{
     )}
     {APPLE_SIGNIN_ENABLED && (
       <AppleButton
-        label={appleLabel}
+        label={appleLabel ?? l("Apple でログイン")}
         style={s.btn}
         pressedStyle={s.btnPressed}
         labelStyle={s.btnLabel}
@@ -279,7 +283,7 @@ const SocialButtons: React.FC<{
       />
     )}
   </>
-);
+); };
 
 // ══════════════════════════════════════════════════════════════
 // 本体
@@ -467,12 +471,15 @@ export const LaunchFlow: React.FC<Props> = ({
 };
 
 // ══════════════ P0 オンボーディング ══════════════
-const P0: React.FC<{ onSignup: () => void; onEnterApp: () => void; onToLogin: () => void }> = ({
+const P0: React.FC<{ onSignup: () => void; onEnterApp: () => void; onToLogin: () => void; preview?: boolean }> = ({
   onSignup,
   onEnterApp,
   onToLogin,
+  preview = false,
 }) => {
+  const l = useLaunchCopy();
   const { width } = useWindowDimensions();
+  const { lang, setLang } = useI18n();
   const [pane, setPane] = useState(0);
   const [scene, setScene] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -493,6 +500,7 @@ const P0: React.FC<{ onSignup: () => void; onEnterApp: () => void; onToLogin: ()
 
   return (
     <View style={StyleSheet.absoluteFill}>
+      <Pressable accessibilityRole="button" accessibilityLabel="日本語 / English" onPress={() => setLang(lang === 'ja' ? 'en' : 'ja')} style={{ position: 'absolute', top: 56, right: 24, zIndex: 20, padding: 12 }}><Text style={{ color: C.sub }}>日本語 / English</Text></Pressable>
       {/* 情景ウォッシュ（1枚目で見える） */}
       <SceneWash index={scene} />
 
@@ -505,7 +513,7 @@ const P0: React.FC<{ onSignup: () => void; onEnterApp: () => void; onToLogin: ()
         {/* 1枚目｜用途 */}
         <View style={[s.pane, { width }]}>
           <View style={s.paneBody}>
-            <Text style={s.copy}>世界は、すこし騒がしい。{'\n'}だから、持ち歩ける静けさをつくりました。</Text>
+            <Text style={s.copy}>{l("世界は、すこし騒がしい。")}{'\n'}{l("だから、持ち歩ける静けさをつくりました。")}</Text>
             <View style={{ marginTop: 26 }}>
               <Wordmark width={112} color={C.text} opacity={0.9} />
             </View>
@@ -518,10 +526,8 @@ const P0: React.FC<{ onSignup: () => void; onEnterApp: () => void; onToLogin: ()
             <FlatArtCard w={cardW} />
           </View>
           <View style={s.paneBody}>
-            <Text style={s.copy}>
-              一枚ずつ、手作業で周波数を調律した作品を、カードとして所有します。
-              {/* p2_sub（確定文言・半角括弧） */}
-              <Text style={s.copySm}>{'\n'}(聴き放題サービスではありません。)</Text>
+            <Text style={s.copy}>{l("一枚ずつ、手作業で周波数を調律した作品を、カードとして所有します。")}{/* p2_sub（確定文言・半角括弧） */}
+              <Text style={s.copySm}>{'\n'}{l("(聴き放題サービスではありません。)")}</Text>
             </Text>
           </View>
         </View>
@@ -540,7 +546,7 @@ const P0: React.FC<{ onSignup: () => void; onEnterApp: () => void; onToLogin: ()
             </View>
           </View>
           <View style={s.paneBody}>
-            <Text style={s.copy}>どのカードと出会うかは、{'\n'}その日、そのときの、めぐり合わせ。{'\n'}一期一会を、お楽しみください。</Text>
+            <Text style={s.copy}>{l("どのカードと出会うかは、")}{'\n'}{l("その日、そのときの、めぐり合わせ。")}{'\n'}{l("一期一会を、お楽しみください。")}</Text>
             <View style={{ marginTop: 26, alignSelf: 'flex-end' }}>
               <Wordmark width={112} color={C.text} opacity={0.9} />
             </View>
@@ -550,28 +556,27 @@ const P0: React.FC<{ onSignup: () => void; onEnterApp: () => void; onToLogin: ()
         {/* 4枚目｜入口 */}
         <View style={[s.pane, { width }]}>
           <View style={s.entry}>
-            <Text style={s.entryLead}>はじめましょう。</Text>
+            {preview ? <Pressable style={[s.btn, s.btnPri]} onPress={onEnterApp}><Text style={s.btnLabel}>{l("戻る")}</Text></Pressable> : <>
+            <Text style={s.entryLead}>{l("はじめましょう。")}</Text>
             <Pressable
               style={({ pressed }) => [s.btn, s.btnPri, pressed && s.btnPressed]}
               onPress={onSignup}
             >
-              <Text style={s.btnLabel}>新規作成</Text>
+              <Text style={s.btnLabel}>{l("新規作成")}</Text>
             </Pressable>
             <SocialButtons
-              googleLabel="Google でログイン"
+              googleLabel={l("Google でログイン")}
               busy={busy}
               setBusy={setBusy}
               setError={setError}
               onAuthenticated={onEnterApp}
             />
             {error && <Text style={s.errText}>{error}</Text>}
-            <Text style={s.agree}>
-              続けることで、<Text style={s.agreeLink}>利用規約</Text>および
-              <Text style={s.agreeLink}>プライバシーポリシー</Text>に同意したものとみなされます。
-            </Text>
+            <Text style={s.agree}>{l("続けることで、")}<Text style={s.agreeLink}>{l("利用規約")}</Text>{l("および")}<Text style={s.agreeLink}>{l("プライバシーポリシー")}</Text>{l("に同意したものとみなされます。")}</Text>
             <Pressable onPress={onToLogin} hitSlop={8} style={{ marginTop: 8, alignSelf: 'center' }}>
-              <Text style={s.toLoginLink}>アカウントをお持ちの方はログイン</Text>
+              <Text style={s.toLoginLink}>{l("アカウントをお持ちの方はログイン")}</Text>
             </Pressable>
+            </>}
           </View>
         </View>
       </ScrollView>
@@ -588,6 +593,7 @@ const P0: React.FC<{ onSignup: () => void; onEnterApp: () => void; onToLogin: ()
 
 // ══════════════ 登録後ステップ ══════════════
 const PostSteps: React.FC<{ onDone: (info: { name: string; scene: string }) => void }> = ({ onDone }) => {
+  const l = useLaunchCopy();
   const [step, setStep] = useState<'name' | 'scene' | 'gift'>('name');
   const [name, setName] = useState('');
   const [scene, setScene] = useState('');
@@ -608,10 +614,10 @@ const PostSteps: React.FC<{ onDone: (info: { name: string; scene: string }) => v
   }, [step, breath]);
 
   const SCENE_OPTS = [
-    { key: 'train', label: '電車の中' },
-    { key: 'office', label: 'オフィスの片隅' },
-    { key: 'family', label: '家族の気配' },
-    { key: 'other', label: 'その他' },
+    { key: 'train', label: l("電車の中") },
+    { key: 'office', label: l("オフィスの片隅") },
+    { key: 'family', label: l("家族の気配") },
+    { key: 'other', label: l("その他") },
   ];
 
   return (
@@ -619,20 +625,20 @@ const PostSteps: React.FC<{ onDone: (info: { name: string; scene: string }) => v
       {step === 'name' && (
         <>
           <View style={s.stepHead}>
-            <Text style={s.stepH2}>作品に表示される{'\n'}お名前を決めてください。</Text>
-            <Text style={s.stepSub}>プレイリストとカードの裏面に表示されます。{'\n'}あとから変更できます。</Text>
+            <Text style={s.stepH2}>{l("作品に表示される")}{'\n'}{l("お名前を決めてください。")}</Text>
+            <Text style={s.stepSub}>{l("プレイリストとカードの裏面に表示されます。")}{'\n'}{l("あとから変更できます。")}</Text>
           </View>
           <View style={s.stepFoot}>
             <TextInput
               style={s.nameInput}
-              placeholder="例: ナオキ"
+              placeholder={l("例: ナオキ")}
               placeholderTextColor={C.sub}
               value={name}
               onChangeText={setName}
               maxLength={20}
             />
             <Pressable style={({ pressed }) => [s.btn, s.btnPri, pressed && s.btnPressed]} onPress={() => setStep('scene')}>
-              <Text style={s.btnLabel}>決定</Text>
+              <Text style={s.btnLabel}>{l("決定")}</Text>
             </Pressable>
             <Pressable
               style={({ pressed }) => [s.btn, s.btnGhost, { marginTop: 10 }, pressed && s.btnPressed]}
@@ -641,7 +647,7 @@ const PostSteps: React.FC<{ onDone: (info: { name: string; scene: string }) => v
                 setStep('scene');
               }}
             >
-              <Text style={s.btnGhostLabel}>あとで</Text>
+              <Text style={s.btnGhostLabel}>{l("あとで")}</Text>
             </Pressable>
           </View>
         </>
@@ -650,8 +656,8 @@ const PostSteps: React.FC<{ onDone: (info: { name: string; scene: string }) => v
       {step === 'scene' && (
         <>
           <View style={s.stepHead}>
-            <Text style={s.stepH2}>いま、あなたに近い情景は{'\n'}どれですか。</Text>
-            <Text style={s.stepSub}>最初にお見せする作品を選ぶために使います。{'\n'}あとから変わってもかまいません。</Text>
+            <Text style={s.stepH2}>{l("いま、あなたに近い情景は")}{'\n'}{l("どれですか。")}</Text>
+            <Text style={s.stepSub}>{l("最初にお見せする作品を選ぶために使います。")}{'\n'}{l("あとから変わってもかまいません。")}</Text>
           </View>
           <View style={s.stepFoot}>
             <View style={{ gap: 10 }}>
@@ -678,12 +684,12 @@ const PostSteps: React.FC<{ onDone: (info: { name: string; scene: string }) => v
             <PlaceholderArt w={112} />
             <PlaceholderArt w={112} />
           </View>
-          <Text style={s.giftText}>2枚の作品を、{'\n'}マイリストにお納めしました。</Text>
+          <Text style={s.giftText}>{l("2枚の作品を、")}{'\n'}{l("マイリストにお納めしました。")}</Text>
           <Pressable
             style={({ pressed }) => [s.btn, s.btnPri, { width: 196, marginTop: 36 }, pressed && s.btnPressed]}
             onPress={() => onDone({ name, scene })}
           >
-            <Text style={s.btnLabel}>はじめる</Text>
+            <Text style={s.btnLabel}>{l("はじめる")}</Text>
           </Pressable>
         </View>
       )}
@@ -693,6 +699,7 @@ const PostSteps: React.FC<{ onDone: (info: { name: string; scene: string }) => v
 
 // ══════════════ ログイン ══════════════
 const LoginScreen: React.FC<{ onEnterApp: () => void; onToSignup: () => void }> = ({ onEnterApp, onToSignup }) => {
+  const l = useLaunchCopy();
   // ワードマークが端末の時計に重ならないよう、セーフエリア下から始める
   const loginTop = useTopInset(0);
   const [email, setEmail] = useState('');
@@ -710,12 +717,12 @@ const LoginScreen: React.FC<{ onEnterApp: () => void; onToSignup: () => void }> 
   const submit = async () => {
     const m = email.trim();
     if (!m || !pw) {
-      setError('メールアドレスとパスワードをご入力ください。');
+      setError(l("メールアドレスとパスワードをご入力ください。"));
       setErrField('both');
       return;
     }
     if (m.indexOf('@') < 0) {
-      setError('メールアドレスの形式をご確認ください。');
+      setError(l("メールアドレスの形式をご確認ください。"));
       setErrField('mail');
       return;
     }
@@ -729,16 +736,16 @@ const LoginScreen: React.FC<{ onEnterApp: () => void; onToSignup: () => void }> 
       // Firebase の code で分岐し、通信断を「パスワード不一致」と誤表示しない。
       const code = e?.code as string | undefined;
       if (code === 'auth/network-request-failed') {
-        setError('通信できませんでした。電波の状況をご確認ください。');
+        setError(l("通信できませんでした。電波の状況をご確認ください。"));
       } else if (
         code === 'auth/invalid-credential' ||
         code === 'auth/wrong-password' ||
         code === 'auth/user-not-found' ||
         code === 'auth/invalid-email'
       ) {
-        setError('メールアドレスまたはパスワードが一致しません。');
+        setError(l("メールアドレスまたはパスワードが一致しません。"));
       } else {
-        setError('処理を完了できませんでした。もう一度お試しください。');
+        setError(l("処理を完了できませんでした。もう一度お試しください。"));
       }
       setErrField('both');
     } finally {
@@ -753,7 +760,7 @@ const LoginScreen: React.FC<{ onEnterApp: () => void; onToSignup: () => void }> 
       </View>
 
       <View style={s.field}>
-        <Text style={s.fieldLabel}>メールアドレス</Text>
+        <Text style={s.fieldLabel}>{l("メールアドレス")}</Text>
         <TextInput
           style={[s.input, (errField === 'mail' || errField === 'both') && s.inputErr]}
           keyboardType="email-address"
@@ -768,7 +775,7 @@ const LoginScreen: React.FC<{ onEnterApp: () => void; onToSignup: () => void }> 
         />
       </View>
       <View style={s.field}>
-        <Text style={s.fieldLabel}>パスワード</Text>
+        <Text style={s.fieldLabel}>{l("パスワード")}</Text>
         <TextInput
           style={[s.input, (errField === 'pw' || errField === 'both') && s.inputErr]}
           secureTextEntry
@@ -781,34 +788,31 @@ const LoginScreen: React.FC<{ onEnterApp: () => void; onToSignup: () => void }> 
       </View>
 
       <Pressable onPress={() => setResetOpen(true)} hitSlop={8} style={s.forgot}>
-        <Text style={s.forgotText}>パスワードをお忘れの方</Text>
+        <Text style={s.forgotText}>{l("パスワードをお忘れの方")}</Text>
       </Pressable>
 
       {error && <Text style={s.loginErr}>{error}</Text>}
 
       <Pressable style={({ pressed }) => [s.btn, s.btnPri, (pressed || busy) && s.btnPressed]} onPress={submit} disabled={busy}>
-        <Text style={s.btnLabel}>{busy ? '処理中…' : 'ログイン'}</Text>
+        <Text style={s.btnLabel}>{busy ? l("処理中…") : l("ログイン")}</Text>
       </Pressable>
 
       <View style={s.orline}>
         <View style={s.orRule} />
-        <Text style={s.orText}>または</Text>
+        <Text style={s.orText}>{l("または")}</Text>
         <View style={s.orRule} />
       </View>
 
       <SocialButtons
-        googleLabel="Google でログイン"
+        googleLabel={l("Google でログイン")}
         busy={busy}
         setBusy={setBusy}
         setError={setError}
         onAuthenticated={onEnterApp}
       />
 
-      <Text style={s.tosignup}>
-        アカウントをお持ちでない方は{'\n'}
-        <Text style={s.tosignupLink} onPress={onToSignup}>
-          新規登録
-        </Text>
+      <Text style={s.tosignup}>{l("アカウントをお持ちでない方は")}{'\n'}
+        <Text style={s.tosignupLink} onPress={onToSignup}>{l("新規登録")}</Text>
       </Text>
 
       {/* パスワード再設定 */}
@@ -822,6 +826,7 @@ const ResetModal: React.FC<{ visible: boolean; initialMail: string; onClose: () 
   initialMail,
   onClose,
 }) => {
+  const l = useLaunchCopy();
   const [mail, setMail] = useState(initialMail);
   const [done, setDone] = useState(false);
   useEffect(() => {
@@ -835,12 +840,12 @@ const ResetModal: React.FC<{ visible: boolean; initialMail: string; onClose: () 
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={s.resetScrim}>
         <View style={s.resetWrap}>
-          <Text style={s.resetH2}>パスワードを再設定します。</Text>
-          <Text style={s.resetSub}>ご登録のメールアドレスあてに、{'\n'}再設定のご案内をお送りします。</Text>
-          {done && <Text style={s.resetDone}>ご案内をお送りしました。{'\n'}メールをご確認ください。</Text>}
+          <Text style={s.resetH2}>{l("パスワードを再設定します。")}</Text>
+          <Text style={s.resetSub}>{l("ご登録のメールアドレスあてに、")}{'\n'}{l("再設定のご案内をお送りします。")}</Text>
+          {done && <Text style={s.resetDone}>{l("ご案内をお送りしました。")}{'\n'}{l("メールをご確認ください。")}</Text>}
           <TextInput
             style={s.nameInput}
-            placeholder="メールアドレス"
+            placeholder={l("メールアドレス")}
             placeholderTextColor={C.sub}
             keyboardType="email-address"
             autoCapitalize="none"
@@ -848,10 +853,10 @@ const ResetModal: React.FC<{ visible: boolean; initialMail: string; onClose: () 
             onChangeText={setMail}
           />
           <Pressable style={({ pressed }) => [s.btn, s.btnPri, pressed && s.btnPressed]} onPress={() => setDone(true)}>
-            <Text style={s.btnLabel}>送信する</Text>
+            <Text style={s.btnLabel}>{l("送信する")}</Text>
           </Pressable>
           <Pressable style={({ pressed }) => [s.btn, s.btnGhost, { marginTop: 10 }, pressed && s.btnPressed]} onPress={onClose}>
-            <Text style={s.btnGhostLabel}>戻る</Text>
+            <Text style={s.btnGhostLabel}>{l("戻る")}</Text>
           </Pressable>
         </View>
       </View>
@@ -861,40 +866,39 @@ const ResetModal: React.FC<{ visible: boolean; initialMail: string; onClose: () 
 
 // ══════════════ 重要事項（同意型）══════════════
 const ConsentScreen: React.FC<{ onAgree: () => void }> = ({ onAgree }) => {
+  const l = useLaunchCopy();
   const [declined, setDeclined] = useState(false);
   return (
     <View style={s.consentWrap}>
       <View style={{ marginBottom: 34, opacity: 0.5 }}>
         <Wordmark width={104} color={C.text} />
       </View>
-      <Text style={s.consentH2}>利用規約とプライバシーポリシーを{'\n'}改定しました。</Text>
+      <Text style={s.consentH2}>{l("利用規約とプライバシーポリシーを")}{'\n'}{l("改定しました。")}</Text>
       {/* messages.consent.sub: "{date} 施行/改定の要点は次のとおりです。"（確定文言・半角スラッシュ） */}
-      <Text style={s.consentSub}>2026年8月1日 施行/改定の要点は次のとおりです。</Text>
+      <Text style={s.consentSub}>{l("2026年8月1日 施行/改定の要点は次のとおりです。")}</Text>
 
       <ScrollView style={s.consentBody} showsVerticalScrollIndicator={false}>
-        <Text style={s.consentH3}>改定の要点</Text>
+        <Text style={s.consentH3}>{l("改定の要点")}</Text>
+        <Text style={s.consentP}>{l("再生に関する記録（どの作品を、いつ、どれだけ再生したか）を取得することを明記しました。取得した記録は、次回以降にお見せする作品の選定と、サービスの品質改善にのみ使用します。")}</Text>
+        <Text style={s.consentP}>{l("表示名および登録時にお選びいただいた情景を、アカウントに紐づけて保存することを明記しました。")}</Text>
+        <Text style={s.consentH3}>{l("使用しないこと")}</Text>
+        <Text style={s.consentP}>{l("取得した記録を、広告の配信および第三者への提供には使用しません。")}</Text>
+        <Text style={s.consentH3}>{l("全文")}</Text>
         <Text style={s.consentP}>
-          再生に関する記録（どの作品を、いつ、どれだけ再生したか）を取得することを明記しました。取得した記録は、次回以降にお見せする作品の選定と、サービスの品質改善にのみ使用します。
-        </Text>
-        <Text style={s.consentP}>表示名および登録時にお選びいただいた情景を、アカウントに紐づけて保存することを明記しました。</Text>
-        <Text style={s.consentH3}>使用しないこと</Text>
-        <Text style={s.consentP}>取得した記録を、広告の配信および第三者への提供には使用しません。</Text>
-        <Text style={s.consentH3}>全文</Text>
-        <Text style={s.consentP}>
-          <Text style={s.consentLink}>利用規約（全文）</Text>　／　<Text style={s.consentLink}>プライバシーポリシー（全文）</Text>
+          <Text style={s.consentLink}>{l("利用規約（全文）")}</Text>　／　<Text style={s.consentLink}>{l("プライバシーポリシー（全文）")}</Text>
         </Text>
       </ScrollView>
 
       <View style={s.consentAct}>
         <Pressable style={({ pressed }) => [s.btn, s.btnPri, pressed && s.btnPressed]} onPress={onAgree}>
-          <Text style={s.btnLabel}>同意して続ける</Text>
+          <Text style={s.btnLabel}>{l("同意して続ける")}</Text>
         </Pressable>
         <Pressable style={({ pressed }) => [s.btn, s.btnGhost, pressed && s.btnPressed]} onPress={() => setDeclined(true)}>
-          <Text style={s.btnGhostLabel}>同意しない</Text>
+          <Text style={s.btnGhostLabel}>{l("同意しない")}</Text>
         </Pressable>
-        <Text style={s.consentNote}>同意いただけない場合、アプリをご利用いただけません。{'\n'}購入済みの作品は、再同意後に復元できます。</Text>
+        <Text style={s.consentNote}>{l("同意いただけない場合、アプリをご利用いただけません。")}{'\n'}{l("購入済みの作品は、再同意後に復元できます。")}</Text>
         {declined && (
-          <Text style={s.declined}>同意されるまで、この先へは進めません。{'\n'}ご質問は サポート までお寄せください。</Text>
+          <Text style={s.declined}>{l("同意されるまで、この先へは進めません。")}{'\n'}{l("ご質問は サポート までお寄せください。")}</Text>
         )}
       </View>
     </View>
@@ -1030,3 +1034,5 @@ const s = StyleSheet.create({
 });
 
 export default LaunchFlow;
+
+export function IntroPreview({ onClose }: { onClose: () => void }) { return <View style={s.root}><P0 preview onSignup={onClose} onEnterApp={onClose} onToLogin={onClose} /></View>; }

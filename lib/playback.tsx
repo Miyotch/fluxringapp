@@ -30,6 +30,8 @@ import React, {
   useRef,
   useState,
 } from 'react';
+import { Platform, AppState } from 'react-native';
+import { sleepGain } from './sleepTimer';
 import { createAudioPlayer, useAudioPlayerStatus, type AudioPlayer } from 'expo-audio';
 import { fullAudioUrl, previewUrl } from './r2';
 import { rememberDuration } from './durations';
@@ -42,6 +44,8 @@ import { playableUri } from './secureAudio';
 export type Repeat = 'ring' | 'one';
 
 export type PlaybackController = {
+  sleepEndsAt: number | null;
+  setSleepTimer: (minutes: number | null) => void;
   queue: PlayerTrack[];
   index: number;
   current: PlayerTrack | null;
@@ -103,6 +107,48 @@ export const PlaybackProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   if (!playerRef.current) playerRef.current = createAudioPlayer(null, { updateInterval: 250 });
   const player = playerRef.current;
   const status = useAudioPlayerStatus(player);
+  const nativeSleep = player as AudioPlayer & { setFluxSleepTimer?: (durationMs: number) => void; fluxSleepRemaining?: number };
+  const useNativeSleep = Platform.OS === 'android';
+  const [sleepEndsAt, setSleepEndsAt] = useState<number | null>(null);
+  const sleepDeadline = useRef<number | null>(null);
+  const sleepBaseVolume = useRef(1);
+  const setSleepTimer = useCallback((minutes: number | null) => {
+    if (useNativeSleep && !nativeSleep.setFluxSleepTimer) throw new Error('Android sleep timer requires the updated native build');
+    if (!useNativeSleep && sleepDeadline.current !== null) player.volume = sleepBaseVolume.current;
+    sleepBaseVolume.current = player.volume;
+    const deadline = minutes !== null && Number.isFinite(minutes) && minutes > 0 ? Date.now() + minutes * 60000 : null;
+    if (useNativeSleep) nativeSleep.setFluxSleepTimer!(deadline === null ? 0 : deadline - Date.now());
+    sleepDeadline.current = deadline;
+    setSleepEndsAt(deadline);
+  }, [player]);
+  const tickSleep = useCallback(() => {
+    const deadline = sleepDeadline.current;
+    if (deadline === null) return;
+    if (useNativeSleep) {
+      if (nativeSleep.fluxSleepRemaining === 0) {
+        loadToken.current++;
+        sleepDeadline.current = null;
+        setSleepEndsAt(null);
+      }
+      return;
+    }
+    const gain = sleepGain(deadline, Date.now());
+    player.volume = sleepBaseVolume.current * gain;
+    if (gain === 0) {
+      loadToken.current++;
+      player.pause();
+      sleepDeadline.current = null;
+      setSleepEndsAt(null);
+      player.volume = sleepBaseVolume.current;
+    }
+  }, [player]);
+  useEffect(() => {
+    const timer = setInterval(tickSleep, 100);
+    const sub = AppState.addEventListener('change', tickSleep);
+    const statusSub = player.addListener('playbackStatusUpdate', tickSleep);
+    return () => { clearInterval(timer); sub.remove(); statusSub.remove(); };
+  }, [player, tickSleep]);
+
 
   const [queue, setQueue] = useState<PlayerTrack[]>([]);
   const [index, setIndex] = useState(0);
@@ -197,6 +243,11 @@ export const PlaybackProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       setLoading(true);
       setNote(null);
       const r = await resolve(t);
+      if (sleepDeadline.current !== null && useNativeSleep && nativeSleep.fluxSleepRemaining === 0) {
+        tickSleep();
+        setLoading(false);
+        return;
+      }
       if (token !== loadToken.current) return; // 途中で別の曲に切り替わった
       setLoading(false);
       if (!r) {
@@ -298,6 +349,7 @@ export const PlaybackProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   );
 
   const stop = useCallback(() => {
+    setSleepTimer(null);
     loadToken.current++;
     flushLog();
     try {
@@ -392,6 +444,8 @@ export const PlaybackProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const current = queue[index] ?? null;
   const value = useMemo<PlaybackController>(
     () => ({
+      sleepEndsAt,
+      setSleepTimer,
       queue,
       index,
       current,
@@ -414,6 +468,8 @@ export const PlaybackProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       markOwned,
     }),
     [
+      sleepEndsAt,
+      setSleepTimer,
       queue,
       index,
       current,
