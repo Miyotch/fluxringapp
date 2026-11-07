@@ -80,8 +80,8 @@ function makeStars(width: number, height: number, density: number, stars: Star[]
 }
 /** Cache the current size across HOME remounts; old sizes are not retained. No frame-time drawing.
  * withClouds=false では雲（水彩ラスター）を焼かない（帯の星雲は雲を使わない）。 */
-export function homeStarfieldImages(width: number, height: number, density: number, withClouds = true) {
-  const key = `${width}:${height}:${density}:${withClouds ? 'clouds' : 'band'}`;
+export function homeStarfieldImages(width: number, height: number, density: number, withClouds = true, bandAnchorY?: number) {
+  const key = `${width}:${height}:${density}:${withClouds ? 'clouds' : `band@${bandAnchorY?.toFixed(3) ?? 'center'}`}`;
   const existing = cache.get(key);
   if (existing) return existing;
   const pending = (async () => {
@@ -89,7 +89,7 @@ export function homeStarfieldImages(width: number, height: number, density: numb
     try {
       if (withClouds) for (let layer = 0; layer < CLOUD_VOLUMES.length; layer++) clouds.push(await makeNebula(width, height, layer));
       // 帯の星雲では、帯に寄せる星をその帯の軸へ寄せる（雲のときは従来どおり）
-      const stars = quietHomeStars(makeHomeStars(width, height, withClouds ? undefined : bandStarGeometry(width, height)));
+      const stars = quietHomeStars(makeHomeStars(width, height, withClouds ? undefined : bandStarGeometry(width, height, bandAnchorY)));
       await yieldStartup();
       return { clouds, nearStars: stars.filter(star => star.core >= .42),
         starsFar: makeStars(width, height, density, stars.filter(star => star.core < .42)),

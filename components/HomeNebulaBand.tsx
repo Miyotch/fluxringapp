@@ -15,12 +15,14 @@ const BAND_PX_MAX = 480;
  * ホーム背景の星雲（天の川の帯）。不透明なので最奥に置き、星はこの上に重ねる。
  * 時計が止まれば（背面・ゆらぎ停止・OSの視差減）uniforms が変わらず再描画も止まる。
  */
-export function HomeNebulaBand({ width, height, clock, strength }: {
+export function HomeNebulaBand({ width, height, clock, strength, anchorY }: {
   width: number; height: number; clock: SharedValue<number>; strength: number;
+  /** 帯の軸の基準点（高さ比）。lib/homeNebulaBand.ts の bandAnchorBelowCard。無ければ試作どおり画面中央 */
+  anchorY?: number;
 }) {
   const scale = Math.min(1, Math.min(BAND_PX_MAX, width * BAND_PX_RATIO) / (width * PixelRatio.get()));
   const w = width * scale, h = height * scale;
-  const uniforms = useDerivedValue(() => bandUniforms(clock.value / 1000, strength, w, h), [clock, strength, w, h]);
+  const uniforms = useDerivedValue(() => bandUniforms(clock.value / 1000, strength, w, h, anchorY), [clock, strength, w, h, anchorY]);
   return <View pointerEvents="none" style={[StyleSheet.absoluteFill, { width, height }]}>
     <Canvas pointerEvents="none" style={{ width: w, height: h, transformOrigin: 'top left', transform: [{ scale: 1 / scale }] }}>
       {effect

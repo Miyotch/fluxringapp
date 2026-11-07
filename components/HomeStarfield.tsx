@@ -15,8 +15,10 @@ import { CreditsBackdrop } from './CreditsBackdrop';
  *   clouds=false … 天の川の帯（HomeNebulaBand・不透明） → far stars → near stars
  *   clouds=true  … これまでの雲: credits backdrop → far stars → deforming cloud → near stars → foreground wash
  */
-export const HomeStarfield = React.memo(function HomeStarfield({ width, height, clouds = false }: {
+export const HomeStarfield = React.memo(function HomeStarfield({ width, height, clouds = false, bandY }: {
   width: number; height: number; clouds?: boolean;
+  /** 帯の軸の基準点（高さ比・小数3桁に丸めて渡す）。帯の星雲と、帯に寄せる星の両方に使う */
+  bandY?: number;
 }) {
   const [images, setImages] = useState<StarfieldImages | null>(null);
   const { moving, strength } = useOrbitPreview();
@@ -27,7 +29,7 @@ export const HomeStarfield = React.memo(function HomeStarfield({ width, height, 
   useEffect(() => {
     // Keep the last valid sky while a resized replacement is prepared or retried.
     const loader = createHomeBackgroundLoader({
-      load: () => homeStarfieldImages(width, height, Math.min(3, PixelRatio.get()), clouds),
+      load: () => homeStarfieldImages(width, height, Math.min(3, PixelRatio.get()), clouds, bandY),
       onReady: setImages,
       onError: error => console.warn('[HomeStarfield] Background preparation failed', error),
     });
@@ -35,7 +37,7 @@ export const HomeStarfield = React.memo(function HomeStarfield({ width, height, 
     const state = AppState.addEventListener('change', value => loader.setActive(value === 'active'));
     const memory = AppState.addEventListener('memoryWarning', clearHomeStarfieldCache);
     return () => { loader.cancel(); state.remove(); memory.remove(); };
-  }, [width, height, clouds]);
+  }, [width, height, clouds, bandY]);
   useEffect(() => {
     if (!running || !images) return;
     // Resume from the current position after backgrounding or pausing.
@@ -61,7 +63,7 @@ export const HomeStarfield = React.memo(function HomeStarfield({ width, height, 
   return <View pointerEvents="none" style={[StyleSheet.absoluteFill, { width, height, backgroundColor: '#05040C', overflow: 'hidden' }]}>
     {clouds
       ? <CreditsBackdrop w={width} h={height} />
-      : <HomeNebulaBand width={width} height={height} clock={spaceClock} strength={strength} />}
+      : <HomeNebulaBand width={width} height={height} clock={spaceClock} strength={strength} anchorY={bandY} />}
     {images && <>
       {/* Far stars. With clouds=true they are partly occluded by the transparent pigment above. */}
       <Animated.View style={[StyleSheet.absoluteFill, { opacity: .65, transform: [

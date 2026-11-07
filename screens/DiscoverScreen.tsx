@@ -55,6 +55,7 @@ import { previewUrl } from '../lib/r2';
 import { CardFace } from '../components/CardFace';
 import { HomeCosmos } from '../components/HomeCosmos';
 import { HomeStarfield } from '../components/HomeStarfield';
+import { bandAnchorBelowCard } from '../lib/homeNebulaBand';
 import { BackdropSky } from '../components/BackdropSky';
 import { BackdropImage } from '../components/BackdropImage';
 import { useBackdropMode } from '../lib/backdropMode';
@@ -650,6 +651,10 @@ export const DiscoverScreen: React.FC<Props> = ({
   const layoutAdjust = useLayoutAdjustConfig();
   // カードの上端（運営調整の上下オフセット込み）。曲名ブロックはここから上に置く
   const cardTopY = cardCenterY - cardH / 2 + layoutAdjust.homeCardOffsetY;
+  // 帯の星雲はカードの下（カード下端〜フッター上端）に軸を通す。小数3桁に丸め、
+  // 運営調整などで 1dp 未満動いただけでは星を焼き直さない
+  const bandAnchor = bandAnchorBelowCard(cardTopY + cardH, contentH, slideH);
+  const bandY = bandAnchor === undefined ? undefined : Math.round(bandAnchor * 1000) / 1000;
   const cardFrame = useMemo(
     () => ({ width: screenW, height: contentH }),
     [screenW, contentH],
@@ -1931,7 +1936,7 @@ export const DiscoverScreen: React.FC<Props> = ({
         >
           {backdropMode === 'image' && <BackdropImage width={screenW} height={slideH} />}
           {starfield ? (
-            <HomeStarfield width={screenW} height={slideH} clouds={backdropMode === 'clouds'} />
+            <HomeStarfield width={screenW} height={slideH} clouds={backdropMode === 'clouds'} bandY={bandY} />
           ) : backdropMode === 'image' ? (
           <BackdropSky
             width={screenW}
