@@ -113,7 +113,7 @@ export const BackgroundLayersScreen: React.FC<Props> = ({ onBack }) => {
 
         {/* 背景の見比べ（この端末だけ。保存ボタンは不要でその場で切り替わる） */}
         <View style={styles.modeRow}>
-          {(['nebula', 'sky'] as const).map((m) => (
+          {(['nebula', 'clouds', 'sky'] as const).map((m) => (
             <Pressable
               key={m}
               onPress={() => setBackdropMode(m)}
@@ -122,7 +122,7 @@ export const BackgroundLayersScreen: React.FC<Props> = ({ onBack }) => {
               accessibilityState={{ selected: backdropMode === m }}
             >
               <Text style={[styles.modeLabel, backdropMode === m && styles.modeLabelOn]}>
-                {m === 'nebula' ? '穏やかな星雲' : '以前の星空'}
+                {m === 'nebula' ? '帯の星雲' : m === 'clouds' ? 'これまでの星雲' : '以前の星空'}
               </Text>
             </Pressable>
           ))}
@@ -133,7 +133,7 @@ export const BackgroundLayersScreen: React.FC<Props> = ({ onBack }) => {
           </Text>
         )}
 
-        {(backdropMode === 'orbit' || backdropMode === 'nebula') && <>
+        {(backdropMode === 'orbit' || backdropMode === 'nebula' || backdropMode === 'clouds') && <>
           <Text style={styles.sectionTitle}>星雲のゆらぎの深さ</Text>
           <View style={styles.modeRow}>
             {[{ value: .6, label: '控えめ' }, { value: 1, label: '標準' }, { value: 1.4, label: 'はっきり' }].map(option => (
@@ -153,7 +153,7 @@ export const BackgroundLayersScreen: React.FC<Props> = ({ onBack }) => {
           <Text style={styles.modeNote}>戻るとHOMEで確認できます。ゆらぎを停止すると星雲の濃淡変化・星の流れが止まります。OSの「アニメーションを無効化」でも静止します。</Text>
         </>}
 
-        {backdropMode !== 'orbit' && backdropMode !== 'nebula' && <>
+        {backdropMode !== 'orbit' && backdropMode !== 'nebula' && backdropMode !== 'clouds' && <>
         {/* ミニプレビュー */}
         <View style={[styles.previewFrame, { width: previewW, height: previewH }]}>
           {backdropMode === 'image' && <BackdropImage width={previewW} height={previewH} />}

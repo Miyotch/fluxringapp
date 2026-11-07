@@ -1,5 +1,6 @@
 import { AlphaType, BlendMode, ColorType, ImageFormat, Skia, rect, type SkImage } from '@shopify/react-native-skia';
 import { makeHomeStars, nebulaSize, type Star } from './homeStarfieldModel';
+import { bandStarGeometry } from './homeNebulaBand';
 import { CLOUD_VOLUMES, quietHomeStars } from './homeAmbientModel';
 import { renderWatercolorRows } from './homeWatercolorTexture';
 
@@ -77,16 +78,18 @@ function makeStars(width: number, height: number, density: number, stars: Star[]
     paint.dispose(); surface.dispose();
   }
 }
-/** Cache the current size across HOME remounts; old sizes are not retained. No frame-time drawing. */
-export function homeStarfieldImages(width: number, height: number, density: number) {
-  const key = `${width}:${height}:${density}`;
+/** Cache the current size across HOME remounts; old sizes are not retained. No frame-time drawing.
+ * withClouds=false では雲（水彩ラスター）を焼かない（帯の星雲は雲を使わない）。 */
+export function homeStarfieldImages(width: number, height: number, density: number, withClouds = true) {
+  const key = `${width}:${height}:${density}:${withClouds ? 'clouds' : 'band'}`;
   const existing = cache.get(key);
   if (existing) return existing;
   const pending = (async () => {
     const clouds: SkImage[] = [];
     try {
-      for (let layer = 0; layer < CLOUD_VOLUMES.length; layer++) clouds.push(await makeNebula(width, height, layer));
-      const stars = quietHomeStars(makeHomeStars(width, height));
+      if (withClouds) for (let layer = 0; layer < CLOUD_VOLUMES.length; layer++) clouds.push(await makeNebula(width, height, layer));
+      // 帯の星雲では、帯に寄せる星をその帯の軸へ寄せる（雲のときは従来どおり）
+      const stars = quietHomeStars(makeHomeStars(width, height, withClouds ? undefined : bandStarGeometry(width, height)));
       await yieldStartup();
       return { clouds, nearStars: stars.filter(star => star.core >= .42),
         starsFar: makeStars(width, height, density, stars.filter(star => star.core < .42)),

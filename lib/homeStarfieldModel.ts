@@ -82,16 +82,27 @@ export function renderNebulaRows(width: number, height: number, phase: number, f
   }
 }
 export type Star = { x: number; y: number; core: number; alpha: number; color: readonly number[]; bright: boolean };
-export function makeHomeStars(width: number, height: number): Star[] {
+/** 帯に寄せる星の寄せ先。省略時は従来の水平に近い帯（STARFIELD）。帯の星雲（HomeNebulaBand）では
+ * その帯の軸に寄せる。座標は高さを 1 とした単位（x は aspect 倍）。 */
+export type StarBand = { dir: readonly number[]; ox: number; oy: number; bw: number };
+export function makeHomeStars(width: number, height: number, band?: StarBand): Star[] {
   const random = seeded(777), aspect = width / height;
   const cs = Math.cos(STARFIELD.tilt);
   const range = (a: number, b: number) => a + random() * (b - a);
   const gaussian = () => Math.sqrt(-2 * Math.log(random() + 1e-9)) * Math.cos(6.283 * random());
   function pick(bias: number): [number, number] | null {
     for (let t = 0; t < 12; t++) {
-      const x = random();
-      const y = random() < bias ? STARFIELD.bandY + (x - .5) * aspect * Math.tan(STARFIELD.tilt) + gaussian() * STARFIELD.bandW * .8 / cs : random();
-      if (y < 0 || y > 1) continue;
+      let x = random(), y: number;
+      const inBand = random() < bias;
+      if (band && inBand) {
+        // 帯に沿った位置は一様、帯を横切る位置はガウス（σ = 帯幅 × .8。従来の帯と同じ比率）
+        const uu = (random() - .5) * Math.hypot(aspect, 1), vv = gaussian() * band.bw * .8;
+        x = (band.ox + uu * band.dir[0] - vv * band.dir[1]) / aspect;
+        y = band.oy + uu * band.dir[1] + vv * band.dir[0];
+      } else {
+        y = inBand ? STARFIELD.bandY + (x - .5) * aspect * Math.tan(STARFIELD.tilt) + gaussian() * STARFIELD.bandW * .8 / cs : random();
+      }
+      if (x < 0 || x > 1 || y < 0 || y > 1) continue;
       if (random() > Math.pow(fbm(x * 6 * aspect + 5.1, y * 6 + 2.3, 3), 1.6) * 1.9) continue;
       if (y > .55 && random() < .4) continue;
       return [x, y];

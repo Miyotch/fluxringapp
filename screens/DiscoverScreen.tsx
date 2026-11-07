@@ -643,6 +643,8 @@ export const DiscoverScreen: React.FC<Props> = ({
   const layerAdjust = useBackgroundLayersConfig();
   // 背景の見比べ（設定→背景レイヤー調整のスイッチ。端末ごと）
   const backdropMode = useBackdropMode();
+  // 'nebula'（天の川の帯）と 'clouds'（これまでの雲）はどちらも HomeStarfield が描く
+  const starfield = backdropMode === 'nebula' || backdropMode === 'clouds';
   // カード本体／下部ボタン行の縦位置の運営調整（設定→ボタン位置調整のスライダー）。
   // 既定値(0)では今の位置のまま変わらない。
   const layoutAdjust = useLayoutAdjustConfig();
@@ -793,7 +795,7 @@ export const DiscoverScreen: React.FC<Props> = ({
     return scrolling.value > 0.5 || carBusy.value > 0.5 || aProg > 0.02 ? 0 : 1;
   }, [scrolling, carBusy, cardRotation]);
   // カードを出さないビルドではフロートの消費者が居ないので、フレームコールバックごと止める
-  const floatY = useIdleFloat(damp, !DEBUG_BACKDROP_ONLY && backdropMode !== 'nebula', 3);
+  const floatY = useIdleFloat(damp, !DEBUG_BACKDROP_ONLY && !starfield, 3);
   // カード下の接地影（CardGround）は 2026-10-18 に撤去した。影の代わりに
   // カード外周の 1pt の縁取り（CardSurface の (d)）で輪郭を出す（岡さん指定）。
 
@@ -1928,8 +1930,8 @@ export const DiscoverScreen: React.FC<Props> = ({
           pointerEvents="none"
         >
           {backdropMode === 'image' && <BackdropImage width={screenW} height={slideH} />}
-          {backdropMode === 'nebula' ? (
-            <HomeStarfield width={screenW} height={slideH} />
+          {starfield ? (
+            <HomeStarfield width={screenW} height={slideH} clouds={backdropMode === 'clouds'} />
           ) : backdropMode === 'image' ? (
           <BackdropSky
             width={screenW}
@@ -1983,7 +1985,7 @@ export const DiscoverScreen: React.FC<Props> = ({
           style={[StyleSheet.absoluteFill, { opacity: intro.sky }]}
           pointerEvents="none"
         >
-          <BackdropVeil width={screenW} height={slideH} vignetteOpacity={backdropMode === 'nebula' ? 0 : undefined} />
+          <BackdropVeil width={screenW} height={slideH} vignetteOpacity={starfield ? 0 : undefined} />
         </RNAnimated.View>
       )}
 
@@ -1996,7 +1998,7 @@ export const DiscoverScreen: React.FC<Props> = ({
           style={[StyleSheet.absoluteFill, { opacity: detail }]}
           pointerEvents="none"
         >
-          {backdropMode === 'nebula' && <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(3,4,13,0.22)' }]} />}
+          {starfield && <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(3,4,13,0.22)' }]} />}
           <CardVeil width={screenW} height={slideH} />
         </RNAnimated.View>
       )}

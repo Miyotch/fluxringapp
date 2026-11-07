@@ -6,12 +6,17 @@ import { useHomeAmbientMotion } from '../lib/useHomeAmbientMotion';
 import { useOrbitPreview } from '../lib/homeOrbitPreview';
 import { HomeStarlight } from './HomeStarlight';
 import { HomeNebulaSpace } from './HomeNebulaSpace';
+import { HomeNebulaBand } from './HomeNebulaBand';
 import { usePausableClock } from '../lib/usePausableClock';
 import { CreditsBackdrop } from './CreditsBackdrop';
 
-/** One shared 1/f space: far stars → deforming cloud → near stars → foreground wash. */
-export const HomeStarfield = React.memo(function HomeStarfield({ width, height }: {
-  width: number; height: number;
+/**
+ * One shared 1/f space.
+ *   clouds=false … 天の川の帯（HomeNebulaBand・不透明） → far stars → near stars
+ *   clouds=true  … これまでの雲: credits backdrop → far stars → deforming cloud → near stars → foreground wash
+ */
+export const HomeStarfield = React.memo(function HomeStarfield({ width, height, clouds = false }: {
+  width: number; height: number; clouds?: boolean;
 }) {
   const [images, setImages] = useState<StarfieldImages | null>(null);
   const { moving, strength } = useOrbitPreview();
@@ -22,7 +27,7 @@ export const HomeStarfield = React.memo(function HomeStarfield({ width, height }
   useEffect(() => {
     // Keep the last valid sky while a resized replacement is prepared or retried.
     const loader = createHomeBackgroundLoader({
-      load: () => homeStarfieldImages(width, height, Math.min(3, PixelRatio.get())),
+      load: () => homeStarfieldImages(width, height, Math.min(3, PixelRatio.get()), clouds),
       onReady: setImages,
       onError: error => console.warn('[HomeStarfield] Background preparation failed', error),
     });
@@ -30,7 +35,7 @@ export const HomeStarfield = React.memo(function HomeStarfield({ width, height }
     const state = AppState.addEventListener('change', value => loader.setActive(value === 'active'));
     const memory = AppState.addEventListener('memoryWarning', clearHomeStarfieldCache);
     return () => { loader.cancel(); state.remove(); memory.remove(); };
-  }, [width, height]);
+  }, [width, height, clouds]);
   useEffect(() => {
     if (!running || !images) return;
     // Resume from the current position after backgrounding or pausing.
@@ -54,18 +59,20 @@ export const HomeStarfield = React.memo(function HomeStarfield({ width, height }
     };
   }, [running, images, width, farDrift]);
   return <View pointerEvents="none" style={[StyleSheet.absoluteFill, { width, height, backgroundColor: '#05040C', overflow: 'hidden' }]}>
-    <CreditsBackdrop w={width} h={height} />
+    {clouds
+      ? <CreditsBackdrop w={width} h={height} />
+      : <HomeNebulaBand width={width} height={height} clock={spaceClock} strength={strength} />}
     {images && <>
-      {/* Far stars are actually occluded by the animated transparent pigment above. */}
+      {/* Far stars. With clouds=true they are partly occluded by the transparent pigment above. */}
       <Animated.View style={[StyleSheet.absoluteFill, { opacity: .65, transform: [
         { translateX: farDrift.interpolate({ inputRange: [0, 1], outputRange: [0, width] }) },
       ] }]}>
         {[-1, 0].map(tile => <Animated.Image key={tile} source={{ uri: images.starsFar }} resizeMode="stretch" fadeDuration={0}
           style={{ position: 'absolute', left: tile * width, top: 0, width, height }} />)}
       </Animated.View>
-      <HomeNebulaSpace sources={images.clouds} front={false} width={width} height={height} clock={spaceClock} strength={strength} />
+      {clouds && images.clouds.length > 0 && <HomeNebulaSpace sources={images.clouds} front={false} width={width} height={height} clock={spaceClock} strength={strength} />}
       <HomeStarlight stars={images.nearStars} width={width} height={height} clock={spaceClock} strength={strength} />
-      <HomeNebulaSpace sources={images.clouds} front width={width} height={height} clock={spaceClock} strength={strength} />
+      {clouds && images.clouds.length > 0 && <HomeNebulaSpace sources={images.clouds} front width={width} height={height} clock={spaceClock} strength={strength} />}
     </>}
   </View>;
 });
