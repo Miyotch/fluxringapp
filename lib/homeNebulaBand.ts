@@ -7,9 +7,9 @@
  *
  * 作り:
  *   ・帯は画面を斜めに横切る。帯に沿った距離 u と帯を横切る距離 w で全てを記述し、
- *     幅の呼吸・蛇行・雲・暗い筋・縁の淡い雲を 3 次元の value noise（3 つ目の軸が
- *     時間）で変形する。形そのものがその場で変わり、加えて中の模様だけが帯に沿って
- *     右上へ流れ、画面の外へ抜けていく（BAND_MOTION）。
+ *     幅の呼吸・蛇行・雲・暗い筋・縁の淡い雲を value noise の fbm で作る。
+ *   ・動きは 1/f ゆらぎ（BAND_MOTION・下の「動きと 1/f」）。帯の光が場所ごとに本物の
+ *     1/f 信号で強まり弱まり、中の模様はごくゆっくり帯に沿って右上へ流れて画面外へ抜ける。
  *   ・色は帯に沿って h1→h5 を渡り、iris で色相が斑にゆっくり移ろう（明るさは
  *     保ったまま色だけ動く）。
  *   ・最後に幕（veil）を掛けて落ち着かせる。
@@ -45,12 +45,65 @@ export const BAND_VEIL_COLOR = [12, 11, 30] as const;
 const BAND_PHASE_S = 20;
 
 /**
- * 動き。どちらも「星雲のゆらぎの深さ」（strength 0.6／1／1.4）を掛ける。
- *   morph … 形がその場で変わる速さ（試作 = 1）。試作のままだと実機で 20 秒見ても変化が分からなかった
- *   flow  … 雲の模様が帯に沿って右上へ流れ、画面の外へ抜けていく速さ（画面幅 / 秒）。
- *           帯そのもの（位置・太さの包絡・芯の暖かさ・色の並び）は動かさず、中の模様だけが流れる
+ * 動きと 1/f（2026-11-08）。
+ * 試作は fbm の時間軸を一定の速さで進めて形を変えていた。「細かい段ほど半分の強さで倍の速さ」は
+ * 振幅が 1/f、パワーでは 1/f² で、明るさを実測すると周期 5〜50 秒で傾き約 -2.4、50 秒より長い側は
+ * 平らだった（1/f ゆらぎなら -1）。そこで時間で形を変えるのをやめ、明るさの変化を本物の 1/f 信号で作る:
+ *   breath … 帯の光（地色との差）を (1 + b) 倍する。b は 3 本の独立な 1/f 信号を、場所ごとに違う
+ *            重み（動かない fbm の模様）で混ぜたもの。b は信号に比例するので、どの画素の明るさも
+ *            信号と同じ 1/f になる（独立な 1/f の和は 1/f）。値は b の標準偏差の目安で、
+ *            「星雲のゆらぎの深さ」（strength 0.6／1／1.4）を掛ける
+ *   flow   … 中の模様が帯に沿って右上へ流れ、画面外へ抜ける速さ（画面幅 / 秒）。一定速度の移動は
+ *            ゆらぎではなく、速いと傾きを崩す（.01 では 1/f² が勝った）ので、明るさの 1/f を崩さない .001 に抑える
+ * 実測（JS へ写した計算で、画面の帯の 8 か所・2048 秒）: 周期 4〜256 秒の傾き -0.91〜-1.13。
+ * 信号が 1/f であること・明るさがその信号だけで動くことは scripts/test-home-band-pink.cjs で確かめる。
  */
-export const BAND_MOTION = { morph: 1.6, flow: .01 } as const;
+export const BAND_MOTION = { breath: .5, flow: .001 } as const;
+
+/**
+ * 帯域を限った 1/f 信号（周期 BAND_PINK.period 秒で一周する）。周波数 k/period の成分を振幅 1/√k で
+ * 足す＝パワーが 1/f。k = kMin〜kMax なので周期 4〜256 秒の範囲だけが 1/f。標準偏差 1 にそろえる。
+ * 逆 FFT で一度だけ作る（4096 点。描画中の計算は表を引くだけ）。
+ */
+export const BAND_PINK = { period: 2048, rate: 2, kMin: 8, kMax: 512 } as const;
+export function bandPinkTable(seed: number): number[] {
+  const n = BAND_PINK.period * BAND_PINK.rate, re = new Float64Array(n), im = new Float64Array(n);
+  let state = seed >>> 0;
+  for (let k = BAND_PINK.kMin; k <= BAND_PINK.kMax; k++) {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+    const phase = state / 4294967296 * Math.PI * 2, a = 1 / Math.sqrt(k);
+    re[k] = a * Math.cos(phase); im[k] = a * Math.sin(phase);
+    re[n - k] = re[k]; im[n - k] = -im[k];
+  }
+  // 逆 FFT（基数 2）。実数になるよう共役対称に入れてあるので、結果は re だけを使う
+  for (let i = 1, j = 0; i < n; i++) {
+    let bit = n >> 1;
+    for (; j & bit; bit >>= 1) j ^= bit;
+    j ^= bit;
+    if (i < j) { [re[i], re[j]] = [re[j], re[i]]; [im[i], im[j]] = [im[j], im[i]]; }
+  }
+  for (let len = 2; len <= n; len <<= 1) {
+    const ang = 2 * Math.PI / len;
+    for (let i = 0; i < n; i += len) for (let j = 0; j < len / 2; j++) {
+      const wr = Math.cos(ang * j), wi = Math.sin(ang * j), a = i + j, b = a + len / 2;
+      const xr = re[b] * wr - im[b] * wi, xi = re[b] * wi + im[b] * wr;
+      re[b] = re[a] - xr; im[b] = im[a] - xi; re[a] += xr; im[a] += xi;
+    }
+  }
+  let ss = 0;
+  for (let t = 0; t < n; t++) ss += re[t] * re[t];
+  const rms = Math.sqrt(ss / n), out = Array.from(re, v => v / rms);
+  out.push(out[0]);
+  return out;
+}
+/** 3 本の独立な 1/f 信号（帯の光の強弱に使う） */
+export const BAND_PINK_SIGNALS = [20261108, 1109, 7741].map(bandPinkTable);
+/** 表を時刻 seconds で引く（なめらかに補間・周期で折り返す） */
+export function bandPinkAt(table: readonly number[], seconds: number): number {
+  'worklet';
+  const n = table.length - 1, x = ((seconds * BAND_PINK.rate) % n + n) % n, i = Math.floor(x), u = x - i;
+  return table[i] + (table[i + 1] - table[i]) * u * u * (3 - 2 * u);
+}
 
 /**
  * ホームでの置き場所: カードの下端からフッター（タブバー）の上端までの帯域に、帯の軸を通す。
@@ -108,18 +161,25 @@ export function bandStarGeometry(width: number, height: number, anchorY?: number
   return { dir: g.dir, ox: g.origin[0] / height, oy: g.origin[1] / height, bw: g.BW / height };
 }
 
-/** 1 フレームぶんの uniforms。seconds は止められる時計の累計秒、strength はゆらぎの深さ（速さに掛ける） */
+/** 1 フレームぶんの uniforms。seconds は止められる時計の累計秒、strength はゆらぎの深さ（揺れの大きさに掛ける） */
 export function bandUniforms(seconds: number, strength: number, width: number, height: number, anchorY?: number) {
   'worklet';
   const g = bandGeometry(width, height, anchorY);
-  const s = seconds * strength;
+  // 3 本を等しく混ぜたときに b の標準偏差が breath × strength の目安になるよう 1/√3 を掛ける
+  const amp = BAND_MOTION.breath * strength / Math.sqrt(3);
   return {
     resolution: [width, height],
     origin: g.origin,
     dir: g.dir,
     BW: g.BW,
-    tm: (s * BAND_MOTION.morph + BAND_PHASE_S) * .5 * BAND_PALETTE.wave,
-    flow: s * BAND_MOTION.flow * width,
+    // 形の時間変化は使わない（固定の位相）。明るさの変化は breath、移動は flow だけ
+    tm: BAND_PHASE_S * .5 * BAND_PALETTE.wave,
+    flow: seconds * BAND_MOTION.flow * width,
+    breath: [
+      amp * bandPinkAt(BAND_PINK_SIGNALS[0], seconds),
+      amp * bandPinkAt(BAND_PINK_SIGNALS[1], seconds),
+      amp * bandPinkAt(BAND_PINK_SIGNALS[2], seconds),
+    ],
     skyT: COLORS.skyT, skyB: COLORS.skyB,
     h1: COLORS.h1, h2: COLORS.h2, h3: COLORS.h3, h4: COLORS.h4, h5: COLORS.h5,
     hot: COLORS.hot, halo: COLORS.halo, edge: COLORS.edge,
@@ -138,6 +198,7 @@ uniform float2 dir;
 uniform float BW;
 uniform float tm;
 uniform float flow;
+uniform float3 breath;
 uniform float3 skyT;
 uniform float3 skyB;
 uniform float3 h1;
@@ -235,6 +296,13 @@ half4 main(float2 xy) {
   c = mix(c, hot, min(1., pow(core * cloud, 2.6) * coreP * warm));
   c = mix(c, edge, min(.45 * edgeA / .8, em * edgeA));
   c = mix(c, mix(skyT, skyB, .55), laneP * lane);
+  // 1/f の強弱: 帯の光（地色との差）を (1 + b) 倍する。重み g は動かない模様（流れに乗せず画面に固定）
+  float3 g = float3(fbm(float3(u / Wc * 1.3 + 31., w / Wc * 1.3, 50.), 2),
+                    fbm(float3(u / Wc * 1.3 + 48., w / Wc * 1.3 - 7., 61.), 2),
+                    fbm(float3(u / Wc * 1.3 + 65., w / Wc * 1.3 - 14., 72.), 2));
+  g = clamp((g - .5) * 5., -1., 1.);
+  float3 base = mix(skyT, skyB, xy.y / Hc);
+  c = base + (c - base) * max(0., 1. + dot(g, breath));
   // 幕
   c = mix(c, float3(.047, .043, .118), veil);
   // 明るさ（試作の .sky.lift と同じく、幕のあとで全体に掛ける）
