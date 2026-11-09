@@ -407,7 +407,6 @@ export const NowPlayingFull: React.FC<{
     const it = idle.track;
     return (
       <View style={full.wrap}>
-      <SleepTimerButton />
         <View style={full.head}>
           <Image source={{ uri: it.artworkUrl }} style={full.art} />
           <View style={full.texts}>
@@ -442,7 +441,7 @@ export const NowPlayingFull: React.FC<{
             <PlayMark size={30} color="#0B0B1D" />
           </Pressable>
           <View style={[full.skip, styles.off]}><SkipIcon size={24} /></View>
-          <View style={full.side} />
+          <SleepTimerButton style={full.side} />
         </View>
       </View>
     );
@@ -451,7 +450,6 @@ export const NowPlayingFull: React.FC<{
   const artist = cur.artistName || cur.artist;
   return (
     <View style={full.wrap}>
-      <SleepTimerButton />
       <View style={full.head}>
         <Image source={{ uri: cur.artworkUrl }} style={full.art} />
         <View style={full.texts}>
@@ -501,8 +499,8 @@ export const NowPlayingFull: React.FC<{
           accessibilityRole="button" accessibilityLabel={t('playback.next')}>
           <View style={!many && styles.off}><SkipIcon size={24} /></View>
         </Pressable>
-        {/* 左のリピートと釣り合わせる空き */}
-        <View style={full.side} />
+        {/* 左のリピートと釣り合わせる位置にスリープタイマー（2026-11-09） */}
+        <SleepTimerButton style={full.side} />
       </View>
     </View>
   );
