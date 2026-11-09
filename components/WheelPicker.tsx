@@ -25,8 +25,6 @@ export const WHEEL_VISIBLE = 5;
 const PAD = ((WHEEL_VISIBLE - 1) / 2) * WHEEL_ITEM_H;
 const CYCLES = 9;
 
-const AnimatedFlatList = Animated.createAnimatedComponent(FlatList<number>);
-
 type Props = {
   count: number;
   value: number;
@@ -40,9 +38,10 @@ type Props = {
 
 export const WheelPicker: React.FC<Props> = ({ count, value, onChange, onTick, width, unit, accessibilityLabel }) => {
   const listRef = useRef<FlatList<number>>(null);
-  const scrollY = useRef(new Animated.Value(0)).current;
   const total = count * CYCLES;
   const mid = Math.floor(CYCLES / 2) * count;
+  // 初めから中央の位置にしておく（0 のままだと最初のスクロールまで全部の数字が傾いて薄くなる）
+  const scrollY = useRef(new Animated.Value((mid + value) * WHEEL_ITEM_H)).current;
   const data = useMemo(() => Array.from({ length: total }, (_, i) => i), [total]);
   const indexRef = useRef(mid + value);
   const valueRef = useRef(value);
@@ -63,7 +62,9 @@ export const WheelPicker: React.FC<Props> = ({ count, value, onChange, onTick, w
   const onScroll = useMemo(
     () =>
       Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
-        useNativeDriver: true,
+        // ネイティブ駆動だと Android（新アーキ）で scrollY が更新されず、数字が全部傾いたまま
+        // 薄く潰れた（2026-11-09 実機）。行数は画面内の十数行だけなので JS 駆動で足りる
+        useNativeDriver: false,
         listener: (e: NativeSyntheticEvent<NativeScrollEvent>) => {
           const idx = Math.max(0, Math.min(total - 1, Math.round(e.nativeEvent.contentOffset.y / WHEEL_ITEM_H)));
           if (idx === indexRef.current) return;
@@ -125,7 +126,7 @@ export const WheelPicker: React.FC<Props> = ({ count, value, onChange, onTick, w
       accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
       onAccessibilityAction={e => step(e.nativeEvent.actionName === 'increment' ? 1 : -1)}
     >
-      <AnimatedFlatList
+      <Animated.FlatList
         ref={listRef as never}
         data={data}
         keyExtractor={i => String(i)}
@@ -133,8 +134,10 @@ export const WheelPicker: React.FC<Props> = ({ count, value, onChange, onTick, w
         getItemLayout={(_, index) => ({ length: WHEEL_ITEM_H, offset: PAD + WHEEL_ITEM_H * index, index })}
         ListHeaderComponent={<View style={{ height: PAD }} />}
         ListFooterComponent={<View style={{ height: PAD }} />}
-        contentOffset={{ x: 0, y: (mid + value) * WHEEL_ITEM_H }}
-        onLayout={() => listRef.current?.scrollToOffset({ offset: indexRef.current * WHEEL_ITEM_H, animated: false })}
+        // 先頭の余白が 2 行ぶんあるので、index-2 を上端に置くと index が中央の帯に来る。
+        // contentOffset＋onLayout の scrollToOffset は、まだ描いていない遠い行へ飛べずに
+        // 途中で止まり、そこで onScroll が値を書き換えていた（20時間37分47秒などになった）
+        initialScrollIndex={mid + value - (WHEEL_VISIBLE - 1) / 2}
         snapToInterval={WHEEL_ITEM_H}
         decelerationRate="fast"
         showsVerticalScrollIndicator={false}
