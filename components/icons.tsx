@@ -80,6 +80,23 @@ export const LoopIcon: React.FC<IconProps & { on?: boolean }> = ({ size = 16, on
   );
 };
 
+// スリープタイマー（目覚まし時計＋Zzz）。再生パネル右下。on＝タイマー動作中
+export const SleepTimerIcon: React.FC<IconProps & { on?: boolean }> = ({ size = 22, on = false }) => {
+  const color = on ? '#9FE0EC' : '#6E7796';
+  const p = { stroke: color, strokeWidth: 1.6, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Circle cx={10} cy={14} r={6.5} {...p} />
+      <Path d="M3 9a3.2 3.2 0 0 1 4.2-4.2" {...p} />
+      <Path d="M12.8 4.8A3.2 3.2 0 0 1 17 9" {...p} />
+      <Path d="M10 10.6V14l2.3 1.5" {...p} />
+      <Path d="M5.6 19.6l-1.2 1.6M14.4 19.6l1.2 1.6" {...p} />
+      <Path d="M18 2h4l-4 4.4h4" {...p} strokeWidth={1.3} />
+      <Path d="M19.8 8.6h2.2l-2.2 2.4h2.2" {...p} strokeWidth={1.1} />
+    </Svg>
+  );
+};
+
 // 一時停止（共通）。assets/icons/pause_mark.svg
 export const PauseMark: React.FC<IconProps> = ({ size = 19, color = '#E9FBFE' }) => (
   <Svg width={size} height={size} viewBox="0 0 24 24">
