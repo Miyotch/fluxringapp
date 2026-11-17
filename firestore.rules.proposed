@@ -37,6 +37,13 @@ service cloud.firestore {
     match /sns_type/{id}      { allow read: if true; allow write: if isAdmin(); }
     match /notifications/{id} { allow read: if true; allow write: if isAdmin(); }
     match /config/{id}        { allow read: if true; allow write: if isAdmin(); }
+    // CREDITS / 利用規約 / プライバシーポリシー / 特商法の文面（lib/legalDocs.ts）。
+    // 過去の版を残すなら下の versions に置く（アプリは読まない）
+    match /legal_docs/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+      match /versions/{v} { allow read: if true; allow write: if isAdmin(); }
+    }
 
     // ── ひとりぶんのデータ ──
     match /users/{uid} {

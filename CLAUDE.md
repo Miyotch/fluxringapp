@@ -119,6 +119,8 @@
 | `VipScreen.tsx` | P4 | ロック / 解放（カード表↔裏フリップ）/ コード入力 |
 | `ComponentGallery.tsx` | — | 旧 App.tsx の部品デモ（実機目視確認用） |
 
+**読み物4点（CREDITS / 利用規約 / プライバシーポリシー / 特商法）の文面は Firestore の `legal_docs/{credits|terms|privacy|tokushoho}` に置く**（2026-11-17）。`{ ja: 中身, en?: 中身, published, version, effectiveAt, updatedAt }`。中身の形と読み込みは `lib/legalDocs.ts`（`useLegalDoc`）。書き換えは管理画面から（アプリに編集機能は無い）。読めない・形が崩れている・`published: false` のときはアプリ同梱の `constants/legalDocs.json` を出す。初期投入は `node scripts/seed-legal-docs.mjs <サービスアカウント.json> --write`（既にあるドキュメントは `--force` を付けない限り上書きしない）。
+
 共有部品: `components/Footer.tsx`（5タブ）、スタブデータ: `constants/stubData.ts`、トークン: `constants/design-tokens.ts`。
 
 ---
